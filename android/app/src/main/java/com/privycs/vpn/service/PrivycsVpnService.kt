@@ -40,6 +40,8 @@ class PrivycsVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var goBackend: GoBackend? = null
     private var wireGuardTunnel: WireGuardTunnel? = null
+    private var openVpnTunnel: OpenVpnTunnel? = null
+    private var ipSecTunnel: IpSecTunnel? = null
     private var currentConnectionName: String = ""
     private var currentConnectionId: String = ""
     private var currentProtocol: VpnProtocol? = null
@@ -110,16 +112,13 @@ class PrivycsVpnService : VpnService() {
             try {
                 when (currentProtocol) {
                     VpnProtocol.WIREGUARD -> connectWireGuard(configContent)
-                    VpnProtocol.OPENVPN -> {
-                        Log.w(TAG, "OpenVPN not yet implemented on Android")
-                        updateNotification("OpenVPN support coming soon")
-                    }
-                    VpnProtocol.IPSEC -> {
-                        Log.w(TAG, "IPSec not yet implemented on Android")
-                        updateNotification("IPSec support coming soon")
-                    }
+                    VpnProtocol.OPENVPN -> connectOpenVpn(configContent)
+                    VpnProtocol.IPSEC -> connectIpSec(configContent)
                     null -> {
                         Log.e(TAG, "Unknown protocol: $protocolStr")
+                        val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
+                        manager.updateStatus(VpnStatus(error = "Unknown protocol: $protocolStr"))
+                        stopSelf()
                     }
                 }
             } catch (e: Exception) {
@@ -142,11 +141,52 @@ class PrivycsVpnService : VpnService() {
         startStatusPolling()
     }
 
+    private suspend fun connectOpenVpn(configContent: String) {
+        val tunnel = OpenVpnTunnel()
+        openVpnTunnel = tunnel
+
+        tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService)
+
+        updateNotification("Connected to $currentConnectionName (OpenVPN)")
+        startStatusPolling()
+    }
+
+    private suspend fun connectIpSec(configContent: String) {
+        val tunnel = IpSecTunnel()
+        ipSecTunnel = tunnel
+
+        tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService)
+
+        updateNotification("Connected to $currentConnectionName (IPSec)")
+        startStatusPolling()
+    }
+
     private fun handleDisconnect() {
         scope.launch {
             try {
-                wireGuardTunnel?.disconnect()
-                wireGuardTunnel = null
+                when (currentProtocol) {
+                    VpnProtocol.WIREGUARD -> {
+                        wireGuardTunnel?.disconnect()
+                        wireGuardTunnel = null
+                    }
+                    VpnProtocol.OPENVPN -> {
+                        openVpnTunnel?.disconnect()
+                        openVpnTunnel = null
+                    }
+                    VpnProtocol.IPSEC -> {
+                        ipSecTunnel?.disconnect()
+                        ipSecTunnel = null
+                    }
+                    null -> {
+                        // Disconnect all in case protocol is unknown
+                        wireGuardTunnel?.disconnect()
+                        wireGuardTunnel = null
+                        openVpnTunnel?.disconnect()
+                        openVpnTunnel = null
+                        ipSecTunnel?.disconnect()
+                        ipSecTunnel = null
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error during disconnect", e)
             }
@@ -186,14 +226,26 @@ class PrivycsVpnService : VpnService() {
 
     /**
      * Poll tunnel statistics and update the global VPN status.
+     * Delegates to the active protocol's tunnel implementation.
      */
     private fun startStatusPolling() {
         scope.launch {
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
             while (isActive) {
-                val tunnel = wireGuardTunnel
-                if (tunnel != null) {
-                    val status = tunnel.getStatus(currentConnectionName, currentConnectionId)
+                val status = when (currentProtocol) {
+                    VpnProtocol.WIREGUARD -> {
+                        wireGuardTunnel?.getStatus(currentConnectionName, currentConnectionId)
+                    }
+                    VpnProtocol.OPENVPN -> {
+                        openVpnTunnel?.getStatus(currentConnectionName, currentConnectionId)
+                    }
+                    VpnProtocol.IPSEC -> {
+                        ipSecTunnel?.getStatus(currentConnectionName, currentConnectionId)
+                    }
+                    null -> null
+                }
+
+                if (status != null) {
                     manager.updateStatus(status)
 
                     if (!status.connected) {
