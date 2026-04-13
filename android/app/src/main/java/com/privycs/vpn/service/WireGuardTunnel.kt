@@ -12,6 +12,7 @@ import com.privycs.vpn.data.models.VpnStatus
 import com.privycs.vpn.data.models.VpnProtocol
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.BufferedReader
 import java.io.StringReader
 
 /**
@@ -47,7 +48,7 @@ class WireGuardTunnel(
      * Parse a WireGuard .conf file content into a Config object.
      */
     fun parseConfig(configContent: String): Config {
-        return Config.parse(StringReader(configContent))
+        return Config.parse(BufferedReader(StringReader(configContent)))
     }
 
     /**
