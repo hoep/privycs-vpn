@@ -60,6 +60,7 @@ jobs:
           name: test-results
           path: android/app/build/reports/tests/
           retention-days: 7
+          if-no-files-found: ignore
 
   lint:
     name: Lint Check
@@ -104,3 +105,4 @@ jobs:
           name: lint-results
           path: android/app/build/reports/lint-results-debug.html
           retention-days: 7
+          if-no-files-found: ignore
