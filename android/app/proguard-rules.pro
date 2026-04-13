@@ -38,6 +38,10 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 
+# SLF4J (pulled in by Ktor) -- not used at runtime on Android
+-dontwarn org.slf4j.**
+-keep class org.slf4j.** { *; }
+
 # Keep Ktor serialization converters
 -keep class io.ktor.serialization.** { *; }
 
