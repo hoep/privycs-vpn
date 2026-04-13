@@ -16,6 +16,7 @@ import com.privycs.vpn.ui.screens.ConnectScreen
 import com.privycs.vpn.ui.screens.ConnectionsScreen
 import com.privycs.vpn.ui.screens.LogsScreen
 import com.privycs.vpn.ui.screens.SettingsScreen
+import com.privycs.vpn.ui.screens.SplitTunnelScreen
 
 object Routes {
     const val CONNECT = "connect"
@@ -23,6 +24,7 @@ object Routes {
     const val ADD = "add"
     const val SETTINGS = "settings"
     const val LOGS = "logs"
+    const val SPLIT_TUNNEL = "split_tunnel"
 }
 
 @Composable
@@ -96,6 +98,17 @@ fun AppNavigation(
                 SettingsScreen(
                     onNavigateToLogs = {
                         navController.navigate(Routes.LOGS)
+                    },
+                    onNavigateToSplitTunnel = {
+                        navController.navigate(Routes.SPLIT_TUNNEL)
+                    }
+                )
+            }
+
+            composable(Routes.SPLIT_TUNNEL) {
+                SplitTunnelScreen(
+                    onBack = {
+                        navController.popBackStack()
                     }
                 )
             }

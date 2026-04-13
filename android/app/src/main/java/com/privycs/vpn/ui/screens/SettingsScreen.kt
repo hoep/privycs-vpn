@@ -1,5 +1,10 @@
 package com.privycs.vpn.ui.screens
 
+import android.app.Activity
+import android.content.Intent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -32,6 +38,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -43,20 +50,26 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.api.GatewayApiClient
+import com.privycs.vpn.backup.CloudBackupManager
 import com.privycs.vpn.data.models.AppTheme
 import com.privycs.vpn.data.models.RoutingMode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onNavigateToLogs: () -> Unit
+    onNavigateToLogs: () -> Unit,
+    onNavigateToSplitTunnel: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val settingsRepo = remember { PrivycsApp.instance.settingsRepository }
     val settings by settingsRepo.settingsFlow.collectAsState(initial = settingsRepo.defaultSettings())
     val scope = rememberCoroutineScope()
@@ -69,6 +82,115 @@ fun SettingsScreen(
     var gatewayUrl by remember(settings.gatewayUrl) { mutableStateOf(settings.gatewayUrl) }
     var apiKey by remember(settings.apiKey) { mutableStateOf(settings.apiKey) }
     var dnsOverride by remember(settings.dnsOverride) { mutableStateOf(settings.dnsOverride) }
+
+    // Backup state
+    val backupManager = remember { CloudBackupManager(context) }
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var passwordDialogMode by remember { mutableStateOf("export") } // "export" or "import"
+    var backupPassword by remember { mutableStateOf("") }
+    var pendingImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    // SAF launchers for backup
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            passwordDialogMode = "export"
+            showPasswordDialog = true
+            pendingImportUri = uri
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            passwordDialogMode = "import"
+            pendingImportUri = uri
+            showPasswordDialog = true
+        }
+    }
+
+    // Password dialog
+    if (showPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showPasswordDialog = false
+                backupPassword = ""
+                pendingImportUri = null
+            },
+            title = {
+                Text(
+                    text = if (passwordDialogMode == "export") "Export Backup" else "Import Backup",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = if (passwordDialogMode == "export")
+                            "Enter a password to encrypt the backup."
+                        else
+                            "Enter the password used when this backup was created.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = backupPassword,
+                        onValueChange = { backupPassword = it },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val password = backupPassword
+                        val uri = pendingImportUri
+                        val mode = passwordDialogMode
+                        showPasswordDialog = false
+                        backupPassword = ""
+
+                        if (password.isNotBlank() && uri != null) {
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        if (mode == "export") {
+                                            backupManager.exportBackup(password, uri)
+                                        } else {
+                                            backupManager.importAndMerge(password, uri)
+                                        }
+                                    }
+                                    val msg = if (mode == "export") "Backup exported" else "Backup imported"
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    val errMsg = e.message ?: "Operation failed"
+                                    Toast.makeText(context, errMsg, Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                        pendingImportUri = null
+                    },
+                    enabled = backupPassword.isNotBlank()
+                ) {
+                    Text(if (passwordDialogMode == "export") "Export" else "Import")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showPasswordDialog = false
+                    backupPassword = ""
+                    pendingImportUri = null
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -261,6 +383,49 @@ fun SettingsScreen(
                         ) {
                             Text("Split", style = MaterialTheme.typography.labelSmall)
                         }
+                    }
+                }
+            }
+
+            // -- Split Tunnel --
+            SettingsSection(title = "SPLIT TUNNEL") {
+                Text(
+                    text = "Choose which apps use the VPN connection.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onNavigateToSplitTunnel,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Configure Split Tunnel")
+                }
+            }
+
+            // -- Cloud Backup --
+            SettingsSection(title = "CLOUD BACKUP") {
+                Text(
+                    text = "Export or import VPN connections with AES-256 encryption.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { exportLauncher.launch("privycs-backup.json") },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Export")
+                    }
+                    OutlinedButton(
+                        onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Import")
                     }
                 }
             }

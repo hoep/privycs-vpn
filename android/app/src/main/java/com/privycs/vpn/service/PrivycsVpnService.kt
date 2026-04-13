@@ -2,6 +2,7 @@ package com.privycs.vpn.service
 
 import android.app.Notification
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
@@ -12,6 +13,7 @@ import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.R
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.data.models.VpnStatus
+import com.privycs.vpn.widget.VpnWidget
 import com.wireguard.android.backend.GoBackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +47,7 @@ class PrivycsVpnService : VpnService() {
     private var currentConnectionName: String = ""
     private var currentConnectionId: String = ""
     private var currentProtocol: VpnProtocol? = null
+    private var connectStartTime: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -137,7 +140,9 @@ class PrivycsVpnService : VpnService() {
 
         tunnel.connect(configContent, "privycs0")
 
+        connectStartTime = System.currentTimeMillis()
         updateNotification("Connected to $currentConnectionName")
+        sendWidgetUpdate(connected = true)
         startStatusPolling()
     }
 
@@ -147,7 +152,9 @@ class PrivycsVpnService : VpnService() {
 
         tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService)
 
+        connectStartTime = System.currentTimeMillis()
         updateNotification("Connected to $currentConnectionName (OpenVPN)")
+        sendWidgetUpdate(connected = true)
         startStatusPolling()
     }
 
@@ -157,7 +164,9 @@ class PrivycsVpnService : VpnService() {
 
         tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService)
 
+        connectStartTime = System.currentTimeMillis()
         updateNotification("Connected to $currentConnectionName (IPSec)")
+        sendWidgetUpdate(connected = true)
         startStatusPolling()
     }
 
@@ -193,6 +202,9 @@ class PrivycsVpnService : VpnService() {
 
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
             manager.updateStatus(VpnStatus())
+
+            connectStartTime = 0L
+            sendWidgetUpdate(connected = false)
 
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -247,6 +259,7 @@ class PrivycsVpnService : VpnService() {
 
                 if (status != null) {
                     manager.updateStatus(status)
+                    sendWidgetUpdate(status.connected)
 
                     if (!status.connected) {
                         Log.w(TAG, "Tunnel went down unexpectedly")
@@ -293,5 +306,74 @@ class PrivycsVpnService : VpnService() {
         val notification = buildNotification(text)
         val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(PrivycsApp.NOTIFICATION_ID_VPN, notification)
+    }
+
+    /**
+     * Read split tunnel preferences and apply to VpnService.Builder.
+     * Call this before establishing the tunnel to configure per-app VPN.
+     */
+    fun applySplitTunnelSettings(builder: android.net.VpnService.Builder) {
+        try {
+            val prefs = getSharedPreferences("split_tunnel", Context.MODE_PRIVATE)
+            val mode = prefs.getString("mode", "exclude") ?: "exclude"
+            val packages = prefs.getStringSet("packages", emptySet()) ?: emptySet()
+
+            if (packages.isEmpty()) {
+                Log.d(TAG, "Split tunnel: no apps configured, using default (all apps through VPN)")
+                return
+            }
+
+            when (mode) {
+                "exclude" -> {
+                    for (pkg in packages) {
+                        try {
+                            builder.addDisallowedApplication(pkg)
+                            Log.d(TAG, "Split tunnel: excluding $pkg")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Split tunnel: cannot exclude $pkg: ${e.message}")
+                        }
+                    }
+                }
+                "include" -> {
+                    for (pkg in packages) {
+                        try {
+                            builder.addAllowedApplication(pkg)
+                            Log.d(TAG, "Split tunnel: including $pkg")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Split tunnel: cannot include $pkg: ${e.message}")
+                        }
+                    }
+                    // Always include ourselves
+                    try {
+                        builder.addAllowedApplication(packageName)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Split tunnel: cannot include self: ${e.message}")
+                    }
+                }
+            }
+
+            Log.d(TAG, "Split tunnel: mode=$mode, apps=${packages.size}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to apply split tunnel settings", e)
+        }
+    }
+
+    /**
+     * Send a broadcast to update the home screen widget with current VPN status.
+     */
+    private fun sendWidgetUpdate(connected: Boolean) {
+        val uptimeSeconds = if (connected && connectStartTime > 0) {
+            (System.currentTimeMillis() - connectStartTime) / 1000
+        } else {
+            0L
+        }
+
+        VpnWidget.sendStatusUpdate(
+            context = this,
+            connected = connected,
+            connectionName = currentConnectionName,
+            protocol = currentProtocol?.shortLabel ?: "",
+            uptime = uptimeSeconds
+        )
     }
 }

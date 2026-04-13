@@ -57,6 +57,32 @@
             </intent-filter>
         </receiver>
 
+        <!-- Quick Settings Tile -->
+        <service
+            android:name=".tile.VpnQuickSettingsTile"
+            android:exported="true"
+            android:icon="@android:drawable/ic_lock_lock"
+            android:label="@string/vpn_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Home Screen Widget -->
+        <receiver
+            android:name=".widget.VpnWidget"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.privycs.vpn.widget.STATUS_CHANGED" />
+                <action android:name="com.privycs.vpn.widget.TOGGLE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_vpn_info" />
+        </receiver>
+
     </application>
 
 </manifest>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@android:color/background_dark"
+    android:gravity="center_horizontal">
+
+    <ImageView
+        android:id="@+id/widget_icon"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:src="@android:drawable/ic_lock_idle_lock"
+        android:contentDescription="VPN Status Icon" />
+
+    <TextView
+        android:id="@+id/widget_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Disconnected"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="#9E9E9E"
+        android:layout_marginTop="4dp" />
+
+    <TextView
+        android:id="@+id/widget_connection_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Privycs VPN"
+        android:textSize="12sp"
+        android:textColor="#FFFFFF"
+        android:layout_marginTop="2dp"
+        android:singleLine="true"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/widget_protocol"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="10sp"
+        android:textColor="#B0BEC5"
+        android:layout_marginTop="2dp" />
+
+    <TextView
+        android:id="@+id/widget_uptime"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="10sp"
+        android:textColor="#B0BEC5"
+        android:layout_marginTop="2dp" />
+
+    <Button
+        android:id="@+id/widget_toggle_button"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:text="Toggle"
+        android:textSize="12sp"
+        android:layout_marginTop="6dp" />
+
+</LinearLayout>
