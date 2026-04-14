@@ -105,6 +105,16 @@ enum class RoutingMode {
 }
 
 @Serializable
+data class ConnectOnDemandSettings(
+    val enabled: Boolean = false,
+    val trigger: String = "wifi_mobile",  // "wifi", "mobile", "wifi_mobile"
+    @SerialName("ssid_mode")
+    val ssidMode: String = "all",  // "all", "only", "except"
+    @SerialName("ssid_list")
+    val ssidList: List<String> = emptyList()
+)
+
+@Serializable
 data class AppSettings(
     @SerialName("active_protocol")
     val activeProtocol: VpnProtocol = VpnProtocol.WIREGUARD,
@@ -122,7 +132,9 @@ data class AppSettings(
     @SerialName("gateway_url")
     val gatewayUrl: String = "",
     @SerialName("api_key")
-    val apiKey: String = ""
+    val apiKey: String = "",
+    @SerialName("connect_on_demand")
+    val connectOnDemand: ConnectOnDemandSettings = ConnectOnDemandSettings()
 )
 
 // Gateway API models matching desktop api_client.go

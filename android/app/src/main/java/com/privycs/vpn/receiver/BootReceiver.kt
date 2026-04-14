@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.service.NetworkMonitor
 import com.privycs.vpn.service.PrivycsVpnService
 
 /**
  * Handles BOOT_COMPLETED broadcast.
- * Starts VPN connection automatically if auto_connect_on_start is enabled.
+ * If connect-on-demand is enabled, starts the NetworkMonitor to evaluate rules.
+ * Otherwise, starts VPN connection directly if auto_connect_on_start is enabled.
  */
 class BootReceiver : BroadcastReceiver() {
 
@@ -29,6 +31,15 @@ class BootReceiver : BroadcastReceiver() {
         try {
             val app = context.applicationContext as PrivycsApp
             val settings = app.settingsRepository.getSettingsBlocking()
+
+            // If connect-on-demand is enabled, start the network monitor
+            // which will handle connecting based on network rules
+            if (settings.connectOnDemand.enabled) {
+                Log.d(TAG, "Connect on demand enabled, starting NetworkMonitor")
+                val monitor = NetworkMonitor.getInstance(context)
+                monitor.start()
+                return
+            }
 
             if (!settings.autoConnectOnStart) {
                 Log.d(TAG, "Auto-connect disabled, skipping")

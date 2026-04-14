@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.privycs.vpn.data.models.AppSettings
 import com.privycs.vpn.data.models.AppTheme
+import com.privycs.vpn.data.models.ConnectOnDemandSettings
 import com.privycs.vpn.data.models.RoutingMode
 import com.privycs.vpn.data.models.VpnProtocol
 import kotlinx.coroutines.flow.Flow
@@ -30,6 +31,10 @@ class SettingsRepository(private val context: Context) {
         val ROUTING_MODE = stringPreferencesKey("routing_mode")
         val GATEWAY_URL = stringPreferencesKey("gateway_url")
         val API_KEY = stringPreferencesKey("api_key")
+        val COD_ENABLED = booleanPreferencesKey("cod_enabled")
+        val COD_TRIGGER = stringPreferencesKey("cod_trigger")
+        val COD_SSID_MODE = stringPreferencesKey("cod_ssid_mode")
+        val COD_SSID_LIST = stringPreferencesKey("cod_ssid_list")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -43,7 +48,15 @@ class SettingsRepository(private val context: Context) {
             dnsOverride = prefs[Keys.DNS_OVERRIDE] ?: "",
             routingMode = prefs[Keys.ROUTING_MODE]?.let { parseRoutingMode(it) } ?: RoutingMode.FULL,
             gatewayUrl = prefs[Keys.GATEWAY_URL] ?: "",
-            apiKey = prefs[Keys.API_KEY] ?: ""
+            apiKey = prefs[Keys.API_KEY] ?: "",
+            connectOnDemand = ConnectOnDemandSettings(
+                enabled = prefs[Keys.COD_ENABLED] ?: false,
+                trigger = prefs[Keys.COD_TRIGGER] ?: "wifi_mobile",
+                ssidMode = prefs[Keys.COD_SSID_MODE] ?: "all",
+                ssidList = (prefs[Keys.COD_SSID_LIST] ?: "").let { raw ->
+                    if (raw.isBlank()) emptyList() else raw.split(",").map { it.trim() }
+                }
+            )
         )
     }
 
@@ -68,6 +81,10 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.ROUTING_MODE] = settings.routingMode.name.lowercase()
             prefs[Keys.GATEWAY_URL] = settings.gatewayUrl
             prefs[Keys.API_KEY] = settings.apiKey
+            prefs[Keys.COD_ENABLED] = settings.connectOnDemand.enabled
+            prefs[Keys.COD_TRIGGER] = settings.connectOnDemand.trigger
+            prefs[Keys.COD_SSID_MODE] = settings.connectOnDemand.ssidMode
+            prefs[Keys.COD_SSID_LIST] = settings.connectOnDemand.ssidList.joinToString(",")
         }
     }
 
@@ -99,6 +116,15 @@ class SettingsRepository(private val context: Context) {
     suspend fun updateAlwaysOn(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.ALWAYS_ON] = enabled
+        }
+    }
+
+    suspend fun updateConnectOnDemand(cod: ConnectOnDemandSettings) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.COD_ENABLED] = cod.enabled
+            prefs[Keys.COD_TRIGGER] = cod.trigger
+            prefs[Keys.COD_SSID_MODE] = cod.ssidMode
+            prefs[Keys.COD_SSID_LIST] = cod.ssidList.joinToString(",")
         }
     }
 

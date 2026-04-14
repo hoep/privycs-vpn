@@ -5,8 +5,11 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,11 +17,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -28,6 +33,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -58,12 +66,14 @@ import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.api.GatewayApiClient
 import com.privycs.vpn.backup.CloudBackupManager
 import com.privycs.vpn.data.models.AppTheme
+import com.privycs.vpn.data.models.ConnectOnDemandSettings
 import com.privycs.vpn.data.models.RoutingMode
+import com.privycs.vpn.service.NetworkMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     onNavigateToLogs: () -> Unit,
@@ -317,18 +327,220 @@ fun SettingsScreen(
                 )
 
                 SettingsToggle(
-                    title = "Auto-Connect on Start",
-                    description = "Connect VPN when app starts",
-                    checked = settings.autoConnectOnStart,
-                    onCheckedChange = { scope.launch { settingsRepo.updateAutoConnect(it) } }
-                )
-
-                SettingsToggle(
                     title = "Always-On VPN",
                     description = "Reconnect automatically after disconnection",
                     checked = settings.alwaysOn,
                     onCheckedChange = { scope.launch { settingsRepo.updateAlwaysOn(it) } }
                 )
+            }
+
+            // -- Connect on Demand --
+            SettingsSection(title = "CONNECT ON DEMAND") {
+                val cod = settings.connectOnDemand
+                val networkMonitor = remember { NetworkMonitor.getInstance(context) }
+                val networkState by networkMonitor.networkState.collectAsState()
+
+                // Local state for SSID text input
+                var ssidInput by remember { mutableStateOf("") }
+
+                SettingsToggle(
+                    title = "Connect on Demand",
+                    description = "Automatically connect VPN based on network rules",
+                    checked = cod.enabled,
+                    onCheckedChange = { enabled ->
+                        scope.launch {
+                            val updated = cod.copy(enabled = enabled)
+                            settingsRepo.updateConnectOnDemand(updated)
+                            if (enabled) {
+                                networkMonitor.start()
+                            } else {
+                                networkMonitor.stop()
+                            }
+                        }
+                    }
+                )
+
+                if (cod.enabled) {
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Network trigger selection
+                    Text(
+                        text = "When connected to:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        val triggers = listOf(
+                            "wifi" to "WiFi",
+                            "mobile" to "Mobile",
+                            "wifi_mobile" to "WiFi & Mobile"
+                        )
+                        triggers.forEachIndexed { index, (value, label) ->
+                            SegmentedButton(
+                                selected = cod.trigger == value,
+                                onClick = {
+                                    scope.launch {
+                                        settingsRepo.updateConnectOnDemand(cod.copy(trigger = value))
+                                    }
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = triggers.size
+                                )
+                            ) {
+                                Text(label, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+
+                    // SSID filter (only relevant when WiFi is part of trigger)
+                    if (cod.trigger == "wifi" || cod.trigger == "wifi_mobile") {
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "WiFi Networks:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            val modes = listOf(
+                                "all" to "All SSIDs",
+                                "only" to "Only these",
+                                "except" to "Except these"
+                            )
+                            modes.forEachIndexed { index, (value, label) ->
+                                SegmentedButton(
+                                    selected = cod.ssidMode == value,
+                                    onClick = {
+                                        scope.launch {
+                                            settingsRepo.updateConnectOnDemand(
+                                                cod.copy(ssidMode = value)
+                                            )
+                                        }
+                                    },
+                                    shape = SegmentedButtonDefaults.itemShape(
+                                        index = index,
+                                        count = modes.size
+                                    )
+                                ) {
+                                    Text(label, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+
+                        // SSID list input (visible for "only" and "except" modes)
+                        if (cod.ssidMode == "only" || cod.ssidMode == "except") {
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = ssidInput,
+                                    onValueChange = { ssidInput = it },
+                                    label = { Text("Add SSID") },
+                                    placeholder = { Text("Network name") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(
+                                    onClick = {
+                                        val trimmed = ssidInput.trim()
+                                        if (trimmed.isNotEmpty() && trimmed !in cod.ssidList) {
+                                            scope.launch {
+                                                settingsRepo.updateConnectOnDemand(
+                                                    cod.copy(
+                                                        ssidList = cod.ssidList + trimmed
+                                                    )
+                                                )
+                                            }
+                                            ssidInput = ""
+                                        }
+                                    },
+                                    enabled = ssidInput.trim().isNotEmpty()
+                                ) {
+                                    Text("Add")
+                                }
+                            }
+
+                            if (cod.ssidList.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    cod.ssidList.forEach { ssid ->
+                                        InputChip(
+                                            selected = false,
+                                            onClick = { },
+                                            label = { Text(ssid) },
+                                            trailingIcon = {
+                                                IconButton(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            settingsRepo.updateConnectOnDemand(
+                                                                cod.copy(
+                                                                    ssidList = cod.ssidList - ssid
+                                                                )
+                                                            )
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(18.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.Close,
+                                                        contentDescription = "Remove $ssid",
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Status display
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val statusText = buildString {
+                        append("Status: ")
+                        when (networkState.networkType) {
+                            "wifi" -> {
+                                append("Connected to")
+                                if (networkState.ssid.isNotEmpty()) {
+                                    append(" \"${networkState.ssid}\"")
+                                }
+                                append(" (WiFi)")
+                            }
+                            "mobile" -> append("Connected via Mobile")
+                            "ethernet" -> append("Connected via Ethernet")
+                            else -> append("No network")
+                        }
+                        if (networkState.ruleMatch.isNotEmpty()) {
+                            append(" -- ")
+                            if (networkState.shouldConnect) {
+                                append("VPN will connect")
+                            } else {
+                                append("VPN will not connect")
+                            }
+                        }
+                    }
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (networkState.shouldConnect)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             // -- Network --
