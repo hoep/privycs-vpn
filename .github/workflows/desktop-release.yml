@@ -1,0 +1,236 @@
+# Privycs VPN Desktop Client Release
+# Builds Wails v2 app for Linux, macOS, and Windows on version tags.
+name: Desktop App Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.23'
+  NODE_VERSION: '20'
+  WAILS_VERSION: 'latest'
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      desktop_changed: ${{ steps.changes.outputs.changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if desktop/ changed since last tag
+        id: changes
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1)
+          if [ -z "$PREV_TAG" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "${PREV_TAG}..HEAD" -- desktop/ | wc -l)
+          if [ "$CHANGED" -gt 0 ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  build-linux:
+    needs: check-changes
+    if: needs.check-changes.outputs.desktop_changed == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: desktop/go.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libayatana-appindicator3-dev
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+      - name: Install frontend dependencies
+        working-directory: desktop/frontend
+        run: npm ci
+      - name: Build desktop app
+        working-directory: desktop
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then VERSION="dev"; fi
+          ~/go/bin/wails build -ldflags "-X main.AppVersion=$VERSION"
+      - name: Prepare artifacts
+        run: |
+          mv desktop/build/bin/privycs-vpn desktop/build/bin/privycs-vpn-linux-amd64
+          chmod +x desktop/build/bin/privycs-vpn-linux-amd64
+          cd desktop/build/bin && sha256sum privycs-vpn-linux-amd64 > privycs-vpn-linux-amd64.sha256
+      - name: Build .deb package
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          cd desktop
+          cp build/bin/privycs-vpn-linux-amd64 build/bin/privycs-vpn
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ] || echo "$VERSION" | grep -q '/'; then VERSION="0.0.1"; fi
+          VERSION=$(echo "$VERSION" | tr -d '+')
+          export VERSION
+          ~/go/bin/nfpm package --packager deb --target build/bin/
+          mv build/bin/*.deb build/bin/privycs-vpn-linux-amd64.deb 2>/dev/null || true
+          if [ -f build/bin/privycs-vpn-linux-amd64.deb ]; then
+            cd build/bin && sha256sum privycs-vpn-linux-amd64.deb > privycs-vpn-linux-amd64.deb.sha256
+          fi
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: privycs-vpn-linux-amd64
+          path: |
+            desktop/build/bin/privycs-vpn-linux-amd64
+            desktop/build/bin/privycs-vpn-linux-amd64.sha256
+            desktop/build/bin/privycs-vpn-linux-amd64.deb
+            desktop/build/bin/privycs-vpn-linux-amd64.deb.sha256
+          if-no-files-found: ignore
+
+  build-macos:
+    needs: check-changes
+    if: needs.check-changes.outputs.desktop_changed == 'true'
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: desktop/go.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+      - name: Install frontend dependencies
+        working-directory: desktop/frontend
+        run: npm ci
+      - name: Build desktop app
+        working-directory: desktop
+        env:
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then VERSION="dev"; fi
+          ~/go/bin/wails build -platform darwin/${{ matrix.arch }} -ldflags "-X main.AppVersion=$VERSION"
+      - name: Package as zip
+        run: |
+          cd desktop/build/bin
+          ARCHIVE="privycs-vpn-darwin-${{ matrix.arch }}.zip"
+          ditto -c -k --keepParent privycs-vpn.app "$ARCHIVE" 2>/dev/null || zip -r "$ARCHIVE" privycs-vpn.app
+          shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: privycs-vpn-darwin-${{ matrix.arch }}
+          path: |
+            desktop/build/bin/privycs-vpn-darwin-${{ matrix.arch }}.zip
+            desktop/build/bin/privycs-vpn-darwin-${{ matrix.arch }}.zip.sha256
+          if-no-files-found: ignore
+
+  build-windows:
+    needs: check-changes
+    if: needs.check-changes.outputs.desktop_changed == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: desktop/go.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+      - name: Install frontend dependencies
+        working-directory: desktop/frontend
+        run: npm ci
+      - name: Install NSIS
+        run: choco install nsis -y
+      - name: Build desktop app with NSIS installer
+        working-directory: desktop
+        run: |
+          $env:PATH = "$env:USERPROFILE\go\bin;C:\Program Files (x86)\NSIS;$env:PATH"
+          $version = "$env:GITHUB_REF" -replace 'refs/tags/', ''
+          if (-not $version) { $version = "dev" }
+          wails build -platform windows/amd64 -nsis -ldflags "-X main.AppVersion=$version"
+      - name: Prepare artifacts
+        shell: pwsh
+        run: |
+          Copy-Item desktop/build/bin/privycs-vpn.exe desktop/build/bin/privycs-vpn-windows-amd64.exe
+          cd desktop/build/bin
+          Get-FileHash privycs-vpn-windows-amd64.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  privycs-vpn-windows-amd64.exe" } | Out-File -Encoding ASCII privycs-vpn-windows-amd64.exe.sha256
+          $installer = Get-ChildItem -Path . -Filter "*installer.exe" -Recurse | Select-Object -First 1
+          if ($installer) {
+            Copy-Item $installer.FullName "privycs-vpn-windows-amd64-setup.exe"
+            Get-FileHash "privycs-vpn-windows-amd64-setup.exe" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  privycs-vpn-windows-amd64-setup.exe" } | Out-File -Encoding ASCII "privycs-vpn-windows-amd64-setup.exe.sha256"
+          }
+      - name: Upload standalone binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: privycs-vpn-windows-amd64
+          path: |
+            desktop/build/bin/privycs-vpn-windows-amd64.exe
+            desktop/build/bin/privycs-vpn-windows-amd64.exe.sha256
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: privycs-vpn-windows-amd64-setup
+          path: |
+            desktop/build/bin/privycs-vpn-windows-amd64-setup.exe
+            desktop/build/bin/privycs-vpn-windows-amd64-setup.exe.sha256
+          if-no-files-found: ignore
+
+  release:
+    needs: [check-changes, build-linux, build-macos, build-windows]
+    if: always() && needs.check-changes.outputs.desktop_changed == 'true' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Privycs VPN ${{ github.ref_name }}
+          draft: false
+          generate_release_notes: true
+          files: |
+            artifacts/privycs-vpn-linux-amd64/*
+            artifacts/privycs-vpn-darwin-amd64/*
+            artifacts/privycs-vpn-darwin-arm64/*
+            artifacts/privycs-vpn-windows-amd64/*
+            artifacts/privycs-vpn-windows-amd64-setup/*
+          fail_on_unmatched_files: false
