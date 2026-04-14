@@ -178,6 +178,50 @@
         </div>
       </div>
 
+      <!-- Privileged Helper -->
+      <div class="card p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Privileged Helper</h3>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-sm text-gray-700 dark:text-gray-300">Status</span>
+              <p class="text-[10px] text-gray-400 mt-0.5">
+                Eliminates password prompts when connecting VPN
+              </p>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="inline-block w-1.5 h-1.5 rounded-full"
+                :class="helperStatus.running ? 'bg-green-400' : (helperStatus.installed ? 'bg-yellow-400' : 'bg-gray-400')"
+              />
+              <span class="text-xs text-gray-500 dark:text-gray-400">
+                {{ helperStatus.running ? 'Running' : (helperStatus.installed ? 'Installed (not running)' : 'Not installed') }}
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              v-if="!helperStatus.running"
+              @click="installHelper"
+              :disabled="helperInstalling"
+              class="btn-primary px-4 py-1.5 text-xs disabled:opacity-50"
+            >
+              {{ helperInstalling ? 'Installing...' : 'Install Helper' }}
+            </button>
+            <button
+              v-if="helperStatus.installed"
+              @click="uninstallHelper"
+              :disabled="helperInstalling"
+              class="btn-secondary px-4 py-1.5 text-xs disabled:opacity-50"
+            >
+              Uninstall
+            </button>
+          </div>
+          <p class="text-[10px] text-gray-500 dark:text-gray-400">
+            The helper runs as a system service and handles VPN operations without repeated admin prompts. Requires a one-time authorization to install.
+          </p>
+        </div>
+      </div>
+
       <!-- Network -->
       <div class="card p-4">
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network</h3>
@@ -265,7 +309,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useVpnStore } from '@/stores/vpn'
-import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus } from '../../wailsjs/go/main/App'
+import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
 
 const vpn = useVpnStore()
@@ -467,8 +511,45 @@ function toggleSetting(key: string) {
   saveSettings()
 }
 
+// Privileged helper state
+const helperStatus = ref<any>({ installed: false, running: false, platform: '' })
+const helperInstalling = ref(false)
+
+async function loadHelperStatus() {
+  try {
+    helperStatus.value = await GetHelperStatus()
+  } catch (e) {
+    console.error('Failed to load helper status:', e)
+  }
+}
+
+async function installHelper() {
+  helperInstalling.value = true
+  try {
+    await InstallPrivilegedHelper()
+    await loadHelperStatus()
+  } catch (e) {
+    console.error('Failed to install helper:', e)
+  } finally {
+    helperInstalling.value = false
+  }
+}
+
+async function uninstallHelper() {
+  helperInstalling.value = true
+  try {
+    await UninstallPrivilegedHelper()
+    await loadHelperStatus()
+  } catch (e) {
+    console.error('Failed to uninstall helper:', e)
+  } finally {
+    helperInstalling.value = false
+  }
+}
+
 onMounted(async () => {
   loadSettings()
+  loadHelperStatus()
   // Load platform feature flags to disable unsupported toggles
   try {
     platform.value = await GetPlatformFeatures()

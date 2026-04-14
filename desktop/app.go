@@ -797,6 +797,56 @@ func (a *App) SetKillSwitch(enabled bool) error {
 }
 
 // ============================================================================
+// PRIVILEGED HELPER METHODS
+// ============================================================================
+
+// HelperStatus describes the current state of the privileged helper service.
+type HelperStatus struct {
+	Installed bool   `json:"installed"`
+	Running   bool   `json:"running"`
+	Platform  string `json:"platform"`
+}
+
+// GetHelperStatus returns the current privileged helper service state.
+func (a *App) GetHelperStatus() *HelperStatus {
+	return &HelperStatus{
+		Installed: IsHelperInstalled(),
+		Running:   IsHelperRunning(),
+		Platform:  runtime.GOOS,
+	}
+}
+
+// EnsurePrivilegedHelper checks if the helper is installed and running.
+// If not installed, triggers a one-time admin prompt to install it.
+func (a *App) EnsurePrivilegedHelper() error {
+	if err := EnsureHelper(); err != nil {
+		return fmt.Errorf("failed to ensure privileged helper: %w", err)
+	}
+	wailsRuntime.EventsEmit(a.ctx, "vpn:helper_status", a.GetHelperStatus())
+	return nil
+}
+
+// InstallPrivilegedHelper installs the helper as a system service (one-time admin prompt).
+func (a *App) InstallPrivilegedHelper() error {
+	if err := InstallHelper(); err != nil {
+		return fmt.Errorf("failed to install helper: %w", err)
+	}
+	log.Println("Privileged helper installed successfully")
+	wailsRuntime.EventsEmit(a.ctx, "vpn:helper_status", a.GetHelperStatus())
+	return nil
+}
+
+// UninstallPrivilegedHelper removes the helper system service.
+func (a *App) UninstallPrivilegedHelper() error {
+	if err := UninstallHelper(); err != nil {
+		return fmt.Errorf("failed to uninstall helper: %w", err)
+	}
+	log.Println("Privileged helper uninstalled")
+	wailsRuntime.EventsEmit(a.ctx, "vpn:helper_status", a.GetHelperStatus())
+	return nil
+}
+
+// ============================================================================
 // CONFIG EDITOR
 // ============================================================================
 

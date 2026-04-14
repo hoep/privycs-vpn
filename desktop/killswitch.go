@@ -70,6 +70,19 @@ func (ks *KillSwitch) Deactivate() {
 }
 
 func (ks *KillSwitch) activatePlatform() {
+	// Try privileged helper first (no sudo/password prompts)
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		log.Println("Kill switch: using privileged helper to enable")
+		resp, err := client.SendCommand("killswitch_enable", nil)
+		if err == nil && resp.Success {
+			log.Println("Kill switch: enabled via helper")
+			return
+		}
+		log.Printf("Kill switch: helper failed (%v / %s), falling back to direct", err, resp.Error)
+	}
+
+	// Fallback: direct execution (requires sudo on Linux/macOS)
 	switch runtime.GOOS {
 	case "linux":
 		ks.activateLinux()
@@ -81,6 +94,19 @@ func (ks *KillSwitch) activatePlatform() {
 }
 
 func (ks *KillSwitch) deactivatePlatform() {
+	// Try privileged helper first (no sudo/password prompts)
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		log.Println("Kill switch: using privileged helper to disable")
+		resp, err := client.SendCommand("killswitch_disable", nil)
+		if err == nil && resp.Success {
+			log.Println("Kill switch: disabled via helper")
+			return
+		}
+		log.Printf("Kill switch: helper failed (%v / %s), falling back to direct", err, resp.Error)
+	}
+
+	// Fallback: direct execution
 	switch runtime.GOOS {
 	case "linux":
 		ks.deactivateLinux()

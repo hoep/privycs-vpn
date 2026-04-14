@@ -96,7 +96,30 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 			escapePowerShellString(ovpnExe), escapePowerShellString(o.configPath), escapePowerShellString(logPath), ovpnMgmtHost, ovpnMgmtPort)
 		o.cmd = execHiddenContext(ctx, "powershell", "-NoProfile", "-Command", psCmd)
 	} else {
-		// Linux/macOS: use sudo
+		// Linux/macOS: try privileged helper first (no sudo/password prompts)
+		client := NewHelperClient()
+		if client.IsHelperReachable() {
+			log.Printf("Using privileged helper for OpenVPN connect")
+			resp, err := client.SendCommand("connect", map[string]string{
+				"protocol":    "openvpn",
+				"config_path": o.configPath,
+				"log_path":    logPath,
+				"pid_path":    pidPath,
+				"mgmt_host":   ovpnMgmtHost,
+				"mgmt_port":   ovpnMgmtPort,
+			})
+			if err == nil {
+				if resp.Success {
+					o.connectedAt = time.Now()
+					log.Printf("OpenVPN started via helper")
+					return nil
+				}
+				return fmt.Errorf("openvpn start via helper failed: %s", resp.Error)
+			}
+			log.Printf("Helper communication failed, falling back to sudo: %v", err)
+		}
+
+		// Fallback: direct sudo execution
 		o.cmd = execHiddenContext(ctx, "sudo", ovpnExe,
 			"--config", o.configPath,
 			"--daemon",
@@ -131,30 +154,52 @@ func (o *OpenVPNProtocol) Down(ctx context.Context) error {
 			fmt.Sprintf("Start-Process powershell -ArgumentList '-NoProfile','-Command','%s' -Verb RunAs -Wait -WindowStyle Hidden", psCmd)).Run()
 		log.Println("OpenVPN: process killed")
 	} else {
-		// Unix: try PID file first, then tracked process
-		pidPath := filepath.Join(appDataDir(), "openvpn.pid")
-		pidData, err := os.ReadFile(pidPath)
-		if err == nil {
-			var pid int
-			if _, err := fmt.Sscan(strings.TrimSpace(string(pidData)), &pid); err == nil && pid > 0 {
-				if proc, err := os.FindProcess(pid); err == nil {
-					proc.Signal(os.Interrupt)
-					time.Sleep(1 * time.Second)
-					proc.Kill()
-				}
-			}
-			os.Remove(pidPath)
-		}
-
-		if o.cmd != nil && o.cmd.Process != nil {
-			o.cmd.Process.Kill()
-			o.cmd = nil
-		}
+		o.downUnixOpenVPN(ctx)
 	}
 
 	o.connectedAt = time.Time{}
 	log.Println("OpenVPN stopped")
 	return nil
+}
+
+// downUnixOpenVPN stops OpenVPN on Linux/macOS, using the helper if available.
+func (o *OpenVPNProtocol) downUnixOpenVPN(ctx context.Context) {
+	pidPath := filepath.Join(appDataDir(), "openvpn.pid")
+
+	// Try privileged helper first (no sudo/password prompts)
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		log.Printf("Using privileged helper for OpenVPN disconnect")
+		resp, err := client.SendCommand("disconnect", map[string]string{
+			"protocol": "openvpn",
+			"pid_path": pidPath,
+		})
+		if err == nil && resp.Success {
+			log.Println("OpenVPN stopped via helper")
+			o.cmd = nil
+			return
+		}
+		log.Printf("Helper disconnect failed, falling back to direct: %v / %s", err, resp.Error)
+	}
+
+	// Fallback: try PID file first, then tracked process
+	pidData, err := os.ReadFile(pidPath)
+	if err == nil {
+		var pid int
+		if _, err := fmt.Sscan(strings.TrimSpace(string(pidData)), &pid); err == nil && pid > 0 {
+			if proc, err := os.FindProcess(pid); err == nil {
+				proc.Signal(os.Interrupt)
+				time.Sleep(1 * time.Second)
+				proc.Kill()
+			}
+		}
+		os.Remove(pidPath)
+	}
+
+	if o.cmd != nil && o.cmd.Process != nil {
+		o.cmd.Process.Kill()
+		o.cmd = nil
+	}
 }
 
 func (o *OpenVPNProtocol) Status() ProtocolStatus {

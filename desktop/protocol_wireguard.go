@@ -137,6 +137,27 @@ func (w *WireGuardProtocol) upUnix(ctx context.Context) error {
 		return fmt.Errorf("failed to install config: %w", err)
 	}
 
+	// Try privileged helper first (no sudo/password prompts)
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		log.Printf("Using privileged helper for wg-quick up %s", w.ifaceName)
+		resp, err := client.SendCommand("connect", map[string]string{
+			"protocol":    "wireguard",
+			"config_path": etcConf,
+			"interface":   w.ifaceName,
+		})
+		if err == nil {
+			if resp.Success {
+				w.connectedAt = time.Now()
+				log.Printf("WireGuard connected via helper (interface: %s)", w.ifaceName)
+				return nil
+			}
+			return fmt.Errorf("wg-quick up via helper failed: %s", resp.Error)
+		}
+		log.Printf("Helper communication failed, falling back to sudo: %v", err)
+	}
+
+	// Fallback: direct sudo execution (backward compatible)
 	// Use a dedicated timeout context — NOT the Wails app context.
 	// Configs with many AllowedIPs (hundreds of subnets) cause wg-quick to
 	// run ip route add for each entry, which can take 60+ seconds.
@@ -154,6 +175,26 @@ func (w *WireGuardProtocol) upUnix(ctx context.Context) error {
 }
 
 func (w *WireGuardProtocol) downUnix(ctx context.Context) error {
+	// Try privileged helper first (no sudo/password prompts)
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		log.Printf("Using privileged helper for wg-quick down %s", w.ifaceName)
+		resp, err := client.SendCommand("disconnect", map[string]string{
+			"protocol":  "wireguard",
+			"interface": w.ifaceName,
+		})
+		if err == nil {
+			if resp.Success {
+				w.connectedAt = time.Time{}
+				log.Printf("WireGuard disconnected via helper")
+				return nil
+			}
+			return fmt.Errorf("wg-quick down via helper failed: %s", resp.Error)
+		}
+		log.Printf("Helper communication failed, falling back to sudo: %v", err)
+	}
+
+	// Fallback: direct sudo execution
 	out, err := execHiddenContext(ctx, "sudo", "wg-quick", "down", w.ifaceName).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("wg-quick down failed: %s: %w", string(out), err)

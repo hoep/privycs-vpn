@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -15,6 +16,14 @@ import (
 var assets embed.FS
 
 func main() {
+	// Check for --helper flag: run as privileged helper service (no UI)
+	for _, arg := range os.Args[1:] {
+		if arg == "--helper" {
+			RunHelperMode()
+			return
+		}
+	}
+
 	app := NewApp()
 
 	err := wails.Run(&options.App{
