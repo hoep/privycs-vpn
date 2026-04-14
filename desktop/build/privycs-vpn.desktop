@@ -1,0 +1,11 @@
+[Desktop Entry]
+Encoding=UTF-8
+Name=Privycs VPN
+Comment=Enterprise VPN Client for WireGuard, OpenVPN, and IPSec
+Exec=/usr/local/bin/privycs-vpn
+Icon=privycs-vpn
+Terminal=false
+Type=Application
+Categories=Network;VPN;Security;
+Keywords=vpn;wireguard;openvpn;ipsec;
+StartupWMClass=privycs-vpn

@@ -1,0 +1,136 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light dark;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    font-family: 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-900;
+  }
+}
+
+@layer components {
+  /* Buttons — matching web dashboard */
+  .btn {
+    @apply inline-flex items-center justify-center font-medium rounded-md
+           transition-colors duration-200 focus:outline-none
+           focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+           focus:ring-offset-white dark:focus:ring-offset-gray-900;
+  }
+  .btn-primary {
+    @apply btn bg-primary-500 hover:bg-primary-600 text-white;
+  }
+  .btn-secondary {
+    @apply btn bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
+           text-gray-700 dark:text-gray-300;
+  }
+  .btn-danger {
+    @apply btn bg-red-500 hover:bg-red-600 text-white;
+  }
+
+  /* Cards — matching web dashboard light/dark */
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700/50;
+  }
+
+  /* Input fields — matching web dashboard */
+  .input {
+    @apply w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2
+           text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500
+           focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500;
+  }
+
+  /* Toggle switch — matching web dashboard */
+  .toggle {
+    @apply relative inline-flex h-6 w-11 items-center rounded-full
+           border-2 border-transparent transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+           focus:ring-offset-white dark:focus:ring-offset-gray-900;
+  }
+  .toggle-enabled {
+    @apply bg-primary-600;
+  }
+  .toggle-disabled {
+    @apply bg-gray-600;
+  }
+  .toggle-knob {
+    @apply inline-block h-5 w-5 rounded-full bg-white transition-transform duration-200;
+  }
+
+  /* Badges — matching web dashboard */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-primary {
+    @apply bg-primary-900/30 text-primary-300;
+  }
+  .badge-warning {
+    @apply bg-yellow-900/30 text-yellow-300;
+  }
+  .badge-success {
+    @apply bg-green-900/30 text-green-300;
+  }
+  .badge-danger {
+    @apply bg-red-900/30 text-red-300;
+  }
+
+  /* Filter/tab buttons — matching web dashboard */
+  .filter-btn {
+    @apply px-3 py-1.5 rounded-md text-sm font-medium transition-colors duration-200;
+  }
+  .filter-btn-active {
+    @apply bg-primary-600 text-white;
+  }
+  .filter-btn-inactive {
+    @apply bg-gray-800 text-gray-400 hover:text-gray-200;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+/* Animations */
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.15); opacity: 0; }
+}
+.pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease-in-out;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}

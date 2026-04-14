@@ -1,0 +1,276 @@
+<template>
+  <div class="p-4 overflow-y-auto max-h-[calc(100vh-7rem)]">
+    <div class="flex items-center gap-2 mb-4">
+      <button @click="$router.back()" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
+        <ArrowLeftIcon class="w-5 h-5" />
+      </button>
+      <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">
+        {{ targetConnection ? 'Add Protocol to ' + targetConnection.name : 'Add Connection' }}
+      </h2>
+    </div>
+
+    <!-- File Import -->
+    <div class="space-y-4">
+      <div class="text-center mb-2">
+        <p class="text-xs text-gray-500 dark:text-gray-400">
+          {{ targetConnection ? 'Add another protocol config' : 'Import a VPN configuration file' }}
+        </p>
+      </div>
+
+      <!-- Hidden file input -->
+      <input ref="fileInput" type="file" class="hidden"
+        accept=".conf,.ovpn,.sswan,.mobileconfig,.p12"
+        @change="handleFileSelect" />
+
+      <!-- Drop zone -->
+      <div
+        class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-primary-500/50 hover:bg-primary-500/5 transition-all"
+        @click="($refs.fileInput as HTMLInputElement)?.click()"
+        @dragover.prevent="dragOver = true"
+        @dragleave="dragOver = false"
+        @drop.prevent="handleDrop"
+        :class="{ 'border-primary-500 bg-primary-500/10': dragOver }"
+      >
+        <DocumentArrowUpIcon class="w-10 h-10 mx-auto text-gray-500 mb-3" />
+        <p class="text-sm text-gray-600 dark:text-gray-300 font-medium">
+          {{ dragOver ? 'Drop file here' : 'Click to select config file' }}
+        </p>
+        <p class="text-xs text-gray-500 mt-1">
+          .conf (WireGuard) / .ovpn (OpenVPN) / .sswan (IPSec)
+        </p>
+      </div>
+
+      <!-- Selected file preview + options -->
+      <div v-if="selectedFile" class="space-y-3">
+        <div class="card p-4">
+          <div class="flex items-center gap-3 mb-3">
+            <DocumentTextIcon class="w-8 h-8 text-primary-400 flex-shrink-0" />
+            <div class="min-w-0">
+              <p class="text-sm text-gray-900 dark:text-white font-medium truncate">{{ selectedFile.name }}</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                <span class="font-medium" :class="protocolColor(detectedProtocol)">
+                  {{ detectedProtocol ? protocolDisplayName(detectedProtocol) : 'Unknown' }}
+                </span>
+                / {{ formatFileSize(selectedFile.size) }}
+              </p>
+            </div>
+          </div>
+
+          <!-- Connection name (only for new connections) -->
+          <div v-if="!targetConnection">
+            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Connection Name</label>
+            <input
+              v-model="connectionName"
+              type="text"
+              placeholder="e.g. Office VPN"
+              maxlength="64"
+              class="input"
+            />
+            <p v-if="connectionName.length > 50" class="text-[10px] text-gray-400 mt-0.5">
+              {{ connectionName.length }}/64
+            </p>
+          </div>
+
+          <!-- Add to existing connection (only for new connections) -->
+          <div v-if="!targetConnection && existingConnections.length > 0" class="mt-3">
+            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Or add to existing connection</label>
+            <AppSelect
+              v-model="addToExisting"
+              :options="existingConnectionOptions"
+            />
+          </div>
+        </div>
+
+        <button
+          @click="importConfig"
+          :disabled="importing"
+          class="btn-primary w-full py-2.5 text-sm disabled:opacity-50"
+        >
+          {{ importing ? 'Importing...' : (addToExisting || targetConnection ? 'Add Protocol Config' : 'Import Config') }}
+        </button>
+      </div>
+
+      <p v-if="error" class="text-xs text-red-400 text-center">{{ error }}</p>
+      <p v-if="success" class="text-xs text-green-400 text-center">{{ success }}</p>
+    </div>
+
+    <!-- Supported Formats Info -->
+    <div class="mt-6 card p-4">
+      <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Supported Formats</h3>
+      <div class="space-y-1.5">
+        <div class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+          <span class="text-xs text-gray-600 dark:text-gray-300">.conf — WireGuard</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 rounded-full bg-orange-400"></span>
+          <span class="text-xs text-gray-600 dark:text-gray-300">.ovpn — OpenVPN</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+          <span class="text-xs text-gray-600 dark:text-gray-300">.sswan / .mobileconfig — IPSec/IKEv2</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ImportConfig, ListConnections } from '../../wailsjs/go/main/App'
+import AppSelect from '@/components/AppSelect.vue'
+import {
+  ArrowLeftIcon,
+  DocumentArrowUpIcon,
+  DocumentTextIcon,
+} from '@heroicons/vue/24/outline'
+
+const route = useRoute()
+const router = useRouter()
+
+const fileInput = ref<HTMLInputElement | null>(null)
+const selectedFile = ref<File | null>(null)
+const fileContent = ref('')
+const detectedProtocol = ref('')
+const connectionName = ref('')
+const addToExisting = ref('')
+const dragOver = ref(false)
+const importing = ref(false)
+const error = ref('')
+const success = ref('')
+const existingConnections = ref<any[]>([])
+
+// If connectionId is in query params, we're adding a protocol to existing connection
+const targetConnection = computed(() => {
+  const id = route.query.connectionId as string
+  if (!id) return null
+  return existingConnections.value.find(c => c.id === id) || null
+})
+
+const existingConnectionOptions = computed(() => {
+  return [
+    { value: '', label: 'Create new connection' },
+    ...existingConnections.value.map(conn => ({
+      value: conn.id,
+      label: `${conn.name} (${conn.protocols?.map((p: any) => protocolShort(p.protocol)).join(', ')})`
+    }))
+  ]
+})
+
+async function loadConnections() {
+  try {
+    existingConnections.value = await ListConnections() || []
+  } catch {
+    existingConnections.value = []
+  }
+}
+
+function handleFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (!input.files?.length) return
+  processFile(input.files[0])
+}
+
+function handleDrop(e: DragEvent) {
+  dragOver.value = false
+  if (!e.dataTransfer?.files?.length) return
+  processFile(e.dataTransfer.files[0])
+}
+
+function processFile(file: File) {
+  selectedFile.value = file
+  error.value = ''
+  success.value = ''
+
+  const name = file.name.toLowerCase()
+  if (name.endsWith('.conf')) detectedProtocol.value = 'wireguard'
+  else if (name.endsWith('.ovpn')) detectedProtocol.value = 'openvpn'
+  else if (name.endsWith('.sswan') || name.endsWith('.mobileconfig')) detectedProtocol.value = 'ipsec'
+  else detectedProtocol.value = ''
+
+  connectionName.value = file.name.replace(/\.(conf|ovpn|sswan|mobileconfig|p12)$/i, '')
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    fileContent.value = reader.result as string
+    if (!detectedProtocol.value) {
+      if (fileContent.value.includes('[Interface]')) detectedProtocol.value = 'wireguard'
+      else if (fileContent.value.includes('remote ') || fileContent.value.includes('<ca>')) detectedProtocol.value = 'openvpn'
+    }
+  }
+  reader.readAsText(file)
+}
+
+async function importConfig() {
+  if (!fileContent.value || !detectedProtocol.value) {
+    error.value = 'Cannot detect protocol from file'
+    return
+  }
+
+  importing.value = true
+  error.value = ''
+
+  try {
+    // Determine target: existing connection (from query or dropdown) or new
+    const connID = targetConnection.value?.id || addToExisting.value || ''
+    const name = connID ? '' : connectionName.value // don't rename existing connections
+
+    await ImportConfig(
+      detectedProtocol.value,
+      fileContent.value,
+      selectedFile.value?.name || '',
+      name,
+      connID
+    )
+    success.value = connID
+      ? `${protocolDisplayName(detectedProtocol.value)} config added`
+      : 'Connection imported successfully'
+    // Wait for success message to be visible, then navigate
+    await new Promise(resolve => setTimeout(resolve, 500))
+    router.push('/connection')
+  } catch (e: any) {
+    const msg = e?.toString() || ''
+    if (msg.includes('invalid config')) error.value = 'Invalid configuration file format'
+    else if (msg.includes('unsupported')) error.value = 'Unsupported protocol or file format'
+    else error.value = 'Import failed — please check your config file'
+  } finally {
+    importing.value = false
+  }
+}
+
+function protocolDisplayName(proto: string): string {
+  switch (proto) {
+    case 'wireguard': return 'WireGuard'
+    case 'openvpn': return 'OpenVPN'
+    case 'ipsec': return 'IPSec/IKEv2'
+    default: return proto
+  }
+}
+
+function protocolShort(proto: string): string {
+  switch (proto) {
+    case 'wireguard': return 'WG'
+    case 'openvpn': return 'OVPN'
+    case 'ipsec': return 'IPSec'
+    default: return proto
+  }
+}
+
+function protocolColor(proto: string): string {
+  switch (proto) {
+    case 'wireguard': return 'text-red-400'
+    case 'openvpn': return 'text-orange-400'
+    case 'ipsec': return 'text-blue-400'
+    default: return 'text-gray-400'
+  }
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1048576).toFixed(1) + ' MB'
+}
+
+onMounted(loadConnections)
+</script>

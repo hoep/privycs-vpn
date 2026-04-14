@@ -55,6 +55,16 @@ Works with any VPN server that supports standard protocols:
 
 ## Building
 
+### Desktop (Windows, macOS, Linux)
+
+```bash
+cd desktop
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+wails build
+```
+
+Requires Go 1.23+, Node.js 20+, Wails v2 CLI. Platform-specific dependencies: GTK3 + WebKit2GTK (Linux), Xcode CLI Tools (macOS), WebView2 (Windows, bundled).
+
 ### Android
 
 ```bash
@@ -76,17 +86,15 @@ Requires Xcode 15+, iOS 16+ deployment target.
 ## Architecture
 
 ```
+desktop/                  # Desktop app (Go + Vue 3, Wails v2)
+  *.go                    # Go backend (VPN service, config, API client)
+  frontend/               # Vue 3 + Tailwind CSS frontend
+
 android/                  # Android app (Kotlin, Jetpack Compose)
   app/                    # Main application module
-  vpn-wireguard/          # WireGuard VPN service (wireguard-android, MIT)
-  vpn-openvpn/            # OpenVPN VPN service (ics-openvpn, GPL-2.0)
-  vpn-ipsec/              # IPSec VPN service (strongSwan, GPL-2.0)
 
 ios/                      # iOS app (Swift, SwiftUI)
-  PrivycsVPN/             # Main app target
-  PacketTunnel-WG/        # WireGuard Network Extension (WireGuardKit, MIT)
-  PacketTunnel-OVPN/      # OpenVPN Network Extension (OpenVPNAdapter, AGPL-3.0)
-  (IPSec uses native NEVPNProtocolIKEv2 -- no extension needed)
+  PrivycsVPN/             # Main app target (planned)
 
 shared/                   # Shared documentation and assets
   AppKonzept.md           # Product and marketing plan

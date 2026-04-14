@@ -1,0 +1,30 @@
+name: privycs-vpn
+arch: amd64
+platform: linux
+version: "${VERSION}"
+maintainer: "Privycs <info@privycs.com>"
+description: "Privycs VPN Client - Multi-protocol VPN for WireGuard, OpenVPN, and IPSec"
+vendor: "Privycs"
+homepage: "https://privycs.com"
+license: "Proprietary"
+
+contents:
+  - src: build/bin/privycs-vpn
+    dst: /usr/local/bin/privycs-vpn
+    file_info:
+      mode: 0755
+
+  - src: build/appicon.png
+    dst: /usr/share/icons/hicolor/256x256/apps/privycs-vpn.png
+
+  - src: build/privycs-vpn.desktop
+    dst: /usr/share/applications/privycs-vpn.desktop
+
+depends:
+  - libgtk-3-0
+  - libwebkit2gtk-4.0-0 | libwebkit2gtk-4.1-0
+  - libayatana-appindicator3-1
+
+scripts:
+  postinstall: build/postinstall.sh
+  postremove: build/postremove.sh
