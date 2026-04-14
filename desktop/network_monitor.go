@@ -2,8 +2,6 @@ package main
 
 import (
 	"log"
-	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -16,8 +14,10 @@ type NetworkState struct {
 	RuleMatch   bool   `json:"rule_match"`   // whether connect-on-demand rules match
 }
 
-// NetworkMonitor polls the system network state and triggers VPN
-// connect/disconnect based on ConnectOnDemandSettings rules.
+// NetworkMonitor watches for network state changes via platform-specific
+// event APIs and triggers VPN connect/disconnect based on
+// ConnectOnDemandSettings rules.  A safety poll at 60-second intervals
+// ensures changes are never missed even if the OS event is lost.
 type NetworkMonitor struct {
 	mu           sync.Mutex
 	running      bool
@@ -27,6 +27,7 @@ type NetworkMonitor struct {
 	disconnectFn func()
 	isConnected  func() bool
 	lastState    NetworkState
+	stopWatcher  func() // platform watcher teardown
 }
 
 // NewNetworkMonitor creates a new network monitor instance
@@ -34,7 +35,8 @@ func NewNetworkMonitor() *NetworkMonitor {
 	return &NetworkMonitor{}
 }
 
-// Start begins polling the network state every 5 seconds.
+// Start begins watching for network changes using native OS event APIs
+// with a 60-second safety poll fallback.
 // connectFn is called when rules match and VPN is disconnected.
 // disconnectFn is called when rules no longer match and VPN is connected (can be nil).
 // isConnectedFn reports whether the VPN is currently connected.
@@ -55,7 +57,7 @@ func (nm *NetworkMonitor) Start(settings *ConnectOnDemandSettings, connectFn fun
 
 	log.Printf("Network monitor: started (trigger=%s, ssid_mode=%s)", settings.Trigger, settings.SSIDMode)
 
-	go nm.pollLoop()
+	go nm.run()
 }
 
 // Stop ends network monitoring
@@ -68,6 +70,10 @@ func (nm *NetworkMonitor) Stop() {
 	}
 
 	close(nm.stopCh)
+	if nm.stopWatcher != nil {
+		nm.stopWatcher()
+		nm.stopWatcher = nil
+	}
 	nm.running = false
 	log.Println("Network monitor: stopped")
 }
@@ -93,7 +99,8 @@ func (nm *NetworkMonitor) UpdateSettings(settings *ConnectOnDemandSettings) {
 	nm.settings = settings
 }
 
-func (nm *NetworkMonitor) pollLoop() {
+// run sets up the platform event watcher and the safety poll timer.
+func (nm *NetworkMonitor) run() {
 	// Initial delay to let app finish startup
 	select {
 	case <-time.After(3 * time.Second):
@@ -101,10 +108,23 @@ func (nm *NetworkMonitor) pollLoop() {
 		return
 	}
 
+	// Start native OS event watcher
+	stopWatcher, err := startPlatformWatcher(func() {
+		nm.checkAndAct()
+	})
+	if err != nil {
+		log.Printf("Network monitor: platform watcher failed (%v), using poll-only mode", err)
+	} else {
+		nm.mu.Lock()
+		nm.stopWatcher = stopWatcher
+		nm.mu.Unlock()
+	}
+
 	// Run initial check immediately
 	nm.checkAndAct()
 
-	ticker := time.NewTicker(5 * time.Second)
+	// Safety poll at 60-second intervals in case an OS event is missed
+	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -148,114 +168,16 @@ func (nm *NetworkMonitor) checkAndAct() {
 }
 
 // detectNetworkState determines the current network type and WiFi SSID
-// using platform-specific commands.
+// using platform-specific functions.
 func detectNetworkState() NetworkState {
-	state := NetworkState{NetworkType: "none"}
+	netType := getNetworkTypePlatform()
+	state := NetworkState{NetworkType: netType}
 
-	ssid := detectSSID()
-	if ssid != "" {
-		state.NetworkType = "wifi"
-		state.SSID = ssid
-		return state
-	}
-
-	// If no WiFi SSID, check for any network connectivity (ethernet)
-	if hasNetworkConnectivity() {
-		state.NetworkType = "ethernet"
+	if netType == "wifi" {
+		state.SSID = getCurrentSSIDPlatform()
 	}
 
 	return state
-}
-
-// detectSSID returns the current WiFi SSID or empty string
-func detectSSID() string {
-	switch runtime.GOOS {
-	case "linux":
-		return detectSSIDLinux()
-	case "darwin":
-		return detectSSIDMacOS()
-	case "windows":
-		return detectSSIDWindows()
-	default:
-		return ""
-	}
-}
-
-func detectSSIDLinux() string {
-	out, err := exec.Command("nmcli", "-t", "-f", "active,ssid", "dev", "wifi").Output()
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "yes:") {
-			ssid := strings.TrimPrefix(line, "yes:")
-			return strings.TrimSpace(ssid)
-		}
-	}
-	return ""
-}
-
-func detectSSIDMacOS() string {
-	out, err := exec.Command(
-		"/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport",
-		"-I",
-	).Output()
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "SSID:") {
-			ssid := strings.TrimPrefix(line, "SSID:")
-			return strings.TrimSpace(ssid)
-		}
-	}
-	return ""
-}
-
-func detectSSIDWindows() string {
-	out, err := exec.Command("netsh", "wlan", "show", "interfaces").Output()
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		// Match "SSID" but not "BSSID"
-		if strings.HasPrefix(line, "SSID") && !strings.HasPrefix(line, "BSSID") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1])
-			}
-		}
-	}
-	return ""
-}
-
-// hasNetworkConnectivity does a quick check for any network interface being up
-func hasNetworkConnectivity() bool {
-	switch runtime.GOOS {
-	case "linux":
-		out, err := exec.Command("ip", "route", "show", "default").Output()
-		if err != nil {
-			return false
-		}
-		return strings.TrimSpace(string(out)) != ""
-	case "darwin":
-		out, err := exec.Command("route", "-n", "get", "default").Output()
-		if err != nil {
-			return false
-		}
-		return strings.Contains(string(out), "gateway:")
-	case "windows":
-		out, err := exec.Command("ipconfig").Output()
-		if err != nil {
-			return false
-		}
-		return strings.Contains(string(out), "Default Gateway")
-	default:
-		return false
-	}
 }
 
 // evaluateRules checks whether the current network state matches the
