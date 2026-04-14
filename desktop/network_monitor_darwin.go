@@ -4,6 +4,8 @@ package main
 
 /*
 #cgo LDFLAGS: -framework SystemConfiguration -framework CoreFoundation
+#include <netinet/in.h>
+#include <string.h>
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <CoreFoundation/CoreFoundation.h>
 
