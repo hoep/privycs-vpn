@@ -237,11 +237,30 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 }
 
 func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile) error {
-	// Skip if already configured in this session
+	// Cache skip — only when Windows-side state still matches our in-memory
+	// belief. Without the isWindowsVPNHealthy check the cache could swallow
+	// a stale configuration (e.g. previous fallback-path created a user-scope
+	// entry that got wiped or has the wrong server) and prevent a proper
+	// reconfigure, leaving rasphone/rasdial pointed at a broken entry.
 	if i.configured && i.serverAddr == profile.Remote.Addr {
-		log.Printf("IPSec: '%s' already configured (cached), skipping", i.connName)
-		return nil
+		if isWindowsVPNHealthy(i.connName, profile.Remote.Addr) {
+			log.Printf("IPSec: '%s' already configured (cached), skipping", i.connName)
+			return nil
+		}
+		log.Printf("IPSec: cache hit but Windows VPN state is stale — reconfiguring")
+		i.configured = false
 	}
+
+	// Proactively remove any stale user-scope VPN entry with the same name.
+	// The helper runs as SYSTEM and cannot reach a user's HKCU phonebook, so
+	// without this step an older user-scope entry (created by the UAC-fallback
+	// path in v0.9.0.12/13) can coexist with the new AllUser entry. When
+	// rasdial picks the user-scope one first and its cert reference is stale,
+	// IKE auth fails. We run as the user here so HKCU is accessible.
+	removeUserScope := execHidden("powershell", "-NoProfile", "-Command",
+		fmt.Sprintf(`Remove-VpnConnection -Name '%s' -Force -ErrorAction SilentlyContinue`,
+			escapePowerShellString(i.connName)))
+	removeUserScope.Run() // best-effort, ignore errors
 
 	p12Password := profile.Local.P12Password
 	if p12Password == "" {
@@ -500,23 +519,61 @@ func (i *IPSecProtocol) configureWindows(cfg *IPSecConfig) error {
 }
 
 func (i *IPSecProtocol) upWindows(ctx context.Context) error {
-	log.Printf("Connecting IPSec %s via rasdial...", i.connName)
-	out, err := execHiddenContext(ctx, "rasdial", i.connName).CombinedOutput()
-	if err != nil {
-		log.Printf("rasdial failed: %s", string(out))
-		return fmt.Errorf("rasdial failed: %s: %w", string(out), err)
+	log.Printf("Connecting IPSec %s via rasphone...", i.connName)
+
+	// rasphone -d dials a phonebook entry. It's the documented user-facing
+	// tool on modern Windows and in practice succeeds where rasdial fails
+	// (rasdial has historic issues with ambiguous scope when user-scope and
+	// AllUser-scope entries share a name — it often picks the wrong one).
+	// rasphone -d may flash a brief "Connecting..." window but auto-closes
+	// after the handshake. No UAC needed — rasphone runs in user context.
+	rasphoneOut, rasphoneErr := execHiddenContext(ctx, "rasphone", "-d", i.connName).CombinedOutput()
+	if rasphoneErr != nil {
+		return fmt.Errorf("rasphone -d failed: %s: %w", string(rasphoneOut), rasphoneErr)
 	}
-	i.connectedAt = time.Now()
-	log.Printf("IPSec connected: %s", i.connName)
-	return nil
+
+	// rasphone returns asynchronously — poll Get-VpnConnection until the
+	// connection reports Connected (up to 20s). Prefer -AllUserConnection so
+	// we see the machine-scope entry the helper created; fall back to the
+	// user-scope query for compatibility.
+	psCmd := fmt.Sprintf(
+		`$v = Get-VpnConnection -Name '%s' -AllUserConnection -ErrorAction SilentlyContinue; `+
+			`if (-not $v) { $v = Get-VpnConnection -Name '%s' -ErrorAction SilentlyContinue }; `+
+			`$v.ConnectionStatus`,
+		escapePowerShellString(i.connName), escapePowerShellString(i.connName))
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		out, err := execHidden("powershell", "-NoProfile", "-Command", psCmd).CombinedOutput()
+		if err == nil && strings.Contains(string(out), "Connected") {
+			i.connectedAt = time.Now()
+			log.Printf("IPSec connected: %s", i.connName)
+			return nil
+		}
+	}
+	return fmt.Errorf("IPSec connect timeout: %s did not reach Connected state in 20s", i.connName)
 }
 
 func (i *IPSecProtocol) downWindows(ctx context.Context) error {
-	log.Printf("Disconnecting IPSec %s...", i.connName)
-	execHiddenContext(ctx, "rasdial", i.connName, "/disconnect").Run()
+	log.Printf("Disconnecting IPSec %s via rasphone -h...", i.connName)
+	execHiddenContext(ctx, "rasphone", "-h", i.connName).Run()
 	i.connectedAt = time.Time{}
 	log.Printf("IPSec disconnected: %s", i.connName)
 	return nil
+}
+
+// isWindowsVPNHealthy reports true when the AllUser-scope VPN connection
+// with the given name exists and points to the expected server address.
+// Used to decide whether the in-memory configured-cache is still trustworthy.
+func isWindowsVPNHealthy(connName, expectedServer string) bool {
+	psCmd := fmt.Sprintf(
+		`(Get-VpnConnection -Name '%s' -AllUserConnection -ErrorAction SilentlyContinue).ServerAddress`,
+		escapePowerShellString(connName))
+	out, err := execHidden("powershell", "-NoProfile", "-Command", psCmd).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == expectedServer
 }
 
 // ============================================================================

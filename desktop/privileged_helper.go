@@ -474,9 +474,14 @@ func (h *PrivilegedHelper) connectIPSec(cmd HelperCommand) HelperResponse {
 	}
 
 	if runtime.GOOS == "windows" {
-		out, err := exec.Command("rasdial", connName).CombinedOutput()
+		// Prefer rasphone -d over rasdial — rasdial picks the wrong entry when
+		// user-scope and AllUser-scope share a name, and fails with IKE-auth
+		// errors. Client-side code also uses rasphone; this helper path is
+		// kept for symmetry but is rarely hit on Windows because the client
+		// dials directly without going through the helper.
+		out, err := exec.Command("rasphone", "-d", connName).CombinedOutput()
 		if err != nil {
-			return HelperResponse{Success: false, Error: fmt.Sprintf("rasdial failed: %s: %v", string(out), err), Output: string(out)}
+			return HelperResponse{Success: false, Error: fmt.Sprintf("rasphone -d failed: %s: %v", string(out), err), Output: string(out)}
 		}
 		return HelperResponse{Success: true, Output: string(out)}
 	}
@@ -504,9 +509,9 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 	}
 
 	if runtime.GOOS == "windows" {
-		out, err := exec.Command("rasdial", connName, "/disconnect").CombinedOutput()
+		out, err := exec.Command("rasphone", "-h", connName).CombinedOutput()
 		if err != nil {
-			return HelperResponse{Success: false, Error: fmt.Sprintf("rasdial disconnect failed: %s", string(out)), Output: string(out)}
+			return HelperResponse{Success: false, Error: fmt.Sprintf("rasphone -h failed: %s", string(out)), Output: string(out)}
 		}
 		return HelperResponse{Success: true, Output: string(out)}
 	}
@@ -771,8 +776,13 @@ func (h *PrivilegedHelper) cmdIPSecConfigureWindows(cmd HelperCommand) HelperRes
 	}
 	defer os.Remove(p12Path)
 
-	// PowerShell script: import cert to LocalMachine\My and create VPN connection.
-	// Running as SYSTEM — no -Verb RunAs / no UAC.
+	// PowerShell script: import cert to LocalMachine\My and (re)create VPN
+	// connection in the AllUser scope. Running as SYSTEM — no UAC.
+	//
+	// Note: user-scope VPN entries are stored under HKCU of the user that
+	// created them. SYSTEM's HKCU is not the end-user's HKCU, so the client
+	// side (running as the user) is responsible for cleaning up any stale
+	// user-scope entry with this name — see configureWindowsFromSSwan.
 	psScript := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 $p12Password = ConvertTo-SecureString -String '%s' -AsPlainText -Force
