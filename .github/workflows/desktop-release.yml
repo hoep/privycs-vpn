@@ -234,3 +234,107 @@ jobs:
             artifacts/privycs-vpn-windows-amd64/*
             artifacts/privycs-vpn-windows-amd64-setup/*
           fail_on_unmatched_files: false
+
+  propagate-previous-desktop:
+    # When desktop/ did not change between the previous and the current tag,
+    # the build-linux/macos/windows jobs all skip and the tag release ends up
+    # with no desktop artefacts attached. A user landing on the "latest"
+    # release would see only the android APKs of an android-only tag.
+    #
+    # This job mirrors the android-release.yml propagate pattern: walk
+    # recent releases, find the newest one that actually has desktop assets,
+    # download them, and re-attach them to the current tag release. Cost is
+    # a ~1-2 minute download+upload per unchanged tag, compared to ~10-15
+    # minutes for a full cross-platform rebuild.
+    name: Propagate previous desktop assets
+    needs: check-changes
+    if: needs.check-changes.outputs.desktop_changed == 'false' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (for gh CLI auth context)
+        uses: actions/checkout@v4
+
+      - name: Find previous tag with desktop assets and re-attach them
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Desktop asset filename patterns (matches what build-* jobs upload).
+          # Keep as a regex so grep -E can match any of them.
+          ASSET_RE='(privycs-vpn-linux-amd64(\.sha256|\.deb(\.sha256)?)?$|privycs-vpn-darwin-(amd64|arm64)\.zip(\.sha256)?$|privycs-vpn-windows-amd64(-setup)?\.exe(\.sha256)?$)'
+
+          TAGS=$(gh release list --repo "$REPO" --limit 50 --json tagName --jq '.[].tagName' \
+                 | grep -v "^${CURRENT_TAG}$" || true)
+
+          PREV_TAG=""
+          for tag in $TAGS; do
+            has_desktop=$(gh release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null \
+                          | grep -cE "$ASSET_RE" || true)
+            if [ "$has_desktop" -gt 0 ]; then
+              PREV_TAG="$tag"
+              break
+            fi
+          done
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous release with desktop assets found — nothing to propagate."
+            exit 0
+          fi
+          echo "Previous desktop-bearing tag: $PREV_TAG"
+
+          mkdir -p /tmp/desktop-assets
+          echo "Downloading desktop artifacts from $PREV_TAG..."
+          # Download each platform's files. `--pattern` supports glob; list
+          # them explicitly to avoid pulling android APKs into the folder
+          # when the previous release carried both protocols' assets.
+          gh release download "$PREV_TAG" --repo "$REPO" --dir /tmp/desktop-assets \
+            --pattern "privycs-vpn-linux-amd64" \
+            --pattern "privycs-vpn-linux-amd64.sha256" \
+            --pattern "privycs-vpn-linux-amd64.deb" \
+            --pattern "privycs-vpn-linux-amd64.deb.sha256" \
+            --pattern "privycs-vpn-darwin-amd64.zip" \
+            --pattern "privycs-vpn-darwin-amd64.zip.sha256" \
+            --pattern "privycs-vpn-darwin-arm64.zip" \
+            --pattern "privycs-vpn-darwin-arm64.zip.sha256" \
+            --pattern "privycs-vpn-windows-amd64.exe" \
+            --pattern "privycs-vpn-windows-amd64.exe.sha256" \
+            --pattern "privycs-vpn-windows-amd64-setup.exe" \
+            --pattern "privycs-vpn-windows-amd64-setup.exe.sha256" \
+            || true
+
+          echo "Downloaded files:"
+          ls -la /tmp/desktop-assets/ || true
+
+          # Ensure the current release exists. desktop-release's own release
+          # job has skipped in this branch (desktop_changed=false); other
+          # workflows (e.g. android-release) may have created it already.
+          # softprops/action-gh-release is idempotent, but gh release upload
+          # needs the release to exist.
+          if ! gh release view "$CURRENT_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $CURRENT_TAG does not exist yet — creating it."
+            gh release create "$CURRENT_TAG" \
+              --repo "$REPO" \
+              --title "Privycs VPN $CURRENT_TAG" \
+              --generate-notes || echo "Race: release was created by another job just now."
+          else
+            echo "Release $CURRENT_TAG already exists — uploading to it."
+          fi
+
+          # Upload every downloaded file. If the current release already has
+          # an asset with the same name (shouldn't, desktop and android asset
+          # names are disjoint), --clobber overwrites.
+          if compgen -G "/tmp/desktop-assets/*" > /dev/null; then
+            echo "Uploading desktop assets to $CURRENT_TAG..."
+            gh release upload "$CURRENT_TAG" \
+              --repo "$REPO" \
+              --clobber \
+              /tmp/desktop-assets/*
+            echo "Propagated desktop assets from $PREV_TAG to $CURRENT_TAG (no rebuild)."
+          else
+            echo "Download folder is empty — propagation had nothing to do."
+          fi
