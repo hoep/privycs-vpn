@@ -201,18 +201,31 @@ func (w *WireGuardProtocol) downUnix(ctx context.Context) error {
 }
 
 // buildWGConfigWithBypass reads the WireGuard config from src and returns the
-// content with PostUp/PreDown endpoint bypass routes injected. When AllowedIPs
-// covers the VPN server's own IP, traffic to the server would otherwise loop
-// through the tunnel and break the connection. The bypass routes steer server
-// traffic through the default gateway instead.
+// content. On Linux/macOS it injects PostUp/PreDown endpoint bypass routes —
+// when AllowedIPs covers the VPN server's own IP, traffic to the server would
+// otherwise loop through the tunnel and break the connection.
 //
-// This function does NOT write to /etc/wireguard — the privileged helper
-// handles that via the wg_install_config action.
+// On Windows this is a pure pass-through: the WireGuard Windows tunnel
+// service (using Wintun) automatically excludes the endpoint IP from the
+// tunnel routes, so no manual PostUp is needed. Injecting the Linux
+// "PostUp = ip route add ... $(ip route show default | sed ...)" lines on
+// Windows would make the tunnel service fail at start because cmd.exe can't
+// execute bash syntax — resulting in WireGuard's "check your config and
+// network" error.
+//
+// This function does NOT write to /etc/wireguard or %PROGRAMDATA% — the
+// privileged helper handles that via the wg_install_config action.
 func buildWGConfigWithBypass(src string) (string, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return "", err
 	}
+
+	// Windows: pass through unchanged.
+	if runtime.GOOS == "windows" {
+		return string(data), nil
+	}
+
 	content := string(data)
 
 	endpointIP, endpointIPv6 := parseEndpointIPs(content)
