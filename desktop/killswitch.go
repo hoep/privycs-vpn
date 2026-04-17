@@ -33,13 +33,16 @@ func (ks *KillSwitch) Enable() {
 	log.Println("Kill switch enabled")
 }
 
-// Disable turns off the kill switch completely
+// Disable turns off the kill switch completely.
+// Always runs platform cleanup — even if the in-memory 'active' flag is
+// false — to catch stale firewall rules left behind by app crashes or
+// aborted Connect() attempts. The platform deactivate is idempotent
+// (deleting non-existent rules is a no-op on all OSes) so this is safe
+// to call unconditionally.
 func (ks *KillSwitch) Disable() {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
-	if ks.active {
-		ks.deactivatePlatform()
-	}
+	ks.deactivatePlatform()
 	ks.enabled = false
 	ks.active = false
 	log.Println("Kill switch disabled")
@@ -57,16 +60,19 @@ func (ks *KillSwitch) Activate() {
 	log.Println("Kill switch activated")
 }
 
-// Deactivate removes the firewall rules
+// Deactivate removes the firewall rules.
+// Always runs platform cleanup regardless of the in-memory 'active' flag.
+// This catches stale rules from a crashed previous run AND ensures a failed
+// Connect() attempt can always restore network access.
 func (ks *KillSwitch) Deactivate() {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
-	if !ks.active {
-		return
-	}
+	wasActive := ks.active
 	ks.deactivatePlatform()
 	ks.active = false
-	log.Println("Kill switch deactivated")
+	if wasActive {
+		log.Println("Kill switch deactivated")
+	}
 }
 
 func (ks *KillSwitch) activatePlatform() {
@@ -226,6 +232,11 @@ func (ks *KillSwitch) deactivateMacOS() {
 // Creates firewall rules that block all outbound traffic except loopback and VPN protocols.
 // Uses rule names prefixed with "PrivycsKS-" for easy identification and cleanup.
 func (ks *KillSwitch) activateWindows() {
+	// Clean any stale PrivycsKS-* rules from a previous run first.
+	// Without this, repeated activations create duplicate rule entries.
+	// Linux already does this via deactivateLinux() at the top of activateLinux().
+	ks.deactivateWindows()
+
 	commands := [][]string{
 		// Allow loopback
 		{"netsh", "advfirewall", "firewall", "add", "rule", "name=PrivycsKS-Loopback", "dir=out", "action=allow", "remoteip=127.0.0.0/8"},

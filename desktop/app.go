@@ -378,6 +378,12 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 
 	a.mu.Lock() // Re-acquire lock
 	if upErr != nil {
+		// CRITICAL: the kill switch was activated right before proto.Up().
+		// If Up() failed, the tunnel is DOWN but the firewall still blocks
+		// all non-VPN traffic — user is stranded with no network. Tear the
+		// kill switch back down unconditionally so traffic flows again.
+		// Without this, a failed connect bricks the user's internet.
+		a.killSwitch.Deactivate()
 		wailsRuntime.EventsEmit(appCtx, "vpn:error", upErr.Error())
 		return nil, fmt.Errorf("connection failed: %w", upErr)
 	}
