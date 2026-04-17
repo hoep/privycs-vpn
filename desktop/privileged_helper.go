@@ -84,10 +84,21 @@ func NewPrivilegedHelper() *PrivilegedHelper {
 // Start begins listening for IPC commands. This blocks until Stop() is called.
 func (h *PrivilegedHelper) Start() error {
 	socketPath := helperSocketPath()
+	socketDir := filepath.Dir(socketPath)
 
 	// Ensure parent directory exists (matters on Windows %PROGRAMDATA%\PrivycsVPN\).
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0755); err != nil {
+	if err := os.MkdirAll(socketDir, 0755); err != nil {
 		return fmt.Errorf("failed to create socket directory: %w", err)
+	}
+
+	// On Windows, proactively grant Authenticated Users full access to the
+	// helper's runtime directory so user-session processes can connect to
+	// the socket file. The default inherited ACL from %PROGRAMDATA% is
+	// Read+Execute only, which is not enough for AF_UNIX socket connect.
+	// (OI) = Object Inherit, (CI) = Container Inherit → applies to new
+	// files/subdirs created in the directory.
+	if runtime.GOOS == "windows" {
+		exec.Command("icacls", socketDir, "/grant", "*S-1-5-11:(OI)(CI)F", "/T").Run()
 	}
 
 	// Clean up stale socket file (Windows also benefits: if previous run left
@@ -99,9 +110,13 @@ func (h *PrivilegedHelper) Start() error {
 		return fmt.Errorf("failed to listen on %s: %w", socketPath, err)
 	}
 
-	// Socket permissions: on Unix owner+group only; on Windows the file
-	// inherits %PROGRAMDATA% ACL which allows Authenticated Users.
-	if runtime.GOOS != "windows" {
+	// Socket permissions: on Unix owner+group only; on Windows we re-apply
+	// the ACL explicitly on the just-created socket file because the file
+	// is recreated each service start and may not pick up the directory
+	// inheritance in time for the first client connect.
+	if runtime.GOOS == "windows" {
+		exec.Command("icacls", socketPath, "/grant", "*S-1-5-11:F").Run()
+	} else {
 		os.Chmod(socketPath, 0660)
 	}
 
