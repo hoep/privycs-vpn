@@ -98,8 +98,16 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 
 	switch runtime.GOOS {
 	case "linux":
-		out, err := execHidden("sudo", "swanctl", "--list-sas", "--ike", i.connName).CombinedOutput()
-		if err == nil && strings.Contains(string(out), "ESTABLISHED") {
+		// Query via helper — avoids sudo prompt every 2 seconds.
+		client := NewHelperClient()
+		if !client.IsHelperReachable() {
+			return status
+		}
+		resp, err := client.SendCommand("status", map[string]string{
+			"protocol":  "ipsec",
+			"interface": i.connName,
+		})
+		if err == nil && resp.Success && strings.Contains(resp.Output, "ESTABLISHED") {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
 		}
@@ -110,11 +118,13 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
 		}
 	case "windows":
-		// Check connection status AND get traffic stats in one PowerShell call
+		// Look up both per-user AND machine-wide VPN connections — the helper
+		// creates with -AllUserConnection, direct-fallback creates per-user.
 		psCmd := fmt.Sprintf(
-			`$vpn = Get-VpnConnection -Name '%s' -ErrorAction SilentlyContinue; `+
-				`if ($vpn) { $vpn.ConnectionStatus } else { 'NotFound' }`,
-			i.connName)
+			`$v = Get-VpnConnection -Name '%s' -AllUserConnection -ErrorAction SilentlyContinue; `+
+				`if (-not $v) { $v = Get-VpnConnection -Name '%s' -ErrorAction SilentlyContinue }; `+
+				`if ($v) { $v.ConnectionStatus } else { 'NotFound' }`,
+			escapePowerShellString(i.connName), escapePowerShellString(i.connName))
 		out, err := execHidden("powershell", "-NoProfile", "-Command", psCmd).CombinedOutput()
 		if err == nil && strings.Contains(string(out), "Connected") {
 			status.Connected = true
@@ -233,63 +243,69 @@ func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile) error {
 		return nil
 	}
 
-	p12Path := filepath.Join(appDataDir(), i.connName+".p12")
 	p12Password := profile.Local.P12Password
 	if p12Password == "" {
 		// Empty p12-password field means the server used the default export password.
-		// This is set during certificate generation on the gateway.
 		p12Password = "privycs"
 	}
 
-	// Never log the p12 password — it appears in PowerShell scripts below
-	log.Printf("IPSec: creating Windows VPN connection '%s' -> %s (first-time setup)", i.connName, profile.Remote.Addr)
+	log.Printf("IPSec: creating Windows VPN connection '%s' -> %s", i.connName, profile.Remote.Addr)
 
-	// PowerShell script to:
-	// 1. Import PKCS#12 certificate bundle into Windows cert store
-	// 2. Create IKEv2 VPN connection
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		// Helper-based path: no UAC prompt, cert goes to LocalMachine\My.
+		resp, err := client.SendCommand("ipsec_configure", map[string]string{
+			"conn_name":      i.connName,
+			"server_address": profile.Remote.Addr,
+			"p12_base64":     profile.Local.P12,
+			"p12_password":   p12Password,
+		})
+		if err != nil {
+			return fmt.Errorf("helper ipsec_configure failed: %w", err)
+		}
+		if !resp.Success {
+			return fmt.Errorf("ipsec configure via helper: %s", resp.Error)
+		}
+		i.configured = true
+		log.Printf("Windows IKEv2 VPN connection created via helper: %s -> %s", i.connName, profile.Remote.Addr)
+		return nil
+	}
+
+	// Fallback: UAC-elevated setup (one-time admin prompt).
+	p12Path := filepath.Join(appDataDir(), i.connName+".p12")
+	// Write PKCS#12 locally (client writes in configureFromSSwan already, but
+	// be defensive in case fallback is invoked from a different code path).
+	if profile.Local.P12 != "" {
+		if data, err := base64Decode(profile.Local.P12); err == nil {
+			os.WriteFile(p12Path, data, 0600)
+		}
+	}
+
 	psScript := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
-
-# Import PKCS#12 certificate (includes CA + client cert + key)
-$p12Path = '%s'
 $p12Password = ConvertTo-SecureString -String '%s' -AsPlainText -Force
 try {
-    Import-PfxCertificate -FilePath $p12Path -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop | Out-Null
-    Write-Host 'Certificate imported to LocalMachine\My'
+    Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop | Out-Null
 } catch {
-    # Try CurrentUser if LocalMachine fails (no admin)
-    Import-PfxCertificate -FilePath $p12Path -CertStoreLocation Cert:\CurrentUser\My -Password $p12Password | Out-Null
-    Write-Host 'Certificate imported to CurrentUser\My'
+    Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\CurrentUser\My -Password $p12Password | Out-Null
 }
-
-# Remove existing VPN connection if exists
 Remove-VpnConnection -Name '%s' -Force -ErrorAction SilentlyContinue
-
-# Create IKEv2 VPN connection
 Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -AuthenticationMethod MachineCertificate -EncryptionLevel Required -RememberCredential -Force
-Write-Host 'VPN connection created: %s -> %s'
-`,
-		p12Path, p12Password,
-		i.connName,
-		i.connName, profile.Remote.Addr,
-		i.connName, profile.Remote.Addr,
-	)
+`, escapePowerShellString(p12Password), escapePowerShellString(p12Path), escapePowerShellString(p12Path),
+		escapePowerShellString(i.connName),
+		escapePowerShellString(i.connName), escapePowerShellString(profile.Remote.Addr))
 
-	// Run elevated
 	cmd := execHidden("powershell", "-NoProfile", "-Command",
 		fmt.Sprintf("Start-Process powershell -ArgumentList '-NoProfile','-Command','%s' -Verb RunAs -Wait -WindowStyle Hidden",
 			escapePowerShellString(psScript)))
 	setupOut, setupErr := cmd.CombinedOutput()
 	if setupErr != nil {
-		// Redact credentials from log output — the PowerShell script contains
-		// the PKCS#12 password which must never appear in log files.
 		safeOutput := redactCredentials(string(setupOut), p12Password)
-		log.Printf("Windows IPSec setup output: %s", safeOutput)
 		return fmt.Errorf("failed to configure IPSec on Windows: %s: %w", safeOutput, setupErr)
 	}
 
 	i.configured = true
-	log.Printf("Windows IKEv2 VPN connection created: %s -> %s", i.connName, profile.Remote.Addr)
+	log.Printf("Windows IKEv2 VPN connection created via UAC fallback: %s -> %s", i.connName, profile.Remote.Addr)
 	return nil
 }
 
@@ -336,20 +352,6 @@ func base64StdDecode(s string) ([]byte, error) {
 // ============================================================================
 
 func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
-	certDir := "/etc/swanctl"
-
-	// Write certificates with sudo
-	if cfg.CACertPEM != "" {
-		writeSudoFile(certDir+"/x509ca/privycs-ca.pem", cfg.CACertPEM, 0644)
-	}
-	if cfg.ClientCertPEM != "" {
-		writeSudoFile(certDir+"/x509/privycs-client.pem", cfg.ClientCertPEM, 0644)
-	}
-	if cfg.ClientKeyPEM != "" {
-		writeSudoFile(certDir+"/private/privycs-client.pem", cfg.ClientKeyPEM, 0600)
-	}
-
-	// Write swanctl.conf
 	ikeProposals := cfg.IKEProposals
 	if ikeProposals == "" {
 		ikeProposals = "aes256-sha256-modp2048"
@@ -389,27 +391,57 @@ func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
 `, cfg.ConnectionName, cfg.RemoteAddress, cfg.LocalID, cfg.RemoteID,
 		cfg.ConnectionName, espProposals, ikeProposals)
 
-	confPath := certDir + "/conf.d/privycs-vpn.conf"
-	writeSudoFile(confPath, swanctlConf, 0644)
-
-	// Reload swanctl
-	execHidden("sudo", "swanctl", "--load-all").Run()
-	log.Printf("IPSec config written: %s", confPath)
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		return fmt.Errorf("privileged helper not running — install it in Settings → Privileged Helper")
+	}
+	resp, err := client.SendCommand("ipsec_configure", map[string]string{
+		"conn_name":    cfg.ConnectionName,
+		"ca_cert":      cfg.CACertPEM,
+		"client_cert":  cfg.ClientCertPEM,
+		"client_key":   cfg.ClientKeyPEM,
+		"swanctl_conf": swanctlConf,
+	})
+	if err != nil {
+		return fmt.Errorf("helper ipsec_configure failed: %w", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("ipsec configure failed: %s", resp.Error)
+	}
+	log.Printf("IPSec config installed and loaded via helper")
 	return nil
 }
 
 func (i *IPSecProtocol) upLinux(ctx context.Context) error {
-	out, err := execHiddenContext(ctx, "sudo", "swanctl", "--initiate", "--ike", i.connName, "--child", i.connName).CombinedOutput()
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		return fmt.Errorf("privileged helper not running — install it in Settings → Privileged Helper")
+	}
+	resp, err := client.SendCommand("connect", map[string]string{
+		"protocol":        "ipsec",
+		"interface":       i.connName,
+		"connection_name": i.connName,
+	})
 	if err != nil {
-		return fmt.Errorf("swanctl initiate failed: %s: %w", string(out), err)
+		return fmt.Errorf("helper connect failed: %w", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("swanctl initiate failed: %s", resp.Error)
 	}
 	i.connectedAt = time.Now()
-	log.Println("IPSec connected via swanctl")
+	log.Println("IPSec connected via helper")
 	return nil
 }
 
 func (i *IPSecProtocol) downLinux(ctx context.Context) error {
-	execHiddenContext(ctx, "sudo", "swanctl", "--terminate", "--ike", i.connName).Run()
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		client.SendCommand("disconnect", map[string]string{
+			"protocol":        "ipsec",
+			"interface":       i.connName,
+			"connection_name": i.connName,
+		})
+	}
 	i.connectedAt = time.Time{}
 	log.Println("IPSec disconnected")
 	return nil
@@ -490,24 +522,6 @@ func (i *IPSecProtocol) downWindows(ctx context.Context) error {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-// writeSudoFile writes content to a path using sudo tee
-func writeSudoFile(path string, content string, mode os.FileMode) error {
-	// Ensure parent directory exists
-	dir := filepath.Dir(path)
-	execHidden("sudo", "mkdir", "-p", dir).Run()
-
-	cmd := execHidden("sudo", "tee", path)
-	cmd.Stdin = strings.NewReader(content)
-	cmd.Stdout = nil
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to write %s: %v - %s", path, err, string(output))
-	}
-
-	// Set permissions
-	execHidden("sudo", "chmod", fmt.Sprintf("%o", mode), path).Run()
-	return nil
-}
 
 // redactCredentials replaces sensitive values in output strings for safe logging
 func redactCredentials(output string, secrets ...string) string {

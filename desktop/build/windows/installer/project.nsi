@@ -94,11 +94,31 @@ Section
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
 
+    # Install PrivycsVPNHelper as an auto-start Windows service running as
+    # LocalSystem. The service hosts the privileged helper (invoked with the
+    # --helper flag on the same binary) and exposes the IPC socket under
+    # %PROGRAMDATA%\PrivycsVPN\helper.sock. With this in place, all VPN
+    # connect/disconnect operations run without UAC prompts.
+    DetailPrint "Installing PrivycsVPNHelper service..."
+    nsExec::ExecToLog 'sc.exe stop PrivycsVPNHelper'
+    nsExec::ExecToLog 'sc.exe delete PrivycsVPNHelper'
+    nsExec::ExecToLog 'sc.exe create PrivycsVPNHelper binPath= "\"$INSTDIR\${PRODUCT_EXECUTABLE}\" --helper" start= auto DisplayName= "Privycs VPN Helper" obj= LocalSystem'
+    nsExec::ExecToLog 'sc.exe description PrivycsVPNHelper "Runs privileged VPN operations on behalf of the Privycs VPN desktop client so users do not get UAC prompts on every connect."'
+    nsExec::ExecToLog 'sc.exe failure PrivycsVPNHelper reset= 60 actions= restart/5000/restart/5000/restart/5000'
+    nsExec::ExecToLog 'sc.exe start PrivycsVPNHelper'
+
     !insertmacro wails.writeUninstaller
 SectionEnd
 
 Section "uninstall"
     !insertmacro wails.setShellContext
+
+    # Remove the PrivycsVPNHelper service before deleting the binary.
+    nsExec::ExecToLog 'sc.exe stop PrivycsVPNHelper'
+    nsExec::ExecToLog 'sc.exe delete PrivycsVPNHelper'
+
+    # Remove helper-managed data (tunnel configs, logs, socket).
+    RMDir /r "$PROGRAMDATA\PrivycsVPN"
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 

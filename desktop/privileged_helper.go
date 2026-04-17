@@ -33,11 +33,14 @@ type HelperResponse struct {
 
 // allowedActions is the whitelist of commands the helper will execute.
 var allowedActions = map[string]bool{
-	"connect":           true,
-	"disconnect":        true,
-	"killswitch_enable": true,
-	"killswitch_disable": true,
-	"status":            true,
+	"connect":               true,
+	"disconnect":            true,
+	"killswitch_enable":     true,
+	"killswitch_disable":    true,
+	"status":                true,
+	"wg_install_config":     true,
+	"ipsec_configure":       true,
+	"remove_legacy_sudoers": true,
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.
@@ -46,11 +49,16 @@ var safePathPattern = regexp.MustCompile(`^[a-zA-Z0-9/_\-\.\\:]+$`)
 // safeInterfacePattern validates interface names (alphanumeric, dash, underscore, max 15 chars).
 var safeInterfacePattern = regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,15}$`)
 
-// helperSocketPath returns the IPC socket/pipe path for the current platform.
+// helperSocketPath returns the IPC socket path for the current platform.
+// Windows uses a filesystem unix socket under %PROGRAMDATA% (Win10 1803+).
 func helperSocketPath() string {
 	switch runtime.GOOS {
 	case "windows":
-		return `\\.\pipe\privycs-vpn`
+		programData := os.Getenv("PROGRAMDATA")
+		if programData == "" {
+			programData = `C:\ProgramData`
+		}
+		return filepath.Join(programData, "PrivycsVPN", "helper.sock")
 	default:
 		return "/var/run/privycs-vpn.sock"
 	}
@@ -77,17 +85,22 @@ func NewPrivilegedHelper() *PrivilegedHelper {
 func (h *PrivilegedHelper) Start() error {
 	socketPath := helperSocketPath()
 
-	// Clean up stale socket file on Unix
-	if runtime.GOOS != "windows" {
-		os.Remove(socketPath)
+	// Ensure parent directory exists (matters on Windows %PROGRAMDATA%\PrivycsVPN\).
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0755); err != nil {
+		return fmt.Errorf("failed to create socket directory: %w", err)
 	}
+
+	// Clean up stale socket file (Windows also benefits: if previous run left
+	// a zombie file, re-bind would fail).
+	os.Remove(socketPath)
 
 	listener, err := helperListen(socketPath)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", socketPath, err)
 	}
 
-	// Restrict socket permissions on Unix so only the owner can connect
+	// Socket permissions: on Unix owner+group only; on Windows the file
+	// inherits %PROGRAMDATA% ACL which allows Authenticated Users.
 	if runtime.GOOS != "windows" {
 		os.Chmod(socketPath, 0660)
 	}
@@ -198,6 +211,12 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdKillSwitchDisable(cmd)
 	case "status":
 		return h.cmdStatus(cmd)
+	case "wg_install_config":
+		return h.cmdWGInstallConfig(cmd)
+	case "ipsec_configure":
+		return h.cmdIPSecConfigure(cmd)
+	case "remove_legacy_sudoers":
+		return h.cmdRemoveLegacySudoers(cmd)
 	default:
 		return HelperResponse{Success: false, Error: "unhandled action"}
 	}
@@ -231,21 +250,43 @@ func (h *PrivilegedHelper) cmdDisconnect(cmd HelperCommand) HelperResponse {
 	}
 }
 
-// connectWireGuard runs wg-quick up.
+// connectWireGuard installs the tunnel service (Windows) or runs wg-quick (Unix).
+// The helper runs as SYSTEM/root so neither path triggers UAC/sudo prompts.
 func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 	ifaceName := cmd.Interface
 	if ifaceName == "" {
 		ifaceName = "privycs0"
 	}
 
-	// Copy config to /etc/wireguard if config_path is provided
+	if runtime.GOOS == "windows" {
+		wgExe := findWireGuardExe()
+		if wgExe == "" {
+			return HelperResponse{Success: false, Error: "wireguard.exe not found"}
+		}
+		// Config path: prefer helper-managed %PROGRAMDATA%\PrivycsVPN\tunnels\ location.
+		confPath := cmd.ConfigPath
+		if confPath == "" {
+			confPath = windowsWGConfigPath(ifaceName)
+		}
+		if _, err := os.Stat(confPath); err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("config not found: %s", confPath)}
+		}
+		// Remove any existing tunnel service with this name first (idempotent).
+		exec.Command(wgExe, "/uninstalltunnelservice", ifaceName).Run()
+		out, err := exec.Command(wgExe, "/installtunnelservice", confPath).CombinedOutput()
+		if err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("installtunnelservice failed: %s: %v", string(out), err), Output: string(out)}
+		}
+		return HelperResponse{Success: true, Output: string(out)}
+	}
+
+	// Linux/macOS: wg-quick up, with optional config copy from user path.
 	if cmd.ConfigPath != "" {
 		etcConf := filepath.Join("/etc/wireguard", ifaceName+".conf")
 		if err := h.copyConfigFile(cmd.ConfigPath, etcConf); err != nil {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("failed to install config: %v", err)}
 		}
 	}
-
 	out, err := exec.Command("wg-quick", "up", ifaceName).CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("wg-quick up failed: %s", string(out)), Output: string(out)}
@@ -253,11 +294,23 @@ func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 	return HelperResponse{Success: true, Output: string(out)}
 }
 
-// disconnectWireGuard runs wg-quick down.
+// disconnectWireGuard uninstalls the tunnel service (Windows) or runs wg-quick down (Unix).
 func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse {
 	ifaceName := cmd.Interface
 	if ifaceName == "" {
 		ifaceName = "privycs0"
+	}
+
+	if runtime.GOOS == "windows" {
+		wgExe := findWireGuardExe()
+		if wgExe == "" {
+			return HelperResponse{Success: false, Error: "wireguard.exe not found"}
+		}
+		out, err := exec.Command(wgExe, "/uninstalltunnelservice", ifaceName).CombinedOutput()
+		if err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("uninstalltunnelservice failed: %s: %v", string(out), err), Output: string(out)}
+		}
+		return HelperResponse{Success: true, Output: string(out)}
 	}
 
 	out, err := exec.Command("wg-quick", "down", ifaceName).CombinedOutput()
@@ -267,32 +320,37 @@ func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse
 	return HelperResponse{Success: true, Output: string(out)}
 }
 
+// windowsWGConfigPath returns the canonical Windows location for a WG config
+// managed by the privileged helper.
+func windowsWGConfigPath(ifaceName string) string {
+	programData := os.Getenv("PROGRAMDATA")
+	if programData == "" {
+		programData = `C:\ProgramData`
+	}
+	return filepath.Join(programData, "PrivycsVPN", "tunnels", ifaceName+".conf")
+}
+
 // connectOpenVPN starts the openvpn daemon.
+//   - Linux: openvpn --daemon with pid/log files under /tmp
+//   - Windows: spawns openvpn.exe as background child of the SYSTEM helper
+//     process (Windows has no native --daemon flag). Returns after start;
+//     PID is recorded so disconnectOpenVPN can kill it later.
 func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
-	ovpnExe, err := exec.LookPath("openvpn")
-	if err != nil {
-		return HelperResponse{Success: false, Error: "openvpn not found in PATH"}
+	ovpnExe := findOpenVPNExe()
+	if ovpnExe == "" {
+		return HelperResponse{Success: false, Error: "openvpn not found"}
 	}
 
 	configPath := cmd.ConfigPath
 	if configPath == "" {
 		return HelperResponse{Success: false, Error: "config_path is required for openvpn"}
 	}
-
-	// Verify config file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return HelperResponse{Success: false, Error: "config file not found"}
 	}
 
 	logPath := cmd.Args["log_path"]
-	if logPath == "" {
-		logPath = "/tmp/privycs-openvpn.log"
-	}
 	pidPath := cmd.Args["pid_path"]
-	if pidPath == "" {
-		pidPath = "/tmp/privycs-openvpn.pid"
-	}
-
 	mgmtHost := cmd.Args["mgmt_host"]
 	if mgmtHost == "" {
 		mgmtHost = "127.0.0.1"
@@ -302,6 +360,41 @@ func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
 		mgmtPort = "7505"
 	}
 
+	if runtime.GOOS == "windows" {
+		if logPath == "" {
+			logPath = filepath.Join(windowsHelperDataDir(), "openvpn.log")
+		}
+		if pidPath == "" {
+			pidPath = filepath.Join(windowsHelperDataDir(), "openvpn.pid")
+		}
+		os.MkdirAll(filepath.Dir(logPath), 0755)
+
+		// Spawn openvpn.exe in background — no --daemon on Windows, we just
+		// start the process and record PID. Since the helper runs as SYSTEM,
+		// the child inherits SYSTEM privileges (can manage TAP/Wintun).
+		c := exec.Command(ovpnExe,
+			"--config", configPath,
+			"--log", logPath,
+			"--management", mgmtHost, mgmtPort,
+		)
+		// Hide console window.
+		hideWindow(c)
+		if err := c.Start(); err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("openvpn start failed: %v", err)}
+		}
+		// Record PID so disconnect can find it.
+		os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", c.Process.Pid)), 0644)
+		// Release the child — we don't Wait; it lives past this handler.
+		go c.Process.Release()
+		return HelperResponse{Success: true, Output: fmt.Sprintf("openvpn started pid=%d", c.Process.Pid)}
+	}
+
+	if logPath == "" {
+		logPath = "/tmp/privycs-openvpn.log"
+	}
+	if pidPath == "" {
+		pidPath = "/tmp/privycs-openvpn.pid"
+	}
 	c := exec.Command(ovpnExe,
 		"--config", configPath,
 		"--daemon",
@@ -314,6 +407,15 @@ func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("openvpn start failed: %s", string(out)), Output: string(out)}
 	}
 	return HelperResponse{Success: true, Output: string(out)}
+}
+
+// windowsHelperDataDir returns %PROGRAMDATA%\PrivycsVPN for helper-managed state.
+func windowsHelperDataDir() string {
+	programData := os.Getenv("PROGRAMDATA")
+	if programData == "" {
+		programData = `C:\ProgramData`
+	}
+	return filepath.Join(programData, "PrivycsVPN")
 }
 
 // disconnectOpenVPN stops the openvpn daemon via PID file.
@@ -339,7 +441,9 @@ func (h *PrivilegedHelper) disconnectOpenVPN(cmd HelperCommand) HelperResponse {
 	return HelperResponse{Success: true, Output: "openvpn stopped"}
 }
 
-// connectIPSec starts an IPSec/IKEv2 connection via swanctl.
+// connectIPSec starts an IPSec/IKEv2 connection.
+//   - Linux: swanctl --load-all + --initiate
+//   - Windows: rasdial <name> (machine certs already imported via ipsec_configure)
 func (h *PrivilegedHelper) connectIPSec(cmd HelperCommand) HelperResponse {
 	connName := cmd.Interface
 	if connName == "" {
@@ -349,7 +453,14 @@ func (h *PrivilegedHelper) connectIPSec(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: false, Error: "connection name required for ipsec"}
 	}
 
-	// Load credentials and initiate
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("rasdial", connName).CombinedOutput()
+		if err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("rasdial failed: %s: %v", string(out), err), Output: string(out)}
+		}
+		return HelperResponse{Success: true, Output: string(out)}
+	}
+
 	out, err := exec.Command("swanctl", "--load-all").CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --load-all failed: %s", string(out))}
@@ -370,6 +481,14 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 	}
 	if connName == "" {
 		return HelperResponse{Success: false, Error: "connection name required for ipsec"}
+	}
+
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("rasdial", connName, "/disconnect").CombinedOutput()
+		if err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("rasdial disconnect failed: %s", string(out)), Output: string(out)}
+		}
+		return HelperResponse{Success: true, Output: string(out)}
 	}
 
 	out, err := exec.Command("swanctl", "--terminate", "--ike", connName).CombinedOutput()
@@ -415,6 +534,13 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 		if ifaceName == "" {
 			ifaceName = "privycs0"
 		}
+		if runtime.GOOS == "windows" {
+			out, _ := exec.Command("sc", "query", "WireGuardTunnel$"+ifaceName).CombinedOutput()
+			if strings.Contains(string(out), "RUNNING") {
+				return HelperResponse{Success: true, Output: "running"}
+			}
+			return HelperResponse{Success: false, Error: "not connected"}
+		}
 		out, err := exec.Command("wg", "show", ifaceName).CombinedOutput()
 		if err != nil {
 			return HelperResponse{Success: false, Error: "not connected", Output: string(out)}
@@ -441,7 +567,22 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: false, Error: "not connected"}
 
 	case "ipsec":
-		out, err := exec.Command("swanctl", "--list-sas").CombinedOutput()
+		if runtime.GOOS == "windows" {
+			connName := cmd.Interface
+			psCmd := fmt.Sprintf(
+				`(Get-VpnConnection -Name '%s' -AllUserConnection -ErrorAction SilentlyContinue).ConnectionStatus`,
+				escapePowerShellString(connName))
+			out, _ := exec.Command("powershell", "-NoProfile", "-Command", psCmd).CombinedOutput()
+			if strings.Contains(string(out), "Connected") {
+				return HelperResponse{Success: true, Output: "Connected"}
+			}
+			return HelperResponse{Success: false, Error: "not connected", Output: string(out)}
+		}
+		args := []string{"--list-sas"}
+		if cmd.Interface != "" {
+			args = append(args, "--ike", cmd.Interface)
+		}
+		out, err := exec.Command("swanctl", args...).CombinedOutput()
 		if err != nil {
 			return HelperResponse{Success: false, Error: "swanctl not available", Output: string(out)}
 		}
@@ -510,6 +651,137 @@ func (h *PrivilegedHelper) killSwitchLinuxDisable() HelperResponse {
 		}
 	}
 	return HelperResponse{Success: true, Output: "linux kill switch disabled"}
+}
+
+// cmdWGInstallConfig writes a full WireGuard config to the canonical location:
+//   - Linux/macOS: /etc/wireguard/<iface>.conf
+//   - Windows:     %PROGRAMDATA%\PrivycsVPN\tunnels\<iface>.conf
+//
+// The client injects endpoint bypass routes into the content before sending.
+func (h *PrivilegedHelper) cmdWGInstallConfig(cmd HelperCommand) HelperResponse {
+	if cmd.Interface == "" {
+		return HelperResponse{Success: false, Error: "interface name required"}
+	}
+	content := cmd.Args["content"]
+	if content == "" {
+		return HelperResponse{Success: false, Error: "content required"}
+	}
+	var dst string
+	if runtime.GOOS == "windows" {
+		dst = windowsWGConfigPath(cmd.Interface)
+	} else {
+		dst = filepath.Join("/etc/wireguard", cmd.Interface+".conf")
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("mkdir %s: %v", filepath.Dir(dst), err)}
+	}
+	if err := os.WriteFile(dst, []byte(content), 0600); err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("write %s: %v", dst, err)}
+	}
+	return HelperResponse{Success: true, Output: "wg config installed at " + dst}
+}
+
+// cmdIPSecConfigure sets up the IPSec connection for the platform:
+//   - Linux:   writes PEM certs + swanctl.conf under /etc/swanctl/, runs --load-all
+//   - Windows: imports PKCS#12 to LocalMachine\My, creates IKEv2 VPN connection
+//     via Add-VpnConnection (MachineCertificate auth). Since the helper runs as
+//     SYSTEM, neither step triggers a UAC prompt for the user.
+func (h *PrivilegedHelper) cmdIPSecConfigure(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS == "windows" {
+		return h.cmdIPSecConfigureWindows(cmd)
+	}
+	certDir := "/etc/swanctl"
+	files := []struct {
+		path    string
+		content string
+		mode    os.FileMode
+	}{
+		{certDir + "/x509ca/privycs-ca.pem", cmd.Args["ca_cert"], 0644},
+		{certDir + "/x509/privycs-client.pem", cmd.Args["client_cert"], 0644},
+		{certDir + "/private/privycs-client.pem", cmd.Args["client_key"], 0600},
+		{certDir + "/conf.d/privycs-vpn.conf", cmd.Args["swanctl_conf"], 0644},
+	}
+	for _, f := range files {
+		if f.content == "" {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(f.path), 0755); err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("mkdir %s: %v", filepath.Dir(f.path), err)}
+		}
+		if err := os.WriteFile(f.path, []byte(f.content), f.mode); err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("write %s: %v", f.path, err)}
+		}
+	}
+	out, err := exec.Command("swanctl", "--load-all").CombinedOutput()
+	if err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --load-all: %s", string(out)), Output: string(out)}
+	}
+	return HelperResponse{Success: true, Output: string(out)}
+}
+
+// cmdIPSecConfigureWindows handles the Windows-specific IPSec setup:
+//  1. Decode the PKCS#12 bundle (base64) to a temp file under %PROGRAMDATA%.
+//  2. Import it into LocalMachine\My with the given password.
+//  3. (Re-)create the IKEv2 VPN connection with MachineCertificate auth.
+func (h *PrivilegedHelper) cmdIPSecConfigureWindows(cmd HelperCommand) HelperResponse {
+	connName := cmd.Args["conn_name"]
+	serverAddr := cmd.Args["server_address"]
+	p12B64 := cmd.Args["p12_base64"]
+	p12Pass := cmd.Args["p12_password"]
+	if connName == "" || serverAddr == "" || p12B64 == "" {
+		return HelperResponse{Success: false, Error: "conn_name, server_address and p12_base64 required"}
+	}
+
+	programData := os.Getenv("PROGRAMDATA")
+	if programData == "" {
+		programData = `C:\ProgramData`
+	}
+	certDir := filepath.Join(programData, "PrivycsVPN", "certs")
+	if err := os.MkdirAll(certDir, 0700); err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("mkdir %s: %v", certDir, err)}
+	}
+
+	p12Path := filepath.Join(certDir, connName+".p12")
+	p12Data, err := base64StdDecode(p12B64)
+	if err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("p12 base64 decode: %v", err)}
+	}
+	if err := os.WriteFile(p12Path, p12Data, 0600); err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("write %s: %v", p12Path, err)}
+	}
+	defer os.Remove(p12Path)
+
+	// PowerShell script: import cert to LocalMachine\My and create VPN connection.
+	// Running as SYSTEM — no -Verb RunAs / no UAC.
+	psScript := fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
+$p12Password = ConvertTo-SecureString -String '%s' -AsPlainText -Force
+Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop | Out-Null
+Remove-VpnConnection -Name '%s' -Force -AllUserConnection -ErrorAction SilentlyContinue
+Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -AuthenticationMethod MachineCertificate -EncryptionLevel Required -RememberCredential -AllUserConnection -Force
+`, escapePowerShellString(p12Pass), escapePowerShellString(p12Path),
+		escapePowerShellString(connName),
+		escapePowerShellString(connName), escapePowerShellString(serverAddr))
+
+	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript).CombinedOutput()
+	if err != nil {
+		safe := redactCredentials(string(out), p12Pass)
+		return HelperResponse{Success: false, Error: fmt.Sprintf("ipsec configure failed: %s: %v", safe, err), Output: safe}
+	}
+	return HelperResponse{Success: true, Output: redactCredentials(string(out), p12Pass)}
+}
+
+// cmdRemoveLegacySudoers removes the legacy /etc/sudoers.d/privycs-vpn NOPASSWD
+// file created by older versions before the helper service existed.
+func (h *PrivilegedHelper) cmdRemoveLegacySudoers(cmd HelperCommand) HelperResponse {
+	legacy := "/etc/sudoers.d/privycs-vpn"
+	if _, err := os.Stat(legacy); err != nil {
+		return HelperResponse{Success: true, Output: "no legacy sudoers file"}
+	}
+	if err := os.Remove(legacy); err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("remove %s: %v", legacy, err)}
+	}
+	return HelperResponse{Success: true, Output: "legacy sudoers removed"}
 }
 
 // killSwitchMacOSEnable applies pf anchor rules.

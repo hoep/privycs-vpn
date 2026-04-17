@@ -225,7 +225,7 @@ async function downloadRemoteConfig(rc: any) {
   const key = rc.protocol + '-' + rc.id
   downloadingId.value = key
   try {
-    await DownloadAndImportConfig(rc.protocol, rc.id, rc.peer_name)
+    await DownloadAndImportConfig(rc.protocol, rc.id, rc.peer_name, '')
     await loadConnections()
     // Remove from remote list after successful import
     remoteConfigs.value = remoteConfigs.value.filter(c => (c.protocol + '-' + c.id) !== key)

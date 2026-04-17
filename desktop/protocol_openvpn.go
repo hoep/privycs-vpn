@@ -86,11 +86,32 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 	log.Printf("Starting OpenVPN via %s", ovpnExe)
 
 	if runtime.GOOS == "windows" {
-		// Windows: run elevated via Start-Process -Verb RunAs
-		// No extra driver flags — OpenVPN 2.7+ uses DCO by default.
-		// DNS is handled server-side via push "dhcp-option DNS"
-		// which uses NRPT on Windows instead of netsh (avoids DNS bugs).
-		// Escape paths for PowerShell single-quote context to prevent command injection.
+		// Windows: try privileged helper first (no UAC prompt).
+		client := NewHelperClient()
+		if client.IsHelperReachable() {
+			log.Printf("Using privileged helper for OpenVPN connect")
+			resp, err := client.SendCommand("connect", map[string]string{
+				"protocol":    "openvpn",
+				"config_path": o.configPath,
+				"log_path":    logPath,
+				"pid_path":    pidPath,
+				"mgmt_host":   ovpnMgmtHost,
+				"mgmt_port":   ovpnMgmtPort,
+			})
+			if err == nil {
+				if resp.Success {
+					o.connectedAt = time.Now()
+					log.Printf("OpenVPN started via helper: %s", resp.Output)
+					return nil
+				}
+				return fmt.Errorf("openvpn start via helper failed: %s", resp.Error)
+			}
+			log.Printf("Helper communication failed, falling back to UAC: %v", err)
+		}
+
+		// Fallback: UAC-elevated Start-Process (prompt per connect).
+		// DNS is handled server-side via push "dhcp-option DNS" which uses
+		// NRPT on Windows instead of netsh (avoids DNS bugs).
 		psCmd := fmt.Sprintf(
 			"Start-Process -FilePath '%s' -ArgumentList '--config','%s','--log','%s','--management','%s','%s' -Verb RunAs -WindowStyle Hidden",
 			escapePowerShellString(ovpnExe), escapePowerShellString(o.configPath), escapePowerShellString(logPath), ovpnMgmtHost, ovpnMgmtPort)
@@ -147,12 +168,26 @@ func (o *OpenVPNProtocol) Down(ctx context.Context) error {
 	o.connectedAt = time.Time{}
 
 	if runtime.GOOS == "windows" {
-		// Force kill OpenVPN process (elevated).
-		// Management interface SIGTERM doesn't work with DCO in OpenVPN 2.7.
-		psCmd := `Stop-Process -Name openvpn -Force -ErrorAction SilentlyContinue`
-		execHiddenContext(ctx, "powershell", "-NoProfile", "-Command",
-			fmt.Sprintf("Start-Process powershell -ArgumentList '-NoProfile','-Command','%s' -Verb RunAs -Wait -WindowStyle Hidden", psCmd)).Run()
-		log.Println("OpenVPN: process killed")
+		// Helper-first: kill by PID file (no UAC).
+		client := NewHelperClient()
+		if client.IsHelperReachable() {
+			pidPath := filepath.Join(appDataDir(), "openvpn.pid")
+			resp, err := client.SendCommand("disconnect", map[string]string{
+				"protocol": "openvpn",
+				"pid_path": pidPath,
+			})
+			if err == nil && resp.Success {
+				log.Println("OpenVPN stopped via helper")
+			} else {
+				log.Printf("Helper disconnect returned err=%v success=%v", err, resp.Success)
+			}
+		} else {
+			// Fallback: UAC-elevated Stop-Process.
+			psCmd := `Stop-Process -Name openvpn -Force -ErrorAction SilentlyContinue`
+			execHiddenContext(ctx, "powershell", "-NoProfile", "-Command",
+				fmt.Sprintf("Start-Process powershell -ArgumentList '-NoProfile','-Command','%s' -Verb RunAs -Wait -WindowStyle Hidden", psCmd)).Run()
+			log.Println("OpenVPN: process killed via UAC fallback")
+		}
 	} else {
 		o.downUnixOpenVPN(ctx)
 	}

@@ -3,59 +3,37 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
-	"os/exec"
-	"os/user"
-	"strings"
 )
 
 const sudoersPath = "/etc/sudoers.d/privycs-vpn"
 
-// sudoers rules needed for the desktop VPN client to manage tunnels
-const sudoersTemplate = `# Privycs VPN Desktop Client — passwordless sudo for VPN operations
-%s ALL=(ALL) NOPASSWD: /usr/bin/wg-quick, /usr/bin/wg, /usr/sbin/openvpn, /usr/sbin/swanctl, /usr/sbin/ipsec, /sbin/ip, /usr/sbin/iptables, /usr/bin/tee, /bin/rm, /bin/chmod, /usr/bin/chmod, /bin/mkdir, /usr/bin/mkdir
-`
-
-// ensureSudoers checks if the sudoers file exists with correct permissions.
-// If missing, uses pkexec (graphical sudo prompt) to install it.
-// Returns silently if already configured or on non-Linux platforms.
+// ensureSudoers removes the legacy NOPASSWD sudoers file that earlier versions
+// installed for passwordless VPN commands. The privileged helper service now
+// handles all privileged operations through its IPC socket — the sudoers
+// approach is obsolete and unnecessarily broad (NOPASSWD on tee/chmod/mkdir
+// could let a compromised client overwrite arbitrary files as root).
+//
+// If the legacy file exists and the helper is reachable, we ask the helper
+// to remove it. Otherwise we leave it alone (harmless — nothing invokes sudo
+// anymore).
 func ensureSudoers() {
-	// Check if file already exists
-	if _, err := os.Stat(sudoersPath); err == nil {
+	if _, err := os.Stat(sudoersPath); err != nil {
 		return
 	}
-
-	currentUser, err := user.Current()
+	log.Printf("Sudoers: legacy NOPASSWD file at %s detected, requesting cleanup via helper", sudoersPath)
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		log.Printf("Sudoers: helper not reachable — legacy file left in place (not used at runtime)")
+		return
+	}
+	resp, err := client.SendCommand("remove_legacy_sudoers", nil)
 	if err != nil {
-		log.Printf("Sudoers: cannot determine current user: %v", err)
+		log.Printf("Sudoers: cleanup via helper failed: %v", err)
 		return
 	}
-
-	// Don't configure for root
-	if currentUser.Uid == "0" {
-		return
+	if resp.Success {
+		log.Printf("Sudoers: legacy file removed")
 	}
-
-	log.Printf("Sudoers: configuring passwordless VPN commands for user %s", currentUser.Username)
-
-	content := fmt.Sprintf(sudoersTemplate, currentUser.Username)
-
-	// Use pkexec for a graphical authentication prompt
-	// This shows the OS password dialog once, then configures sudo permanently
-	cmd := exec.Command("pkexec", "tee", sudoersPath)
-	cmd.Stdin = strings.NewReader(content)
-	cmd.Stdout = nil
-
-	if err := cmd.Run(); err != nil {
-		log.Printf("Sudoers: failed to install (user may have cancelled auth prompt): %v", err)
-		return
-	}
-
-	// Set correct permissions (sudoers files must be 0440)
-	chmodCmd := exec.Command("pkexec", "chmod", "0440", sudoersPath)
-	chmodCmd.Run()
-
-	log.Printf("Sudoers: installed %s for user %s", sudoersPath, currentUser.Username)
 }

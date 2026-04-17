@@ -104,6 +104,11 @@ func (a *App) FetchMyProfile() (*RemoteProfile, error) {
 // FetchMyConfig downloads a specific config with full secrets from the gateway
 func (a *App) FetchMyConfig(protocol string, configID int) (string, error) {
 	path := fmt.Sprintf("/api/v1/connect/my-configs/%s-%d", protocol, configID)
+	// IPSec: request .sswan (JSON) format. Default is iOS .mobileconfig (XML)
+	// which the desktop client cannot parse.
+	if protocol == "ipsec" {
+		path += "?format=sswan"
+	}
 	body, err := a.apiRequest("GET", path)
 	if err != nil {
 		return "", err
@@ -186,18 +191,28 @@ func (a *App) buildWireGuardConf(body []byte) (string, error) {
 	return conf.String(), nil
 }
 
-// DownloadAndImportConfig downloads a config from gateway and imports it as a connection
-func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName string) error {
+// DownloadAndImportConfig downloads a config from gateway and imports it.
+// If connectionID is empty, a new connection is created. Otherwise the config
+// is added as an additional protocol to the existing connection.
+func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName string, connectionID string) error {
 	configContent, err := a.FetchMyConfig(protocol, configID)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 
-	// Import as new connection using existing ImportConfig logic
 	filename := fmt.Sprintf("%s.conf", peerName)
-	if protocol == "openvpn" {
+	switch protocol {
+	case "openvpn":
 		filename = fmt.Sprintf("%s.ovpn", peerName)
+	case "ipsec":
+		filename = fmt.Sprintf("%s.sswan", peerName)
 	}
 
-	return a.ImportConfig(protocol, configContent, filename, peerName, "")
+	// Empty name when adding to existing connection — don't rename
+	name := peerName
+	if connectionID != "" {
+		name = ""
+	}
+
+	return a.ImportConfig(protocol, configContent, filename, name, connectionID)
 }

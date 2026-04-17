@@ -81,11 +81,19 @@ func (w *WireGuardProtocol) Status() ProtocolStatus {
 			status.BytesRx, status.BytesTx = getWindowsTrafficStats(w.ifaceName)
 		}
 	} else {
-		// Linux/macOS: wg show requires root to display transfer stats
-		out, err := execHidden("sudo", "wg", "show", w.ifaceName).CombinedOutput()
-		if err == nil && len(out) > 0 {
+		// Linux/macOS: query tunnel state via the privileged helper.
+		// No direct sudo — that would prompt every 2s during status polls.
+		client := NewHelperClient()
+		if !client.IsHelperReachable() {
+			return status
+		}
+		resp, err := client.SendCommand("status", map[string]string{
+			"protocol":  "wireguard",
+			"interface": w.ifaceName,
+		})
+		if err == nil && resp.Success && len(resp.Output) > 0 {
 			status.Connected = true
-			w.parseWgShowOutput(string(out), &status)
+			w.parseWgShowOutput(resp.Output, &status)
 		}
 	}
 
@@ -131,98 +139,84 @@ func (w *WireGuardProtocol) Configure(cfg []byte) error {
 // ============================================================================
 
 func (w *WireGuardProtocol) upUnix(ctx context.Context) error {
-	// wg-quick requires the config to be in /etc/wireguard/<name>.conf
-	etcConf := filepath.Join("/etc/wireguard", w.ifaceName+".conf")
-	if err := copyConfToEtcWithBypass(w.confPath, etcConf); err != nil {
-		return fmt.Errorf("failed to install config: %w", err)
-	}
-
-	// Try privileged helper first (no sudo/password prompts)
-	client := NewHelperClient()
-	if client.IsHelperReachable() {
-		log.Printf("Using privileged helper for wg-quick up %s", w.ifaceName)
-		resp, err := client.SendCommand("connect", map[string]string{
-			"protocol":    "wireguard",
-			"config_path": etcConf,
-			"interface":   w.ifaceName,
-		})
-		if err == nil {
-			if resp.Success {
-				w.connectedAt = time.Now()
-				log.Printf("WireGuard connected via helper (interface: %s)", w.ifaceName)
-				return nil
-			}
-			return fmt.Errorf("wg-quick up via helper failed: %s", resp.Error)
-		}
-		log.Printf("Helper communication failed, falling back to sudo: %v", err)
-	}
-
-	// Fallback: direct sudo execution (backward compatible)
-	// Use a dedicated timeout context — NOT the Wails app context.
-	// Configs with many AllowedIPs (hundreds of subnets) cause wg-quick to
-	// run ip route add for each entry, which can take 60+ seconds.
-	cmdCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	log.Printf("Running wg-quick up %s (this may take a while with many routes)...", w.ifaceName)
-	out, err := execHiddenContext(cmdCtx, "sudo", "wg-quick", "up", w.ifaceName).CombinedOutput()
+	// Inject endpoint bypass routes into the local config. The helper will copy
+	// this file to /etc/wireguard/<iface>.conf with the proper permissions.
+	enhanced, err := buildWGConfigWithBypass(w.confPath)
 	if err != nil {
-		return fmt.Errorf("wg-quick up failed: %s: %w", string(out), err)
+		return fmt.Errorf("failed to prepare config: %w", err)
+	}
+
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		return fmt.Errorf("privileged helper not running — install it in Settings → Privileged Helper")
+	}
+
+	// Install the enhanced config into /etc/wireguard via the helper.
+	installResp, err := client.SendCommand("wg_install_config", map[string]string{
+		"interface": w.ifaceName,
+		"content":   enhanced,
+	})
+	if err != nil {
+		return fmt.Errorf("helper install failed: %w", err)
+	}
+	if !installResp.Success {
+		return fmt.Errorf("config install failed: %s", installResp.Error)
+	}
+
+	log.Printf("Using privileged helper for wg-quick up %s", w.ifaceName)
+	resp, err := client.SendCommand("connect", map[string]string{
+		"protocol":  "wireguard",
+		"interface": w.ifaceName,
+	})
+	if err != nil {
+		return fmt.Errorf("helper connect failed: %w", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("wg-quick up failed: %s", resp.Error)
 	}
 	w.connectedAt = time.Now()
-	log.Printf("WireGuard connected via wg-quick (interface: %s)", w.ifaceName)
+	log.Printf("WireGuard connected via helper (interface: %s)", w.ifaceName)
 	return nil
 }
 
 func (w *WireGuardProtocol) downUnix(ctx context.Context) error {
-	// Try privileged helper first (no sudo/password prompts)
 	client := NewHelperClient()
-	if client.IsHelperReachable() {
-		log.Printf("Using privileged helper for wg-quick down %s", w.ifaceName)
-		resp, err := client.SendCommand("disconnect", map[string]string{
-			"protocol":  "wireguard",
-			"interface": w.ifaceName,
-		})
-		if err == nil {
-			if resp.Success {
-				w.connectedAt = time.Time{}
-				log.Printf("WireGuard disconnected via helper")
-				return nil
-			}
-			return fmt.Errorf("wg-quick down via helper failed: %s", resp.Error)
-		}
-		log.Printf("Helper communication failed, falling back to sudo: %v", err)
+	if !client.IsHelperReachable() {
+		return fmt.Errorf("privileged helper not running — install it in Settings → Privileged Helper")
 	}
-
-	// Fallback: direct sudo execution
-	out, err := execHiddenContext(ctx, "sudo", "wg-quick", "down", w.ifaceName).CombinedOutput()
+	log.Printf("Using privileged helper for wg-quick down %s", w.ifaceName)
+	resp, err := client.SendCommand("disconnect", map[string]string{
+		"protocol":  "wireguard",
+		"interface": w.ifaceName,
+	})
 	if err != nil {
-		return fmt.Errorf("wg-quick down failed: %s: %w", string(out), err)
+		return fmt.Errorf("helper disconnect failed: %w", err)
 	}
-	// Keep /etc/wireguard/<name>.conf — it will be overwritten on next Connect.
-	// Removing it here breaks the edit-save-reconnect flow.
+	if !resp.Success {
+		return fmt.Errorf("wg-quick down failed: %s", resp.Error)
+	}
 	w.connectedAt = time.Time{}
-	log.Printf("WireGuard disconnected")
+	log.Printf("WireGuard disconnected via helper")
 	return nil
 }
 
-// copyConfToEtcWithBypass copies the config to /etc/wireguard/ and injects
-// PostUp/PreDown rules for endpoint bypass routing. When AllowedIPs include
-// subnets that cover the VPN server's IP, traffic to the server itself would
-// go through the tunnel, breaking the connection. The bypass route sends
-// server traffic through the default gateway instead.
-func copyConfToEtcWithBypass(src, dst string) error {
+// buildWGConfigWithBypass reads the WireGuard config from src and returns the
+// content with PostUp/PreDown endpoint bypass routes injected. When AllowedIPs
+// covers the VPN server's own IP, traffic to the server would otherwise loop
+// through the tunnel and break the connection. The bypass routes steer server
+// traffic through the default gateway instead.
+//
+// This function does NOT write to /etc/wireguard — the privileged helper
+// handles that via the wg_install_config action.
+func buildWGConfigWithBypass(src string) (string, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return err
+		return "", err
 	}
-
 	content := string(data)
 
-	// Parse the endpoint IP from the [Peer] section
 	endpointIP, endpointIPv6 := parseEndpointIPs(content)
 
-	// Inject PostUp/PreDown bypass routes if not already present
 	if endpointIP != "" && !strings.Contains(content, endpointIP+"/32") {
 		bypassRules := fmt.Sprintf(
 			"PostUp = ip route add %s/32 $(ip route show default | sed 's/default//') || true\n"+
@@ -236,7 +230,6 @@ func copyConfToEtcWithBypass(src, dst string) error {
 				endpointIPv6, endpointIPv6)
 		}
 
-		// Insert after the last line of [Interface] section (before [Peer])
 		peerIdx := strings.Index(content, "[Peer]")
 		if peerIdx > 0 {
 			content = content[:peerIdx] + bypassRules + "\n" + content[peerIdx:]
@@ -244,16 +237,7 @@ func copyConfToEtcWithBypass(src, dst string) error {
 		}
 	}
 
-	// Ensure /etc/wireguard/ exists
-	execHidden("sudo", "mkdir", "-p", filepath.Dir(dst)).Run()
-	cmd := execHidden("sudo", "tee", dst)
-	cmd.Stdin = strings.NewReader(content)
-	cmd.Stdout = nil
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("sudo tee %s: %w", dst, err)
-	}
-	execHidden("sudo", "chmod", "600", dst).Run()
-	return nil
+	return content, nil
 }
 
 // parseEndpointIPs extracts the IPv4 and IPv6 addresses of the VPN server
@@ -355,14 +339,50 @@ func parseEndpointIPs(config string) (ipv4, ipv6 string) {
 // ============================================================================
 
 func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
-	wgExe := findWireGuardExe()
-	if wgExe == "" {
+	if findWireGuardExe() == "" {
 		return fmt.Errorf("wireguard.exe not found")
 	}
 
-	log.Printf("Starting WireGuard tunnel %s via %s", w.ifaceName, wgExe)
+	enhanced, err := buildWGConfigWithBypass(w.confPath)
+	if err != nil {
+		return fmt.Errorf("failed to prepare config: %w", err)
+	}
 
-	// wireguard.exe /installtunnelservice requires admin privileges.
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		// Helper-based path: no UAC prompt per connect.
+		log.Printf("Starting WireGuard tunnel %s via privileged helper", w.ifaceName)
+		installResp, err := client.SendCommand("wg_install_config", map[string]string{
+			"interface": w.ifaceName,
+			"content":   enhanced,
+		})
+		if err != nil {
+			return fmt.Errorf("helper install failed: %w", err)
+		}
+		if !installResp.Success {
+			return fmt.Errorf("wg config install failed: %s", installResp.Error)
+		}
+		resp, err := client.SendCommand("connect", map[string]string{
+			"protocol":  "wireguard",
+			"interface": w.ifaceName,
+		})
+		if err != nil {
+			return fmt.Errorf("helper connect failed: %w", err)
+		}
+		if !resp.Success {
+			return fmt.Errorf("installtunnelservice failed: %s", resp.Error)
+		}
+		if err := waitForWGService(w.ifaceName); err != nil {
+			log.Printf("WireGuard service wait: %v", err)
+		}
+		w.connectedAt = time.Now()
+		log.Printf("WireGuard connected via helper (service: WireGuardTunnel$%s)", w.ifaceName)
+		return nil
+	}
+
+	// Fallback: direct UAC-elevated installtunnelservice (user sees UAC each connect).
+	log.Printf("Starting WireGuard tunnel %s via UAC fallback (install privileged helper to eliminate prompts)", w.ifaceName)
+	wgExe := findWireGuardExe()
 	psScript := fmt.Sprintf(
 		`Start-Process -FilePath '%s' -ArgumentList '/installtunnelservice',('%s') -Verb RunAs -Wait -WindowStyle Hidden`,
 		wgExe, w.confPath,
@@ -370,60 +390,66 @@ func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
 	cmd := execHiddenContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("WireGuard start failed: %s", string(out))
 		return fmt.Errorf("wireguard start failed: %s: %w", string(out), err)
 	}
-
-	// Wait for the Windows service to actually start (takes 1-3 seconds)
-	svcName := "WireGuardTunnel$" + w.ifaceName
-	log.Printf("Waiting for service %s to start...", svcName)
-	for i := 0; i < 15; i++ {
-		time.Sleep(500 * time.Millisecond)
-		svcOut, svcErr := execHidden("sc", "query", svcName).CombinedOutput()
-		if svcErr == nil && strings.Contains(string(svcOut), "RUNNING") {
-			log.Printf("Service %s is running", svcName)
-			w.connectedAt = time.Now()
-			return nil
-		}
+	if err := waitForWGService(w.ifaceName); err != nil {
+		log.Printf("WireGuard service wait: %v", err)
 	}
-
-	// Service installed but may not be running yet — still count as success
 	w.connectedAt = time.Now()
-	log.Printf("WireGuard tunnel service installed (may still be starting)")
 	return nil
 }
 
 func (w *WireGuardProtocol) downWindows(ctx context.Context) error {
-	wgExe := findWireGuardExe()
-	if wgExe == "" {
+	if findWireGuardExe() == "" {
 		return fmt.Errorf("wireguard.exe not found")
 	}
 
-	log.Printf("Stopping WireGuard tunnel %s", w.ifaceName)
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		log.Printf("Stopping WireGuard tunnel %s via privileged helper", w.ifaceName)
+		resp, err := client.SendCommand("disconnect", map[string]string{
+			"protocol":  "wireguard",
+			"interface": w.ifaceName,
+		})
+		if err != nil {
+			log.Printf("helper disconnect: %v", err)
+		} else if !resp.Success {
+			log.Printf("helper disconnect reported: %s", resp.Error)
+		}
+		w.connectedAt = time.Time{}
+		return nil
+	}
 
+	// Fallback: UAC-elevated uninstalltunnelservice.
+	wgExe := findWireGuardExe()
 	psScript := fmt.Sprintf(
 		`Start-Process -FilePath '%s' -ArgumentList '/uninstalltunnelservice',('%s') -Verb RunAs -Wait -WindowStyle Hidden`,
 		wgExe, w.ifaceName,
 	)
-	cmd := execHiddenContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("WireGuard uninstall output: %s, error: %v", string(out), err)
-	}
-
-	// Wait for service to stop
-	svcName := "WireGuardTunnel$" + w.ifaceName
+	execHiddenContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", psScript).Run()
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
-		svcOut, _ := execHidden("sc", "query", svcName).CombinedOutput()
-		if !strings.Contains(string(svcOut), "RUNNING") {
+		out, _ := execHidden("sc", "query", "WireGuardTunnel$"+w.ifaceName).CombinedOutput()
+		if !strings.Contains(string(out), "RUNNING") {
 			break
 		}
 	}
-
 	w.connectedAt = time.Time{}
-	log.Printf("WireGuard tunnel %s stopped", w.ifaceName)
 	return nil
+}
+
+// waitForWGService polls for the WireGuardTunnel$<iface> Windows service to
+// enter RUNNING state after installtunnelservice. Returns after ~7.5s max.
+func waitForWGService(ifaceName string) error {
+	svcName := "WireGuardTunnel$" + ifaceName
+	for i := 0; i < 15; i++ {
+		time.Sleep(500 * time.Millisecond)
+		out, err := execHidden("sc", "query", svcName).CombinedOutput()
+		if err == nil && strings.Contains(string(out), "RUNNING") {
+			return nil
+		}
+	}
+	return fmt.Errorf("service %s did not enter RUNNING state", svcName)
 }
 
 // findWireGuardExe locates the WireGuard executable on Windows

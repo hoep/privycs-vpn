@@ -1,12 +1,66 @@
 <template>
   <div class="p-4 overflow-y-auto max-h-[calc(100vh-7rem)]">
-    <div class="flex items-center gap-2 mb-4">
-      <button @click="$router.back()" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
-        <ArrowLeftIcon class="w-5 h-5" />
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <button @click="$router.back()" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
+          <ArrowLeftIcon class="w-5 h-5" />
+        </button>
+        <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">
+          {{ targetConnection ? 'Add Protocol to ' + targetConnection.name : 'Add Connection' }}
+        </h2>
+      </div>
+      <button
+        v-if="hasApiKey"
+        @click="toggleGatewayPanel"
+        class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
+      >
+        <CloudArrowDownIcon class="w-4 h-4" />
+        Gateway
       </button>
-      <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">
-        {{ targetConnection ? 'Add Protocol to ' + targetConnection.name : 'Add Connection' }}
-      </h2>
+    </div>
+
+    <!-- Gateway configs panel -->
+    <div v-if="showGateway" class="card p-3 mb-4 border border-primary-500/30">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-semibold text-gray-500 dark:text-gray-400">
+          {{ targetConnection ? 'Missing Protocols from Gateway' : 'Gateway Configs' }}
+        </span>
+        <button @click="loadGatewayConfigs" :disabled="loadingGateway" class="text-[10px] text-primary-400 hover:text-primary-300">
+          {{ loadingGateway ? 'Loading...' : 'Refresh' }}
+        </button>
+      </div>
+      <p v-if="gatewayError" class="text-[10px] text-red-400 mb-2">{{ gatewayError }}</p>
+      <div v-if="filteredGatewayConfigs.length === 0 && !loadingGateway" class="text-[10px] text-gray-500 text-center py-2">
+        <template v-if="targetConnection && gatewayConfigs.length > 0">
+          All user protocols already imported for this connection
+        </template>
+        <template v-else-if="gatewayConfigs.length === 0">
+          No configs available. Click Refresh.
+        </template>
+        <template v-else>No matching configs</template>
+      </div>
+      <div v-else class="space-y-1.5 max-h-64 overflow-y-auto">
+        <div
+          v-for="rc in filteredGatewayConfigs"
+          :key="rc.protocol + '-' + rc.id"
+          class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700/50"
+        >
+          <div class="flex items-center gap-2 min-w-0">
+            <ProtocolIcon :protocol="rc.protocol" class="w-4 h-4 flex-shrink-0" />
+            <div class="min-w-0">
+              <span class="text-xs text-gray-700 dark:text-gray-300 truncate block">{{ rc.peer_name }}</span>
+              <span class="text-[9px] text-gray-400">{{ rc.interface_name }} / {{ rc.vpn_ip }}</span>
+            </div>
+          </div>
+          <button
+            @click.stop="importFromGateway(rc)"
+            :disabled="gatewayImportingId === rc.protocol + '-' + rc.id"
+            class="text-[10px] px-2 py-1 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 flex-shrink-0"
+          >
+            {{ gatewayImportingId === rc.protocol + '-' + rc.id ? '...' : 'Import' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- File Import -->
@@ -118,10 +172,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ImportConfig, ListConnections } from '../../wailsjs/go/main/App'
+import { ImportConfig, ListConnections, FetchMyProfile, DownloadAndImportConfig } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
+import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import {
   ArrowLeftIcon,
+  CloudArrowDownIcon,
   DocumentArrowUpIcon,
   DocumentTextIcon,
 } from '@heroicons/vue/24/outline'
@@ -140,6 +196,14 @@ const importing = ref(false)
 const error = ref('')
 const success = ref('')
 const existingConnections = ref<any[]>([])
+
+// Gateway panel state
+const hasApiKey = ref(!!localStorage.getItem('privycs-api-user'))
+const showGateway = ref(false)
+const gatewayConfigs = ref<any[]>([])
+const loadingGateway = ref(false)
+const gatewayError = ref('')
+const gatewayImportingId = ref('')
 
 // If connectionId is in query params, we're adding a protocol to existing connection
 const targetConnection = computed(() => {
@@ -163,6 +227,61 @@ async function loadConnections() {
     existingConnections.value = await ListConnections() || []
   } catch {
     existingConnections.value = []
+  }
+}
+
+// Gateway-configs fetched from the gateway API. When in "Add Protocol to X"
+// mode, these are filtered to only show protocols not yet in the target connection.
+const filteredGatewayConfigs = computed(() => {
+  if (!targetConnection.value) {
+    return gatewayConfigs.value
+  }
+  const existingProtocols = new Set(
+    (targetConnection.value.protocols || []).map((p: any) => p.protocol)
+  )
+  return gatewayConfigs.value.filter(rc => !existingProtocols.has(rc.protocol))
+})
+
+function toggleGatewayPanel() {
+  showGateway.value = !showGateway.value
+  if (showGateway.value && gatewayConfigs.value.length === 0) {
+    loadGatewayConfigs()
+  }
+}
+
+async function loadGatewayConfigs() {
+  loadingGateway.value = true
+  gatewayError.value = ''
+  try {
+    const profile = await FetchMyProfile()
+    gatewayConfigs.value = profile.configs || []
+    localStorage.setItem('privycs-api-user', profile.user)
+    hasApiKey.value = true
+  } catch (e: any) {
+    gatewayError.value = e?.toString()?.replace('Error: ', '') || 'Failed to connect'
+    gatewayConfigs.value = []
+  } finally {
+    loadingGateway.value = false
+  }
+}
+
+async function importFromGateway(rc: any) {
+  const key = rc.protocol + '-' + rc.id
+  gatewayImportingId.value = key
+  error.value = ''
+  try {
+    const connID = targetConnection.value?.id || ''
+    await DownloadAndImportConfig(rc.protocol, rc.id, rc.peer_name, connID)
+    success.value = connID
+      ? `${protocolDisplayName(rc.protocol)} config added from gateway`
+      : 'Connection imported from gateway'
+    await new Promise(resolve => setTimeout(resolve, 500))
+    router.push('/connection')
+  } catch (e: any) {
+    const msg = e?.toString()?.replace('Error: ', '') || 'Unknown error'
+    error.value = 'Gateway import failed: ' + msg
+  } finally {
+    gatewayImportingId.value = ''
   }
 }
 
