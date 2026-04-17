@@ -121,6 +121,39 @@ fun SettingsScreen(
         }
     }
 
+    // Location permission launcher for WiFi SSID detection. On Android 8+,
+    // reading the currently-connected SSID via WifiManager.connectionInfo
+    // returns "<unknown ssid>" without ACCESS_FINE_LOCATION granted AT
+    // RUNTIME (manifest declaration alone is not enough since API 23). When
+    // SSID comes back empty, the "only these" rule falls into the can't-match
+    // branch (verdict: do not connect) and "except these" falls into the
+    // can't-check-exceptions branch (verdict: connect) -- which to the user
+    // looks like the modes are swapped. Requesting the permission here fixes
+    // the root cause; the binary verdict then reflects the actual SSID.
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        scope.launch {
+            com.privycs.vpn.service.NetworkMonitor.getInstance(context).reevaluate()
+        }
+    }
+
+    fun ensureLocationPermissionIfNeeded(mode: String) {
+        if (mode != "only" && mode != "except") return
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            locationPermissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    // One-shot prompt when the screen opens if the user already has SSID-based
+    // connect-on-demand enabled from a prior install that predated this fix.
+    androidx.compose.runtime.LaunchedEffect(settings.connectOnDemand.ssidMode) {
+        ensureLocationPermissionIfNeeded(settings.connectOnDemand.ssidMode)
+    }
+
     // Password dialog
     if (showPasswordDialog) {
         AlertDialog(
@@ -421,6 +454,7 @@ fun SettingsScreen(
                                 SegmentedButton(
                                     selected = cod.ssidMode == value,
                                     onClick = {
+                                        ensureLocationPermissionIfNeeded(value)
                                         scope.launch {
                                             settingsRepo.updateConnectOnDemand(
                                                 cod.copy(ssidMode = value)
@@ -513,7 +547,10 @@ fun SettingsScreen(
                         }
                     }
 
-                    // Status display
+                    // Status display — verdict on first line, actual rule reason on
+                    // second line so the user sees WHY (e.g. "Cannot determine SSID —
+                    // grant Location permission...") instead of only the binary
+                    // outcome which reads as inverted when SSID detection fails.
                     Spacer(modifier = Modifier.height(12.dp))
                     val statusText = buildString {
                         append("Status: ")
@@ -546,6 +583,14 @@ fun SettingsScreen(
                         else
                             MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (networkState.ruleMatch.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = networkState.ruleMatch,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
