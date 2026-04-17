@@ -121,6 +121,20 @@ class ConnectionRepository(private val context: Context) {
         save()
     }
 
+    /**
+     * Rename an existing connection. Returns true if the connection was found
+     * and the new name is non-blank, false otherwise. Empty or whitespace-only
+     * names are rejected to avoid unreadable rows in the connections list.
+     */
+    fun rename(connectionId: String, newName: String): Boolean {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return false
+        val conn = getById(connectionId) ?: return false
+        conn.name = trimmed
+        save()
+        return true
+    }
+
     private fun load(): ConnectionRegistry {
         return try {
             if (file.exists()) {

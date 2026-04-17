@@ -70,27 +70,42 @@ class NetworkMonitor private constructor(private val context: Context) {
 
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                Log.d(TAG, "Network available")
+                Log.d(TAG, "Network available: $network")
                 evaluateCurrentNetwork()
             }
 
             override fun onLost(network: Network) {
-                Log.d(TAG, "Network lost")
-                scope.launch {
-                    _networkState.value = NetworkState(
-                        networkType = "none",
-                        ssid = "",
-                        shouldConnect = false,
-                        ruleMatch = "No network available"
-                    )
-                }
+                // Do NOT hard-code "no network" here. Android frequently calls
+                // onLost for the outgoing default network a few milliseconds
+                // BEFORE onAvailable fires for the new default (typical on
+                // WiFi→Mobile handover). Hard-coding "none" created a window
+                // where the UI showed "No Network" and the auto-connect
+                // evaluator saw state=none, tore down the VPN, and only then
+                // noticed the new network had arrived.
+                //
+                // Re-evaluate based on whatever the ConnectivityManager says
+                // is the current active network. If it is truly gone
+                // detectNetworkType() will return "none" naturally.
+                Log.d(TAG, "Network lost: $network — re-evaluating current state")
+                evaluateCurrentNetwork()
             }
 
             override fun onCapabilitiesChanged(
                 network: Network,
                 networkCapabilities: NetworkCapabilities
             ) {
-                Log.d(TAG, "Network capabilities changed")
+                Log.d(TAG, "Network capabilities changed: $network")
+                evaluateCurrentNetwork()
+            }
+
+            override fun onLinkPropertiesChanged(
+                network: Network,
+                linkProperties: android.net.LinkProperties
+            ) {
+                // IP address / DNS / route change on the current default
+                // network. Still the same transport, but can influence SSID
+                // detection on some devices (e.g. WiFi reassociation).
+                Log.d(TAG, "Network link properties changed: $network")
                 evaluateCurrentNetwork()
             }
         }
@@ -248,28 +263,52 @@ class NetworkMonitor private constructor(private val context: Context) {
         // For WiFi, evaluate SSID rules
         return when (settings.ssidMode) {
             "all" -> {
-                Pair(true, "Connected to WiFi" + if (ssid.isNotEmpty()) " \"$ssid\"" else "" + " (all SSIDs)")
+                // Explicit parentheses: the previous version had a Kotlin operator-precedence
+                // bug where " (all SSIDs)" was only appended when ssid was empty.
+                val ssidPart = if (ssid.isNotEmpty()) " \"$ssid\"" else ""
+                Pair(true, "Connected to WiFi$ssidPart (all SSIDs)")
             }
             "only" -> {
-                if (ssid.isEmpty()) {
-                    Pair(false, "Cannot determine SSID (location permission required)")
-                } else if (settings.ssidList.any { it.equals(ssid, ignoreCase = true) }) {
-                    Pair(true, "WiFi \"$ssid\" is in the allowed list")
-                } else {
-                    Pair(false, "WiFi \"$ssid\" is not in the allowed list")
+                val list = settings.ssidList.filter { it.isNotBlank() }
+                when {
+                    list.isEmpty() ->
+                        Pair(false, "Only-SSIDs list is empty — add at least one SSID or switch to All SSIDs")
+                    ssid.isEmpty() ->
+                        Pair(false, "Cannot determine SSID (grant Location permission to detect WiFi name)")
+                    list.any { it.equals(ssid, ignoreCase = true) } ->
+                        Pair(true, "WiFi \"$ssid\" matches the allowed list")
+                    else ->
+                        Pair(false, "WiFi \"$ssid\" is not in the allowed list")
                 }
             }
             "except" -> {
-                if (ssid.isEmpty()) {
-                    // Cannot determine SSID, connect to be safe
-                    Pair(true, "Cannot determine SSID, connecting (exception list not checked)")
-                } else if (settings.ssidList.any { it.equals(ssid, ignoreCase = true) }) {
-                    Pair(false, "WiFi \"$ssid\" is in the exception list")
-                } else {
-                    Pair(true, "WiFi \"$ssid\" is not in the exception list")
+                val list = settings.ssidList.filter { it.isNotBlank() }
+                when {
+                    list.isEmpty() ->
+                        // No exceptions configured = behave like "all"
+                        Pair(true, "Connected to WiFi" + if (ssid.isNotEmpty()) " \"$ssid\"" else "" + " (no exceptions)")
+                    ssid.isEmpty() ->
+                        // Cannot determine SSID — default to connect so the user
+                        // is not stranded without VPN on a new WiFi.
+                        Pair(true, "Cannot determine SSID, connecting (except-list not checked)")
+                    list.any { it.equals(ssid, ignoreCase = true) } ->
+                        Pair(false, "WiFi \"$ssid\" is in the exception list")
+                    else ->
+                        Pair(true, "WiFi \"$ssid\" is not in the exception list")
                 }
             }
             else -> Pair(false, "Unknown SSID mode: ${settings.ssidMode}")
         }
+    }
+
+    /**
+     * Force a re-evaluation from outside. Call this after the user changes
+     * connect-on-demand settings so the state/rule-match text and the auto
+     * connect decision refresh immediately instead of waiting for the next
+     * network event.
+     */
+    fun reevaluate() {
+        Log.d(TAG, "Manual re-evaluate requested")
+        evaluateCurrentNetwork()
     }
 }

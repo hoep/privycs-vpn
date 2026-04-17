@@ -353,6 +353,10 @@ fun SettingsScreen(
                             settingsRepo.updateConnectOnDemand(updated)
                             if (enabled) {
                                 networkMonitor.start()
+                                // Re-evaluate immediately so the live status
+                                // chip reflects the current decision without
+                                // waiting for the next network event.
+                                networkMonitor.reevaluate()
                             } else {
                                 networkMonitor.stop()
                             }
@@ -383,6 +387,7 @@ fun SettingsScreen(
                                 onClick = {
                                     scope.launch {
                                         settingsRepo.updateConnectOnDemand(cod.copy(trigger = value))
+                                        networkMonitor.reevaluate()
                                     }
                                 },
                                 shape = SegmentedButtonDefaults.itemShape(
@@ -420,6 +425,7 @@ fun SettingsScreen(
                                             settingsRepo.updateConnectOnDemand(
                                                 cod.copy(ssidMode = value)
                                             )
+                                            networkMonitor.reevaluate()
                                         }
                                     },
                                     shape = SegmentedButtonDefaults.itemShape(

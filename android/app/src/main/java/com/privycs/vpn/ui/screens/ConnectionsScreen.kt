@@ -14,15 +14,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -34,6 +39,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -73,7 +79,7 @@ import java.time.Instant
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectionsScreen(
-    onNavigateToAdd: () -> Unit,
+    onNavigateToAdd: (connectionId: String?) -> Unit,
     onNavigateToConnect: () -> Unit
 ) {
     val context = LocalContext.current
@@ -85,11 +91,46 @@ fun ConnectionsScreen(
     val scope = rememberCoroutineScope()
 
     var deleteTarget by remember { mutableStateOf<VpnConnection?>(null) }
+    var renameTarget by remember { mutableStateOf<VpnConnection?>(null) }
+    var renameDraft by remember { mutableStateOf("") }
     var showGateway by remember { mutableStateOf(false) }
     var gatewayConfigs by remember { mutableStateOf<List<RemoteConfigEntry>>(emptyList()) }
     var gatewayLoading by remember { mutableStateOf(false) }
     var gatewayError by remember { mutableStateOf<String?>(null) }
     var downloadingId by remember { mutableStateOf<Int?>(null) }
+
+    // Rename dialog
+    if (renameTarget != null) {
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename Connection") },
+            text = {
+                OutlinedTextField(
+                    value = renameDraft,
+                    onValueChange = { renameDraft = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = renameDraft.trim().isNotEmpty(),
+                    onClick = {
+                        connectionRepo.rename(renameTarget!!.id, renameDraft.trim())
+                        renameTarget = null
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     // Delete confirmation dialog
     if (deleteTarget != null) {
@@ -160,7 +201,7 @@ fun ConnectionsScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = onNavigateToAdd,
+                onClick = { onNavigateToAdd(null) },
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "Add connection")
@@ -234,7 +275,15 @@ fun ConnectionsScreen(
                                 connectionRepo.setActive(connection.id)
                                 onNavigateToConnect()
                             },
-                            onDelete = { deleteTarget = connection }
+                            onDelete = { deleteTarget = connection },
+                            onRename = {
+                                renameTarget = connection
+                                renameDraft = connection.name
+                            },
+                            onAddProtocol = { onNavigateToAdd(connection.id) },
+                            onRemoveProtocol = { protocol ->
+                                connectionRepo.removeProtocol(connection.id, protocol)
+                            }
                         )
                     }
 
@@ -251,7 +300,10 @@ private fun ConnectionCard(
     connection: VpnConnection,
     isActive: Boolean,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onRename: () -> Unit,
+    onAddProtocol: () -> Unit,
+    onRemoveProtocol: (VpnProtocol) -> Unit
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -322,11 +374,49 @@ private fun ConnectionCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         connection.availableProtocols().forEach { protocol ->
-                            ProtocolBadge(protocol)
+                            val canRemove = connection.protocols.size > 1
+                            ProtocolBadge(
+                                protocol = protocol,
+                                onRemove = if (canRemove) {
+                                    { onRemoveProtocol(protocol) }
+                                } else null
+                            )
+                        }
+                        // Add-protocol button — only show when connection does
+                        // not already have all three protocols. Navigates to
+                        // AddConnectionScreen in "add to existing" mode.
+                        if (connection.availableProtocols().size < VpnProtocol.values().size) {
+                            IconButton(
+                                onClick = onAddProtocol,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = "Add protocol",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
+                }
+
+                // Rename button
+                IconButton(
+                    onClick = onRename,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = "Rename",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
                 // Delete button
@@ -347,18 +437,22 @@ private fun ConnectionCard(
 }
 
 @Composable
-private fun ProtocolBadge(protocol: VpnProtocol) {
+private fun ProtocolBadge(
+    protocol: VpnProtocol,
+    onRemove: (() -> Unit)? = null
+) {
     val color = when (protocol) {
         VpnProtocol.WIREGUARD -> WireGuardRed
         VpnProtocol.OPENVPN -> OpenVpnOrange
         VpnProtocol.IPSEC -> IpSecBlue
     }
 
-    Box(
+    Row(
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
             .background(color.copy(alpha = 0.15f))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = protocol.shortLabel,
@@ -366,6 +460,20 @@ private fun ProtocolBadge(protocol: VpnProtocol) {
             fontWeight = FontWeight.Medium,
             color = color
         )
+        if (onRemove != null) {
+            Spacer(modifier = Modifier.width(2.dp))
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(14.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Remove ${protocol.shortLabel}",
+                    modifier = Modifier.size(10.dp),
+                    tint = color
+                )
+            }
+        }
     }
 }
 
@@ -429,40 +537,51 @@ private fun GatewayPanel(
                 }
 
                 else -> {
-                    configs.forEach { entry ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val protocol = VpnProtocol.fromString(entry.protocol)
-                            if (protocol != null) {
-                                ProtocolBadge(protocol)
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-                            Text(
-                                text = entry.peerName,
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.weight(1f),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            if (downloadingId == entry.id) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
+                    // Gateway users often have 20+ configs. The parent Column
+                    // is not scrollable, so a plain forEach here overflows the
+                    // screen on Android and the user cannot reach the rows at
+                    // the bottom. Wrap in heightIn+verticalScroll so the panel
+                    // scrolls internally with a sensible max height.
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        configs.forEach { entry ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val protocol = VpnProtocol.fromString(entry.protocol)
+                                if (protocol != null) {
+                                    ProtocolBadge(protocol)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Text(
+                                    text = entry.peerName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f),
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
-                            } else {
-                                IconButton(
-                                    onClick = { onDownload(entry) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.CloudDownload,
-                                        contentDescription = "Download",
+                                if (downloadingId == entry.id) {
+                                    CircularProgressIndicator(
                                         modifier = Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.primary
+                                        strokeWidth = 2.dp
                                     )
+                                } else {
+                                    IconButton(
+                                        onClick = { onDownload(entry) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.CloudDownload,
+                                            contentDescription = "Download",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
                         }

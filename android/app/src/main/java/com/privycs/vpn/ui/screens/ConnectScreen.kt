@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -419,11 +422,19 @@ private fun ConnectButton(
                         strokeWidth = 3.dp
                     )
                 } else {
-                    Icon(
-                        imageVector = Icons.Filled.Shield,
-                        contentDescription = "VPN Shield",
-                        modifier = Modifier.size(48.dp),
-                        tint = if (isConnected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                    // Privycs logo. Use a ColorFilter to tint the PNG — white
+                    // on the green connected state, muted on the idle state.
+                    // This keeps the asset monochrome and adapts to theme.
+                    Image(
+                        painter = painterResource(
+                            id = com.privycs.vpn.R.drawable.ic_privycs_logo
+                        ),
+                        contentDescription = "Privycs",
+                        modifier = Modifier.size(56.dp),
+                        colorFilter = ColorFilter.tint(
+                            if (isConnected) Color.White
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
