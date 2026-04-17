@@ -46,8 +46,13 @@ var allowedActions = map[string]bool{
 // safePathPattern validates file paths to prevent directory traversal and injection.
 var safePathPattern = regexp.MustCompile(`^[a-zA-Z0-9/_\-\.\\:]+$`)
 
-// safeInterfacePattern validates interface names (alphanumeric, dash, underscore, max 15 chars).
-var safeInterfacePattern = regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,15}$`)
+// safeInterfacePattern validates interface names (alphanumeric, dash, underscore).
+// Length is bounded at 64 chars — enough for any sanitized connection name
+// produced by sanitizeTunnelName, plus still tight enough to block pathological
+// inputs. The stricter 15-char IFNAMSIZ cap is enforced upstream in
+// sanitizeTunnelName on Linux/macOS via hash truncation; on Windows longer
+// tunnel names (= Windows service suffix) are perfectly valid.
+var safeInterfacePattern = regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,64}$`)
 
 // helperSocketPath returns the IPC socket path for the current platform.
 // Windows uses a filesystem unix socket under %PROGRAMDATA% (Win10 1803+).
