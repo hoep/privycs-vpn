@@ -3,10 +3,42 @@ name: Android Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 jobs:
+  check-changes:
+    name: Check android/ changed since last tag
+    runs-on: ubuntu-latest
+    outputs:
+      android_changed: ${{ steps.changes.outputs.changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Diff android/ since previous tag
+        id: changes
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1)
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag — treating as changed to avoid skipping the very first Android release."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "${PREV_TAG}..HEAD" -- android/ | wc -l)
+          echo "Previous tag: $PREV_TAG"
+          echo "Files changed in android/ since $PREV_TAG: $CHANGED"
+          if [ "$CHANGED" -gt 0 ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
     name: Build Release APK
+    needs: check-changes
+    if: needs.check-changes.outputs.android_changed == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
