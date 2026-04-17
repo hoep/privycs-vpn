@@ -519,44 +519,26 @@ func (i *IPSecProtocol) configureWindows(cfg *IPSecConfig) error {
 }
 
 func (i *IPSecProtocol) upWindows(ctx context.Context) error {
-	log.Printf("Connecting IPSec %s via rasphone...", i.connName)
+	log.Printf("Connecting IPSec %s via rasdial...", i.connName)
 
-	// rasphone -d dials a phonebook entry. It's the documented user-facing
-	// tool on modern Windows and in practice succeeds where rasdial fails
-	// (rasdial has historic issues with ambiguous scope when user-scope and
-	// AllUser-scope entries share a name — it often picks the wrong one).
-	// rasphone -d may flash a brief "Connecting..." window but auto-closes
-	// after the handshake. No UAC needed — rasphone runs in user context.
-	rasphoneOut, rasphoneErr := execHiddenContext(ctx, "rasphone", "-d", i.connName).CombinedOutput()
-	if rasphoneErr != nil {
-		return fmt.Errorf("rasphone -d failed: %s: %w", string(rasphoneOut), rasphoneErr)
+	// rasdial is purely CLI — no dialog, synchronous exit code reflects the
+	// final connect state. Switched back from rasphone -d in v0.9.0.17 because
+	// the brief "Connecting..." dialog was visible to users. The earlier
+	// rasdial "IKE-Auth-not-acceptable" failures that pushed us to rasphone
+	// turned out to be a strongSwan-server-side cert/SAN mismatch, not a
+	// rasdial bug — fixed separately in the Agent's IPSec config generator.
+	out, err := execHiddenContext(ctx, "rasdial", i.connName).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("rasdial failed: %s: %w", string(out), err)
 	}
-
-	// rasphone returns asynchronously — poll Get-VpnConnection until the
-	// connection reports Connected (up to 20s). Prefer -AllUserConnection so
-	// we see the machine-scope entry the helper created; fall back to the
-	// user-scope query for compatibility.
-	psCmd := fmt.Sprintf(
-		`$v = Get-VpnConnection -Name '%s' -AllUserConnection -ErrorAction SilentlyContinue; `+
-			`if (-not $v) { $v = Get-VpnConnection -Name '%s' -ErrorAction SilentlyContinue }; `+
-			`$v.ConnectionStatus`,
-		escapePowerShellString(i.connName), escapePowerShellString(i.connName))
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-		out, err := execHidden("powershell", "-NoProfile", "-Command", psCmd).CombinedOutput()
-		if err == nil && strings.Contains(string(out), "Connected") {
-			i.connectedAt = time.Now()
-			log.Printf("IPSec connected: %s", i.connName)
-			return nil
-		}
-	}
-	return fmt.Errorf("IPSec connect timeout: %s did not reach Connected state in 20s", i.connName)
+	i.connectedAt = time.Now()
+	log.Printf("IPSec connected: %s", i.connName)
+	return nil
 }
 
 func (i *IPSecProtocol) downWindows(ctx context.Context) error {
-	log.Printf("Disconnecting IPSec %s via rasphone -h...", i.connName)
-	execHiddenContext(ctx, "rasphone", "-h", i.connName).Run()
+	log.Printf("Disconnecting IPSec %s via rasdial /disconnect...", i.connName)
+	execHiddenContext(ctx, "rasdial", i.connName, "/disconnect").Run()
 	i.connectedAt = time.Time{}
 	log.Printf("IPSec disconnected: %s", i.connName)
 	return nil
