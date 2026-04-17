@@ -16,10 +16,13 @@ import (
 var assets embed.FS
 
 func main() {
-	// Check for --helper flag: run as privileged helper service (no UI)
+	// Check for --helper flag: run as privileged helper service (no UI).
+	// On Windows, runHelperEntrypoint() integrates with the Service Control
+	// Manager (required for `sc start` to not time out with Error 1053).
+	// On Linux/macOS it just runs the listener directly.
 	for _, arg := range os.Args[1:] {
 		if arg == "--helper" {
-			RunHelperMode()
+			runHelperEntrypoint()
 			return
 		}
 	}

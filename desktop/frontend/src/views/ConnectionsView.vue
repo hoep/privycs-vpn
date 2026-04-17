@@ -134,20 +134,35 @@
           </div>
         </div>
 
-        <!-- Protocol badges — click to SELECT protocol (not connect) -->
+        <!-- Protocol badges — click to SELECT protocol (not connect).
+             Hover shows an × to remove the protocol from this group,
+             but only when the group has more than one protocol (removing
+             the last one would delete the whole connection). -->
         <div class="flex flex-wrap gap-1.5 mb-2" @click.stop>
-          <button
+          <div
             v-for="pc in conn.protocols"
             :key="pc.protocol"
-            @click="selectProtocol(conn.id, pc.protocol)"
-            class="group flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all"
-            :class="isSelectedProtocol(conn.id, pc.protocol)
-              ? protocolBadgeActive(pc.protocol)
-              : 'bg-gray-200 dark:bg-gray-700/50 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'"
+            class="group relative inline-flex items-center"
           >
-            <ProtocolIcon :protocol="pc.protocol" size="xs" />
-            {{ protocolLabel(pc.protocol) }}
-          </button>
+            <button
+              @click="selectProtocol(conn.id, pc.protocol)"
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all"
+              :class="isSelectedProtocol(conn.id, pc.protocol)
+                ? protocolBadgeActive(pc.protocol)
+                : 'bg-gray-200 dark:bg-gray-700/50 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'"
+            >
+              <ProtocolIcon :protocol="pc.protocol" size="xs" />
+              {{ protocolLabel(pc.protocol) }}
+            </button>
+            <button
+              v-if="conn.protocols && conn.protocols.length > 1"
+              @click="removeProtocol(conn.id, pc.protocol)"
+              class="ml-0.5 opacity-0 group-hover:opacity-100 transition-opacity w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-red-500 hover:text-white flex items-center justify-center text-[9px] leading-none"
+              :title="'Remove ' + protocolLabel(pc.protocol) + ' from this connection'"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <!-- Server info -->
@@ -171,7 +186,7 @@
 import { ref, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
-import { ListConnections, ActivateConnection, DeleteConnection, RenameConnection, FetchMyProfile, DownloadAndImportConfig } from '../../wailsjs/go/main/App'
+import { ListConnections, ActivateConnection, DeleteConnection, RenameConnection, FetchMyProfile, DownloadAndImportConfig, RemoveProtocolFromConnection } from '../../wailsjs/go/main/App'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import {
   PlusIcon,
@@ -310,6 +325,17 @@ async function remove(id: string) {
     await vpn.fetchStatus()
   } catch (e: any) {
     actionError.value = 'Failed to delete connection'
+  }
+}
+
+async function removeProtocol(connId: string, protocol: string) {
+  actionError.value = ''
+  try {
+    await RemoveProtocolFromConnection(connId, protocol)
+    await loadConnections()
+    await vpn.fetchStatus()
+  } catch (e: any) {
+    actionError.value = 'Failed to remove protocol'
   }
 }
 

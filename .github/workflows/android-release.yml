@@ -120,3 +120,66 @@ jobs:
             android/app/build/outputs/apk/release/*.sha256
             android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/apk/debug/*.sha256
+
+  propagate-previous-android:
+    name: Propagate previous Android APKs
+    needs: check-changes
+    if: needs.check-changes.outputs.android_changed == 'false' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (for gh CLI auth context)
+        uses: actions/checkout@v4
+
+      - name: Find previous tag with Android assets and re-attach them
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Walk backwards through recent releases to find the newest one that
+          # has an actual .apk asset attached. Skip the current tag itself.
+          PREV_TAG=""
+          gh release list --limit 50 --json tagName --jq '.[].tagName' | while read -r tag; do
+            if [ "$tag" = "$CURRENT_TAG" ]; then
+              continue
+            fi
+            has_apk=$(gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null | grep -cE '\.apk$' || true)
+            if [ "$has_apk" -gt 0 ]; then
+              echo "Previous Android-bearing tag: $tag"
+              echo "$tag" > /tmp/prev_tag
+              break
+            fi
+          done
+
+          if [ ! -s /tmp/prev_tag ]; then
+            echo "No previous release with Android APKs found — nothing to propagate."
+            exit 0
+          fi
+
+          PREV_TAG=$(cat /tmp/prev_tag)
+          mkdir -p /tmp/apks
+          cd /tmp/apks
+
+          echo "Downloading Android artifacts from $PREV_TAG..."
+          gh release download "$PREV_TAG" --pattern "*.apk" --pattern "*.apk.sha256"
+
+          # Ensure the current release exists before uploading. desktop-release.yml
+          # may still be running — create it here if missing so upload doesn't fail
+          # with "release not found". If desktop-release creates it afterwards, its
+          # softprops action is idempotent and just appends its own assets.
+          if ! gh release view "$CURRENT_TAG" >/dev/null 2>&1; then
+            echo "Release $CURRENT_TAG does not exist yet — creating it."
+            gh release create "$CURRENT_TAG" \
+              --title "Privycs VPN $CURRENT_TAG" \
+              --generate-notes || echo "Race: release was created by another job just now."
+          else
+            echo "Release $CURRENT_TAG already exists — will upload assets to it."
+          fi
+
+          echo "Re-uploading APKs to $CURRENT_TAG..."
+          gh release upload "$CURRENT_TAG" *.apk *.apk.sha256 --clobber
+
+          echo "Propagated Android APKs from $PREV_TAG to $CURRENT_TAG (no rebuild)."
