@@ -109,9 +109,14 @@ android {
     val strongswanResFiltered = layout.buildDirectory.dir("generated/strongswanRes")
     val syncStrongswanRes = tasks.register<Sync>("syncStrongswanRes") {
         from("../vendor/strongswan/src/frontends/android/app/src/main/res") {
-            exclude("mipmap-**/ic_launcher*")
-            exclude("mipmap-**/ic_app*")
-            exclude("mipmap-**/ic_shortcut*")
+            // On Android 8+, a library's mipmap-anydpi-v26/ic_launcher.xml
+            // takes precedence over the app's raster ic_launcher PNGs - the
+            // launcher icon would become strongSwan's adaptive icon.
+            // Filtering only this one XML leaves the library's own usages
+            // (ic_app, ic_shortcut, the v26 fg/bg assets referenced by
+            // strongSwan's layouts/values) intact so AAPT2 still resolves
+            // references inside the library itself.
+            exclude("mipmap-anydpi-v26/ic_launcher.xml")
         }
         into(strongswanResFiltered)
     }
