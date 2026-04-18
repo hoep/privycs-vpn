@@ -200,29 +200,22 @@ class OpenVpnTunnel(private val context: Context) {
         // profile itself before VPNLaunchHelper.startOpenVpn fires.
         applySplitTunnelToProfile(parsedProfile)
 
-        // ProfileManager is a process-local singleton. OpenVPNService runs
-        // in :openvpn with its own heap, so it cannot see profiles we
-        // only held in the main process. Three disk writes are needed,
-        // all mandatory:
-        //   1. addProfile(...)         - in-memory map on this process
-        //   2. saveProfile(ctx, ...)   - writes {uuid}.vp into filesDir
-        //   3. saveProfileList(ctx)    - writes the "vpnlist" StringSet
-        //                                SharedPreference the subprocess
-        //                                reads via loadVPNList() to
-        //                                DISCOVER which profiles exist
-        //
-        // Missing step (3) was why our earlier build logged "Used x 101
-        // tries to get current version (-1/1) of the profile" plus a
-        // NullPointerException inside ProfileManager.notifyProfile-
-        // VersionChanged: the .vp file was on disk but the vpnlist
-        // StringSet did not contain its UUID, so loadVPNList() silently
-        // skipped it and ProfileManager.get() kept returning null. After
-        // 100 retries x 100ms = 10s, ics-openvpn gave up and crashed with
-        // a null profile.
-        val profileManager = ProfileManager.getInstance(context)
-        profileManager.addProfile(parsedProfile)
-        ProfileManager.saveProfile(context, parsedProfile)
-        profileManager.saveProfileList(context)
+        // Persist the profile so OpenVPNService in the :openvpn subprocess
+        // can find it on its first ProfileManager.get() call. Three disk
+        // writes are needed and the third one MUST be synchronous,
+        // otherwise the subprocess loops "Used x 101 tries to get current
+        // version (-1/1)" and eventually crashes in
+        // ProfileManager.notifyProfileVersionChanged with a null
+        // VpnProfile.mVersion read. An earlier build called vendor's
+        // ProfileManager.saveProfileList(ctx) which internally uses
+        // SharedPreferences.apply() (async); MODE_MULTI_PROCESS is
+        // deprecated since API 11 and on modern Android no longer
+        // reliably cross-process-syncs before the file has been flushed
+        // to disk. PrivycsStatusListenerBridge.persistProfileSync does
+        // the same three writes but forces .commit() on the final
+        // StringSet update, so the subprocess reads the new UUID on its
+        // very next SharedPreferences cache miss.
+        de.blinkt.openvpn.core.PrivycsStatusListenerBridge.persistProfileSync(context, parsedProfile)
 
         // Attach listeners BEFORE startOpenVpn so we don't miss the first
         // LEVEL_START callback. addStateListener fires the current state
