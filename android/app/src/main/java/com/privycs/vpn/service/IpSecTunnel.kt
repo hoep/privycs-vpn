@@ -49,7 +49,8 @@ class IpSecTunnel {
         DISCONNECTING
     }
 
-    // Parsed .sswan config data model
+    // Parsed .sswan config data model. Field names match the gateway emitter at
+    // cmd/gateway/ipsec_mobile_profiles.go:generateAndroidSSWANProfile.
     @Serializable
     data class SswanConfig(
         val uuid: String = "",
@@ -58,8 +59,12 @@ class IpSecTunnel {
         val remote: SswanRemote = SswanRemote(),
         val local: SswanLocal = SswanLocal(),
         val mtu: Int = 1400,
+        // Gateway emits a CIDR list (bypass/split-tunnel subnets), NOT the
+        // strongSwan-official Int-flag form. Deserializing as Int would fail.
         @SerialName("split-tunneling")
-        val splitTunneling: Int = 0
+        val splitTunneling: List<String> = emptyList(),
+        @SerialName("dns-servers")
+        val dnsServers: List<String> = emptyList()
     )
 
     @Serializable
@@ -75,6 +80,10 @@ class IpSecTunnel {
     data class SswanLocal(
         val p12: String = "",
         val id: String = "",
+        // Gateway JSON key is "p12-password" (hyphen). Without the explicit
+        // SerialName this deserializes to empty and PKCS#12 decoding fails.
+        @SerialName("p12-password")
+        val p12Password: String = "",
         @SerialName("eap_id")
         val eapId: String = ""
     )

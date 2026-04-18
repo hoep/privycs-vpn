@@ -80,7 +80,16 @@ class GatewayApiClient(
      * Matches desktop FetchMyConfig().
      */
     suspend fun fetchConfig(protocol: String, configId: Int): String {
-        val path = "/api/v1/connect/my-configs/$protocol-$configId"
+        // IPSec: request the .sswan JSON format. Without ?format=sswan the
+        // gateway defaults to iOS .mobileconfig (signed plist) which the
+        // Android client cannot parse -- surfaces as a misleading base64
+        // decode error like "Input-length = 1" when ktor tries to read the
+        // binary body as text. Matches desktop api_client.go:FetchMyConfig.
+        val path = if (protocol == "ipsec") {
+            "/api/v1/connect/my-configs/$protocol-$configId?format=sswan"
+        } else {
+            "/api/v1/connect/my-configs/$protocol-$configId"
+        }
         val response = client.get("${baseUrl()}$path")
 
         if (!response.status.isSuccess()) {

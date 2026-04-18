@@ -1,0 +1,3 @@
+[submodule "android/vendor/strongswan"]
+	path = android/vendor/strongswan
+	url = https://github.com/strongswan/strongswan.git
