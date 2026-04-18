@@ -63,15 +63,11 @@ android {
         }
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            consumerProguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "consumer-rules.pro"
-            )
-        }
-    }
+    // Library modules don't own minification - that's the app module's job.
+    // consumerProguardFiles in defaultConfig already declares our keep rules;
+    // a separate buildTypes.release block with getDefaultProguardFile causes
+    // AGP's extractProguardFiles -> mergeReleaseConsumerProguardFiles task
+    // ordering to fail validation.
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
