@@ -107,43 +107,55 @@ android {
     // the adaptive-icon XML under mipmap-anydpi-v26 which otherwise takes
     // precedence over our raster PNGs on Android 8+.
     val strongswanResFiltered = layout.buildDirectory.dir("generated/strongswanRes")
-    // Bump this string whenever the rebrand filter below changes so Gradle
-    // considers the sync stale and reruns the copy. Declared as an input
-    // property on the task, this is what breaks the silent build-cache hit
-    // that kept restoring the unrebranded strings.xml across v0.9.1.2-.4.
-    val rebrandVersion = "2"
     val syncStrongswanRes = tasks.register<Sync>("syncStrongswanRes") {
-        inputs.property("rebrandVersion", rebrandVersion)
-        // Belt to the previous braces: also always treat the output as out
-        // of date. The input-property alone would be enough, but the user-
-        // visible cost of a false positive (a few Gradle-task seconds) is
-        // far below the cost of a silent brand regression.
         outputs.upToDateWhen { false }
         from("../vendor/strongswan/src/frontends/android/app/src/main/res") {
             exclude("mipmap-anydpi-v26/ic_launcher.xml")
-            filesMatching("values/strings.xml") {
-                filter { line ->
-                    line
-                        .replace(
-                            "<string name=\"app_name\">strongSwan VPN Client</string>",
-                            "<string name=\"app_name\">Privycs VPN</string>"
-                        )
-                        .replace(
-                            "<string name=\"main_activity_name\">strongSwan</string>",
-                            "<string name=\"main_activity_name\">Privycs VPN</string>"
-                        )
-                        .replace(
-                            "<string name=\"strongswan_shortcut\">strongSwan shortcut</string>",
-                            "<string name=\"strongswan_shortcut\">Privycs VPN shortcut</string>"
-                        )
-                        .replace(
-                            "<string name=\"log_mail_subject\">strongSwan %1\$s Log File</string>",
-                            "<string name=\"log_mail_subject\">Privycs VPN %1\$s Log File</string>"
-                        )
-                }
-            }
         }
         into(strongswanResFiltered)
+        // Do the rebrand AS A POST-COPY STEP. The earlier filesMatching +
+        // filter approach compiled and ran without errors but did not
+        // visibly transform strings.xml in any v0.9.1.x build the user
+        // tested - something about the Kotlin-DSL interaction with
+        // filesMatching.filter kept the lambda from actually applying to
+        // the output file. doLast + raw String.replace on the concrete
+        // output file is boring but verifiable, and since
+        // outputs.upToDateWhen { false } it runs on every Gradle
+        // invocation so there is no up-to-date skip to worry about.
+        doLast {
+            val stringsXml = java.io.File(
+                strongswanResFiltered.get().asFile,
+                "values/strings.xml"
+            )
+            if (!stringsXml.exists()) {
+                logger.warn("strongswan-lib: strings.xml not present in sync output; rebrand skipped")
+                return@doLast
+            }
+            val before = stringsXml.readText()
+            val after = before
+                .replace(
+                    "<string name=\"app_name\">strongSwan VPN Client</string>",
+                    "<string name=\"app_name\">Privycs VPN</string>"
+                )
+                .replace(
+                    "<string name=\"main_activity_name\">strongSwan</string>",
+                    "<string name=\"main_activity_name\">Privycs VPN</string>"
+                )
+                .replace(
+                    "<string name=\"strongswan_shortcut\">strongSwan shortcut</string>",
+                    "<string name=\"strongswan_shortcut\">Privycs VPN shortcut</string>"
+                )
+                .replace(
+                    "<string name=\"log_mail_subject\">strongSwan %1\$s Log File</string>",
+                    "<string name=\"log_mail_subject\">Privycs VPN %1\$s Log File</string>"
+                )
+            if (after == before) {
+                logger.warn("strongswan-lib: rebrand found no matching strings - upstream may have renamed app_name / main_activity_name")
+            } else {
+                stringsXml.writeText(after)
+                logger.lifecycle("strongswan-lib: rebranded ${(after.length - before.length).let { if (it < 0) -it else it }}-byte diff in values/strings.xml")
+            }
+        }
     }
 
     sourceSets {

@@ -452,25 +452,22 @@ private fun ProtocolBadge(
         VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
     }
 
+    // Brand icons alone; the shortLabel text was dropped on user request
+    // ("WG/OVPN/IPSec" tags felt redundant next to the logo). Icon bumped
+    // to 20dp so the detail of the WireGuard dragon / strongSwan swan is
+    // readable at this zoom.
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
             .background(color.copy(alpha = 0.15f))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             painter = androidx.compose.ui.res.painterResource(id = iconRes),
-            contentDescription = null,
+            contentDescription = protocol.label,
             tint = color,
-            modifier = Modifier.size(11.dp)
-        )
-        Spacer(modifier = Modifier.width(3.dp))
-        Text(
-            text = protocol.shortLabel,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium,
-            color = color
+            modifier = Modifier.size(20.dp)
         )
         if (onRemove != null) {
             Spacer(modifier = Modifier.width(2.dp))

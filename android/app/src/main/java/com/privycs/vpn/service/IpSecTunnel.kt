@@ -91,6 +91,16 @@ class IpSecTunnel(private val context: Context) {
     private var profileUuid: UUID? = null
     private var connectedSince: Long = 0L
 
+    // Snapshot of TrafficStats per-UID totals at CONNECT time, used as the
+    // baseline for rx/tx deltas. The app-UID total is close to "VPN traffic"
+    // because CharonVpnService runs in our process and tunneled traffic all
+    // flows through our UID's socket path. It slightly over-counts by any
+    // non-VPN HTTP the app makes (fetchProfile etc.) but those are rare
+    // compared to tunnel data, so the number the user sees is dominated by
+    // the tunnel.
+    private var rxBaseline: Long = 0L
+    private var txBaseline: Long = 0L
+
     // Long-lived bind to strongSwan's VpnStateService. Bound on connect(),
     // unbound on disconnect() so the VpnStateListener callbacks can drive
     // our state updates for the whole tunnel lifetime. Nullable because
@@ -322,7 +332,14 @@ class IpSecTunnel(private val context: Context) {
             VpnStateService.State.DISABLED -> State.DISCONNECTED
             VpnStateService.State.CONNECTING -> State.CONNECTING
             VpnStateService.State.CONNECTED -> {
-                if (connectedSince == 0L) connectedSince = System.currentTimeMillis()
+                if (connectedSince == 0L) {
+                    connectedSince = System.currentTimeMillis()
+                    // Snapshot the traffic baseline the moment charon reports
+                    // the tunnel up. Delta from here is what the UI shows
+                    // for the "current session".
+                    rxBaseline = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
+                    txBaseline = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
+                }
                 State.CONNECTED
             }
             VpnStateService.State.DISCONNECTING -> State.DISCONNECTING
@@ -395,11 +412,19 @@ class IpSecTunnel(private val context: Context) {
     fun getState(): State = state
 
     /**
-     * Snapshot for UI status display.
+     * Snapshot for UI status display. Byte counters use TrafficStats with a
+     * baseline captured at CONNECTED time (see handleStateChanged) rather
+     * than per-interface /proc|/sys reads, because on Android 10+ those
+     * paths are UID-scoped and return zeros for the VPN tun even though
+     * our UID owns CharonVpnService.
      */
     fun getStatus(connectionName: String, connectionId: String): VpnStatus {
         val up = state == State.CONNECTED
-        val (rx, tx) = if (up) readVpnInterfaceBytes() else 0L to 0L
+        val (rx, tx) = if (up) {
+            val r = (android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid()) - rxBaseline).coerceAtLeast(0L)
+            val t = (android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid()) - txBaseline).coerceAtLeast(0L)
+            r to t
+        } else 0L to 0L
         return VpnStatus(
             connected = up,
             connectionName = connectionName,

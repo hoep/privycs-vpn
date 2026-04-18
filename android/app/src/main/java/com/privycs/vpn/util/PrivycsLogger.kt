@@ -40,13 +40,11 @@ object PrivycsLogger {
 
     private inline fun log(level: String, tag: String, msg: String, logcat: () -> Unit) {
         logcat()
-        // The PrivycsApp context is guaranteed to be initialized before any
-        // VPN event fires (Application.onCreate completes before the first
-        // Activity). Guarding with `instance == null` check keeps us safe
-        // if a static init ever races.
         val ctx: Context = try {
             PrivycsApp.instance
         } catch (_: UninitializedPropertyAccessException) {
+            Log.w("PrivycsLogger",
+                "PrivycsApp.instance not initialized yet; skipping log file write for [$tag] $msg")
             return
         }
         synchronized(writeLock) {
@@ -59,9 +57,13 @@ object PrivycsLogger {
                     val ts = dateFormat.format(Date())
                     out.println("$ts [$tag] $level $msg")
                 }
-            } catch (_: Exception) {
-                // Never crash the app just because logging failed. logcat()
-                // already captured it above.
+            } catch (e: Exception) {
+                // Log to logcat so `adb logcat -s PrivycsLogger` reveals
+                // WHY the file write failed (permissions, full disk, etc.)
+                // - silent failure was exactly what left the in-app Logs
+                // screen empty in v0.9.1.5 / v0.9.1.6.
+                Log.e("PrivycsLogger",
+                    "Failed to append to ${ctx.filesDir}/$LOG_FILE: ${e.message}", e)
             }
         }
     }

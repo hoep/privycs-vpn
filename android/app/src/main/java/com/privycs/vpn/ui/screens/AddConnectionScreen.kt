@@ -575,7 +575,7 @@ private fun GatewayPanel(
                                     painter = androidx.compose.ui.res.painterResource(id = iconRes),
                                     contentDescription = entry.protocol,
                                     tint = iconTint,
-                                    modifier = Modifier.size(18.dp).padding(end = 8.dp)
+                                    modifier = Modifier.size(26.dp).padding(end = 8.dp)
                                 )
                             } else {
                                 Text(

@@ -29,6 +29,16 @@ class PrivycsApp : StrongSwanApplication() {
         connectionRepository = ConnectionRepository(this)
         settingsRepository = SettingsRepository(this)
         createNotificationChannels()
+        // Guaranteed first log entry every app start so the Logs screen
+        // reveals whether the tee writer is working. If THIS line is
+        // missing from filesDir/privycs-vpn.log the logger itself is
+        // broken; if it IS present but connect/disconnect events are
+        // missing the wiring is off. Useful distinction when diagnosing
+        // "no log entries yet" reports.
+        com.privycs.vpn.util.PrivycsLogger.i(
+            "PrivycsApp",
+            "App boot - version ${com.privycs.vpn.BuildConfig.VERSION_NAME} (${com.privycs.vpn.BuildConfig.VERSION_CODE})"
+        )
     }
 
     private fun createNotificationChannels() {
