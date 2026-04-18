@@ -558,14 +558,34 @@ private fun GatewayPanel(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val protocol = VpnProtocol.fromString(entry.protocol)
-                            val tag = protocol?.shortLabel ?: entry.protocol.uppercase()
-                            Text(
-                                text = tag,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
+                            val iconRes = when (protocol) {
+                                VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
+                                VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
+                                VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
+                                null                  -> null
+                            }
+                            val iconTint = when (protocol) {
+                                VpnProtocol.WIREGUARD -> com.privycs.vpn.ui.theme.WireGuardRed
+                                VpnProtocol.OPENVPN   -> com.privycs.vpn.ui.theme.OpenVpnOrange
+                                VpnProtocol.IPSEC     -> com.privycs.vpn.ui.theme.IpSecBlue
+                                null                  -> MaterialTheme.colorScheme.primary
+                            }
+                            if (iconRes != null) {
+                                androidx.compose.material3.Icon(
+                                    painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                                    contentDescription = entry.protocol,
+                                    tint = iconTint,
+                                    modifier = Modifier.size(18.dp).padding(end = 8.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = entry.protocol.uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                            }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = entry.peerName,

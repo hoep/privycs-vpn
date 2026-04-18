@@ -743,8 +743,14 @@ fun SettingsScreen(
             // -- About --
             SettingsSection(title = "ABOUT") {
                 SettingsInfoRow("App", "Privycs VPN")
-                SettingsInfoRow("Version", "0.1.0")
-                SettingsInfoRow("Protocol", settings.activeProtocol.label)
+                SettingsInfoRow(
+                    "Version",
+                    "${com.privycs.vpn.BuildConfig.VERSION_NAME} (${com.privycs.vpn.BuildConfig.VERSION_CODE})"
+                )
+                // The app supports all three protocols; the per-user
+                // default "Protocol" line was misleading (suggested the
+                // app only spoke one). Show the full supported set.
+                SettingsInfoRow("Protocols", "WireGuard, OpenVPN, IPSec")
             }
 
             Spacer(modifier = Modifier.height(32.dp))

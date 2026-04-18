@@ -12,8 +12,8 @@ android {
         applicationId = "com.privycs.vpn"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0-ipsec"
+        versionCode = 7
+        versionName = "0.9.1.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -53,6 +53,10 @@ android {
 
     buildFeatures {
         compose = true
+        // Expose versionName / versionCode from build.gradle.kts as
+        // BuildConfig.VERSION_NAME / VERSION_CODE so the About screen
+        // reads them live instead of hardcoding "0.1.0".
+        buildConfig = true
     }
 
     composeOptions {
