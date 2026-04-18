@@ -49,6 +49,7 @@ android {
                         "-DHAVE_SIGWAITINFO " +
                         "-DHAVE_GETPWNAM_R " +
                         "-DHAVE_GETGRNAM_R " +
+                        "-DHAVE_GETPWUID_R " +
                         "-DHAVE_GCC_ATOMIC_OPERATIONS"
             }
         }
@@ -86,8 +87,19 @@ android {
     sourceSets {
         getByName("main") {
             java.srcDirs(
-                "../vendor/strongswan/src/frontends/android/app/src/main/java"
+                "../vendor/strongswan/src/frontends/android/app/src/main/java",
+                // Minimal Activity stubs at the org.strongswan.android.ui FQN
+                // so CharonVpnService + VpnStateService compile without
+                // pulling in the upstream UI tree (the UI calls
+                // WindowCompat.enableEdgeToEdge which needs androidx.core
+                // 1.15+, which in turn needs compileSdk 35 - out of scope
+                // for this release).
+                "src/main/java"
             )
+            // Drop the upstream UI so we don't inherit its resource deps.
+            // Our :app owns the UI anyway, the strongSwan Activities would
+            // never be reachable.
+            java.exclude("org/strongswan/android/ui/**")
             res.srcDirs(
                 "../vendor/strongswan/src/frontends/android/app/src/main/res"
             )
