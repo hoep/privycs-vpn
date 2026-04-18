@@ -7,7 +7,6 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.privycs.vpn.data.models.VpnConnection
@@ -45,17 +44,22 @@ fun rememberIpSecConnectPrep(
     onError: (String) -> Unit
 ): (VpnConnection) -> Unit {
     val context = LocalContext.current
-    val pendingConnection = remember { mutableStateOf<VpnConnection?>(null) }
+    val connectionRepo = com.privycs.vpn.PrivycsApp.instance.connectionRepository
 
     // Two-step flow: first the system's PKCS#12 install dialog, then the
     // KeyChain.choosePrivateKeyAlias callback. The launcher handles the
     // first hop; the KeyChain callback handles the second.
+    //
+    // We intentionally do NOT capture the pending connection in remember{}
+    // state: the Android KeyChain install dialog can cause process recreation
+    // on low-memory devices, which wipes non-saveable Compose state and
+    // leaves the result callback with null. Re-reading the active connection
+    // from the repository at callback time is stateless and safe across
+    // recreation.
     val installLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val conn = pendingConnection.value
-        pendingConnection.value = null
-        if (result.resultCode != Activity.RESULT_OK || conn == null) {
+        if (result.resultCode != Activity.RESULT_OK) {
             onError("PKCS#12 install cancelled")
             return@rememberLauncherForActivityResult
         }
@@ -64,7 +68,12 @@ fun rememberIpSecConnectPrep(
             onError("Cannot access Activity to pick KeyChain alias")
             return@rememberLauncherForActivityResult
         }
-        val config = conn.getActiveConfig() ?: return@rememberLauncherForActivityResult
+        val conn = connectionRepo.getActive()
+        val config = conn?.getActiveConfig()
+        if (conn == null || config == null) {
+            onError("Active connection disappeared during install")
+            return@rememberLauncherForActivityResult
+        }
         pickAliasAndConnect(activity, context, conn, config.configContent, onReady, onError)
     }
 
@@ -94,7 +103,6 @@ fun rememberIpSecConnectPrep(
                 onError("Profile does not contain a PKCS#12 bundle")
                 return@prep
             }
-            pendingConnection.value = connection
             installLauncher.launch(installIntent)
         }
     }

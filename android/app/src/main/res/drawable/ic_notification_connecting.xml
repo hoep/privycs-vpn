@@ -1,0 +1,14 @@
+<!--
+    Privycs shield with hourglass-like middle - used by CharonVpnService
+    while the IKE SA is still being negotiated.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2L3,6V12C3,17.5 6.84,22.5 12,24C17.16,22.5 21,17.5 21,12V6L12,2M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,8.5V12L14.5,14.5L15.5,13.5L13,11V8.5H12Z"/>
+</vector>

@@ -1,0 +1,19 @@
+<!--
+    Privycs-branded notification icon. Overrides strongSwan's
+    R.drawable.ic_notification so CharonVpnService's foreground
+    notification shows our shield instead of strongSwan's.
+
+    Android's status-bar notification icons must be silhouettes -
+    every non-transparent pixel is tinted with the system accent
+    color by Android itself. Keep the path white + solid.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2L3,6V12C3,17.5 6.84,22.5 12,24C17.16,22.5 21,17.5 21,12V6L12,2M10.2,16.2L6,12L7.41,10.59L10.2,13.38L16.59,7L18,8.41L10.2,16.2Z"/>
+</vector>

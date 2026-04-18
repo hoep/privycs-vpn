@@ -102,6 +102,20 @@ android {
         into(strongswanJavaFiltered)
     }
 
+    // Same trick for resources: strip the strongSwan launcher/app/shortcut
+    // mipmaps so OUR app's @mipmap/ic_launcher wins on every DPI, including
+    // the adaptive-icon XML under mipmap-anydpi-v26 which otherwise takes
+    // precedence over our raster PNGs on Android 8+.
+    val strongswanResFiltered = layout.buildDirectory.dir("generated/strongswanRes")
+    val syncStrongswanRes = tasks.register<Sync>("syncStrongswanRes") {
+        from("../vendor/strongswan/src/frontends/android/app/src/main/res") {
+            exclude("mipmap-**/ic_launcher*")
+            exclude("mipmap-**/ic_app*")
+            exclude("mipmap-**/ic_shortcut*")
+        }
+        into(strongswanResFiltered)
+    }
+
     sourceSets {
         getByName("main") {
             java.srcDirs(
@@ -109,14 +123,22 @@ android {
                 strongswanJavaFiltered
             )
             res.srcDirs(
-                "../vendor/strongswan/src/frontends/android/app/src/main/res"
+                "src/main/res",
+                strongswanResFiltered
             )
             manifest.srcFile("src/main/AndroidManifest.xml")
         }
     }
 
-    // Make every Java-compile step wait for the filtered sync. Covers Debug
-    // and Release variants without naming them explicitly.
+    // Hang both sync tasks off preBuild so they run before any
+    // compile/merge/AAPT2 stage reads from the generated source dirs.
+    // Blanket dependency is safer than trying to enumerate every task AGP
+    // introduces per variant.
+    tasks.matching { it.name == "preBuild" }.configureEach {
+        dependsOn(syncStrongswanJava, syncStrongswanRes)
+    }
+    // Belt-and-braces: explicitly tie Kotlin + Java compile. Some AGP
+    // versions skip preBuild when only compile tasks are requested.
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
         dependsOn(syncStrongswanJava)
     }

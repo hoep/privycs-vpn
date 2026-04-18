@@ -158,7 +158,14 @@ fun ConnectScreen(
                         // VPN permission already granted. IPSec has an extra
                         // KeyChain install step before the actual connect;
                         // other protocols can dispatch directly.
-                        val conn = activeConnection
+                        //
+                        // Re-read the active connection at click time - the
+                        // Composable-scoped activeConnection is captured at
+                        // recomposition and goes stale if the user switched
+                        // profiles between composition and tap, which would
+                        // route an IPSec connect around the prep flow and
+                        // land in "PKCS#12 not yet installed".
+                        val conn = connectionRepo.getActive()
                         if (conn != null && conn.needsKeyChainPrep()) {
                             ipSecPrep(conn)
                         } else {
