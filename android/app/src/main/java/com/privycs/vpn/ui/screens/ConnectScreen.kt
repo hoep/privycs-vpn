@@ -52,6 +52,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +77,7 @@ import com.privycs.vpn.ui.theme.PrivycsTeal
 import com.privycs.vpn.ui.theme.PrivycsTealDark
 import com.privycs.vpn.ui.theme.StatusConnected
 import com.privycs.vpn.ui.theme.WireGuardRed
+import kotlinx.coroutines.launch
 
 @Composable
 fun ConnectScreen(
@@ -93,6 +95,12 @@ fun ConnectScreen(
     val activeConnection = connectionRepo.getActive()
 
     var showConnectionPicker by remember { mutableStateOf(false) }
+
+    // Scope for the on-demand reconnect coroutine (disconnect -> wait 400ms ->
+    // re-evaluate rules -> reconnect if still matching). Tied to the Connect
+    // screen's composable lifetime so navigating away cancels any pending
+    // reconnect rather than racing into a stale vpnManager.connect() call.
+    val coroutineScope = rememberCoroutineScope()
 
     // IPSec KeyChain install + alias pick orchestrator. The first time the
     // user connects an IPSec profile, this drives the two-step Android
@@ -158,16 +166,34 @@ fun ConnectScreen(
             isConnecting = isConnecting,
             activeProtocol = activeProtocolForIcon,
             onClick = {
-                // Signal user intent to NetworkMonitor so a manual disconnect
-                // with on-demand enabled doesn't trigger an instant auto-
-                // reconnect from the next network event. Released again on
-                // the next user-initiated connect.
                 val networkMonitor = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
                 if (isConnected) {
-                    networkMonitor.onUserDisconnect()
+                    // User explicitly-disconnected but on-demand is in
+                    // charge: if the current network still satisfies the
+                    // rules, bring the tunnel back up immediately.
+                    // Direct orchestration here (rather than relying on
+                    // NetworkMonitor's VpnStatus.collect chain) so that
+                    // users who tap Disconnect while the rule banner
+                    // reads "VPN will connect" see the tunnel re-enter
+                    // within roughly one second, every time.
                     vpnManager.disconnect()
+                    coroutineScope.launch {
+                        val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
+                        if (!settings.connectOnDemand.enabled) return@launch
+                        // Give the disconnect a moment to propagate
+                        // (service stopSelf + scope.cancel + status=empty).
+                        kotlinx.coroutines.delay(400)
+                        networkMonitor.reevaluate()
+                        val ns = networkMonitor.networkState.value
+                        if (ns.shouldConnect && !vpnManager.isConnected) {
+                            com.privycs.vpn.util.PrivycsLogger.i(
+                                "ConnectScreen",
+                                "On-demand reconnect after manual disconnect (${ns.ruleMatch})"
+                            )
+                            vpnManager.connect()
+                        }
+                    }
                 } else {
-                    networkMonitor.onUserConnect()
                     val prepareIntent = vpnManager.prepareVpn()
                     if (prepareIntent != null) {
                         vpnPermissionLauncher.launch(prepareIntent)
