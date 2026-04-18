@@ -72,7 +72,13 @@ android {
 
 dependencies {
     // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+    // 2024.02.00 (Compose UI 1.6.0) had a Samsung-specific crash in
+    // AndroidComposeView.sendHoverExitEvent ("The ACTION_HOVER_EXIT
+    // event was not cleared.") - Samsung devices synthesise hover
+    // events that compose 1.6.0 did not clean up; the bug was fixed in
+    // Compose UI 1.6.3 (BOM 2024.04.00). Bumping past that to
+    // 2024.09.00 (Compose UI 1.7.3) for additional stability.
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     implementation(composeBom)
 
     // Compose

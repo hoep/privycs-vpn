@@ -200,15 +200,29 @@ class OpenVpnTunnel(private val context: Context) {
         // profile itself before VPNLaunchHelper.startOpenVpn fires.
         applySplitTunnelToProfile(parsedProfile)
 
-        // ProfileManager is a process-local singleton. OpenVPNService runs in
-        // :openvpn, so we need to add the profile into THAT process's
-        // ProfileManager. Upstream solves this by persisting profiles to disk
-        // first, so addProfile() here writes to SharedPreferences + a .vp
-        // file that OpenVPNService's own ProfileManager rehydrates on
-        // lookup. saveProfile() is what flushes to disk.
+        // ProfileManager is a process-local singleton. OpenVPNService runs
+        // in :openvpn with its own heap, so it cannot see profiles we
+        // only held in the main process. Three disk writes are needed,
+        // all mandatory:
+        //   1. addProfile(...)         - in-memory map on this process
+        //   2. saveProfile(ctx, ...)   - writes {uuid}.vp into filesDir
+        //   3. saveProfileList(ctx)    - writes the "vpnlist" StringSet
+        //                                SharedPreference the subprocess
+        //                                reads via loadVPNList() to
+        //                                DISCOVER which profiles exist
+        //
+        // Missing step (3) was why our earlier build logged "Used x 101
+        // tries to get current version (-1/1) of the profile" plus a
+        // NullPointerException inside ProfileManager.notifyProfile-
+        // VersionChanged: the .vp file was on disk but the vpnlist
+        // StringSet did not contain its UUID, so loadVPNList() silently
+        // skipped it and ProfileManager.get() kept returning null. After
+        // 100 retries x 100ms = 10s, ics-openvpn gave up and crashed with
+        // a null profile.
         val profileManager = ProfileManager.getInstance(context)
         profileManager.addProfile(parsedProfile)
         ProfileManager.saveProfile(context, parsedProfile)
+        profileManager.saveProfileList(context)
 
         // Attach listeners BEFORE startOpenVpn so we don't miss the first
         // LEVEL_START callback. addStateListener fires the current state
