@@ -188,10 +188,12 @@ class PrivycsVpnService : VpnService() {
 
         connectStartTime = System.currentTimeMillis()
         sendWidgetUpdate(connected = false)
-        // Don't start the WG/OpenVPN-style poll loop: the VpnStateListener
-        // drives the status flow. Byte counters remain 0 for now (charon's
-        // public API does not expose per-SA byte counters through
+        // Start the shared poll loop - VpnStateListener only fires on STATE
+        // changes, not every second, so uptime stays frozen at the moment
+        // of CONNECTED without a periodic push. Byte counters remain 0
+        // (charon's public API does not expose per-SA byte counters through
         // VpnStateService; that requires a separate native bridge).
+        startStatusPolling()
     }
 
     private fun handleDisconnect() {

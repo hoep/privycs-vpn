@@ -88,18 +88,25 @@ class VpnServiceManager private constructor(private val context: Context) {
 
                 connectionRepo.updateLastConnected(connId)
 
+                // Tentative status - actually-connected flag flips only when
+                // the service pushes a VpnStatus with connected=true (polled
+                // for WG/OpenVPN, VpnStateListener-driven for IPSec). An
+                // optimistic connected=true here caused "briefly Connected,
+                // then Disconnected until IKE finishes, then Connected again"
+                // flicker for IPSec where the actual tunnel takes ~5-10s.
                 _status.value = VpnStatus(
-                    connected = true,
+                    connected = false,
                     connectionName = connection.name,
                     connectionId = connId,
                     activeProtocol = connection.activeProtocol,
                     serverEndpoint = config.serverAddress,
                     localAddress = config.localAddress
                 )
+                // Intentionally do NOT reset _isConnecting here; it stays
+                // true until updateStatus() sees connected=true or an error.
             } catch (e: Exception) {
                 Log.e(TAG, "Connect failed", e)
                 _status.value = VpnStatus(error = "Connection failed: ${e.message}")
-            } finally {
                 _isConnecting.value = false
             }
         }
@@ -149,9 +156,16 @@ class VpnServiceManager private constructor(private val context: Context) {
 
     /**
      * Update status from VpnService (called via service binding or broadcast).
+     * Once the tunnel reports either connected=true or an error, clear the
+     * connecting spinner - otherwise ConnectScreen keeps showing
+     * "Connecting..." forever for IPSec (WG/OpenVPN clear this via the
+     * polled connected=true the same way).
      */
     fun updateStatus(status: VpnStatus) {
         _status.value = status
+        if (status.connected || status.error != null) {
+            _isConnecting.value = false
+        }
     }
 
     /**

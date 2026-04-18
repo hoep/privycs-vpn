@@ -148,23 +148,20 @@ fun ConnectScreen(
             isConnected = isConnected,
             isConnecting = isConnecting,
             onClick = {
+                // Signal user intent to NetworkMonitor so a manual disconnect
+                // with on-demand enabled doesn't trigger an instant auto-
+                // reconnect from the next network event. Released again on
+                // the next user-initiated connect.
+                val networkMonitor = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
                 if (isConnected) {
+                    networkMonitor.onUserDisconnect()
                     vpnManager.disconnect()
                 } else {
+                    networkMonitor.onUserConnect()
                     val prepareIntent = vpnManager.prepareVpn()
                     if (prepareIntent != null) {
                         vpnPermissionLauncher.launch(prepareIntent)
                     } else {
-                        // VPN permission already granted. IPSec has an extra
-                        // KeyChain install step before the actual connect;
-                        // other protocols can dispatch directly.
-                        //
-                        // Re-read the active connection at click time - the
-                        // Composable-scoped activeConnection is captured at
-                        // recomposition and goes stale if the user switched
-                        // profiles between composition and tap, which would
-                        // route an IPSec connect around the prep flow and
-                        // land in "PKCS#12 not yet installed".
                         val conn = connectionRepo.getActive()
                         if (conn != null && conn.needsKeyChainPrep()) {
                             ipSecPrep(conn)
