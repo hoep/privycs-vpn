@@ -1,8 +1,6 @@
 package com.privycs.vpn.service
 
-import android.content.Context
 import android.net.VpnService
-import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Base64
 import android.util.Log
@@ -15,25 +13,12 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * IPSec/IKEv2 tunnel implementation.
+ * IPSec/IKEv2 tunnel - parses .sswan profiles and (once LibC-5 lands) drives
+ * strongSwan's CharonVpnService. The actual IKE + ESP data plane runs in the
+ * bundled libcharon/libipsec native libraries shipped by :strongswan-lib.
  *
- * This is a clean abstraction layer that manages IKEv2/IPSec connection state.
- *
- * Integration strategy by API level:
- *   - API 31+ (Android 12): Use android.net.ipsec.ike.* APIs for native IKEv2.
- *   - API 26-30: Use VpnService TUN interface as a foundation, designed to be
- *     backed by strongSwan's libcharon-android when integrated.
- *
- * Full integration paths:
- *   Option A: strongSwan Android library (org.strongswan.android) from their
- *     official repository. This is the most battle-tested approach.
- *   Option B: Android native IKEv2 VPN API (API 31+) for certificate and
- *     EAP-based authentication without a third-party library.
- *
- * Config format: .sswan JSON files (strongSwan export format) containing:
- *   { "uuid": "...", "name": "...", "type": "ikev2-cert",
- *     "remote": { "addr": "...", "id": "...", "cert": "base64..." },
- *     "local": { "p12": "base64...", "id": "..." } }
+ * Config format: .sswan JSON as emitted by the gateway at
+ * cmd/gateway/ipsec_mobile_profiles.go:generateAndroidSSWANProfile.
  */
 class IpSecTunnel {
 
@@ -143,122 +128,30 @@ class IpSecTunnel {
         state = State.CONNECTING
         Log.d(TAG, "Connecting IPSec tunnel: $name")
 
-        val config = parseConfig(configContent)
+        // Parse to validate the profile and capture the fields the libcharon
+        // bridge will need (server hostname, IDs, PKCS#12 bytes+password).
+        parseConfig(configContent)
 
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                connectNativeIkev2(config, name, vpnService)
-            } else {
-                connectLegacy(config, name, vpnService)
-            }
-        } catch (e: Exception) {
-            state = State.DISCONNECTED
-            Log.e(TAG, "Failed to establish IPSec tunnel", e)
-            throw e
-        }
+        // The libcharon integration groundwork is in place (strongSwan submodule
+        // wired as :strongswan-lib, native libs build into the APK, PrivycsApp
+        // extends StrongSwanApplication so JNI_OnLoad runs), but the connect
+        // path to CharonVpnService is not hooked up yet:
+        //   1. Map our SswanConfig to org.strongswan.android.data.VpnProfile
+        //   2. Install the PKCS#12 bundle into the Android KeyChain
+        //      (requires Activity context for KeyChain.createInstallIntent)
+        //   3. Persist the profile into strongSwan's VpnProfileSource (DB)
+        //   4. Start CharonVpnService with KEY_UUID extra
+        //   5. Bind VpnStateService to drive our VpnStatus updates
+        // Tracked as task LibC-5.
+        state = State.DISCONNECTED
+        throw UnsupportedOperationException(
+            "IPSec connect is not yet wired to CharonVpnService (LibC-5 pending)."
+        )
     }
 
     /**
-     * Native IKEv2 connection for API 31+ (Android 12+).
-     *
-     * Uses android.net.ipsec.ike.* APIs. The actual IKE session setup requires:
-     *   - IkeSessionParams with authentication method
-     *   - ChildSessionParams for traffic selectors
-     *   - TunnelModeChildSessionParams for tunnel mode
-     *
-     * TODO: Full implementation requires:
-     *   val ikeParams = IkeSessionParams.Builder()
-     *       .setServerHostname(config.remote.addr)
-     *       .addSaProposal(saProposal)
-     *       .setLocalIdentification(localId)
-     *       .setRemoteIdentification(remoteId)
-     *       .setAuthDigitalSignature(caCert, clientCert, privateKey)
-     *       .build()
-     *   val childParams = TunnelModeChildSessionParams.Builder()
-     *       .addInternalAddressRequest(AF_INET)
-     *       .addInternalDnsServerRequest(AF_INET)
-     *       .build()
-     *   val ikeSession = IkeSession(context, ikeParams, childParams, executor, ikeCallback, childCallback)
-     */
-    private suspend fun connectNativeIkev2(
-        config: SswanConfig,
-        name: String,
-        vpnService: VpnService
-    ) {
-        Log.d(TAG, "Using native IKEv2 API (API ${Build.VERSION.SDK_INT})")
-
-        // Set up TUN interface - the IKE session will use this for tunnel mode
-        val builder = vpnService.Builder()
-            .setSession(name)
-            .setMtu(mtu)
-            .addAddress("10.0.0.2", 24) // Placeholder until IKE assigns address
-            .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
-
-        tunnelInterface = builder.establish()
-
-        if (tunnelInterface == null) {
-            throw IllegalStateException("VpnService.Builder.establish() returned null")
-        }
-
-        // TODO: Create IkeSession with parsed certificates and establish SA.
-        // The TUN fd would be used for ESP packet encapsulation/decapsulation.
-        // For now, mark as connected to enable the UI flow.
-
-        state = State.CONNECTED
-        connectedSince = System.currentTimeMillis()
-        rxBytes = 0L
-        txBytes = 0L
-        localAddress = "10.0.0.2" // Will be replaced by IKE-assigned address
-
-        Log.d(TAG, "IPSec tunnel established (native IKEv2): fd=${tunnelInterface?.fd}")
-    }
-
-    /**
-     * Legacy VpnService-based connection for API 26-30.
-     *
-     * Sets up the TUN interface for strongSwan libcharon integration.
-     * When strongSwan is integrated as a native library:
-     *   1. Extract P12 certificate from config
-     *   2. Initialize libcharon with certificate store
-     *   3. Start IKE SA negotiation
-     *   4. Pass TUN fd for ESP tunnel
-     */
-    private suspend fun connectLegacy(
-        config: SswanConfig,
-        name: String,
-        vpnService: VpnService
-    ) {
-        Log.d(TAG, "Using legacy VpnService approach (API ${Build.VERSION.SDK_INT})")
-
-        val builder = vpnService.Builder()
-            .setSession(name)
-            .setMtu(mtu)
-            .addAddress("10.0.0.2", 24)
-            .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
-
-        tunnelInterface = builder.establish()
-
-        if (tunnelInterface == null) {
-            throw IllegalStateException("VpnService.Builder.establish() returned null")
-        }
-
-        // TODO: When strongSwan is integrated:
-        //   CharonVpnService.start(tunFd, config.remote.addr, certStore)
-        // This will handle IKE negotiation and ESP encapsulation natively.
-
-        state = State.CONNECTED
-        connectedSince = System.currentTimeMillis()
-        rxBytes = 0L
-        txBytes = 0L
-        localAddress = "10.0.0.2"
-
-        Log.d(TAG, "IPSec tunnel established (legacy): fd=${tunnelInterface?.fd}")
-    }
-
-    /**
-     * Disconnect the IPSec tunnel.
+     * Disconnect the IPSec tunnel. Wired to CharonVpnService.DISCONNECT_ACTION
+     * as part of LibC-5; currently a no-op because connect() is still a stub.
      */
     suspend fun disconnect() = withContext(Dispatchers.IO) {
         if (state == State.DISCONNECTED) {
@@ -270,10 +163,6 @@ class IpSecTunnel {
         Log.d(TAG, "Disconnecting IPSec tunnel")
 
         try {
-            // TODO: When IKE session is integrated, close it first:
-            //   ikeSession?.close()
-            //   or CharonVpnService.stop()
-
             tunnelInterface?.close()
             tunnelInterface = null
         } catch (e: Exception) {
@@ -322,11 +211,6 @@ class IpSecTunnel {
             localAddress = localAddress
         )
     }
-
-    /**
-     * Check if the device supports native IKEv2 API.
-     */
-    fun supportsNativeIkev2(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
     /**
      * Extract certificate data from the .sswan config for key store import.

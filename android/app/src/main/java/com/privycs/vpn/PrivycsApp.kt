@@ -1,13 +1,21 @@
 package com.privycs.vpn
 
-import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.os.Build
 import com.privycs.vpn.data.ConnectionRepository
 import com.privycs.vpn.data.SettingsRepository
+import org.strongswan.android.logic.StrongSwanApplication
 
-class PrivycsApp : Application() {
+// Extends StrongSwanApplication so super.onCreate() and the class's static
+// initializer run when our app boots:
+//   - static block:  System.loadLibrary("androidbridge")
+//                    Security.addProvider(LocalCertificateKeyStoreProvider)
+//   - onCreate():    mContext + mInstance setup, DatabaseHelper init,
+//                    ManagedConfigurationService, TrustedCertificateManager,
+//                    UserCertificateManager, broadcast receiver registration.
+// Required so CharonVpnService can use StrongSwanApplication.getContext()
+// and the native JNI lookups succeed on first tunnel start.
+class PrivycsApp : StrongSwanApplication() {
 
     lateinit var connectionRepository: ConnectionRepository
         private set
