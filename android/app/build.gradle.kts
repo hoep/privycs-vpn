@@ -19,6 +19,31 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        ndk {
+            // Ship arm64 + armv7a + x86_64. Skip 32-bit x86 to save APK size;
+            // Play Store no longer serves it to any modern emulator profile.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+
+        externalNativeBuild {
+            ndkBuild {
+                arguments += "-j${Runtime.getRuntime().availableProcessors()}"
+            }
+        }
+    }
+
+    // Match the NDK version strongSwan's upstream Android frontend pins to.
+    // Required for reproducible charon/libipsec builds.
+    ndkVersion = "27.3.13750724"
+
+    externalNativeBuild {
+        ndkBuild {
+            // strongSwan's Android.mk lives inside the vendored submodule. The
+            // prep script (scripts/prepare-strongswan.sh) must run before this
+            // ndk-build step to generate Android.common.mk and libcrypto_static.
+            path = file("../vendor/strongswan/src/frontends/android/app/src/main/jni/Android.mk")
+        }
     }
 
     buildTypes {
@@ -104,16 +129,12 @@ dependencies {
     // The current OpenVpnTunnel.kt uses Android VpnService directly and can be
     // enhanced with either approach without changing the public API.
 
-    // IPSec/IKEv2 integration
-    // For API 31+ (Android 12): Uses built-in android.net.ipsec.ike APIs (no extra dep).
-    // For API 26-30: strongSwan integration is recommended.
-    //
-    // To add strongSwan support:
-    //   git submodule add https://github.com/nickolay/strongswan-android.git libs/strongswan
-    //   implementation(project(":libs:strongswan:app"))
-    //
-    // Or build the AAR and include as a file dependency:
-    //   implementation(files("libs/libcharon.aar"))
+    // IPSec/IKEv2 integration:
+    // strongSwan libcharon is bundled as a native library built from the git
+    // submodule at android/vendor/strongswan. See externalNativeBuild above
+    // and scripts/prepare-strongswan.sh for the prerequisite build steps.
+    // Native modules produced: libcharon, libipsec, libstrongswan,
+    // libandroidbridge. Minimum Android API 26 (matches minSdk).
 
     // Ktor client
     implementation("io.ktor:ktor-client-core:2.3.8")
