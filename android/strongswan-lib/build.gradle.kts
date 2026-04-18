@@ -40,6 +40,16 @@ android {
                 // The corresponding Java classes still compile but are never
                 // invoked on the cert-auth path.
                 arguments += "strongswan_USE_BYOD="
+                // NDK 27 sysroot headers declare these since API 23/21 and our
+                // minSdk is 26, so strongSwan's compat shims (guarded by
+                // `#if !defined(HAVE_*)`) collide with the NDK declarations.
+                // Defining HAVE_* disables the shims and routes calls straight
+                // to bionic/clang intrinsics.
+                arguments += "APP_CFLAGS=" +
+                        "-DHAVE_SIGWAITINFO " +
+                        "-DHAVE_GETPWNAM_R " +
+                        "-DHAVE_GETGRNAM_R " +
+                        "-DHAVE_GCC_ATOMIC_OPERATIONS"
             }
         }
     }
