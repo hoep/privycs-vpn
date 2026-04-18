@@ -28,11 +28,26 @@ public class PrivycsGlobalPrefsProvider extends ContentProvider {
 
     @Override
     public boolean onCreate() {
+        Context ctx = getContext();
         try {
             if (GlobalPreferences.instance == null) {
                 GlobalPreferences.setInstance(false, false, false);
                 Log.i("PrivycsPrefsProvider",
                     "ContentProvider seeded GlobalPreferences (pid=" + android.os.Process.myPid() + ")");
+            }
+            // Pre-load ProfileManager so any ProfileManager.get() call
+            // from THIS process (main OR any subprocess Android's vpn
+            // framework might decide to spawn despite our manifest not
+            // declaring one) returns the persisted profile on the first
+            // try instead of looping 100x on a stale SharedPreferences
+            // cache. ContentProvider.onCreate runs before Application
+            // .onCreate AND before any Service.onCreate in the same
+            // process, so ProfileManager is warm by the time
+            // OpenVPNService needs it.
+            if (ctx != null) {
+                ProfileManager.getInstance(ctx);
+                Log.i("PrivycsPrefsProvider",
+                    "ProfileManager warm-loaded (pid=" + android.os.Process.myPid() + ")");
             }
         } catch (Throwable t) {
             Log.e("PrivycsPrefsProvider", "seed failed", t);
