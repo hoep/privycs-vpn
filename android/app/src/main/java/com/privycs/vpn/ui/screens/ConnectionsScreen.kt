@@ -93,6 +93,15 @@ fun ConnectionsScreen(
     var deleteTarget by remember { mutableStateOf<VpnConnection?>(null) }
     var renameTarget by remember { mutableStateOf<VpnConnection?>(null) }
     var renameDraft by remember { mutableStateOf("") }
+    // Per-protocol raw-config edit dialog. Desktop client has the same
+    // "edit current config" affordance; on Android we open a full-height
+    // text editor seeded with the existing configContent and re-parse on
+    // save so all derived fields (serverAddress, filename) stay consistent.
+    var editProtocolTarget by remember {
+        mutableStateOf<Pair<VpnConnection, ProtocolConfig>?>(null)
+    }
+    var editProtocolDraft by remember { mutableStateOf("") }
+    var editProtocolError by remember { mutableStateOf<String?>(null) }
     var showGateway by remember { mutableStateOf(false) }
     var gatewayConfigs by remember { mutableStateOf<List<RemoteConfigEntry>>(emptyList()) }
     var gatewayLoading by remember { mutableStateOf(false) }
@@ -126,6 +135,75 @@ fun ConnectionsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { renameTarget = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Edit-protocol config dialog (raw text editor). Reuses ConfigParser so
+    // saving a tweaked Wireguard/OpenVPN config re-derives serverAddress etc.
+    // IPSec is skipped because the configContent is a binary-encoded bundle
+    // (mobileconfig XML + base64 PKCS#12), not human-editable plain text.
+    if (editProtocolTarget != null) {
+        val (editConn, editPc) = editProtocolTarget!!
+        AlertDialog(
+            onDismissRequest = { editProtocolTarget = null },
+            title = { Text("Edit ${editPc.protocol.label} config") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = editProtocolDraft,
+                        onValueChange = {
+                            editProtocolDraft = it
+                            editProtocolError = null
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 200.dp, max = 400.dp),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        ),
+                        label = { Text(editPc.filename) },
+                        singleLine = false
+                    )
+                    if (editProtocolError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = editProtocolError!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = editProtocolDraft.isNotBlank(),
+                    onClick = {
+                        val rebuilt = ConfigParser.buildProtocolConfig(
+                            editProtocolDraft,
+                            editPc.filename
+                        )
+                        if (rebuilt == null || rebuilt.protocol != editPc.protocol) {
+                            editProtocolError = "Could not parse as ${editPc.protocol.label} config"
+                            return@TextButton
+                        }
+                        connectionRepo.addOrUpdate(editConn.id, editConn.name, rebuilt)
+                        editProtocolTarget = null
+                        editProtocolDraft = ""
+                        editProtocolError = null
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    editProtocolTarget = null
+                    editProtocolDraft = ""
+                    editProtocolError = null
+                }) {
                     Text("Cancel")
                 }
             }
@@ -283,6 +361,13 @@ fun ConnectionsScreen(
                             onAddProtocol = { onNavigateToAdd(connection.id) },
                             onRemoveProtocol = { protocol ->
                                 connectionRepo.removeProtocol(connection.id, protocol)
+                            },
+                            onEditProtocol = { protocol ->
+                                connection.getProtocol(protocol)?.let { pc ->
+                                    editProtocolTarget = connection to pc
+                                    editProtocolDraft = pc.configContent
+                                    editProtocolError = null
+                                }
                             }
                         )
                     }
@@ -303,7 +388,8 @@ private fun ConnectionCard(
     onDelete: () -> Unit,
     onRename: () -> Unit,
     onAddProtocol: () -> Unit,
-    onRemoveProtocol: (VpnProtocol) -> Unit
+    onRemoveProtocol: (VpnProtocol) -> Unit,
+    onEditProtocol: (VpnProtocol) -> Unit
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -380,10 +466,17 @@ private fun ConnectionCard(
                     ) {
                         connection.availableProtocols().forEach { protocol ->
                             val canRemove = connection.protocols.size > 1
+                            // IPSec config blob is binary-encoded; only WG/OVPN
+                            // get the in-place edit affordance.
+                            val canEdit = protocol == VpnProtocol.WIREGUARD ||
+                                protocol == VpnProtocol.OPENVPN
                             ProtocolBadge(
                                 protocol = protocol,
                                 onRemove = if (canRemove) {
                                     { onRemoveProtocol(protocol) }
+                                } else null,
+                                onEdit = if (canEdit) {
+                                    { onEditProtocol(protocol) }
                                 } else null
                             )
                         }
@@ -439,7 +532,8 @@ private fun ConnectionCard(
 @Composable
 private fun ProtocolBadge(
     protocol: VpnProtocol,
-    onRemove: (() -> Unit)? = null
+    onRemove: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null
 ) {
     val color = when (protocol) {
         VpnProtocol.WIREGUARD -> WireGuardRed
@@ -469,6 +563,20 @@ private fun ProtocolBadge(
             tint = color,
             modifier = Modifier.size(20.dp)
         )
+        if (onEdit != null) {
+            Spacer(modifier = Modifier.width(2.dp))
+            IconButton(
+                onClick = onEdit,
+                modifier = Modifier.size(18.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Edit,
+                    contentDescription = "Edit ${protocol.shortLabel} config",
+                    modifier = Modifier.size(12.dp),
+                    tint = color
+                )
+            }
+        }
         if (onRemove != null) {
             Spacer(modifier = Modifier.width(2.dp))
             IconButton(
