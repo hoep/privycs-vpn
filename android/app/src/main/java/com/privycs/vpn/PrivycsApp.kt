@@ -77,6 +77,32 @@ class PrivycsApp : StrongSwanApplication() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             createOpenVpnNotificationChannels()
         }
+
+        // Seed the GlobalPreferences singleton. OpenVPNService.onStartCommand
+        // -> showNotification() -> addVpnActionsToNotification() calls
+        // GlobalPreferences.getForceConnected() UNCONDITIONALLY at line 429;
+        // if the singleton has not been created the call throws
+        // "Global preferences instance is not set" and the :openvpn
+        // subprocess hard-crashes before the tunnel even starts.
+        //
+        // Upstream ICSOpenVPNApplication seeds this via
+        // AppRestrictions.checkRestrictions() which only overrides the
+        // defaults (false/false/false) when an MDM policy exists; we have
+        // no MDM integration, so the bare defaults are fine. Running this
+        // in Application.onCreate means it executes in BOTH the main
+        // process AND the `:openvpn` subprocess (same Application class
+        // runs in every process of the app), which is exactly what we
+        // need because GlobalPreferences is a per-process static.
+        try {
+            de.blinkt.openvpn.core.GlobalPreferences.setInstance(false, false, false)
+        } catch (t: Throwable) {
+            com.privycs.vpn.util.PrivycsLogger.e(
+                "PrivycsApp",
+                "Failed to init OpenVPN GlobalPreferences: ${t.message}",
+                t
+            )
+        }
+
         try {
             // StatusListener.init(Context) is package-private in
             // de.blinkt.openvpn.core; PrivycsStatusListenerBridge.install

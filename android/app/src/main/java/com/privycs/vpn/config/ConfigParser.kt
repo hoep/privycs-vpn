@@ -73,13 +73,40 @@ object ConfigParser {
 
     /**
      * Derive a connection name from the filename.
+     *
+     * Defensive against:
+     *   - Empty or whitespace-only input -> "VPN Connection"
+     *   - Filenames that are actually raw config content (some ContentProvider
+     *     implementations put JSON/YAML blobs into DISPLAY_NAME when the
+     *     underlying file has no real name). Anything that starts with "{",
+     *     "[", "<", or "-----" (PEM header) or contains a newline is treated
+     *     as content, not a name, and we fall back.
+     *   - Names that come out as a single non-alphanumeric glyph ("{", ".",
+     *     etc.) after stripping the extension - those looked like a
+     *     connection called "{" in the list.
+     *   - Overly long names (some share sheets pass 4KB+ of raw text as the
+     *     DISPLAY_NAME) - clamp to 64 chars.
      */
     fun deriveConnectionName(filename: String): String {
-        return filename
+        val raw = filename.trim()
+        if (raw.isEmpty()) return "VPN Connection"
+        if (raw.length > 256 ||
+            raw.startsWith("{") || raw.startsWith("[") ||
+            raw.startsWith("<") || raw.startsWith("-----") ||
+            raw.contains('\n') || raw.contains('\r')
+        ) {
+            return "VPN Connection"
+        }
+        val cleaned = raw
             .substringBeforeLast(".")
             .replace(Regex("[_-]+"), " ")
             .trim()
-            .ifBlank { "VPN Connection" }
+        // Reject single-character non-alphanumeric results like "{" or "."
+        // that would otherwise pass through as-is.
+        if (cleaned.isEmpty() || (cleaned.length == 1 && !cleaned[0].isLetterOrDigit())) {
+            return "VPN Connection"
+        }
+        return if (cleaned.length > 64) cleaned.substring(0, 64) else cleaned
     }
 
     // -- WireGuard parsing --
