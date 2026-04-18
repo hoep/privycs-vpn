@@ -98,6 +98,27 @@ android {
                 // silently override it.
                 cppFlags += "-std=c++23"
                 arguments += "-DANDROID_STL=c++_static"
+
+                // NDK 27's bionic libc declares basename/dirname/daemon/
+                // gettimeofday/strsep in its sysroot headers; openvpn's own
+                // src/compat/compat.h redeclares them with incompatible
+                // signatures (non-const char*), so the openvpn .c files
+                // fail to build with "conflicting types for 'basename'".
+                // Upstream OpenVPN uses autoconf's HAVE_* probes to skip
+                // the redeclarations when the platform already provides
+                // them - but ics-openvpn's CMake build skips that autoconf
+                // dance entirely and assumes every platform needs the
+                // compat shims. Telling CMake that all five symbols ARE
+                // present routes openvpn around its own shims, matching
+                // what the equivalent strongSwan-lib fix does for
+                // HAVE_SIGWAITINFO / HAVE_GETPWNAM_R etc.
+                cFlags += listOf(
+                    "-DHAVE_BASENAME",
+                    "-DHAVE_DIRNAME",
+                    "-DHAVE_DAEMON",
+                    "-DHAVE_GETTIMEOFDAY",
+                    "-DHAVE_STRSEP"
+                )
             }
         }
     }
