@@ -511,7 +511,7 @@ private fun ProtocolBadges(
                 label = "badgeTextColor"
             )
 
-            Box(
+            Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(bgColor)
@@ -520,8 +520,16 @@ private fun ProtocolBadges(
                         else Modifier
                     )
                     .clickable { onSelect(protocol) }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                androidx.compose.material3.Icon(
+                    imageVector = protocol.badgeIcon(),
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = protocol.label,
                     style = MaterialTheme.typography.labelSmall,
@@ -531,6 +539,18 @@ private fun ProtocolBadges(
             }
         }
     }
+}
+
+/**
+ * Material icon chosen per-protocol so the three badges are distinguishable
+ * at a glance without reading the label. Deliberately Material (public
+ * Heroicons-style) rather than brand PNGs to avoid shipping trademark
+ * assets of WireGuard / OpenVPN / strongSwan.
+ */
+private fun VpnProtocol.badgeIcon(): androidx.compose.ui.graphics.vector.ImageVector = when (this) {
+    VpnProtocol.WIREGUARD -> androidx.compose.material.icons.Icons.Filled.Bolt       // fast / lean
+    VpnProtocol.OPENVPN   -> androidx.compose.material.icons.Icons.Filled.VpnLock    // tunnel + lock
+    VpnProtocol.IPSEC     -> androidx.compose.material.icons.Icons.Filled.Shield     // IPSec "security layer"
 }
 
 @Composable

@@ -94,16 +94,28 @@ class GatewayApiClient(
     private fun buildImportErrorMessage(endpoint: String, body: String, e: Exception): String {
         val msg = e.message ?: e.javaClass.simpleName
         // SerializationException typically contains "at offset N"; extract
-        // the number and show the ~40 bytes around it.
+        // the number and show the ~80 bytes around it.
         val offset = Regex("offset (\\d+)").find(msg)?.groupValues?.get(1)?.toIntOrNull()
-        return if (offset != null && offset in body.indices) {
-            val start = (offset - 20).coerceAtLeast(0)
-            val end = (offset + 20).coerceAtMost(body.length)
+        val summary = if (offset != null && offset in body.indices) {
+            val start = (offset - 40).coerceAtLeast(0)
+            val end = (offset + 40).coerceAtMost(body.length)
             val window = body.substring(start, end).replace("\n", "\\n")
             "Failed to parse $endpoint response ($msg). Body near offset $offset: '$window'"
         } else {
             "Failed to parse $endpoint response ($msg). Body length=${body.length}."
         }
+        // Always dump to logcat as well - if the in-app toast gets truncated
+        // or the user doesn't manage to screenshot the offset window, adb
+        // logcat still shows enough context to diagnose offline.
+        android.util.Log.w("GatewayApiClient",
+            "$summary\nFull body head: ${body.take(200)}")
+        if (offset != null && offset in body.indices) {
+            val start = (offset - 200).coerceAtLeast(0)
+            val end = (offset + 200).coerceAtMost(body.length)
+            android.util.Log.w("GatewayApiClient",
+                "Body near offset $offset:\n${body.substring(start, end)}")
+        }
+        return summary
     }
 
     /**

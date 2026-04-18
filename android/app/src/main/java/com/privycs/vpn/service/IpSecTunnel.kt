@@ -398,16 +398,57 @@ class IpSecTunnel(private val context: Context) {
      */
     fun getStatus(connectionName: String, connectionId: String): VpnStatus {
         val up = state == State.CONNECTED
+        val (rx, tx) = if (up) readVpnInterfaceBytes() else 0L to 0L
         return VpnStatus(
             connected = up,
             connectionName = connectionName,
             connectionId = connectionId,
             activeProtocol = VpnProtocol.IPSEC,
             uptime = if (up && connectedSince > 0) System.currentTimeMillis() - connectedSince else 0L,
-            rxBytes = 0L,  // charon does not expose per-SA byte counters via the
-            txBytes = 0L,  // current public bridge; live numbers come in M2.
+            rxBytes = rx,
+            txBytes = tx,
             serverEndpoint = sswanConfig?.remote?.addr ?: "",
             localAddress = ""
         )
+    }
+
+    /**
+     * Read rx/tx bytes from /proc/net/dev for whichever interface the
+     * active VPN network is bound to. strongSwan's charon exposes per-SA
+     * byte counters only inside its native process; the kernel's per-iface
+     * counters are the only counters reachable from our side without a
+     * dedicated JNI bridge.
+     *
+     * Returns (rx, tx) for the active VPN network's link, or (0, 0) if the
+     * counters cannot be read. /proc/net/dev is world-readable on Android
+     * so this works without extra permissions.
+     */
+    private fun readVpnInterfaceBytes(): Pair<Long, Long> {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                    as? android.net.ConnectivityManager ?: return 0L to 0L
+            // Find the active VPN network via NET_CAPABILITY_NOT_VPN = false
+            // heuristic - pick the one network flagged as a VPN transport.
+            val vpnNet = cm.allNetworks.firstOrNull { net ->
+                val caps = cm.getNetworkCapabilities(net) ?: return@firstOrNull false
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+            } ?: return 0L to 0L
+            val iface = cm.getLinkProperties(vpnNet)?.interfaceName ?: return 0L to 0L
+
+            // /proc/net/dev format:
+            //   <iface>: rx_bytes rx_packets rx_errs ... tx_bytes tx_packets ...
+            // There are 16 numeric columns; rx is column 1, tx is column 9.
+            val line = java.io.File("/proc/net/dev").useLines { lines ->
+                lines.firstOrNull { it.trim().startsWith("$iface:") }
+            } ?: return 0L to 0L
+            val parts = line.substringAfter(":").trim().split(Regex("\\s+"))
+            if (parts.size < 10) return 0L to 0L
+            val rx = parts[0].toLongOrNull() ?: 0L
+            val tx = parts[8].toLongOrNull() ?: 0L
+            rx to tx
+        } catch (e: Exception) {
+            Log.w(TAG, "readVpnInterfaceBytes failed: ${e.message}")
+            0L to 0L
+        }
     }
 }

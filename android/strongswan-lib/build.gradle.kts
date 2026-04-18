@@ -109,42 +109,39 @@ android {
     val strongswanResFiltered = layout.buildDirectory.dir("generated/strongswanRes")
     val syncStrongswanRes = tasks.register<Sync>("syncStrongswanRes") {
         from("../vendor/strongswan/src/frontends/android/app/src/main/res") {
-            // On Android 8+, a library's mipmap-anydpi-v26/ic_launcher.xml
-            // takes precedence over the app's raster ic_launcher PNGs - the
-            // launcher icon would become strongSwan's adaptive icon.
-            // Filtering only this one XML leaves the library's own usages
-            // (ic_app, ic_shortcut, the v26 fg/bg assets referenced by
-            // strongSwan's layouts/values) intact so AAPT2 still resolves
-            // references inside the library itself.
             exclude("mipmap-anydpi-v26/ic_launcher.xml")
-        }
-        into(strongswanResFiltered)
-        doLast {
-            // Rebrand the upstream strings that CharonVpnService / its
-            // notification builder surface to the user. With non-transitive
-            // R classes the library's code uses the library's string pool;
-            // an override in our app module does not reach CharonVpnService.
-            // Patching the generated copy in-place keeps the submodule
-            // untouched and survives upstream updates (unless upstream
-            // renames `app_name` or `main_activity_name`).
-            val stringsXml = strongswanResFiltered.get().file("values/strings.xml").asFile
-            if (stringsXml.exists()) {
-                val rewritten = stringsXml.readText()
-                    .replace(
-                        "<string name=\"app_name\">strongSwan VPN Client</string>",
-                        "<string name=\"app_name\">Privycs VPN</string>"
-                    )
-                    .replace(
-                        "<string name=\"main_activity_name\">strongSwan</string>",
-                        "<string name=\"main_activity_name\">Privycs VPN</string>"
-                    )
-                    .replace(
-                        "<string name=\"strongswan_shortcut\">strongSwan shortcut</string>",
-                        "<string name=\"strongswan_shortcut\">Privycs VPN shortcut</string>"
-                    )
-                stringsXml.writeText(rewritten)
+            // Rebrand the upstream strings CharonVpnService / its notification
+            // surfaces at runtime. With non-transitive R classes the library's
+            // compiled code reads the library's string pool, so an app-level
+            // override does NOT reach CharonVpnService. The filter below runs
+            // DURING the copy (as part of the copy spec, not a post-hook), so
+            // Gradle's UP-TO-DATE tracking sees the transformed output and
+            // re-runs when the source file changes. A doLast block alternative
+            // is skipped entirely when the Sync task is UP-TO-DATE, which is
+            // exactly what happened in v0.9.1.2 - the rewrite never applied.
+            filesMatching("values/strings.xml") {
+                filter { line ->
+                    line
+                        .replace(
+                            "<string name=\"app_name\">strongSwan VPN Client</string>",
+                            "<string name=\"app_name\">Privycs VPN</string>"
+                        )
+                        .replace(
+                            "<string name=\"main_activity_name\">strongSwan</string>",
+                            "<string name=\"main_activity_name\">Privycs VPN</string>"
+                        )
+                        .replace(
+                            "<string name=\"strongswan_shortcut\">strongSwan shortcut</string>",
+                            "<string name=\"strongswan_shortcut\">Privycs VPN shortcut</string>"
+                        )
+                        .replace(
+                            "<string name=\"log_mail_subject\">strongSwan %1\$s Log File</string>",
+                            "<string name=\"log_mail_subject\">Privycs VPN %1\$s Log File</string>"
+                        )
+                }
             }
         }
+        into(strongswanResFiltered)
     }
 
     sourceSets {

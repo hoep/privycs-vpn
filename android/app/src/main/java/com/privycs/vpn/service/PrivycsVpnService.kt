@@ -288,9 +288,29 @@ class PrivycsVpnService : VpnService() {
                     sendWidgetUpdate(status.connected)
 
                     if (!status.connected) {
-                        Log.w(TAG, "Tunnel went down unexpectedly")
-                        updateNotification("Disconnected")
-                        break
+                        // Break only on hard DISCONNECTED. IPSec spends the
+                        // first ~5-10s of every connect in CONNECTING, during
+                        // which getStatus().connected is false. Breaking the
+                        // poll loop there meant the loop exited BEFORE the SA
+                        // came up, so uptime froze at 0/1s forever. For
+                        // WireGuard/OpenVPN tunnel.connect() returns only
+                        // after the tunnel is live, so their State is always
+                        // CONNECTED by the time the poll starts - checking
+                        // the tunnel State instead of status.connected keeps
+                        // that fast path intact.
+                        val stillTransient = when (currentProtocol) {
+                            VpnProtocol.IPSEC -> {
+                                val s = ipSecTunnel?.getState()
+                                s == IpSecTunnel.State.CONNECTING ||
+                                        s == IpSecTunnel.State.CONNECTED
+                            }
+                            else -> false
+                        }
+                        if (!stillTransient) {
+                            Log.w(TAG, "Tunnel went down unexpectedly")
+                            updateNotification("Disconnected")
+                            break
+                        }
                     }
                 }
                 delay(STATUS_POLL_INTERVAL_MS)

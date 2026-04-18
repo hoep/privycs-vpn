@@ -446,6 +446,11 @@ private fun ProtocolBadge(
         VpnProtocol.OPENVPN -> OpenVpnOrange
         VpnProtocol.IPSEC -> IpSecBlue
     }
+    val icon = when (protocol) {
+        VpnProtocol.WIREGUARD -> androidx.compose.material.icons.Icons.Filled.Bolt
+        VpnProtocol.OPENVPN   -> androidx.compose.material.icons.Icons.Filled.VpnLock
+        VpnProtocol.IPSEC     -> androidx.compose.material.icons.Icons.Filled.Shield
+    }
 
     Row(
         modifier = Modifier
@@ -454,6 +459,13 @@ private fun ProtocolBadge(
             .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(11.dp)
+        )
+        Spacer(modifier = Modifier.width(3.dp))
         Text(
             text = protocol.shortLabel,
             style = MaterialTheme.typography.labelSmall,
