@@ -8,7 +8,17 @@ import android.os.Build
 import android.util.Log
 import com.privycs.vpn.data.ConnectionRepository
 import com.privycs.vpn.data.SettingsRepository
+import com.privycs.vpn.data.models.VpnProtocol
+import de.blinkt.openvpn.VpnProfile
+import de.blinkt.openvpn.core.ConfigParser
+import de.blinkt.openvpn.core.PrivycsStatusListenerBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.strongswan.android.logic.StrongSwanApplication
+import java.io.StringReader
+import java.util.UUID
 
 // Extends StrongSwanApplication so super.onCreate() and the class's static
 // initializer run when our app boots:
@@ -56,6 +66,8 @@ class PrivycsApp : StrongSwanApplication() {
     @Suppress("unused")
     private var openVpnStatusListener: de.blinkt.openvpn.core.StatusListener? = null
 
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -73,6 +85,56 @@ class PrivycsApp : StrongSwanApplication() {
             "PrivycsApp",
             "App boot - version ${com.privycs.vpn.BuildConfig.VERSION_NAME} (${com.privycs.vpn.BuildConfig.VERSION_CODE})"
         )
+        // Pre-load OpenVPN profiles into the ProfileManager singleton on
+        // a background thread. Without this, OpenVPNService in whichever
+        // process it lands in (Samsung One UI still spawns :openvpn for
+        // VpnService isolation despite our manifest being subprocess-
+        // free) hits the race: profile saved at connect time has not yet
+        // propagated through SharedPreferences MODE_MULTI_PROCESS sync
+        // -> 10s of "Used x 101 tries to get current version (-1/1) of
+        // the profile" -> NullPointerException in
+        // ProfileManager.notifyProfileVersionChanged. Running this at
+        // app startup gives SharedPreferences seconds/minutes to flush
+        // before the user ever taps Connect - same timing pattern as
+        // upstream ICS-OpenVPN's "Import then Connect" UI workflow.
+        appScope.launch { preloadOpenVpnProfiles() }
+    }
+
+    /**
+     * Walk every stored connection, parse each OpenVPN ProtocolConfig
+     * into a VpnProfile, force the profile's UUID to our stable
+     * VpnConnection.id, and persist synchronously to ProfileManager +
+     * SharedPreferences vpnlist. OpenVpnTunnel.connect() later hands
+     * the same VpnConnection.id in as `stableConnectionId`, so the
+     * profile it parses shares the UUID of the pre-loaded one and
+     * ProfileManager.get() hits the cache without retrying.
+     */
+    private fun preloadOpenVpnProfiles() {
+        try {
+            val connections = connectionRepository.connections
+            for (conn in connections) {
+                val ovpnCfg = conn.getProtocol(VpnProtocol.OPENVPN) ?: continue
+                try {
+                    val parser = ConfigParser()
+                    parser.parseConfig(StringReader(ovpnCfg.configContent))
+                    val profile: VpnProfile = parser.convertProfile()
+                    profile.mName = conn.name
+                    profile.mUsername = null
+                    profile.mPassword = null
+                    profile.mAuthenticationType = VpnProfile.TYPE_CERTIFICATES
+                    // Stable UUID: use the VpnConnection.id verbatim (already
+                    // a UUID string). Must match what OpenVpnTunnel.connect
+                    // uses via forceProfileUuid at connect time.
+                    PrivycsStatusListenerBridge.forceProfileUuid(profile, conn.id)
+                    PrivycsStatusListenerBridge.persistProfileSync(applicationContext, profile)
+                    Log.i("PrivycsApp", "Pre-loaded OpenVPN profile: name=${conn.name} uuid=${conn.id}")
+                } catch (e: Throwable) {
+                    Log.w("PrivycsApp", "Failed to pre-load OpenVPN profile '${conn.name}': ${e.message}")
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w("PrivycsApp", "preloadOpenVpnProfiles outer failure: ${t.message}")
+        }
     }
 
     /**

@@ -167,7 +167,8 @@ class OpenVpnTunnel(private val context: Context) {
     suspend fun connect(
         ovpnContent: String,
         name: String,
-        vpnService: VpnService
+        vpnService: VpnService,
+        stableConnectionId: String = ""
     ) = withContext(Dispatchers.IO) {
         if (state == State.CONNECTED || state == State.CONNECTING) {
             PrivycsLogger.w(TAG, "connect() called while state=$state, ignoring")
@@ -188,6 +189,19 @@ class OpenVpnTunnel(private val context: Context) {
             lastErrorMessage = "Config parse failed: ${e.message}"
             onStateChanged?.invoke(state)
             throw e
+        }
+
+        // Force a deterministic UUID derived from our stable
+        // VpnConnection.id so that a profile pre-loaded at app boot time
+        // (PrivycsApp.preloadOpenVpnProfiles) matches the profile built
+        // here at connect time. Without it ConfigParser.convertProfile()
+        // hands us a fresh random UUID every call, the pre-load path
+        // becomes useless, and the race returns (:openvpn process loops
+        // "Used 101 tries" because SharedPreferences sync has not
+        // completed yet).
+        if (stableConnectionId.isNotBlank()) {
+            de.blinkt.openvpn.core.PrivycsStatusListenerBridge
+                .forceProfileUuid(parsedProfile, stableConnectionId)
         }
 
         profile = parsedProfile

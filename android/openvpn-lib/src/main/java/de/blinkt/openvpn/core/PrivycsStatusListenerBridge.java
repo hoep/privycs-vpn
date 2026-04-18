@@ -4,9 +4,12 @@ package de.blinkt.openvpn.core;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 import de.blinkt.openvpn.VpnProfile;
+import java.lang.reflect.Field;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Access shim for package-private ics-openvpn core APIs.
@@ -36,6 +39,32 @@ public final class PrivycsStatusListenerBridge {
         StatusListener listener = new StatusListener();
         listener.init(applicationContext);
         return listener;
+    }
+
+    /**
+     * Overwrite profile.mUuid (private field) with a deterministic UUID
+     * derived from a caller-supplied stable string (our VpnConnection.id).
+     * Without this every call to ConfigParser.convertProfile() generates
+     * a fresh random UUID, so a profile saved at app-boot pre-load time
+     * does not match the profile built at connect time, and ProfileManager
+     * .get(uuid) in the :openvpn subprocess still returns null. Using our
+     * own ConnectionRepository ID makes pre-load + connect path share a
+     * UUID -> the subprocess's ProfileManager cache contains the profile
+     * long before OpenVPNService.onStartCommand asks for it.
+     *
+     * Reflection is the only way because VpnProfile.mUuid is private with
+     * no setter. The field has been stable in schwabe/ics-openvpn since
+     * 2016; acceptable fragility in exchange for avoiding a vendor patch.
+     */
+    public static void forceProfileUuid(VpnProfile profile, String deterministicUuid) {
+        try {
+            UUID target = UUID.fromString(deterministicUuid);
+            Field f = VpnProfile.class.getDeclaredField("mUuid");
+            f.setAccessible(true);
+            f.set(profile, target);
+        } catch (Throwable t) {
+            Log.w("PrivycsBridge", "forceProfileUuid failed: " + t.getMessage());
+        }
     }
 
     /**

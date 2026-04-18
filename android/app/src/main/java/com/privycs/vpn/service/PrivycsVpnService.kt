@@ -176,7 +176,12 @@ class PrivycsVpnService : VpnService() {
             sendWidgetUpdate(connected = connected)
         }
 
-        tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService)
+        // Pass currentConnectionId (the stable VpnConnection.id we hand
+        // through from VpnServiceManager) so OpenVpnTunnel forces the
+        // same deterministic UUID PrivycsApp.preloadOpenVpnProfiles()
+        // used at app boot - this closes the pre-load <-> connect UUID
+        // race.
+        tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService, currentConnectionId)
 
         connectStartTime = System.currentTimeMillis()
         sendWidgetUpdate(connected = false)
