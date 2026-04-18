@@ -169,12 +169,29 @@ class PrivycsVpnService : VpnService() {
         val tunnel = IpSecTunnel(applicationContext)
         ipSecTunnel = tunnel
 
+        // Forward strongSwan's live state transitions into our VpnStatus so
+        // the UI reflects CONNECTING/CONNECTED/DISCONNECTED without polling.
+        val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
+        tunnel.onStateChanged = { s ->
+            val connected = s == IpSecTunnel.State.CONNECTED
+            manager.updateStatus(tunnel.getStatus(currentConnectionName, currentConnectionId))
+            when (s) {
+                IpSecTunnel.State.CONNECTING -> updateNotification("Connecting $currentConnectionName (IPSec)...")
+                IpSecTunnel.State.CONNECTED  -> updateNotification("Connected to $currentConnectionName (IPSec)")
+                IpSecTunnel.State.DISCONNECTING -> updateNotification("Disconnecting...")
+                IpSecTunnel.State.DISCONNECTED -> updateNotification("Disconnected")
+            }
+            sendWidgetUpdate(connected = connected)
+        }
+
         tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService)
 
         connectStartTime = System.currentTimeMillis()
-        updateNotification("Connected to $currentConnectionName (IPSec)")
-        sendWidgetUpdate(connected = true)
-        startStatusPolling()
+        sendWidgetUpdate(connected = false)
+        // Don't start the WG/OpenVPN-style poll loop: the VpnStateListener
+        // drives the status flow. Byte counters remain 0 for now (charon's
+        // public API does not expose per-SA byte counters through
+        // VpnStateService; that requires a separate native bridge).
     }
 
     private fun handleDisconnect() {

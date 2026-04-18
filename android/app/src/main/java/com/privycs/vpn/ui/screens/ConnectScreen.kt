@@ -93,12 +93,32 @@ fun ConnectScreen(
 
     var showConnectionPicker by remember { mutableStateOf(false) }
 
+    // IPSec KeyChain install + alias pick orchestrator. The first time the
+    // user connects an IPSec profile, this drives the two-step Android
+    // credential install; subsequent connects skip straight to onReady.
+    // Declared BEFORE vpnPermissionLauncher because that launcher's callback
+    // re-enters ipSecPrep after the permission dialog comes back.
+    val ipSecPrep = rememberIpSecConnectPrep(
+        onReady = { vpnManager.connect() },
+        onError = { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+        }
+    )
+
     // VPN permission launcher
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            vpnManager.connect()
+            // After VPN permission we re-enter the flow; IPSec profiles
+            // still need the KeyChain install check, WG/OpenVPN can connect
+            // directly. The same branch lives in onClick below.
+            val conn = connectionRepo.getActive()
+            if (conn != null && conn.needsKeyChainPrep()) {
+                ipSecPrep(conn)
+            } else {
+                vpnManager.connect()
+            }
         }
     }
 
@@ -135,7 +155,15 @@ fun ConnectScreen(
                     if (prepareIntent != null) {
                         vpnPermissionLauncher.launch(prepareIntent)
                     } else {
-                        vpnManager.connect()
+                        // VPN permission already granted. IPSec has an extra
+                        // KeyChain install step before the actual connect;
+                        // other protocols can dispatch directly.
+                        val conn = activeConnection
+                        if (conn != null && conn.needsKeyChainPrep()) {
+                            ipSecPrep(conn)
+                        } else {
+                            vpnManager.connect()
+                        }
                     }
                 }
             }

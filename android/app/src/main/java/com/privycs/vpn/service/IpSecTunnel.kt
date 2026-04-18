@@ -90,6 +90,19 @@ class IpSecTunnel(private val context: Context) {
     private var profileUuid: UUID? = null
     private var connectedSince: Long = 0L
 
+    // Long-lived bind to strongSwan's VpnStateService. Bound on connect(),
+    // unbound on disconnect() so the VpnStateListener callbacks can drive
+    // our state updates for the whole tunnel lifetime. Nullable because
+    // the connection is transient.
+    private var stateServiceConn: ServiceConnection? = null
+    private var stateService: VpnStateService? = null
+    private var stateListener: VpnStateService.VpnStateListener? = null
+
+    // Called whenever strongSwan's state changes. Wired by the caller
+    // (VpnServiceManager) so the UI can react to live transitions without
+    // polling.
+    var onStateChanged: ((State) -> Unit)? = null
+
     /**
      * Parse the gateway-emitted .sswan JSON and return the decoded model.
      * Also cached locally so later getStatus() calls can surface the server
@@ -252,57 +265,123 @@ class IpSecTunnel(private val context: Context) {
     }
 
     /**
-     * Bind VpnStateService briefly and call connect() with the profile UUID.
-     * VpnStateService forwards to CharonVpnService internally.
+     * Bind VpnStateService, register a listener, and call connect() with the
+     * profile UUID. The bind is kept alive for the whole tunnel lifetime so
+     * VpnStateListener callbacks continue to fire; disconnect() tears it down.
      */
     private suspend fun startViaVpnStateService(uuid: UUID) = withContext(Dispatchers.Main) {
         val bound = CompletableDeferred<VpnStateService>()
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                 val service = (binder as VpnStateService.LocalBinder).service
+                stateService = service
+                // Install the listener BEFORE dispatching connect() so we
+                // never miss the first transition out of DISABLED.
+                val listener = VpnStateService.VpnStateListener {
+                    handleStateChanged(service.state)
+                }
+                stateListener = listener
+                service.registerListener(listener)
                 bound.complete(service)
             }
-            override fun onServiceDisconnected(name: ComponentName?) {}
+            override fun onServiceDisconnected(name: ComponentName?) {
+                stateService = null
+            }
         }
+        stateServiceConn = conn
+
         val svcIntent = Intent(context, VpnStateService::class.java)
         context.bindService(svcIntent, conn, Context.BIND_AUTO_CREATE)
-        try {
-            val service = bound.await()
-            val bundle = Bundle().apply {
-                putString(/* KEY_UUID from VpnProfileDataSource = */ "_uuid", uuid.toString())
-            }
-            service.connect(bundle, true)
-            state = State.CONNECTED
-        } finally {
-            context.unbindService(conn)
+        val service = bound.await()
+        val bundle = Bundle().apply {
+            putString(/* KEY_UUID from VpnProfileDataSource = */ "_uuid", uuid.toString())
         }
+        service.connect(bundle, true)
+        // Do not flip state to CONNECTED here - the first listener callback
+        // is responsible for that. We do mark CONNECTING so the UI can show
+        // the right spinner.
+        state = State.CONNECTING
+        onStateChanged?.invoke(state)
     }
 
     /**
-     * Tell CharonVpnService to tear down. The actual state transition comes
-     * back via the service, but we flip ours eagerly so the UI doesn't spin
-     * after the button click.
+     * Translate strongSwan's VpnStateService.State into our local State enum
+     * and propagate via onStateChanged. strongSwan uses DISABLED for
+     * "not connected"; we normalize to DISCONNECTED.
+     */
+    private fun handleStateChanged(charonState: VpnStateService.State) {
+        val newState = when (charonState) {
+            VpnStateService.State.DISABLED -> State.DISCONNECTED
+            VpnStateService.State.CONNECTING -> State.CONNECTING
+            VpnStateService.State.CONNECTED -> {
+                if (connectedSince == 0L) connectedSince = System.currentTimeMillis()
+                State.CONNECTED
+            }
+            VpnStateService.State.DISCONNECTING -> State.DISCONNECTING
+        }
+        if (newState == state) return
+        state = newState
+        if (newState == State.DISCONNECTED) connectedSince = 0L
+        Log.d(TAG, "State transition: $charonState -> $newState")
+        onStateChanged?.invoke(newState)
+    }
+
+    /**
+     * Unregister the listener and unbind. Idempotent.
+     */
+    private fun cleanupStateService() {
+        val conn = stateServiceConn ?: return
+        try {
+            stateListener?.let { stateService?.unregisterListener(it) }
+        } catch (_: Exception) { /* already gone, tolerate */ }
+        try {
+            context.unbindService(conn)
+        } catch (_: IllegalArgumentException) { /* not bound, tolerate */ }
+        stateServiceConn = null
+        stateService = null
+        stateListener = null
+    }
+
+    /**
+     * Tell CharonVpnService to tear down. We use the already-bound
+     * VpnStateService from connect() if available; otherwise we bind
+     * briefly just to dispatch disconnect. After disconnect is dispatched
+     * the listener fires us back to DISCONNECTED and we clean up the bind.
      */
     suspend fun disconnect() = withContext(Dispatchers.Main) {
         if (state == State.DISCONNECTED) return@withContext
         state = State.DISCONNECTING
+        onStateChanged?.invoke(state)
 
-        val bound = CompletableDeferred<VpnStateService>()
-        val conn = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                bound.complete((binder as VpnStateService.LocalBinder).service)
+        val svc = stateService
+        if (svc != null) {
+            svc.disconnect()
+        } else {
+            // Fallback: no prior bind. This can happen if the process was
+            // recycled after connect but before disconnect. Briefly bind,
+            // dispatch, and unbind.
+            val bound = CompletableDeferred<VpnStateService>()
+            val fallbackConn = object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                    bound.complete((binder as VpnStateService.LocalBinder).service)
+                }
+                override fun onServiceDisconnected(name: ComponentName?) {}
             }
-            override fun onServiceDisconnected(name: ComponentName?) {}
+            val svcIntent = Intent(context, VpnStateService::class.java)
+            context.bindService(svcIntent, fallbackConn, Context.BIND_AUTO_CREATE)
+            try {
+                bound.await().disconnect()
+            } finally {
+                context.unbindService(fallbackConn)
+            }
         }
-        val svcIntent = Intent(context, VpnStateService::class.java)
-        context.bindService(svcIntent, conn, Context.BIND_AUTO_CREATE)
-        try {
-            bound.await().disconnect()
-        } finally {
-            context.unbindService(conn)
-        }
+        // The listener will flip state to DISCONNECTED once charon reports
+        // it. Tear down our long-lived bind here regardless - we do not
+        // need further events after an explicit disconnect.
+        cleanupStateService()
         state = State.DISCONNECTED
         connectedSince = 0L
+        onStateChanged?.invoke(state)
     }
 
     fun getState(): State = state
