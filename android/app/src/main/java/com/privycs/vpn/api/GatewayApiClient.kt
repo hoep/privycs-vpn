@@ -134,10 +134,19 @@ class GatewayApiClient(
 
         val bodyText = response.bodyAsText()
 
-        return when (protocol) {
-            "wireguard" -> buildWireGuardConf(bodyText)
-            "openvpn" -> extractOpenVpnConfig(bodyText)
-            else -> bodyText
+        return try {
+            when (protocol) {
+                "wireguard" -> buildWireGuardConf(bodyText)
+                "openvpn" -> extractOpenVpnConfig(bodyText)
+                else -> bodyText
+            }
+        } catch (e: ApiException) {
+            // Already descriptive (config-not-available style) - bubble up.
+            throw e
+        } catch (e: Exception) {
+            throw ApiException(buildImportErrorMessage(
+                "my-configs/$protocol-$configId", bodyText, e
+            ))
         }
     }
 
