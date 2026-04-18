@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "PrivycsVPN"
 include(":app")
+include(":strongswan-lib")

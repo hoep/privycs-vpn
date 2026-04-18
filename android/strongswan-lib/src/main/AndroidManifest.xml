@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Stripped AndroidManifest for the strongSwan library wrapper.
+
+    Declares only the runtime plumbing required for CharonVpnService to
+    operate inside an embedding app (no UI activities, no launcher). The
+    strongSwan upstream UI classes still compile as library code but are
+    unregistered, so they are invisible to the launcher and non-addressable
+    via Intent - the embedding app supplies its own UI.
+
+    Library-manifest attributes get merged into the embedding app's manifest
+    via Android Gradle's manifest merger.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application>
+
+        <!-- The strongSwan IKE/ESP state observer. Bound by CharonVpnService. -->
+        <service
+            android:name="org.strongswan.android.logic.VpnStateService"
+            android:exported="false" />
+
+        <!-- The VpnService implementation driven by libandroidbridge / libcharon.
+             The embedding app starts this via Intent when IPSec is selected. -->
+        <service
+            android:name="org.strongswan.android.logic.CharonVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="VpnService instance" />
+        </service>
+
+    </application>
+
+</manifest>

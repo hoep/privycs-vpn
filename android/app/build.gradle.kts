@@ -21,28 +21,9 @@ android {
         }
 
         ndk {
-            // Ship arm64 + armv7a + x86_64. Skip 32-bit x86 to save APK size;
-            // Play Store no longer serves it to any modern emulator profile.
+            // Must match the ABI filter in strongswan-lib so both modules
+            // contribute native libs for the same architectures.
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
-        }
-
-        externalNativeBuild {
-            ndkBuild {
-                arguments += "-j${Runtime.getRuntime().availableProcessors()}"
-            }
-        }
-    }
-
-    // Match the NDK version strongSwan's upstream Android frontend pins to.
-    // Required for reproducible charon/libipsec builds.
-    ndkVersion = "27.3.13750724"
-
-    externalNativeBuild {
-        ndkBuild {
-            // strongSwan's Android.mk lives inside the vendored submodule. The
-            // prep script (scripts/prepare-strongswan.sh) must run before this
-            // ndk-build step to generate Android.common.mk and libcrypto_static.
-            path = file("../vendor/strongswan/src/frontends/android/app/src/main/jni/Android.mk")
         }
     }
 
@@ -129,12 +110,11 @@ dependencies {
     // The current OpenVpnTunnel.kt uses Android VpnService directly and can be
     // enhanced with either approach without changing the public API.
 
-    // IPSec/IKEv2 integration:
-    // strongSwan libcharon is bundled as a native library built from the git
-    // submodule at android/vendor/strongswan. See externalNativeBuild above
-    // and scripts/prepare-strongswan.sh for the prerequisite build steps.
-    // Native modules produced: libcharon, libipsec, libstrongswan,
-    // libandroidbridge. Minimum Android API 26 (matches minSdk).
+    // IPSec/IKEv2 via strongSwan libcharon. The library module wraps
+    // strongSwan's upstream Android frontend (Java + native) at
+    // android/vendor/strongswan. scripts/prepare-strongswan.sh must run
+    // before a clean build to produce Android.common.mk + libcrypto_static.
+    implementation(project(":strongswan-lib"))
 
     // Ktor client
     implementation("io.ktor:ktor-client-core:2.3.8")
