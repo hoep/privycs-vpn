@@ -98,6 +98,28 @@ class PrivycsApp : StrongSwanApplication() {
         // before the user ever taps Connect - same timing pattern as
         // upstream ICS-OpenVPN's "Import then Connect" UI workflow.
         appScope.launch { preloadOpenVpnProfiles() }
+
+        // Auto-start NetworkMonitor if on-demand is enabled in persisted
+        // settings. Previously NetworkMonitor.start was only called from
+        // SettingsScreen (when the user toggled the switch) and from
+        // BootReceiver (boot broadcast). If the user enabled on-demand in
+        // a prior session and then launched the app fresh (e.g. from the
+        // launcher icon rather than after a boot), the monitor never
+        // started - so the VpnStatus listener that triggers
+        // auto-reconnect after a manual disconnect was never wired up.
+        // Users reported repeatedly: "manual disconnect while on-demand
+        // rules match does not reconnect" - root cause exactly this.
+        appScope.launch {
+            val codEnabled = settingsRepository.getSettingsBlocking().connectOnDemand.enabled
+            if (codEnabled) {
+                try {
+                    com.privycs.vpn.service.NetworkMonitor.getInstance(applicationContext).start()
+                    Log.i("PrivycsApp", "NetworkMonitor auto-started (on-demand enabled)")
+                } catch (t: Throwable) {
+                    Log.e("PrivycsApp", "NetworkMonitor auto-start failed", t)
+                }
+            }
+        }
     }
 
     /**

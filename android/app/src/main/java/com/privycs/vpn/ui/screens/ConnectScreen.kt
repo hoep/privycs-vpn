@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.service.VpnServiceManager
@@ -144,9 +145,18 @@ fun ConnectScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         // Connect button
+        // Prefer the live-status protocol (reflects what the tunnel is
+        // actually running) over the stored active protocol (reflects
+        // what the user has picked in the dropdown). Falls back to the
+        // active connection's activeProtocol when status.activeProtocol
+        // is null, e.g. right after app start before VpnStatus has its
+        // first update.
+        val activeProtocolForIcon = status.activeProtocol
+            ?: connectionRepo.getActive()?.activeProtocol
         ConnectButton(
             isConnected = isConnected,
             isConnecting = isConnecting,
+            activeProtocol = activeProtocolForIcon,
             onClick = {
                 // Signal user intent to NetworkMonitor so a manual disconnect
                 // with on-demand enabled doesn't trigger an instant auto-
@@ -388,6 +398,7 @@ private fun WelcomeView(onNavigateToAdd: () -> Unit) {
 private fun ConnectButton(
     isConnected: Boolean,
     isConnecting: Boolean,
+    activeProtocol: VpnProtocol?,
     onClick: () -> Unit
 ) {
     val buttonSize = 140.dp
@@ -452,17 +463,34 @@ private fun ConnectButton(
                         strokeWidth = 3.dp
                     )
                 } else {
-                    // Shield-with-check icon — matches the desktop app's
-                    // ConnectionView which uses heroicons ShieldCheckIcon.
-                    // White when connected (visible on the green gradient),
-                    // muted when idle.
-                    Icon(
-                        imageVector = Icons.Filled.GppGood,
-                        contentDescription = "Privycs",
-                        modifier = Modifier.size(56.dp),
-                        tint = if (isConnected) Color.White
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // Show the active protocol's brand icon inside the
+                    // connect button so the user sees at-a-glance which
+                    // stack will run (or is running). Falls back to the
+                    // generic shield-check when no protocol is selected
+                    // yet (first-run, empty connection repo).
+                    val tint = if (isConnected) Color.White
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    val iconRes = when (activeProtocol) {
+                        VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
+                        VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
+                        VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
+                        null -> null
+                    }
+                    if (iconRes != null) {
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                            contentDescription = activeProtocol?.label,
+                            modifier = Modifier.size(56.dp),
+                            tint = tint
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.GppGood,
+                            contentDescription = "Privycs",
+                            modifier = Modifier.size(56.dp),
+                            tint = tint
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(

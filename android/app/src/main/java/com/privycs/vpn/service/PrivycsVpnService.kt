@@ -274,11 +274,19 @@ class PrivycsVpnService : VpnService() {
     private fun handleAlwaysOnReconnect() {
         scope.launch {
             val connRepo = PrivycsApp.instance.connectionRepository
-            val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
-
+            // NOTE: drop the settings.alwaysOn check. Android already
+            // wakes this VpnService with a null intent only when its
+            // system-level always-on VPN toggle is ON (Settings ->
+            // Network & Internet -> VPN -> Privycs -> Always-on VPN) or
+            // when the foreground service gets restarted by the system
+            // after a crash. In either case, "we have an active
+            // connection" is the only precondition we actually care about
+            // - the old `&& settings.alwaysOn` branch required the user
+            // to ALSO flip a redundant app-level toggle which confused
+            // everyone who configured always-on via the system sheet.
             val activeConn = connRepo.getActive()
-            if (activeConn == null || !settings.alwaysOn) {
-                Log.d(TAG, "No active connection or always-on disabled, stopping")
+            if (activeConn == null) {
+                Log.d(TAG, "No active connection to restore, stopping")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return@launch
