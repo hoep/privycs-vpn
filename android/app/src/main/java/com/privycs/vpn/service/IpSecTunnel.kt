@@ -414,41 +414,76 @@ class IpSecTunnel(private val context: Context) {
     }
 
     /**
-     * Read rx/tx bytes from /proc/net/dev for whichever interface the
-     * active VPN network is bound to. strongSwan's charon exposes per-SA
-     * byte counters only inside its native process; the kernel's per-iface
-     * counters are the only counters reachable from our side without a
-     * dedicated JNI bridge.
+     * Read rx/tx bytes for the active VPN network's interface. Tries
+     * several sources in order because Android 10+ restricts app access
+     * to some of them:
+     *   1. /sys/class/net/<iface>/statistics/{rx_bytes,tx_bytes} - per
+     *      interface counters published by the kernel, typically readable
+     *      even on scoped-storage Android.
+     *   2. /proc/net/dev - fallback. Publicly world-readable but on
+     *      Android 10+ sometimes returns only the reader's own app's
+     *      rows (confusingly zero for the VPN tun).
      *
-     * Returns (rx, tx) for the active VPN network's link, or (0, 0) if the
-     * counters cannot be read. /proc/net/dev is world-readable on Android
-     * so this works without extra permissions.
+     * Logs the resolved interface name the first time it's read and on
+     * every failure so the Logs screen reveals which iface we queried;
+     * this turns "rx/tx stays at 0" into an actionable bug report.
      */
+    @Volatile private var loggedIface = ""
+
     private fun readVpnInterfaceBytes(): Pair<Long, Long> {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
                     as? android.net.ConnectivityManager ?: return 0L to 0L
-            // Find the active VPN network via NET_CAPABILITY_NOT_VPN = false
-            // heuristic - pick the one network flagged as a VPN transport.
             val vpnNet = cm.allNetworks.firstOrNull { net ->
                 val caps = cm.getNetworkCapabilities(net) ?: return@firstOrNull false
                 caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
-            } ?: return 0L to 0L
-            val iface = cm.getLinkProperties(vpnNet)?.interfaceName ?: return 0L to 0L
+            }
+            if (vpnNet == null) {
+                if (loggedIface != "<none>") {
+                    PrivycsLogger.w(TAG, "No VPN-transport network - rx/tx cannot be read")
+                    loggedIface = "<none>"
+                }
+                return 0L to 0L
+            }
+            val iface = cm.getLinkProperties(vpnNet)?.interfaceName
+            if (iface.isNullOrEmpty()) {
+                if (loggedIface != "<empty>") {
+                    PrivycsLogger.w(TAG, "VPN network has no interface name - rx/tx cannot be read")
+                    loggedIface = "<empty>"
+                }
+                return 0L to 0L
+            }
+            if (iface != loggedIface) {
+                PrivycsLogger.i(TAG, "Reading rx/tx for VPN interface '$iface'")
+                loggedIface = iface
+            }
 
-            // /proc/net/dev format:
-            //   <iface>: rx_bytes rx_packets rx_errs ... tx_bytes tx_packets ...
-            // There are 16 numeric columns; rx is column 1, tx is column 9.
+            // Try /sys/class/net first - most reliable on modern Android.
+            val sysRx = java.io.File("/sys/class/net/$iface/statistics/rx_bytes")
+            val sysTx = java.io.File("/sys/class/net/$iface/statistics/tx_bytes")
+            if (sysRx.exists() && sysTx.exists()) {
+                val rx = runCatching { sysRx.readText().trim().toLong() }.getOrNull() ?: 0L
+                val tx = runCatching { sysTx.readText().trim().toLong() }.getOrNull() ?: 0L
+                if (rx > 0 || tx > 0) return rx to tx
+            }
+
+            // Fallback: /proc/net/dev row.
             val line = java.io.File("/proc/net/dev").useLines { lines ->
                 lines.firstOrNull { it.trim().startsWith("$iface:") }
-            } ?: return 0L to 0L
-            val parts = line.substringAfter(":").trim().split(Regex("\\s+"))
-            if (parts.size < 10) return 0L to 0L
-            val rx = parts[0].toLongOrNull() ?: 0L
-            val tx = parts[8].toLongOrNull() ?: 0L
-            rx to tx
+            }
+            if (line != null) {
+                val parts = line.substringAfter(":").trim().split(Regex("\\s+"))
+                if (parts.size >= 10) {
+                    val rx = parts[0].toLongOrNull() ?: 0L
+                    val tx = parts[8].toLongOrNull() ?: 0L
+                    return rx to tx
+                }
+            }
+
+            // Both sources silent.
+            0L to 0L
         } catch (e: Exception) {
-            Log.w(TAG, "readVpnInterfaceBytes failed: ${e.message}")
+            PrivycsLogger.w(TAG, "readVpnInterfaceBytes failed: ${e.message}")
             0L to 0L
         }
     }
