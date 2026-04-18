@@ -466,18 +466,15 @@ private fun ConnectionCard(
                     ) {
                         connection.availableProtocols().forEach { protocol ->
                             val canRemove = connection.protocols.size > 1
-                            // IPSec config blob is binary-encoded; only WG/OVPN
-                            // get the in-place edit affordance.
-                            val canEdit = protocol == VpnProtocol.WIREGUARD ||
-                                protocol == VpnProtocol.OPENVPN
+                            // All three protocols parse as plain text:
+                            // WireGuard .conf is INI, OpenVPN .ovpn is text,
+                            // IPSec .sswan is JSON and .mobileconfig is XML.
                             ProtocolBadge(
                                 protocol = protocol,
                                 onRemove = if (canRemove) {
                                     { onRemoveProtocol(protocol) }
                                 } else null,
-                                onEdit = if (canEdit) {
-                                    { onEditProtocol(protocol) }
-                                } else null
+                                onEdit = { onEditProtocol(protocol) }
                             )
                         }
                         // Add-protocol button — only show when connection does
