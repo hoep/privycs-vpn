@@ -76,7 +76,8 @@ jobs:
           sudo apt-get install -qq -y --no-install-recommends \
             autoconf automake libtool libtool-bin pkg-config \
             gperf flex bison make perl python3 jq curl ca-certificates \
-            libssl-dev libgmp-dev
+            libssl-dev libgmp-dev \
+            swig cmake ninja-build
 
       - name: Cache OpenSSL source + libcrypto artifacts
         uses: actions/cache@v4

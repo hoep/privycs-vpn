@@ -50,7 +50,16 @@ jobs:
           sudo apt-get install -qq -y --no-install-recommends \
             autoconf automake libtool libtool-bin pkg-config \
             gperf flex bison make perl python3 jq curl ca-certificates \
-            libssl-dev libgmp-dev
+            libssl-dev libgmp-dev \
+            swig cmake ninja-build
+          # swig: required by ics-openvpn CMake for the OpenVPN 3 client
+          #       SWIG -> Java bindings codegen step.
+          # cmake: AGP bundles its own CMake via sdkmanager but falls back to
+          #        PATH when externalNativeBuild { cmake { version = ... } }
+          #        is pinned; having cmake on PATH avoids a 600MB Android SDK
+          #        cmake install.
+          # ninja-build: CMake's preferred generator on AGP; faster than
+          #        Unix Makefiles for parallel ovpn3 + ovpn2 builds.
 
       - name: Cache OpenSSL source + libcrypto artifacts
         uses: actions/cache@v4
@@ -141,7 +150,16 @@ jobs:
           sudo apt-get install -qq -y --no-install-recommends \
             autoconf automake libtool libtool-bin pkg-config \
             gperf flex bison make perl python3 jq curl ca-certificates \
-            libssl-dev libgmp-dev
+            libssl-dev libgmp-dev \
+            swig cmake ninja-build
+          # swig: required by ics-openvpn CMake for the OpenVPN 3 client
+          #       SWIG -> Java bindings codegen step.
+          # cmake: AGP bundles its own CMake via sdkmanager but falls back to
+          #        PATH when externalNativeBuild { cmake { version = ... } }
+          #        is pinned; having cmake on PATH avoids a 600MB Android SDK
+          #        cmake install.
+          # ninja-build: CMake's preferred generator on AGP; faster than
+          #        Unix Makefiles for parallel ovpn3 + ovpn2 builds.
 
       - name: Cache OpenSSL source + libcrypto artifacts
         uses: actions/cache@v4

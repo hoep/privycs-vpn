@@ -99,20 +99,14 @@ dependencies {
     // WireGuard tunnel library
     implementation("com.wireguard.android:tunnel:1.0.20230706")
 
-    // OpenVPN integration
-    // The ics-openvpn library is not published to Maven Central or JitPack as a
-    // standalone artifact. To integrate full OpenVPN support, choose one of:
-    //
-    // Option A: Clone ics-openvpn as a Git submodule and include as a local module:
-    //   git submodule add https://github.com/nickolay/ics-openvpn.git libs/ics-openvpn
-    //   In settings.gradle.kts: include(":libs:ics-openvpn:main")
-    //   Then: implementation(project(":libs:ics-openvpn:main"))
-    //
-    // Option B: Build the AAR from ics-openvpn and add as a local file dependency:
-    //   implementation(files("libs/openvpn-core.aar"))
-    //
-    // The current OpenVpnTunnel.kt uses Android VpnService directly and can be
-    // enhanced with either approach without changing the public API.
+    // OpenVPN via ics-openvpn. The library module wraps schwabe/ics-openvpn
+    // at android/vendor/ics-openvpn (pinned to v0.7.64). See
+    // android/openvpn-lib/build.gradle.kts for the wrapper layout.
+    // CMake builds OpenSSL, OpenVPN 2.x, lzo, lz4, fmt and the PIE minivpn
+    // executable. Swig + cmake must be on PATH at build time (handled in
+    // the android-build.yml / android-release.yml CI workflows and in
+    // scripts/prepare-openvpn.sh for local builds).
+    implementation(project(":openvpn-lib"))
 
     // IPSec/IKEv2 via strongSwan libcharon. The library module wraps
     // strongSwan's upstream Android frontend (Java + native) at

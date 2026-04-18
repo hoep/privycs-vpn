@@ -188,6 +188,12 @@ class NetworkMonitor private constructor(private val context: Context) {
 
             val (shouldConnect, ruleMatch) = evaluateRules(codSettings, networkType, ssid)
 
+            // Snapshot the previous network state BEFORE overwriting it so
+            // we can detect a genuine network transition below. The latch
+            // is scoped to "the user does not want VPN on THIS network" -
+            // when the network itself changes, that intent is void.
+            val prevState = _networkState.value
+
             val newState = NetworkState(
                 networkType = networkType,
                 ssid = ssid,
@@ -201,6 +207,24 @@ class NetworkMonitor private constructor(private val context: Context) {
                 lastShouldConnect = null
                 userIntentDisconnected = false
                 return@launch
+            }
+
+            // Genuine network transition = transport switched (wifi->mobile,
+            // etc.) OR the SSID actually changed (joining a different WiFi).
+            // `none` -> anything also counts. A stale latch from a previous
+            // network should not carry across - on-demand re-takes control
+            // on the new network. Without this the latch was effectively
+            // permanent: it only released on manual connect or disabling
+            // on-demand, so once you tapped Disconnect you were stuck off
+            // even after moving to a completely different WiFi.
+            val networkChanged = prevState.networkType != networkType ||
+                prevState.ssid != ssid
+            if (networkChanged && userIntentDisconnected) {
+                Log.d(
+                    TAG,
+                    "Network transition (${prevState.networkType}/${prevState.ssid} -> $networkType/$ssid), releasing user-disconnect latch"
+                )
+                userIntentDisconnected = false
             }
 
             val vpnManager = VpnServiceManager.getInstance(context)

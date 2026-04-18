@@ -18,3 +18,4 @@ dependencyResolutionManagement {
 rootProject.name = "PrivycsVPN"
 include(":app")
 include(":strongswan-lib")
+include(":openvpn-lib")

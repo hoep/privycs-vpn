@@ -8,4 +8,19 @@
     <string name="action_disconnect">Disconnect</string>
     <string name="widget_description">Shows VPN connection status and allows quick toggle</string>
     <string name="vpn_tile_label">Privycs VPN</string>
+
+    <!--
+        Overrides for strings defined in :openvpn-lib (vendor ics-openvpn).
+        App module resources win over library resources at merge time, so
+        declaring the same string name here replaces the upstream value
+        without touching the vendor submodule.
+
+        `notifcation_title` typo is intentional - it's spelled that way in
+        upstream strings.xml and OpenVPNService.java references
+        R.string.notifcation_title, so our override MUST use the same typo
+        or the resource won't resolve.
+    -->
+    <string name="app">Privycs VPN</string>
+    <string name="notifcation_title">Privycs VPN - %s</string>
+    <string name="notifcation_title_notconnect">Privycs VPN - Not connected</string>
 </resources>

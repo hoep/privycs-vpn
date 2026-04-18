@@ -1,3 +1,6 @@
 [submodule "android/vendor/strongswan"]
 	path = android/vendor/strongswan
 	url = https://github.com/strongswan/strongswan.git
+[submodule "android/vendor/ics-openvpn"]
+	path = android/vendor/ics-openvpn
+	url = https://github.com/schwabe/ics-openvpn.git

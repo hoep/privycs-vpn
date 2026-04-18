@@ -147,14 +147,43 @@ class PrivycsVpnService : VpnService() {
     }
 
     private suspend fun connectOpenVpn(configContent: String) {
-        val tunnel = OpenVpnTunnel()
+        // OpenVPN is owned by ics-openvpn's OpenVPNService which runs in the
+        // :openvpn process and calls VpnService.Builder() internally. Our
+        // own VpnService instance does NOT establish a tun fd for OpenVPN -
+        // only one VpnService at a time can hold the slot, and we hand it
+        // to OpenVPNService. PrivycsVpnService stays alive purely as a
+        // controller so handleDisconnect() has an instance to dispatch
+        // through.
+        val tunnel = OpenVpnTunnel(applicationContext)
         openVpnTunnel = tunnel
+
+        // Mirror IPSec: forward live state transitions into VpnServiceManager
+        // so the UI reflects CONNECTING / CONNECTED / DISCONNECTED without
+        // needing a poll loop. Upstream VpnStatus fires its StateListener on
+        // every relevant native event (AUTH, GET_CONFIG, CONNECTED, ...)
+        // and we translate them to our 3-state enum in OpenVpnTunnel.mapLevel.
+        val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
+        tunnel.onStateChanged = { s ->
+            val connected = s == OpenVpnTunnel.State.CONNECTED
+            manager.updateStatus(tunnel.getStatus(currentConnectionName, currentConnectionId))
+            when (s) {
+                OpenVpnTunnel.State.CONNECTING -> updateNotification("Connecting $currentConnectionName (OpenVPN)...")
+                OpenVpnTunnel.State.CONNECTED  -> updateNotification("Connected to $currentConnectionName (OpenVPN)")
+                OpenVpnTunnel.State.DISCONNECTING -> updateNotification("Disconnecting...")
+                OpenVpnTunnel.State.DISCONNECTED -> updateNotification("Disconnected")
+                OpenVpnTunnel.State.FAILED -> updateNotification("OpenVPN failed")
+            }
+            sendWidgetUpdate(connected = connected)
+        }
 
         tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService)
 
         connectStartTime = System.currentTimeMillis()
-        updateNotification("Connected to $currentConnectionName (OpenVPN)")
-        sendWidgetUpdate(connected = true)
+        sendWidgetUpdate(connected = false)
+        // Shared poll loop: state-listener callbacks drive connected/uptime,
+        // byte counters tick live via ByteCountListener. We still run the
+        // periodic poll for parity with WireGuard/IPSec so the UI refresh
+        // cadence is uniform across protocols.
         startStatusPolling()
     }
 
@@ -303,6 +332,18 @@ class PrivycsVpnService : VpnService() {
                                 val s = ipSecTunnel?.getState()
                                 s == IpSecTunnel.State.CONNECTING ||
                                         s == IpSecTunnel.State.CONNECTED
+                            }
+                            VpnProtocol.OPENVPN -> {
+                                // Symmetric to IPSec: OpenVPN spends the first
+                                // ~2-5s of a fresh connect in CONNECTING while
+                                // TLS handshake + PUSH_REPLY roundtrip complete.
+                                // getStatus().connected is false throughout;
+                                // breaking the poll loop here would freeze
+                                // uptime at 0 even though the tunnel is about
+                                // to go live.
+                                val s = openVpnTunnel?.getState()
+                                s == OpenVpnTunnel.State.CONNECTING ||
+                                        s == OpenVpnTunnel.State.CONNECTED
                             }
                             else -> false
                         }
