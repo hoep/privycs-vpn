@@ -68,40 +68,48 @@ log "ABIs           =${ABIS}"
 # Stage 1: autogen + configure + make (generates Android.common.mk etc.)
 # ----------------------------------------------------------------------------
 
-if [ ! -f "${STRONGSWAN_DIR}/Android.common.mk" ] || [ "${FORCE_AUTOGEN:-0}" = 1 ]; then
-  log "Running autogen.sh + configure + make inside submodule"
-  (
-    cd "${STRONGSWAN_DIR}"
-    ./autogen.sh
-    ./configure \
-      --disable-defaults \
-      --enable-monolithic \
-      --enable-ikev1 \
-      --enable-ikev2 \
-      --enable-openssl \
-      --enable-pem \
-      --enable-pkcs1 \
-      --enable-pkcs12 \
-      --enable-x509 \
-      --enable-kernel-netlink \
-      --enable-socket-default \
-      --enable-nonce \
-      --enable-xcbc \
-      --enable-kdf \
-      --enable-revocation \
-      --enable-eap-identity \
-      --enable-eap-mschapv2 \
-      --enable-eap-md5 \
-      --enable-eap-gtc \
-      --enable-eap-tls \
-      --disable-scripts \
-      --disable-tools
-    make -j"$(nproc 2>/dev/null || echo 2)"
-    make distclean >/dev/null || true
-  )
-else
-  log "Android.common.mk already present; skipping autogen (set FORCE_AUTOGEN=1 to rerun)"
-fi
+# Always run autogen/configure/make. The autotools step emits a set of
+# generated .c files (proposal_keywords_static.c, oid.c, several *_keywords.c)
+# under src/**/ which are hard to enumerate and therefore hard to cache
+# reliably; a partial snapshot of the tree leads to "No rule to make target"
+# failures during ndk-build. Regenerating unconditionally takes ~60s and keeps
+# the state consistent.
+log "Running autogen.sh + configure + make inside submodule"
+(
+  cd "${STRONGSWAN_DIR}"
+  ./autogen.sh
+  ./configure \
+    --disable-defaults \
+    --enable-monolithic \
+    --enable-ikev1 \
+    --enable-ikev2 \
+    --enable-openssl \
+    --enable-pem \
+    --enable-pkcs1 \
+    --enable-pkcs12 \
+    --enable-x509 \
+    --enable-kernel-netlink \
+    --enable-socket-default \
+    --enable-nonce \
+    --enable-xcbc \
+    --enable-kdf \
+    --enable-revocation \
+    --enable-eap-identity \
+    --enable-eap-mschapv2 \
+    --enable-eap-md5 \
+    --enable-eap-gtc \
+    --enable-eap-tls \
+    --disable-scripts \
+    --disable-tools
+  make -j"$(nproc 2>/dev/null || echo 2)"
+  # Intentionally do NOT run `make distclean` here: it would scrub the
+  # generated .c files (proposal_keywords_static.c, oid.c, etc.) that
+  # ndk-build's Android.mk depends on. distclean is only appropriate when
+  # you are re-invoking configure for a different target; since ndk-build
+  # consumes the .c files directly and has its own build dir, leaving the
+  # host .o files around is harmless and the generated .c files are what
+  # we actually need.
+)
 
 # ----------------------------------------------------------------------------
 # Stage 2: fetch OpenSSL source (cached)

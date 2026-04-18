@@ -60,15 +60,13 @@ jobs:
             android/vendor/strongswan/src/frontends/android/app/src/main/jni/openssl
           key: openssl-${{ env.OPENSSL_VERSION }}-ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
 
-      - name: Cache strongSwan autotools artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            android/vendor/strongswan/Android.common.mk
-            android/vendor/strongswan/config.h
-            android/vendor/strongswan/src/**/*keywords.c
-            android/vendor/strongswan/src/**/oid.c
-          key: strongswan-autogen-${{ hashFiles('android/vendor/strongswan/Android.common.mk.in', 'android/vendor/strongswan/configure.ac') }}
+      # The autotools-generated artifacts (Android.common.mk, keyword tables,
+      # oid.c, etc.) span too many hard-to-enumerate files to cache reliably:
+      # a partial cache hit leaves the tree in an inconsistent state and
+      # ndk-build fails with "No rule to make target
+      # proposal_keywords_static.c". Running autogen + make every time costs
+      # ~60s, which is acceptable since the heavy OpenSSL step is cached
+      # above.
 
       - name: Cache Gradle packages
         uses: actions/cache@v4
@@ -153,15 +151,13 @@ jobs:
             android/vendor/strongswan/src/frontends/android/app/src/main/jni/openssl
           key: openssl-${{ env.OPENSSL_VERSION }}-ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
 
-      - name: Cache strongSwan autotools artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            android/vendor/strongswan/Android.common.mk
-            android/vendor/strongswan/config.h
-            android/vendor/strongswan/src/**/*keywords.c
-            android/vendor/strongswan/src/**/oid.c
-          key: strongswan-autogen-${{ hashFiles('android/vendor/strongswan/Android.common.mk.in', 'android/vendor/strongswan/configure.ac') }}
+      # The autotools-generated artifacts (Android.common.mk, keyword tables,
+      # oid.c, etc.) span too many hard-to-enumerate files to cache reliably:
+      # a partial cache hit leaves the tree in an inconsistent state and
+      # ndk-build fails with "No rule to make target
+      # proposal_keywords_static.c". Running autogen + make every time costs
+      # ~60s, which is acceptable since the heavy OpenSSL step is cached
+      # above.
 
       - name: Cache Gradle packages
         uses: actions/cache@v4
@@ -182,7 +178,10 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Android Lint
-        run: ./gradlew lintDebug --no-daemon
+        # Only lint :app - the :strongswan-lib wrapper is advisory (see its
+        # build.gradle.kts) and triggering its lint would also force the
+        # NDK configure step which is already covered by the build job.
+        run: ./gradlew :app:lintDebug --no-daemon
 
       - name: Upload lint results
         if: always()
