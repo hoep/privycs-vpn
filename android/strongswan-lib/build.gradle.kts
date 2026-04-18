@@ -142,7 +142,7 @@ android {
             )
             var totalReplacements = 0
             outputRoot.listFiles()?.filter { it.isDirectory && it.name.startsWith("values") }?.forEach { dir ->
-                val f = java.io.File(dir, "strings.xml")
+                val f = dir.resolve("strings.xml")
                 if (!f.exists()) return@forEach
                 var text = f.readText()
                 var dirty = false
