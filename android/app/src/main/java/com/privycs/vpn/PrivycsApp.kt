@@ -25,6 +25,12 @@ class PrivycsApp : StrongSwanApplication() {
     lateinit var settingsRepository: SettingsRepository
         private set
 
+    // Kept as a GC root for the AIDL ServiceConnection inside StatusListener;
+    // losing this reference lets the OpenVPNStatusService unbind and we stop
+    // receiving state/log/byte-count events from the :openvpn subprocess.
+    @Suppress("unused")
+    private var openVpnStatusListener: de.blinkt.openvpn.core.StatusListener? = null
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -72,8 +78,13 @@ class PrivycsApp : StrongSwanApplication() {
             createOpenVpnNotificationChannels()
         }
         try {
-            val statusListener = de.blinkt.openvpn.core.StatusListener()
-            statusListener.init(applicationContext)
+            // StatusListener.init(Context) is package-private in
+            // de.blinkt.openvpn.core; PrivycsStatusListenerBridge.install
+            // lives in that package (inside :openvpn-lib's own sources)
+            // and re-exposes it. Returned listener is stored so its
+            // internal AIDL ServiceConnection is not GC'd.
+            openVpnStatusListener =
+                de.blinkt.openvpn.core.PrivycsStatusListenerBridge.install(applicationContext)
         } catch (t: Throwable) {
             // If this fails the OpenVPN tunnel will still start, but the UI
             // won't receive state updates. Log loudly so the Logs screen

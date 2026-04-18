@@ -85,12 +85,17 @@ android {
 
         externalNativeBuild {
             cmake {
-                // -1 because ics-openvpn's CMake uses parallel subdir builds
-                // internally; oversubscribing the host exploded memory in CI.
-                arguments += "-j${maxOf(1, Runtime.getRuntime().availableProcessors() - 1)}"
-                // Match the flags the upstream main/build.gradle.kts passes to
-                // CMake - primarily so the vendor CMakeLists' own feature
-                // flags line up.
+                // NOTE: Do NOT pass `-jN` here. That is an ndk-build (Make)
+                // argument; CMake's configure phase rejects it with
+                // "Unknown argument -j3" and the whole build aborts before
+                // a single .cpp file is compiled. Ninja (the generator AGP
+                // uses for CMake) auto-parallelises to nproc at build time,
+                // so no explicit job count is needed.
+                //
+                // C++23 matches the `set(CMAKE_CXX_STANDARD 23)` in the
+                // vendor CMakeLists. Specifying it here ensures AGP's own
+                // default (C++14 or whatever ships with the NDK) does not
+                // silently override it.
                 cppFlags += "-std=c++23"
                 arguments += "-DANDROID_STL=c++_static"
             }
@@ -137,7 +142,13 @@ android {
             // Skeleton flavor sources provide NotImplemented / ProfileEncryption
             // / VariantConfig stubs that main/ references - without them the
             // full Java tree does not compile.
+            //
+            // `src/main/java` (this module's own sources) holds small bridge
+            // classes in the de.blinkt.openvpn.* package - same package as the
+            // vendor code, so they can call package-private APIs our app
+            // module cannot reach (notably StatusListener.init).
             java.srcDirs(
+                "src/main/java",
                 "../vendor/ics-openvpn/main/src/main/java",
                 "../vendor/ics-openvpn/main/src/skeleton/java"
             )
