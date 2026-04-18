@@ -35,6 +35,11 @@ class GatewayApiClient(
     private val jsonParser = Json {
         ignoreUnknownKeys = true
         isLenient = true
+        // Coerce explicit nulls in server responses to model defaults so a
+        // gateway-side `"field": null` for a String field we declared as
+        // non-nullable doesn't blow up the whole fetchProfile() call with
+        // "Unexpected Json token at offset <N>".
+        coerceInputValues = true
     }
 
     private val client = HttpClient(OkHttp) {
@@ -72,7 +77,33 @@ class GatewayApiClient(
             }
         }
 
-        return response.body()
+        // Decode the body via our lenient Json parser rather than Ktor's
+        // auto-body<T>() which uses its own strict defaults. This lets
+        // ignoreUnknownKeys + coerceInputValues catch nullable / extra
+        // fields the gateway might add later. If decoding still fails we
+        // enrich the message with a small window around the offset so the
+        // next bug report can be actioned without a full logcat.
+        val bodyText = response.bodyAsText()
+        return try {
+            jsonParser.decodeFromString(RemoteProfile.serializer(), bodyText)
+        } catch (e: Exception) {
+            throw ApiException(buildImportErrorMessage("/my-configs", bodyText, e))
+        }
+    }
+
+    private fun buildImportErrorMessage(endpoint: String, body: String, e: Exception): String {
+        val msg = e.message ?: e.javaClass.simpleName
+        // SerializationException typically contains "at offset N"; extract
+        // the number and show the ~40 bytes around it.
+        val offset = Regex("offset (\\d+)").find(msg)?.groupValues?.get(1)?.toIntOrNull()
+        return if (offset != null && offset in body.indices) {
+            val start = (offset - 20).coerceAtLeast(0)
+            val end = (offset + 20).coerceAtMost(body.length)
+            val window = body.substring(start, end).replace("\n", "\\n")
+            "Failed to parse $endpoint response ($msg). Body near offset $offset: '$window'"
+        } else {
+            "Failed to parse $endpoint response ($msg). Body length=${body.length}."
+        }
     }
 
     /**

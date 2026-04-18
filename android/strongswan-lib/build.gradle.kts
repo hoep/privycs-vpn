@@ -119,6 +119,32 @@ android {
             exclude("mipmap-anydpi-v26/ic_launcher.xml")
         }
         into(strongswanResFiltered)
+        doLast {
+            // Rebrand the upstream strings that CharonVpnService / its
+            // notification builder surface to the user. With non-transitive
+            // R classes the library's code uses the library's string pool;
+            // an override in our app module does not reach CharonVpnService.
+            // Patching the generated copy in-place keeps the submodule
+            // untouched and survives upstream updates (unless upstream
+            // renames `app_name` or `main_activity_name`).
+            val stringsXml = strongswanResFiltered.get().file("values/strings.xml").asFile
+            if (stringsXml.exists()) {
+                val rewritten = stringsXml.readText()
+                    .replace(
+                        "<string name=\"app_name\">strongSwan VPN Client</string>",
+                        "<string name=\"app_name\">Privycs VPN</string>"
+                    )
+                    .replace(
+                        "<string name=\"main_activity_name\">strongSwan</string>",
+                        "<string name=\"main_activity_name\">Privycs VPN</string>"
+                    )
+                    .replace(
+                        "<string name=\"strongswan_shortcut\">strongSwan shortcut</string>",
+                        "<string name=\"strongswan_shortcut\">Privycs VPN shortcut</string>"
+                    )
+                stringsXml.writeText(rewritten)
+            }
+        }
     }
 
     sourceSets {
