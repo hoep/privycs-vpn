@@ -67,6 +67,21 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        // OpenVPN ships its CLI as a PIE executable renamed to
+        // libovpnexec.so (add_executable in CMakeLists.txt). At runtime
+        // OpenVPNThread.startOpenVPNThreadArgs calls ProcessBuilder.start
+        // on {nativeLibraryDir}/libovpnexec.so. AGP 8's default
+        // useLegacyPackaging=false keeps native libs uncompressed-in-APK
+        // and NEVER extracts them to /data/app/<pkg>/lib/<abi>/ - great
+        // for System.loadLibrary (linker can mmap from APK) but fatal for
+        // ProcessBuilder because the kernel's execve() needs a real
+        // filesystem path. Upstream ics-openvpn sets legacy packaging
+        // specifically for this reason; we must do the same or OpenVPN
+        // fails with "error=2, No such file or directory" on every
+        // connect attempt.
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
