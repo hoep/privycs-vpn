@@ -58,6 +58,23 @@
             android:exported="false"
             android:process=":openvpn" />
 
+        <!-- Seeds GlobalPreferences.instance in the `:openvpn` subprocess
+             before OpenVPNService.onStartCommand can reference it.
+             ContentProvider.onCreate is one of the earliest Application
+             lifecycle hooks AMS invokes (after attachBaseContext, before
+             Application.onCreate completes). Declaring the provider with
+             `android:process=":openvpn"` forces AMS to instantiate it in
+             the subprocess that actually runs OpenVPNService, not just the
+             main process. `initOrder` pushes this above any other
+             provider from merged manifests. See
+             de/blinkt/openvpn/core/PrivycsGlobalPrefsProvider.java. -->
+        <provider
+            android:name="de.blinkt.openvpn.core.PrivycsGlobalPrefsProvider"
+            android:authorities="${applicationId}.openvpn.prefs.seed"
+            android:exported="false"
+            android:initOrder="9999"
+            android:process=":openvpn" />
+
         <!-- JobService OpenVPNService schedules UNCONDITIONALLY on every
              VPN start (OpenVPNService.java:678). Periodically re-launches
              the tunnel via VPNLaunchHelper.startOpenVpn if it dies. Without

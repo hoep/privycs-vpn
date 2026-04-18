@@ -2,8 +2,10 @@ package com.privycs.vpn
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
 import android.graphics.Color
 import android.os.Build
+import android.util.Log
 import com.privycs.vpn.data.ConnectionRepository
 import com.privycs.vpn.data.SettingsRepository
 import org.strongswan.android.logic.StrongSwanApplication
@@ -18,6 +20,29 @@ import org.strongswan.android.logic.StrongSwanApplication
 // Required so CharonVpnService can use StrongSwanApplication.getContext()
 // and the native JNI lookups succeed on first tunnel start.
 class PrivycsApp : StrongSwanApplication() {
+
+    override fun attachBaseContext(base: Context?) {
+        super.attachBaseContext(base)
+        // Seed OpenVPN's GlobalPreferences BEFORE onCreate, before Application
+        // and Service lifecycles interleave. In our `:openvpn` subprocess, the
+        // run-24611939018 and -24612148380 builds crashed at
+        // OpenVPNService.onStartCommand:549 with "Global preferences instance
+        // is not set" even though setInstance was called later in
+        // bootstrapOpenVpnIntegration(). Some Samsung One UI + Android 16
+        // combinations appear to race Service onStartCommand past
+        // Application.onCreate in foreground-service start paths; moving the
+        // seed to attachBaseContext eliminates the window - attachBaseContext
+        // is guaranteed to run before ANY other lifecycle callback on the
+        // process.
+        // Direct Log.i so we see it even if PrivycsLogger's file writer is not
+        // ready yet (filesDir unavailable until onCreate).
+        try {
+            de.blinkt.openvpn.core.GlobalPreferences.setInstance(false, false, false)
+            Log.i("PrivycsApp", "attachBaseContext: GlobalPreferences seeded (pid=${android.os.Process.myPid()})")
+        } catch (t: Throwable) {
+            Log.e("PrivycsApp", "attachBaseContext: GlobalPreferences seed FAILED", t)
+        }
+    }
 
     lateinit var connectionRepository: ConnectionRepository
         private set

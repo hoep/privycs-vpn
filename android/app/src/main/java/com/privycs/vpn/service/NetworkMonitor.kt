@@ -96,6 +96,28 @@ class NetworkMonitor private constructor(private val context: Context) {
                 }
         }
 
+        // Re-evaluate whenever the VPN goes DOWN (connected transitions
+        // from true to false). This handles the manual-disconnect case
+        // directly: without it we relied solely on Android's
+        // NetworkCallback which does not always fire on a VPN-only
+        // teardown (the underlying WiFi/mobile network did not change).
+        // Result of the old behaviour: user taps Disconnect while
+        // on-demand rules match, VPN stays down because no network event
+        // triggered a re-evaluation. Now: VpnStatus drops connected=false
+        // -> we run evaluateCurrentNetwork() -> shouldConnect=true,
+        // !vpnManager.isConnected -> connect kicks in within ~100ms.
+        scope.launch {
+            var wasConnected = false
+            VpnServiceManager.getInstance(context).status.collect { status ->
+                if (wasConnected && !status.connected) {
+                    Log.d(TAG, "VPN transitioned to disconnected, re-evaluating on-demand rules")
+                    lastShouldConnect = null // force edge so connect branch fires
+                    evaluateCurrentNetwork()
+                }
+                wasConnected = status.connected
+            }
+        }
+
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 Log.d(TAG, "Network available: $network")
