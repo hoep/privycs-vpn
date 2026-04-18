@@ -123,37 +123,50 @@ android {
         // outputs.upToDateWhen { false } it runs on every Gradle
         // invocation so there is no up-to-date skip to worry about.
         doLast {
-            val stringsXml = java.io.File(
-                strongswanResFiltered.get().asFile,
-                "values/strings.xml"
+            // strongSwan ships translations: values/, values-de/, values-pl/,
+            // values-ru/, values-uk/, values-zh-rCN/, values-zh-rTW/. Each
+            // has its own app_name AND main_activity_name entry, so a single
+            // English-only replace missed German ("strongSwan VPN Client"),
+            // Russian ("Клиент strongSwan VPN"), Chinese ("strongSwan VPN 客户端"),
+            // etc. Android then picked the locale-specific library string
+            // over the app's default, leaving the launcher label as
+            // "strongSwan VPN Client" on non-English devices.
+            //
+            // Walk every values*/strings.xml and regex-replace both keys
+            // regardless of the surrounding translated text.
+            val outputRoot = strongswanResFiltered.get().asFile
+            val replacements = mapOf(
+                "app_name" to "Privycs VPN",
+                "main_activity_name" to "Privycs VPN",
+                "strongswan_shortcut" to "Privycs VPN shortcut"
             )
-            if (!stringsXml.exists()) {
-                logger.warn("strongswan-lib: strings.xml not present in sync output; rebrand skipped")
-                return@doLast
+            var totalReplacements = 0
+            outputRoot.listFiles()?.filter { it.isDirectory && it.name.startsWith("values") }?.forEach { dir ->
+                val f = java.io.File(dir, "strings.xml")
+                if (!f.exists()) return@forEach
+                var text = f.readText()
+                var dirty = false
+                for ((key, value) in replacements) {
+                    val pattern = Regex(
+                        "<string\\s+name=\"" + Regex.escape(key) + "\"[^>]*>[^<]*</string>"
+                    )
+                    val newText = pattern.replace(text) {
+                        "<string name=\"$key\">$value</string>"
+                    }
+                    if (newText != text) {
+                        text = newText
+                        dirty = true
+                        totalReplacements++
+                    }
+                }
+                if (dirty) {
+                    f.writeText(text)
+                }
             }
-            val before = stringsXml.readText()
-            val after = before
-                .replace(
-                    "<string name=\"app_name\">strongSwan VPN Client</string>",
-                    "<string name=\"app_name\">Privycs VPN</string>"
-                )
-                .replace(
-                    "<string name=\"main_activity_name\">strongSwan</string>",
-                    "<string name=\"main_activity_name\">Privycs VPN</string>"
-                )
-                .replace(
-                    "<string name=\"strongswan_shortcut\">strongSwan shortcut</string>",
-                    "<string name=\"strongswan_shortcut\">Privycs VPN shortcut</string>"
-                )
-                .replace(
-                    "<string name=\"log_mail_subject\">strongSwan %1\$s Log File</string>",
-                    "<string name=\"log_mail_subject\">Privycs VPN %1\$s Log File</string>"
-                )
-            if (after == before) {
-                logger.warn("strongswan-lib: rebrand found no matching strings - upstream may have renamed app_name / main_activity_name")
+            if (totalReplacements == 0) {
+                logger.warn("strongswan-lib: rebrand found NO matching <string name=app_name|main_activity_name|strongswan_shortcut> entries - upstream strings.xml schema may have changed")
             } else {
-                stringsXml.writeText(after)
-                logger.lifecycle("strongswan-lib: rebranded ${(after.length - before.length).let { if (it < 0) -it else it }}-byte diff in values/strings.xml")
+                logger.lifecycle("strongswan-lib: rebranded $totalReplacements string entries across all locale variants (values/ + values-*/)")
             }
         }
     }
