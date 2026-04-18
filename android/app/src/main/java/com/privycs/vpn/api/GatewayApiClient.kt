@@ -78,17 +78,51 @@ class GatewayApiClient(
         }
 
         // Decode the body via our lenient Json parser rather than Ktor's
-        // auto-body<T>() which uses its own strict defaults. This lets
-        // ignoreUnknownKeys + coerceInputValues catch nullable / extra
-        // fields the gateway might add later. If decoding still fails we
-        // enrich the message with a small window around the offset so the
-        // next bug report can be actioned without a full logcat.
+        // auto-body<T>() which uses its own strict defaults. Then trim to
+        // the first balanced {...} so any trailing bytes the gateway or an
+        // HTTP middleware may have accidentally appended after the JSON
+        // object (kotlinx reports those as "Expected EOF after parsing at
+        // offset N") do not blow up the whole fetch.
         val bodyText = response.bodyAsText()
+        val jsonOnly = firstJsonObject(bodyText)
         return try {
-            jsonParser.decodeFromString(RemoteProfile.serializer(), bodyText)
+            jsonParser.decodeFromString(RemoteProfile.serializer(), jsonOnly)
         } catch (e: Exception) {
             throw ApiException(buildImportErrorMessage("/my-configs", bodyText, e))
         }
+    }
+
+    /**
+     * Return the substring from the first '{' up to its matching '}',
+     * treating string literals and escape sequences correctly. Used to
+     * defensively strip trailing bytes that some responses carry after a
+     * complete JSON object. Returns the original body unchanged if a
+     * balanced object cannot be found.
+     */
+    private fun firstJsonObject(body: String): String {
+        val start = body.indexOf('{')
+        if (start < 0) return body
+        var depth = 0
+        var inString = false
+        var escape = false
+        for (i in start until body.length) {
+            val c = body[i]
+            if (escape) { escape = false; continue }
+            if (inString) {
+                if (c == '\\') escape = true
+                else if (c == '"') inString = false
+                continue
+            }
+            when (c) {
+                '"' -> inString = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return body.substring(start, i + 1)
+                }
+            }
+        }
+        return body
     }
 
     private fun buildImportErrorMessage(endpoint: String, body: String, e: Exception): String {
@@ -166,7 +200,7 @@ class GatewayApiClient(
      * Matches desktop buildWireGuardConf().
      */
     private fun buildWireGuardConf(jsonBody: String): String {
-        val root = jsonParser.parseToJsonElement(jsonBody).jsonObject
+        val root = jsonParser.parseToJsonElement(firstJsonObject(jsonBody)).jsonObject
         val config = root["config"]?.jsonObject
             ?: throw ApiException("Config not available")
 
@@ -199,7 +233,7 @@ class GatewayApiClient(
     }
 
     private fun extractOpenVpnConfig(jsonBody: String): String {
-        val root = jsonParser.parseToJsonElement(jsonBody).jsonObject
+        val root = jsonParser.parseToJsonElement(firstJsonObject(jsonBody)).jsonObject
         return root["config"]?.jsonPrimitive?.content
             ?: throw ApiException("Config not available")
     }
