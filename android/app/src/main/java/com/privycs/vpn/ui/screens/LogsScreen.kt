@@ -53,15 +53,35 @@ fun LogsScreen(
     val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
+        logLines.clear()
+
+        // Main app event log (written by PrivycsLogger from connect / disconnect /
+        // state transitions / errors). Tail the last 500 lines.
         val logFile = File(context.filesDir, "privycs-vpn.log")
         if (logFile.exists()) {
             val lines = logFile.readLines()
             val tail = if (lines.size > 500) lines.takeLast(500) else lines
-            logLines.clear()
-            logLines.addAll(tail)
-        } else {
-            logLines.clear()
-            logLines.add("No log file found. Logs will appear after activity.")
+            if (tail.isNotEmpty()) {
+                logLines.add("== Privycs VPN events ==")
+                logLines.addAll(tail)
+            }
+        }
+
+        // strongSwan / charon log from active IPSec sessions. Lives next to
+        // the main log file, written by CharonVpnService while it runs.
+        val charonFile = File(context.filesDir, "charon.log")
+        if (charonFile.exists()) {
+            val lines = charonFile.readLines()
+            val tail = if (lines.size > 500) lines.takeLast(500) else lines
+            if (tail.isNotEmpty()) {
+                if (logLines.isNotEmpty()) logLines.add("")
+                logLines.add("== strongSwan charon log ==")
+                logLines.addAll(tail)
+            }
+        }
+
+        if (logLines.isEmpty()) {
+            logLines.add("No log entries yet. Events will appear here after connect / disconnect.")
         }
 
         // Auto-scroll to bottom
@@ -96,9 +116,9 @@ fun LogsScreen(
                         )
                     }
                     IconButton(onClick = {
-                        val logFile = File(context.filesDir, "privycs-vpn.log")
-                        if (logFile.exists()) {
-                            logFile.writeText("")
+                        listOf("privycs-vpn.log", "charon.log").forEach { name ->
+                            val f = File(context.filesDir, name)
+                            if (f.exists()) f.writeText("")
                         }
                         logLines.clear()
                         logLines.add("Logs cleared.")

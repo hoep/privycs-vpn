@@ -12,6 +12,7 @@ import android.util.Base64
 import android.util.Log
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.data.models.VpnStatus
+import com.privycs.vpn.util.PrivycsLogger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -329,7 +330,7 @@ class IpSecTunnel(private val context: Context) {
         if (newState == state) return
         state = newState
         if (newState == State.DISCONNECTED) connectedSince = 0L
-        Log.d(TAG, "State transition: $charonState -> $newState")
+        PrivycsLogger.i(TAG, "IPSec state: $charonState -> $newState")
         onStateChanged?.invoke(newState)
     }
 

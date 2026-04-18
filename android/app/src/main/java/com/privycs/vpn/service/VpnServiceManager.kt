@@ -8,6 +8,7 @@ import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.data.models.VpnStatus
+import com.privycs.vpn.util.PrivycsLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -62,16 +63,19 @@ class VpnServiceManager private constructor(private val context: Context) {
         val connId = connectionId ?: connectionRepo.activeId
         val connection = connectionRepo.getById(connId)
         if (connection == null) {
+            PrivycsLogger.w(TAG, "connect() called with no matching connection (id=$connId)")
             _status.value = VpnStatus(error = "No connection selected")
             return
         }
 
         val config = connection.getActiveConfig()
         if (config == null) {
+            PrivycsLogger.w(TAG, "connect() connection '${connection.name}' has no config for ${connection.activeProtocol}")
             _status.value = VpnStatus(error = "No config for ${connection.activeProtocol.label}")
             return
         }
 
+        PrivycsLogger.i(TAG, "connect '${connection.name}' via ${connection.activeProtocol}")
         scope.launch {
             _isConnecting.value = true
             try {
@@ -105,7 +109,7 @@ class VpnServiceManager private constructor(private val context: Context) {
                 // Intentionally do NOT reset _isConnecting here; it stays
                 // true until updateStatus() sees connected=true or an error.
             } catch (e: Exception) {
-                Log.e(TAG, "Connect failed", e)
+                PrivycsLogger.e(TAG, "Connect failed", e)
                 _status.value = VpnStatus(error = "Connection failed: ${e.message}")
                 _isConnecting.value = false
             }
@@ -116,6 +120,7 @@ class VpnServiceManager private constructor(private val context: Context) {
      * Disconnect the active VPN connection.
      */
     fun disconnect() {
+        PrivycsLogger.i(TAG, "disconnect requested")
         scope.launch {
             _isConnecting.value = true
             try {
@@ -125,7 +130,7 @@ class VpnServiceManager private constructor(private val context: Context) {
                 context.startService(intent)
                 _status.value = VpnStatus()
             } catch (e: Exception) {
-                Log.e(TAG, "Disconnect failed", e)
+                PrivycsLogger.e(TAG, "Disconnect failed", e)
                 _status.value = _status.value.copy(error = "Disconnect failed: ${e.message}")
             } finally {
                 _isConnecting.value = false

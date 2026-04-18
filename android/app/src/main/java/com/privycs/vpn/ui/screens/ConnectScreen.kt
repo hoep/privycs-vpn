@@ -524,7 +524,7 @@ private fun ProtocolBadges(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 androidx.compose.material3.Icon(
-                    imageVector = protocol.badgeIcon(),
+                    painter = androidx.compose.ui.res.painterResource(id = protocol.badgeDrawable()),
                     contentDescription = null,
                     tint = textColor,
                     modifier = Modifier.size(14.dp)
@@ -542,15 +542,15 @@ private fun ProtocolBadges(
 }
 
 /**
- * Material icon chosen per-protocol so the three badges are distinguishable
- * at a glance without reading the label. Deliberately Material (public
- * Heroicons-style) rather than brand PNGs to avoid shipping trademark
- * assets of WireGuard / OpenVPN / strongSwan.
+ * Official brand drawables per protocol, ported from the privycs web
+ * frontend (UsersView.vue for WireGuard/OpenVPN, StrongSwanIcon.vue for
+ * strongSwan). Drawn monochrome so the badge Row's tint can color them
+ * with the protocol's accent at runtime.
  */
-private fun VpnProtocol.badgeIcon(): androidx.compose.ui.graphics.vector.ImageVector = when (this) {
-    VpnProtocol.WIREGUARD -> androidx.compose.material.icons.Icons.Filled.Bolt       // fast / lean
-    VpnProtocol.OPENVPN   -> androidx.compose.material.icons.Icons.Filled.VpnLock    // tunnel + lock
-    VpnProtocol.IPSEC     -> androidx.compose.material.icons.Icons.Filled.Shield     // IPSec "security layer"
+private fun VpnProtocol.badgeDrawable(): Int = when (this) {
+    VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
+    VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
+    VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
 }
 
 @Composable
