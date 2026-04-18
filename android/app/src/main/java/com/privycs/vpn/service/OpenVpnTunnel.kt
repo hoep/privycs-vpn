@@ -249,6 +249,34 @@ class OpenVpnTunnel(private val context: Context) {
             TAG,
             "Starting OpenVPN: name=$name remote=$remoteEndpoint uuid=${parsedProfile.uuid}"
         )
+
+        // Pre-flight diagnostic: OpenVPNThread.ProcessBuilder swallows the
+        // real failure reason into VpnStatus.logException (ics-openvpn's
+        // internal log buffer, NOT Android logcat), and the followup NPE in
+        // stopProcess() obscures everything. Log the binary state BEFORE
+        // handing control to VPNLaunchHelper so we can tell in logcat
+        // whether libovpnexec.so is missing, wrong size, non-executable,
+        // or fine. On API 28+ the executable lives in nativeLibraryDir.
+        try {
+            val nativeDir = context.applicationInfo.nativeLibraryDir
+            val bin = java.io.File(nativeDir, "libovpnexec.so")
+            PrivycsLogger.i(
+                TAG,
+                "OpenVPN binary diag: path=${bin.absolutePath} " +
+                    "exists=${bin.exists()} " +
+                    "canExecute=${bin.exists() && bin.canExecute()} " +
+                    "length=${if (bin.exists()) bin.length() else -1}"
+            )
+            if (bin.exists() && !bin.canExecute()) {
+                // Some devices extract libs read-only; try to promote to
+                // executable so ProcessBuilder.start() can launch it.
+                val marked = bin.setExecutable(true, false)
+                PrivycsLogger.w(TAG, "OpenVPN binary was not executable, setExecutable(true)=$marked")
+            }
+        } catch (t: Throwable) {
+            PrivycsLogger.w(TAG, "OpenVPN binary diag failed: ${t.message}")
+        }
+
         VPNLaunchHelper.startOpenVpn(parsedProfile, context, "Privycs connect", true)
     }
 
