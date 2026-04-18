@@ -65,6 +65,20 @@ android {
         // shipping both keeps the submodule untouched and simplifies updates.
         buildConfigField("boolean", "openvpn3", "false")
 
+        // Upstream uses two flavor dimensions (ui/skeleton x ovpn2/ovpn23) so
+        // AGP synthesises BuildConfig.FLAVOR at compile time. We ship no
+        // flavors at all, so BuildConfig.FLAVOR does not exist and vendor
+        // code referencing it (NativeUtils.java:66,
+        // StatusListener.java:114) fails to compile with "cannot find
+        // symbol: variable FLAVOR". Synthesise the field manually as a
+        // constant "skeleton" string - that is the minimal-UI flavor upstream
+        // uses for non-app library consumers, so the guarded code paths
+        // (NativeUtils library-loading variant, StatusListener test-mode
+        // shortcut) behave as if built as the skeleton flavor. Both call
+        // sites only check .equals("skeleton"); the actual value just needs
+        // to be a stable string.
+        buildConfigField("String", "FLAVOR", "\"skeleton\"")
+
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
