@@ -47,6 +47,17 @@ class ConnectionRepository(private val context: Context) {
         val registry = _registry.value
         var conn = connectionId?.let { getById(it) }
 
+        // Last-line defense against names that leaked through the upstream
+        // path (file-picker DISPLAY_NAME set to the raw JSON/YAML content,
+        // stale user-input, backup-restore of a previously-broken entry,
+        // gateway returning an empty peer_name). ConfigParser
+        // .deriveConnectionName already guards the filename-derived branch
+        // but callers can pass the raw user-typed string here too. Anything
+        // that looks like config content or a single non-alphanumeric
+        // glyph gets replaced with a safe default so the connection list
+        // never renders "{" as a connection name again.
+        val cleanName = sanitizeConnectionName(name)
+
         if (conn == null) {
             // When connectionId was supplied (e.g. from a backup import), keep
             // it. Previously we unconditionally generated a fresh UUID, which
@@ -58,7 +69,7 @@ class ConnectionRepository(private val context: Context) {
             // into a single multi-protocol connection.
             conn = VpnConnection(
                 id = connectionId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
-                name = name,
+                name = cleanName,
                 activeProtocol = protocolConfig.protocol,
                 createdAt = Instant.now().toString()
             )
@@ -73,8 +84,8 @@ class ConnectionRepository(private val context: Context) {
             conn.protocols.add(protocolConfig)
         }
 
-        if (name.isNotBlank()) {
-            conn.name = name
+        if (cleanName.isNotBlank()) {
+            conn.name = cleanName
         }
 
         // Auto-set as active if it is the first connection
@@ -137,10 +148,35 @@ class ConnectionRepository(private val context: Context) {
     fun rename(connectionId: String, newName: String): Boolean {
         val trimmed = newName.trim()
         if (trimmed.isEmpty()) return false
+        val clean = sanitizeConnectionName(trimmed)
         val conn = getById(connectionId) ?: return false
-        conn.name = trimmed
+        conn.name = clean
         save()
         return true
+    }
+
+    /**
+     * Replace obviously-bad names (raw config content that leaked through
+     * a ContentProvider DISPLAY_NAME, a single non-alphanumeric glyph,
+     * multi-line text) with a safe default. ConfigParser.deriveConnection-
+     * Name does the same thing for the filename-derived code path; this
+     * helper covers user-typed, gateway-API-derived, and backup-restored
+     * names too.
+     */
+    private fun sanitizeConnectionName(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return ""
+        if (trimmed.length > 256 ||
+            trimmed.startsWith("{") || trimmed.startsWith("[") ||
+            trimmed.startsWith("<") || trimmed.startsWith("-----") ||
+            trimmed.contains('\n') || trimmed.contains('\r')
+        ) {
+            return "VPN Connection"
+        }
+        if (trimmed.length == 1 && !trimmed[0].isLetterOrDigit()) {
+            return "VPN Connection"
+        }
+        return if (trimmed.length > 64) trimmed.substring(0, 64) else trimmed
     }
 
     private fun load(): ConnectionRegistry {
