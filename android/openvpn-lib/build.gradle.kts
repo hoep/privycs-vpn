@@ -179,8 +179,27 @@ android {
     val syncOpenvpnRes = tasks.register<Sync>("syncOpenvpnRes") {
         outputs.upToDateWhen { false }
         from("../vendor/ics-openvpn/main/src/main/res") {
+            // Strip EVERY launcher icon variant vendor ships, not just the
+            // adaptive-icon XML. First iteration (iter 2) only excluded the
+            // mipmap-anydpi-v26 XML files and still shipped the OpenVPN
+            // raster PNGs under mipmap-*dpi-v4/ic_launcher{,_round}.png.
+            // Those PNGs have a -v4 qualifier that AAPT treats as more
+            // specific than our app's plain mipmap-*dpi/ic_launcher.png,
+            // so vendor won the resource-merge on all modern devices and
+            // the launcher kept showing the OpenVPN logo. Dropping the
+            // adaptive XML + round XML + every raster-PNG launcher from
+            // the vendor tree lets our app's own mipmap-*dpi/ic_launcher
+            // PNGs win unopposed.
             exclude("mipmap-anydpi-v26/ic_launcher.xml")
             exclude("mipmap-anydpi-v26/ic_launcher_round.xml")
+            exclude("**/ic_launcher.png")
+            exclude("**/ic_launcher_round.png")
+            // mipmap-xxxhdpi-v26/ic_launcher_bg.png + ic_launcher_fg.png
+            // are the adaptive-icon layer sources. Without the anydpi-v26
+            // XML they are unreferenced, but shipping them still bloats
+            // the APK with OpenVPN branding - drop.
+            exclude("**/ic_launcher_bg.png")
+            exclude("**/ic_launcher_fg.png")
         }
         into(openvpnResFiltered)
     }
