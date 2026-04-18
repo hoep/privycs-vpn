@@ -104,15 +104,14 @@ class GatewayApiClient(
         } else {
             "Failed to parse $endpoint response ($msg). Body length=${body.length}."
         }
-        // Always dump to logcat as well - if the in-app toast gets truncated
-        // or the user doesn't manage to screenshot the offset window, adb
-        // logcat still shows enough context to diagnose offline.
-        android.util.Log.w("GatewayApiClient",
+        // Tee to logcat AND the in-app log file (visible in the Logs screen)
+        // so the user can diagnose import failures without a USB adb cable.
+        com.privycs.vpn.util.PrivycsLogger.w("GatewayApiClient",
             "$summary\nFull body head: ${body.take(200)}")
         if (offset != null && offset in body.indices) {
             val start = (offset - 200).coerceAtLeast(0)
             val end = (offset + 200).coerceAtMost(body.length)
-            android.util.Log.w("GatewayApiClient",
+            com.privycs.vpn.util.PrivycsLogger.w("GatewayApiClient",
                 "Body near offset $offset:\n${body.substring(start, end)}")
         }
         return summary
