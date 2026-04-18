@@ -1,25 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Minimal manifest for ics-openvpn integration. Upstream ships a much
-    broader manifest with external-API services, a dedicated Application
-    class, boot receiver, launch/disconnect/remote-action activities and
-    activity-aliases. We drop all of that:
-
-      - ICSOpenVPNApplication    -> we extend our own Application class
-                                    (PrivycsApp). Its init work (notification
-                                    channels + StatusListener) is replicated
-                                    in PrivycsApp.onCreate().
-      - LaunchVPN, DisconnectVPN -> user-facing activities we don't want in
-        RemoteAction, etc.          the launcher or in recents.
-      - OnBootReceiver           -> we have our own BootReceiver that knows
-                                    about all three protocols.
-      - ExternalOpenVPNService   -> exposes a public AIDL endpoint to other
-        + GrantPermissionsActivity  apps; we don't want that attack surface.
-      - keepVPNAlive             -> job service for the built-in keep-alive
-                                    strategy; not used when we own the
-                                    Application lifecycle.
-
-    Two services and one permission hook are all we actually need.
+    Minimal manifest for ics-openvpn integration. All services run in the
+    MAIN app process (no android:process="..." overrides). Upstream ics-
+    openvpn isolates OpenVPNService in a `:openvpn` subprocess for native-
+    crash containment, but that introduces a SharedPreferences cross-
+    process sync bug with our connect-time profile creation pattern: the
+    subprocess hits "Used x 101 tries to get current version (-1/1) of
+    the profile" on fresh profiles because MODE_MULTI_PROCESS is
+    deprecated and does not reliably reload the "vpnlist" StringSet
+    between processes on Samsung Android 16. Running in-process shares
+    the ProfileManager singleton and the problem disappears; the crash-
+    isolation tradeoff is acceptable for our use-case (strongSwan native
+    code already runs in the main process too).
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -40,7 +32,7 @@
             android:exported="false"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="specialUse"
-            android:process=":openvpn">
+>
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
@@ -56,7 +48,7 @@
         <service
             android:name="de.blinkt.openvpn.core.OpenVPNStatusService"
             android:exported="false"
-            android:process=":openvpn" />
+ />
 
         <!-- Seeds GlobalPreferences.instance in the `:openvpn` subprocess
              before OpenVPNService.onStartCommand can reference it.
@@ -73,7 +65,7 @@
             android:authorities="${applicationId}.openvpn.prefs.seed"
             android:exported="false"
             android:initOrder="9999"
-            android:process=":openvpn" />
+ />
 
         <!-- JobService OpenVPNService schedules UNCONDITIONALLY on every
              VPN start (OpenVPNService.java:678). Periodically re-launches
@@ -86,7 +78,7 @@
             android:name="de.blinkt.openvpn.core.keepVPNAlive"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE"
-            android:process=":openvpn" />
+ />
 
         <!-- Activities OpenVPNService references via PendingIntent for
              notification actions (Cancel button -> DisconnectVPN) and for

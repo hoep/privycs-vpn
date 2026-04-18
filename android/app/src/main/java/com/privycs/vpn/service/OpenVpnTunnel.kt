@@ -38,16 +38,20 @@ import java.io.StringReader
  *   disconnect()     -> bind to OpenVPNService, call IOpenVPNServiceInternal
  *                       .stopVPN(false) over the AIDL binder, unbind
  *
- * OpenVPNService runs in a separate `:openvpn` process (declared in
- * openvpn-lib's AndroidManifest.xml). That means:
- *   - VpnStatus singletons are PER-PROCESS. The StateListener we register
- *     here (main process) only fires if OpenVPNService has bridged state
- *     across processes via OpenVPNStatusService. PrivycsApp.onCreate()
- *     starts that bridge by calling StatusListener.init(context).
- *   - We cannot share our VpnService instance with OpenVPNService; only one
- *     VpnService can hold the tun slot at a time, so the main-process
- *     PrivycsVpnService must NOT call startForeground for OpenVPN connects.
- *     PrivycsVpnService's connectOpenVpn delegates entirely to this class.
+ * OpenVPNService runs in the MAIN app process (the historic `:openvpn`
+ * subprocess was removed because MODE_MULTI_PROCESS SharedPreferences
+ * cross-sync is unreliable on Samsung Android 16 — the subprocess never
+ * saw profiles we had just persisted from main, producing 10-second
+ * "Used x 101 tries to get current version (-1/1)" stalls followed by
+ * a NullPointerException in vendor notifyProfileVersionChanged). Keeping
+ * OpenVPNService and our OpenVpnTunnel in the same process means the
+ * ProfileManager singleton is shared - addProfile puts the profile in a
+ * HashMap that OpenVPNService.onStartCommand reads from directly, no
+ * disk round-trip required.
+ *
+ * Tradeoff: a native libopenvpn crash takes down the whole app rather
+ * than just a subprocess. Matches how we already run strongSwan
+ * libcharon.so in the main process for IPSec.
  *
  * Byte counters come from OpenVPNService's ByteCountListener callback -
  * values reported here are cumulative since connect, in bytes.
