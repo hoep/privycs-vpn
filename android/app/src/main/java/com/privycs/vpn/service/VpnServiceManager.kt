@@ -15,6 +15,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -140,22 +142,58 @@ class VpnServiceManager private constructor(private val context: Context) {
 
     /**
      * Switch the active protocol for the current connection.
+     *
+     * When already connected we must tear the current tunnel down AND wait
+     * for PrivycsVpnService to fully destroy itself before firing the new
+     * connect intent. Otherwise Android queues the new ACTION_CONNECT
+     * against a service that has just called stopSelf(); its coroutine
+     * scope gets cancelled in onDestroy and the new connect coroutine
+     * aborts with "Connection failed: Job was cancelled". Surface bug that
+     * hits routinely on IPSec -> WireGuard transitions because IPSec
+     * teardown (charon deleteIKE_SA + UDP DELETE message) is slower than
+     * the typical ~300 ms we had before the connect arrived.
      */
     fun switchProtocol(protocol: VpnProtocol) {
         val activeConn = connectionRepo.getActive() ?: return
         if (!activeConn.hasProtocol(protocol)) return
 
         val wasConnected = isConnected
-        if (wasConnected) {
-            disconnect()
-        }
-
         connectionRepo.setActiveProtocol(activeConn.id, protocol)
 
-        if (wasConnected) {
-            connect(activeConn.id)
-        } else {
+        if (!wasConnected) {
             _status.value = _status.value.copy(activeProtocol = protocol)
+            return
+        }
+
+        // Serialize disconnect -> wait -> connect on the manager's long-lived
+        // scope (not the service's scope, which dies with the service).
+        scope.launch {
+            val intent = Intent(context, PrivycsVpnService::class.java).apply {
+                action = PrivycsVpnService.ACTION_DISCONNECT
+            }
+            try {
+                context.startService(intent)
+            } catch (e: Exception) {
+                PrivycsLogger.w(TAG, "switchProtocol: disconnect intent failed: ${e.message}")
+            }
+
+            // Wait for status.connected to flip false OR a 4s ceiling.
+            // 4s covers IPSec + WG teardown with ample margin; WireGuard
+            // typically <500ms, IPSec <2s. If the race runs short we
+            // return sooner via first().
+            try {
+                kotlinx.coroutines.withTimeout(4000) {
+                    _status.filter { !it.connected }.first()
+                }
+            } catch (_: Exception) {
+                PrivycsLogger.w(TAG, "switchProtocol: disconnect wait timed out, connecting anyway")
+            }
+
+            // Short additional pad to let Service.onDestroy() complete its
+            // scope.cancel() so the next onCreate starts on a fresh scope.
+            kotlinx.coroutines.delay(150)
+
+            connect(activeConn.id)
         }
     }
 
