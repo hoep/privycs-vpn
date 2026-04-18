@@ -117,7 +117,16 @@ android {
                     "-DHAVE_DIRNAME",
                     "-DHAVE_DAEMON",
                     "-DHAVE_GETTIMEOFDAY",
-                    "-DHAVE_STRSEP"
+                    "-DHAVE_STRSEP",
+                    // syshead.h:184 gates `#include <libgen.h>` behind
+                    // HAVE_LIBGEN_H. Without this define, options.c and
+                    // friends pick up HAVE_DIRNAME (suppressing the
+                    // compat.h declaration) but never get bionic's
+                    // declaration either -> "call to undeclared function
+                    // 'dirname'" at options.c:3984. basename() sneaks
+                    // through because <string.h> also declares it on
+                    // bionic, but dirname() is libgen-only.
+                    "-DHAVE_LIBGEN_H"
                 )
             }
         }
