@@ -48,8 +48,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -qq -y --no-install-recommends \
-            autoconf automake libtool pkg-config gperf flex bison \
-            make perl python3 jq curl ca-certificates \
+            autoconf automake libtool libtool-bin pkg-config \
+            gperf flex bison make perl python3 jq curl ca-certificates \
             libssl-dev libgmp-dev
 
       - name: Cache OpenSSL source + libcrypto artifacts
@@ -141,8 +141,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -qq -y --no-install-recommends \
-            autoconf automake libtool pkg-config gperf flex bison \
-            make perl python3 jq curl ca-certificates \
+            autoconf automake libtool libtool-bin pkg-config \
+            gperf flex bison make perl python3 jq curl ca-certificates \
             libssl-dev libgmp-dev
 
       - name: Cache OpenSSL source + libcrypto artifacts
