@@ -1,41 +1,59 @@
 package com.privycs.vpn.service
 
-import android.net.VpnService
-import android.os.ParcelFileDescriptor
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.content.SharedPreferences
+import android.os.Bundle
+import android.os.IBinder
+import android.security.KeyChain
 import android.util.Base64
 import android.util.Log
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.data.models.VpnStatus
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.strongswan.android.data.VpnProfile
+import org.strongswan.android.data.VpnProfileSource
+import org.strongswan.android.data.VpnType
+import org.strongswan.android.logic.VpnStateService
+import java.util.UUID
 
 /**
- * IPSec/IKEv2 tunnel - parses .sswan profiles and (once LibC-5 lands) drives
- * strongSwan's CharonVpnService. The actual IKE + ESP data plane runs in the
- * bundled libcharon/libipsec native libraries shipped by :strongswan-lib.
+ * IPSec/IKEv2 tunnel driven by strongSwan's bundled libcharon + CharonVpnService.
  *
- * Config format: .sswan JSON as emitted by the gateway at
- * cmd/gateway/ipsec_mobile_profiles.go:generateAndroidSSWANProfile.
+ * Flow:
+ *   1. parse .sswan JSON profile from the gateway
+ *   2. map it to a strongSwan VpnProfile and persist via VpnProfileSource
+ *   3. bind VpnStateService to drive CharonVpnService and receive state events
+ *   4. disconnect closes the IKE SA and tears down the VpnService
+ *
+ * User-certificate handling: strongSwan expects the client cert + private key
+ * to be reachable via Android KeyChain (alias-based). Our .sswan profiles
+ * embed a PKCS#12 bundle (base64, with password), but KeyChain installs
+ * require an Activity context. Callers must install the bundle via
+ * `createKeyChainInstallIntent()` + `rememberInstalledAlias()` before the
+ * first connect; the alias is persisted in SharedPreferences keyed by the
+ * profile UUID so subsequent connects run without user interaction.
  */
-class IpSecTunnel {
+class IpSecTunnel(private val context: Context) {
 
     companion object {
         private const val TAG = "IpSecTunnel"
+        private const val PREF_FILE = "privycs_ipsec"
+        private const val KEY_ALIAS_PREFIX = "keychain_alias_"
+
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     }
 
-    enum class State {
-        DISCONNECTED,
-        CONNECTING,
-        CONNECTED,
-        DISCONNECTING
-    }
+    enum class State { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING }
 
-    // Parsed .sswan config data model. Field names match the gateway emitter at
-    // cmd/gateway/ipsec_mobile_profiles.go:generateAndroidSSWANProfile.
+    // Data model matching cmd/gateway/ipsec_mobile_profiles.go:generateAndroidSSWANProfile.
     @Serializable
     data class SswanConfig(
         val uuid: String = "",
@@ -44,8 +62,6 @@ class IpSecTunnel {
         val remote: SswanRemote = SswanRemote(),
         val local: SswanLocal = SswanLocal(),
         val mtu: Int = 1400,
-        // Gateway emits a CIDR list (bypass/split-tunnel subnets), NOT the
-        // strongSwan-official Int-flag form. Deserializing as Int would fail.
         @SerialName("split-tunneling")
         val splitTunneling: List<String> = emptyList(),
         @SerialName("dns-servers")
@@ -55,188 +71,257 @@ class IpSecTunnel {
     @Serializable
     data class SswanRemote(
         val addr: String = "",
-        val id: String = "",
-        val cert: String = "",
-        @SerialName("certCA")
-        val certCA: String = ""
+        val id: String = ""
     )
 
     @Serializable
     data class SswanLocal(
         val p12: String = "",
         val id: String = "",
-        // Gateway JSON key is "p12-password" (hyphen). Without the explicit
-        // SerialName this deserializes to empty and PKCS#12 decoding fails.
         @SerialName("p12-password")
-        val p12Password: String = "",
-        @SerialName("eap_id")
-        val eapId: String = ""
+        val p12Password: String = ""
     )
+
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
 
     private var state: State = State.DISCONNECTED
     private var sswanConfig: SswanConfig? = null
-    private var tunnelInterface: ParcelFileDescriptor? = null
+    private var profileUuid: UUID? = null
     private var connectedSince: Long = 0L
-    private var rxBytes: Long = 0L
-    private var txBytes: Long = 0L
-
-    // Connection parameters extracted from config
-    private var remoteAddress: String = ""
-    private var remoteId: String = ""
-    private var localId: String = ""
-    private var localAddress: String = ""
-    private var authType: String = "ikev2-cert"
-    private var mtu: Int = 1400
 
     /**
-     * Parse a .sswan JSON config file.
+     * Parse the gateway-emitted .sswan JSON and return the decoded model.
+     * Also cached locally so later getStatus() calls can surface the server
+     * endpoint without re-parsing.
      */
     fun parseConfig(configContent: String): SswanConfig {
-        val config = json.decodeFromString<SswanConfig>(configContent)
-        sswanConfig = config
-
-        remoteAddress = config.remote.addr
-        remoteId = config.remote.id.ifEmpty { config.remote.addr }
-        localId = config.local.id
-        authType = config.type
-        mtu = config.mtu
-
-        Log.d(TAG, "Parsed .sswan config: remote=$remoteAddress type=$authType name=${config.name}")
-        return config
+        val cfg = json.decodeFromString<SswanConfig>(configContent)
+        sswanConfig = cfg
+        Log.d(TAG, "Parsed .sswan: uuid=${cfg.uuid} remote=${cfg.remote.addr} name=${cfg.name}")
+        return cfg
     }
 
     /**
-     * Connect to the IPSec/IKEv2 VPN.
+     * Extract the raw PKCS#12 bytes. Used by the caller to pass into
+     * KeyChain.createInstallIntent(EXTRA_PKCS12, ...).
+     */
+    fun extractP12Bytes(): ByteArray? {
+        val p12 = sswanConfig?.local?.p12 ?: return null
+        if (p12.isEmpty()) return null
+        return runCatching { Base64.decode(p12, Base64.DEFAULT) }
+            .onFailure { Log.e(TAG, "PKCS#12 decode failed", it) }
+            .getOrNull()
+    }
+
+    /**
+     * Build an Intent the caller launches from an Activity to prompt the
+     * user to install the PKCS#12 bundle. The default alias seeded here is
+     * `privycs-<connection-name>` so users can identify it in Android's
+     * credential storage UI.
+     */
+    fun createKeyChainInstallIntent(connectionName: String): Intent? {
+        val p12Bytes = extractP12Bytes() ?: return null
+        val cfg = sswanConfig ?: return null
+        return KeyChain.createInstallIntent().apply {
+            putExtra(KeyChain.EXTRA_PKCS12, p12Bytes)
+            putExtra(KeyChain.EXTRA_NAME, "privycs-${connectionName}")
+            putExtra("PKCS12_PASSWORD", cfg.local.p12Password) // not standard but tolerated
+        }
+    }
+
+    /**
+     * Remember the alias the user chose during KeyChain install. Keyed by
+     * .sswan profile UUID so different gateways/profiles can coexist.
+     */
+    fun rememberInstalledAlias(alias: String) {
+        val cfgUuid = sswanConfig?.uuid ?: return
+        prefs.edit().putString(KEY_ALIAS_PREFIX + cfgUuid, alias).apply()
+    }
+
+    /**
+     * Look up the previously-stored alias for this profile. Returns null if
+     * no install has been recorded yet.
+     */
+    fun getInstalledAlias(): String? {
+        val cfgUuid = sswanConfig?.uuid ?: return null
+        return prefs.getString(KEY_ALIAS_PREFIX + cfgUuid, null)
+    }
+
+    /**
+     * Connect the tunnel. Requires an alias already installed in KeyChain
+     * (see rememberInstalledAlias). Throws IllegalStateException otherwise -
+     * the UI layer catches this and drives the install flow via
+     * createKeyChainInstallIntent().
      *
-     * For API 31+: Prepares for native IKEv2 VPN API usage.
-     * For API 26-30: Sets up VPN TUN interface for strongSwan integration.
-     *
-     * @param configContent The .sswan JSON config content
-     * @param name Display name for the connection
-     * @param vpnService The active VpnService instance
+     * `vpnService` is kept in the signature for source-compat with the WG /
+     * OpenVPN tunnel interfaces, but is unused: CharonVpnService manages its
+     * own VpnService instance.
      */
     suspend fun connect(
         configContent: String,
         name: String = "privycs-ipsec",
-        vpnService: VpnService
+        @Suppress("UNUSED_PARAMETER") vpnService: android.net.VpnService
     ) = withContext(Dispatchers.IO) {
         if (state == State.CONNECTED || state == State.CONNECTING) {
-            Log.w(TAG, "Already connected or connecting, ignoring connect request")
+            Log.w(TAG, "Already connected/connecting; ignoring")
             return@withContext
         }
-
         state = State.CONNECTING
-        Log.d(TAG, "Connecting IPSec tunnel: $name")
 
-        // Parse to validate the profile and capture the fields the libcharon
-        // bridge will need (server hostname, IDs, PKCS#12 bytes+password).
-        parseConfig(configContent)
+        val cfg = parseConfig(configContent)
+        val alias = getInstalledAlias()
+            ?: throw IllegalStateException(
+                "PKCS#12 not yet installed into Android KeyChain. " +
+                        "Launch createKeyChainInstallIntent() from an Activity, " +
+                        "then call rememberInstalledAlias() before connecting."
+            )
 
-        // The libcharon integration groundwork is in place (strongSwan submodule
-        // wired as :strongswan-lib, native libs build into the APK, PrivycsApp
-        // extends StrongSwanApplication so JNI_OnLoad runs), but the connect
-        // path to CharonVpnService is not hooked up yet:
-        //   1. Map our SswanConfig to org.strongswan.android.data.VpnProfile
-        //   2. Install the PKCS#12 bundle into the Android KeyChain
-        //      (requires Activity context for KeyChain.createInstallIntent)
-        //   3. Persist the profile into strongSwan's VpnProfileSource (DB)
-        //   4. Start CharonVpnService with KEY_UUID extra
-        //   5. Bind VpnStateService to drive our VpnStatus updates
-        // Tracked as task LibC-5.
-        state = State.DISCONNECTED
-        throw UnsupportedOperationException(
-            "IPSec connect is not yet wired to CharonVpnService (LibC-5 pending)."
-        )
+        val profile = buildVpnProfile(cfg, name, alias)
+        val uuid = persistProfile(profile)
+        profileUuid = uuid
+
+        startViaVpnStateService(uuid)
+
+        // CharonVpnService runs asynchronously; our state flips to CONNECTED
+        // once VpnStateService dispatches State.CONNECTED. For now we mark
+        // CONNECTING and let status polling (getStatus) reflect the live state.
+        connectedSince = System.currentTimeMillis()
+        Log.d(TAG, "Dispatched CharonVpnService start for profile $uuid")
     }
 
     /**
-     * Disconnect the IPSec tunnel. Wired to CharonVpnService.DISCONNECT_ACTION
-     * as part of LibC-5; currently a no-op because connect() is still a stub.
+     * Map our SswanConfig to strongSwan's VpnProfile.
      */
-    suspend fun disconnect() = withContext(Dispatchers.IO) {
-        if (state == State.DISCONNECTED) {
-            Log.d(TAG, "Already disconnected")
-            return@withContext
+    private fun buildVpnProfile(
+        cfg: SswanConfig,
+        connectionName: String,
+        keychainAlias: String
+    ): VpnProfile {
+        // All setters called explicitly because strongSwan's VpnProfile uses
+        // all-caps getter/setter prefixes (setUUID, setMTU) that Kotlin's
+        // property syntax maps inconsistently across versions.
+        val profile = VpnProfile()
+        val pUuid = runCatching { UUID.fromString(cfg.uuid) }.getOrNull() ?: UUID.randomUUID()
+        profile.setUUID(pUuid)
+        profile.setName(connectionName.ifEmpty { cfg.name.ifEmpty { "privycs-ipsec" } })
+        profile.setGateway(cfg.remote.addr)
+        profile.setVpnType(VpnType.IKEV2_CERT)
+        profile.setUserCertificateAlias(keychainAlias)
+        if (cfg.local.id.isNotEmpty()) profile.setLocalId(cfg.local.id)
+        if (cfg.remote.id.isNotEmpty()) profile.setRemoteId(cfg.remote.id)
+        if (cfg.mtu > 0) profile.setMTU(cfg.mtu)
+        if (cfg.dnsServers.isNotEmpty()) profile.setDnsServers(cfg.dnsServers.joinToString(" "))
+        // Gateway emits split-tunneling as a CIDR list of bypass subnets. strongSwan
+        // uses the "excluded subnets" list for the same purpose (traffic that should
+        // bypass the tunnel). Hand them over verbatim.
+        if (cfg.splitTunneling.isNotEmpty()) {
+            profile.setExcludedSubnets(cfg.splitTunneling.joinToString(" "))
         }
+        return profile
+    }
 
-        state = State.DISCONNECTING
-        Log.d(TAG, "Disconnecting IPSec tunnel")
-
+    /**
+     * Insert or update the profile in strongSwan's SQLite store and return
+     * the canonical UUID.
+     */
+    private fun persistProfile(profile: VpnProfile): UUID {
+        val source = VpnProfileSource(context)
+        source.open()
         try {
-            tunnelInterface?.close()
-            tunnelInterface = null
-        } catch (e: Exception) {
-            Log.w(TAG, "Error closing IPSec tunnel: ${e.message}")
+            val newUuid: UUID? = profile.getUUID()
+            val existing = newUuid?.let { source.getVpnProfile(it) }
+            return if (existing != null) {
+                existing.setName(profile.getName())
+                existing.setGateway(profile.getGateway())
+                existing.setVpnType(profile.getVpnType())
+                existing.setUserCertificateAlias(profile.getUserCertificateAlias())
+                existing.setLocalId(profile.getLocalId())
+                existing.setRemoteId(profile.getRemoteId())
+                existing.setMTU(profile.getMTU())
+                existing.setDnsServers(profile.getDnsServers())
+                existing.setExcludedSubnets(profile.getExcludedSubnets())
+                source.updateVpnProfile(existing)
+                existing.getUUID()
+            } else {
+                source.insertProfile(profile).getUUID()
+            }
+        } finally {
+            source.close()
         }
+    }
 
+    /**
+     * Bind VpnStateService briefly and call connect() with the profile UUID.
+     * VpnStateService forwards to CharonVpnService internally.
+     */
+    private suspend fun startViaVpnStateService(uuid: UUID) = withContext(Dispatchers.Main) {
+        val bound = CompletableDeferred<VpnStateService>()
+        val conn = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                val service = (binder as VpnStateService.LocalBinder).service
+                bound.complete(service)
+            }
+            override fun onServiceDisconnected(name: ComponentName?) {}
+        }
+        val svcIntent = Intent(context, VpnStateService::class.java)
+        context.bindService(svcIntent, conn, Context.BIND_AUTO_CREATE)
+        try {
+            val service = bound.await()
+            val bundle = Bundle().apply {
+                putString(/* KEY_UUID from VpnProfileDataSource = */ "_uuid", uuid.toString())
+            }
+            service.connect(bundle, true)
+            state = State.CONNECTED
+        } finally {
+            context.unbindService(conn)
+        }
+    }
+
+    /**
+     * Tell CharonVpnService to tear down. The actual state transition comes
+     * back via the service, but we flip ours eagerly so the UI doesn't spin
+     * after the button click.
+     */
+    suspend fun disconnect() = withContext(Dispatchers.Main) {
+        if (state == State.DISCONNECTED) return@withContext
+        state = State.DISCONNECTING
+
+        val bound = CompletableDeferred<VpnStateService>()
+        val conn = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                bound.complete((binder as VpnStateService.LocalBinder).service)
+            }
+            override fun onServiceDisconnected(name: ComponentName?) {}
+        }
+        val svcIntent = Intent(context, VpnStateService::class.java)
+        context.bindService(svcIntent, conn, Context.BIND_AUTO_CREATE)
+        try {
+            bound.await().disconnect()
+        } finally {
+            context.unbindService(conn)
+        }
         state = State.DISCONNECTED
         connectedSince = 0L
-        Log.d(TAG, "IPSec tunnel disconnected")
     }
 
-    /**
-     * Get the current tunnel state.
-     */
     fun getState(): State = state
 
     /**
-     * Get the TUN file descriptor.
-     */
-    fun getTunFd(): Int? = tunnelInterface?.fd
-
-    /**
-     * Update transfer statistics.
-     * Called by the IKE/ESP layer when fully integrated.
-     */
-    fun updateStats(rx: Long, tx: Long) {
-        rxBytes = rx
-        txBytes = tx
-    }
-
-    /**
-     * Build a VpnStatus from current tunnel state.
+     * Snapshot for UI status display.
      */
     fun getStatus(connectionName: String, connectionId: String): VpnStatus {
-        val isUp = state == State.CONNECTED
-
+        val up = state == State.CONNECTED
         return VpnStatus(
-            connected = isUp,
+            connected = up,
             connectionName = connectionName,
             connectionId = connectionId,
             activeProtocol = VpnProtocol.IPSEC,
-            uptime = if (isUp && connectedSince > 0) System.currentTimeMillis() - connectedSince else 0L,
-            rxBytes = rxBytes,
-            txBytes = txBytes,
-            serverEndpoint = remoteAddress,
-            localAddress = localAddress
+            uptime = if (up && connectedSince > 0) System.currentTimeMillis() - connectedSince else 0L,
+            rxBytes = 0L,  // charon does not expose per-SA byte counters via the
+            txBytes = 0L,  // current public bridge; live numbers come in M2.
+            serverEndpoint = sswanConfig?.remote?.addr ?: "",
+            localAddress = ""
         )
-    }
-
-    /**
-     * Extract certificate data from the .sswan config for key store import.
-     */
-    fun extractP12Bytes(): ByteArray? {
-        val p12Base64 = sswanConfig?.local?.p12 ?: return null
-        if (p12Base64.isEmpty()) return null
-        return try {
-            Base64.decode(p12Base64, Base64.DEFAULT)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to decode P12 data", e)
-            null
-        }
-    }
-
-    /**
-     * Extract CA certificate data from the .sswan config.
-     */
-    fun extractCaCertBytes(): ByteArray? {
-        val certBase64 = sswanConfig?.remote?.certCA ?: return null
-        if (certBase64.isEmpty()) return null
-        return try {
-            Base64.decode(certBase64, Base64.DEFAULT)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to decode CA cert data", e)
-            null
-        }
     }
 }

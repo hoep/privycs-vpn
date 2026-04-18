@@ -159,7 +159,14 @@ class PrivycsVpnService : VpnService() {
     }
 
     private suspend fun connectIpSec(configContent: String) {
-        val tunnel = IpSecTunnel()
+        // For IPSec the actual VPN tunnel is owned by strongSwan's
+        // CharonVpnService (started indirectly by IpSecTunnel.connect via
+        // VpnStateService). We keep this service alive as a thin controller
+        // so handleDisconnect() still has an instance to route through.
+        // Only one VpnService can hold the tunnel slot at a time, so we do
+        // NOT call VpnService.Builder.establish() here - CharonVpnService
+        // holds the TUN.
+        val tunnel = IpSecTunnel(applicationContext)
         ipSecTunnel = tunnel
 
         tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService)
