@@ -128,6 +128,13 @@ class IpSecTunnel(private val context: Context) {
     }
 
     /**
+     * Plaintext PKCS#12 password from the .sswan profile. The UI layer
+     * uses this to prepopulate the clipboard because Android's KeyChain
+     * install dialog has no extras to prefill the password field.
+     */
+    fun getP12Password(): String = sswanConfig?.local?.p12Password ?: ""
+
+    /**
      * Build an Intent the caller launches from an Activity to prompt the
      * user to install the PKCS#12 bundle. The default alias seeded here is
      * `privycs-<connection-name>` so users can identify it in Android's

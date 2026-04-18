@@ -1,9 +1,12 @@
 package com.privycs.vpn.ui.screens
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.security.KeyChain
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -102,6 +105,23 @@ fun rememberIpSecConnectPrep(
             if (installIntent == null) {
                 onError("Profile does not contain a PKCS#12 bundle")
                 return@prep
+            }
+            // Android's KeyChain install dialog has no API to pre-fill the
+            // PKCS#12 password - the user must type it manually. Copy it to
+            // the clipboard and toast the visible prompt so they can paste
+            // straight into the dialog.
+            val p12Password = tunnel.getP12Password()
+            if (p12Password.isNotEmpty()) {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                        as? ClipboardManager
+                clipboard?.setPrimaryClip(
+                    ClipData.newPlainText("PKCS#12 password", p12Password)
+                )
+                Toast.makeText(
+                    context,
+                    "PKCS#12 password: $p12Password (copied to clipboard - paste into dialog)",
+                    Toast.LENGTH_LONG
+                ).show()
             }
             installLauncher.launch(installIntent)
         }
