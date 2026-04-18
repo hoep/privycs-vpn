@@ -167,6 +167,27 @@ android {
         jvmTarget = "17"
     }
 
+    // Vendor res/ ships `mipmap-anydpi-v26/ic_launcher.xml` pointing at
+    // ics-openvpn's own logo. On API 26+ (= our minSdk) Android's resource
+    // qualifier resolver prefers `anydpi-v26` over the density PNGs, so
+    // vendor's adaptive icon wins in the manifest merger and the launcher
+    // shows an OpenVPN logo instead of Privycs. Same class of bug we had
+    // with strongswan-lib - solved the same way: Sync vendor/res/ into a
+    // build-dir copy with the conflicting launcher XML excluded, and use
+    // the filtered copy in sourceSets instead of vendor directly.
+    val openvpnResFiltered = layout.buildDirectory.dir("generated/openvpnRes")
+    val syncOpenvpnRes = tasks.register<Sync>("syncOpenvpnRes") {
+        outputs.upToDateWhen { false }
+        from("../vendor/ics-openvpn/main/src/main/res") {
+            exclude("mipmap-anydpi-v26/ic_launcher.xml")
+            exclude("mipmap-anydpi-v26/ic_launcher_round.xml")
+        }
+        into(openvpnResFiltered)
+    }
+    tasks.matching { it.name == "preBuild" }.configureEach {
+        dependsOn(syncOpenvpnRes)
+    }
+
     sourceSets {
         getByName("main") {
             // Skeleton flavor sources provide NotImplemented / ProfileEncryption
@@ -183,7 +204,7 @@ android {
                 "../vendor/ics-openvpn/main/src/skeleton/java"
             )
             res.srcDirs(
-                "../vendor/ics-openvpn/main/src/main/res",
+                openvpnResFiltered,
                 "../vendor/ics-openvpn/main/src/skeleton/res"
             )
             aidl.srcDirs("../vendor/ics-openvpn/main/src/main/aidl")

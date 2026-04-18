@@ -48,8 +48,16 @@ class ConnectionRepository(private val context: Context) {
         var conn = connectionId?.let { getById(it) }
 
         if (conn == null) {
+            // When connectionId was supplied (e.g. from a backup import), keep
+            // it. Previously we unconditionally generated a fresh UUID, which
+            // meant a backup restore that feeds the three protocols one by
+            // one would create three separate connections: the first call
+            // spawned a new UUID, and the next two could not find it with
+            // the original backup ID so they each spawned their own
+            // connections. Honouring the supplied ID collapses them back
+            // into a single multi-protocol connection.
             conn = VpnConnection(
-                id = UUID.randomUUID().toString(),
+                id = connectionId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
                 name = name,
                 activeProtocol = protocolConfig.protocol,
                 createdAt = Instant.now().toString()
