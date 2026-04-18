@@ -62,20 +62,14 @@ class NetworkMonitor private constructor(private val context: Context) {
     private var started = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
-    // Edge-trigger state. on-demand should act only when `shouldConnect`
-    // TRANSITIONS, not on every network event. Firing on every event caused
-    // a flicker loop: user manually disconnects -> next event -> rules still
-    // match -> connect -> UI flips back on within milliseconds.
+    // Edge-trigger state. Only used on the DISCONNECT side so that a
+    // flipping rule does not keep issuing redundant disconnect calls while
+    // the VPN is already torn down. The connect side intentionally does
+    // NOT require a transition: if on-demand rules match and the VPN is
+    // off, we connect immediately, even 2 seconds after the user manually
+    // disconnected. That is the whole point of on-demand - the "VPN will
+    // connect" banner has to be true, not aspirational.
     private var lastShouldConnect: Boolean? = null
-
-    // Latches after a USER-INITIATED disconnect. When set, on-demand will
-    // NOT auto-reconnect even if rules still match - releases on the next
-    // genuine network transition (e.g. SSID change) or a manual connect.
-    // Without this the Connect button is unusable when on-demand is on and
-    // the current network matches the rule: tap disconnect -> reconnects
-    // instantly -> looks like nothing happened.
-    @Volatile
-    private var userIntentDisconnected: Boolean = false
 
     /**
      * Start monitoring network changes. Safe to call multiple times.
@@ -188,12 +182,6 @@ class NetworkMonitor private constructor(private val context: Context) {
 
             val (shouldConnect, ruleMatch) = evaluateRules(codSettings, networkType, ssid)
 
-            // Snapshot the previous network state BEFORE overwriting it so
-            // we can detect a genuine network transition below. The latch
-            // is scoped to "the user does not want VPN on THIS network" -
-            // when the network itself changes, that intent is void.
-            val prevState = _networkState.value
-
             val newState = NetworkState(
                 networkType = networkType,
                 ssid = ssid,
@@ -205,45 +193,47 @@ class NetworkMonitor private constructor(private val context: Context) {
             if (!codSettings.enabled) {
                 Log.d(TAG, "Connect on demand disabled, skipping action")
                 lastShouldConnect = null
-                userIntentDisconnected = false
                 return@launch
-            }
-
-            // Genuine network transition = transport switched (wifi->mobile,
-            // etc.) OR the SSID actually changed (joining a different WiFi).
-            // `none` -> anything also counts. A stale latch from a previous
-            // network should not carry across - on-demand re-takes control
-            // on the new network. Without this the latch was effectively
-            // permanent: it only released on manual connect or disabling
-            // on-demand, so once you tapped Disconnect you were stuck off
-            // even after moving to a completely different WiFi.
-            val networkChanged = prevState.networkType != networkType ||
-                prevState.ssid != ssid
-            if (networkChanged && userIntentDisconnected) {
-                Log.d(
-                    TAG,
-                    "Network transition (${prevState.networkType}/${prevState.ssid} -> $networkType/$ssid), releasing user-disconnect latch"
-                )
-                userIntentDisconnected = false
             }
 
             val vpnManager = VpnServiceManager.getInstance(context)
             val prev = lastShouldConnect
             lastShouldConnect = shouldConnect
 
-            // Edge-trigger: only act when shouldConnect TRANSITIONS.
-            // Suppresses the flicker loop on repeated network events while
-            // rules consistently match / don't match.
+            // CONNECT side: on-demand is authoritative. If the rules match
+            // and the VPN is off, bring it up - no matter whether
+            // shouldConnect just flipped or was already `true` on the last
+            // evaluation. This is intentional: a user who manually taps
+            // Disconnect while on-demand is enabled and the current
+            // network satisfies the rules sees the tunnel come back up
+            // within one NetworkCallback tick. On-demand only does
+            // anything USEFUL if it can override stale user intent - the
+            // "VPN will connect" banner has to actually connect.
+            //
+            // DISCONNECT side keeps the edge-trigger (only act on
+            // transition from match -> no-match) so we do not fight an
+            // already-down tunnel with spurious disconnect calls while
+            // rules consistently fail to match. prevState comparison above
+            // handled the network-transition case; here we just suppress
+            // noise.
             val transitioned = prev == null || prev != shouldConnect
 
-            if (shouldConnect && !vpnManager.isConnected && transitioned && !userIntentDisconnected) {
-                Log.d(TAG, "Rules transitioned to match, connecting VPN: $ruleMatch")
+            if (shouldConnect && !vpnManager.isConnected && !vpnManager.isConnecting.value) {
+                // Guard against issuing overlapping connect calls while a
+                // previous attempt is still in-flight. Android's
+                // ConnectivityManager.NetworkCallback fires several
+                // events per second during a WiFi association (onAvailable
+                // + onCapabilitiesChanged + onLinkPropertiesChanged + ...);
+                // each would call evaluateCurrentNetwork and, without this
+                // check, each would start another connect before the first
+                // one even finishes. PrivycsVpnService is not reentrant -
+                // a second handleConnect while the first is mid-flight
+                // double-starts the native tunnel.
+                Log.d(TAG, "Rules match and VPN is off, connecting: $ruleMatch")
                 vpnManager.connect()
             } else if (!shouldConnect && vpnManager.isConnected && transitioned) {
                 Log.d(TAG, "Rules transitioned to no-match, disconnecting VPN: $ruleMatch")
                 vpnManager.disconnect()
-                // A rule-driven disconnect is NOT a user intent to stay off,
-                // so the auto-reconnect latch stays released.
             } else if (transitioned) {
                 Log.d(TAG, "Rules transitioned but already in desired state: $ruleMatch")
             }
@@ -251,21 +241,15 @@ class NetworkMonitor private constructor(private val context: Context) {
     }
 
     /**
-     * Signal a user-initiated disconnect. On-demand will not auto-reconnect
-     * until the user explicitly reconnects or the rule state changes across
-     * a genuine network transition (e.g. leaving the current SSID).
+     * Kept as no-ops: older ConnectScreen builds call these when the user
+     * taps the Connect / Disconnect button. They previously latched an
+     * `userIntentDisconnected` flag that suppressed on-demand reconnect.
+     * The flag was removed in favour of "on-demand is authoritative when
+     * enabled" - the UI calls are still here so this class stays
+     * binary-compatible with the existing ConnectScreen.
      */
-    fun onUserDisconnect() {
-        userIntentDisconnected = true
-    }
-
-    /**
-     * Signal a user-initiated connect. Clears the auto-reconnect suppression
-     * so subsequent rule transitions can manage the tunnel again.
-     */
-    fun onUserConnect() {
-        userIntentDisconnected = false
-    }
+    @Suppress("unused") fun onUserDisconnect() { /* no-op */ }
+    @Suppress("unused") fun onUserConnect() { /* no-op */ }
 
     /**
      * Detect the current network type from ConnectivityManager capabilities.
