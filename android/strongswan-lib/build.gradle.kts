@@ -82,30 +82,50 @@ android {
         jvmTarget = "17"
     }
 
-    // Pull Java + resources directly from the submodule. No local copy, no
-    // patched fork - upstream is the single source of truth.
+    // Pull Java + resources from the submodule. The upstream UI package
+    // (org/strongswan/android/ui/**) cannot be included as-is:
+    //   - Activities call WindowCompat.enableEdgeToEdge(Window), added in
+    //     androidx.core 1.15.0 which requires compileSdk 35 (we are on 34).
+    //   - Several classes use `switch (R.id.xxx)`, rejected by AGP in
+    //     library modules because library R fields are non-final
+    //     ("constant expression required").
+    //
+    // So we sync the submodule's java tree into the build dir with the ui/
+    // subtree filtered out, and provide our own minimal Activity stubs at
+    // src/main/java/org/strongswan/android/ui/ for the two classes that
+    // CharonVpnService + VpnStateService import by FQN.
+    //
+    // Using a Sync task (not a SourceDirectorySet.exclude) so the filter
+    // only applies to the submodule copy; our local stub srcDir stays
+    // untouched.
+    val strongswanJavaFiltered = layout.buildDirectory.dir("generated/strongswanJava")
+    val syncStrongswanJava = tasks.register<Sync>("syncStrongswanJava") {
+        from("../vendor/strongswan/src/frontends/android/app/src/main/java") {
+            exclude("org/strongswan/android/ui/**")
+        }
+        into(strongswanJavaFiltered)
+    }
+
     sourceSets {
         getByName("main") {
             java.srcDirs(
-                "../vendor/strongswan/src/frontends/android/app/src/main/java",
-                // Minimal Activity stubs at the org.strongswan.android.ui FQN
-                // so CharonVpnService + VpnStateService compile without
-                // pulling in the upstream UI tree (the UI calls
-                // WindowCompat.enableEdgeToEdge which needs androidx.core
-                // 1.15+, which in turn needs compileSdk 35 - out of scope
-                // for this release).
-                "src/main/java"
+                "src/main/java",
+                strongswanJavaFiltered
             )
-            // Drop the upstream UI so we don't inherit its resource deps.
-            // Our :app owns the UI anyway, the strongSwan Activities would
-            // never be reachable.
-            java.exclude("org/strongswan/android/ui/**")
             res.srcDirs(
                 "../vendor/strongswan/src/frontends/android/app/src/main/res"
             )
             manifest.srcFile("src/main/AndroidManifest.xml")
         }
     }
+
+    // Make every Java-compile step wait for the filtered sync. Covers Debug
+    // and Release variants without naming them explicitly.
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        dependsOn(syncStrongswanJava)
+    }
+    tasks.matching { it.name.startsWith("compile") && it.name.endsWith("JavaWithJavac") }
+        .configureEach { dependsOn(syncStrongswanJava) }
 
     packaging {
         resources {
