@@ -160,7 +160,12 @@
         </span>
       </div>
 
-      <!-- Transfer Stats -->
+      <!-- Transfer Stats with live sparkline. The sparkline sits
+           directly inside each mini-card behind the byte totals and
+           the current-speed label. No axes, no tooltips — rudimentary
+           by design. Colour matches the arrow icon (green for
+           download, blue for upload) so the two channels stay visually
+           distinct. -->
       <div v-if="isConnected" class="w-full max-w-sm grid grid-cols-2 gap-3 mb-4">
         <div class="card p-3 text-center">
           <div class="flex items-center justify-center gap-1 mb-1">
@@ -168,6 +173,8 @@
             <span class="text-[10px] text-gray-500">Download</span>
           </div>
           <span class="text-base font-semibold text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_rx) }}</span>
+          <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestRxSpeed) }}</div>
+          <SpeedSparkline :data="vpn.rxSpeedHistory" color="#4ade80" />
         </div>
         <div class="card p-3 text-center">
           <div class="flex items-center justify-center gap-1 mb-1">
@@ -175,6 +182,8 @@
             <span class="text-[10px] text-gray-500">Upload</span>
           </div>
           <span class="text-base font-semibold text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_tx) }}</span>
+          <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestTxSpeed) }}</div>
+          <SpeedSparkline :data="vpn.txSpeedHistory" color="#60a5fa" />
         </div>
       </div>
 
@@ -251,9 +260,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useVpnStore } from '@/stores/vpn'
+import { useVpnStore, formatSpeed } from '@/stores/vpn'
 import { SelectProtocol, ListConnections, ActivateConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus } from '../../wailsjs/go/main/App'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
+import SpeedSparkline from '@/components/SpeedSparkline.vue'
 import {
   ShieldCheckIcon,
   ArrowPathIcon,
@@ -386,6 +396,17 @@ onUnmounted(() => {
 // Robust connected state — use status from Go backend
 const isConnected = computed(() => {
   return vpn.status?.connected === true
+})
+
+// Latest speed = last entry in the rolling buffer. Displayed above the
+// sparkline so users see a concrete number plus the visual trend.
+const latestRxSpeed = computed(() => {
+  const h = vpn.rxSpeedHistory
+  return h.length > 0 ? h[h.length - 1] : 0
+})
+const latestTxSpeed = computed(() => {
+  const h = vpn.txSpeedHistory
+  return h.length > 0 ? h[h.length - 1] : 0
 })
 
 const showWelcome = computed(() => {

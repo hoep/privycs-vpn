@@ -71,6 +71,8 @@ import com.privycs.vpn.R
 import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.service.VpnServiceManager
+import com.privycs.vpn.ui.components.SpeedSparkline
+import com.privycs.vpn.util.SpeedTracker
 import com.privycs.vpn.ui.theme.IpSecBlue
 import com.privycs.vpn.ui.theme.OpenVpnOrange
 import com.privycs.vpn.ui.theme.PrivycsTeal
@@ -88,6 +90,12 @@ fun ConnectScreen(
     val vpnManager = remember { VpnServiceManager.getInstance(context) }
     val status by vpnManager.status.collectAsState()
     val isConnecting by vpnManager.isConnecting.collectAsState()
+    // Speed history buffers feed the per-card sparklines. SpeedTracker
+    // itself is populated from VpnServiceManager.updateStatus() so every
+    // polled status push moves both the byte counters and the sparkline
+    // in lockstep.
+    val rxSpeedHistory by SpeedTracker.rxSpeedHistory.collectAsState()
+    val txSpeedHistory by SpeedTracker.txSpeedHistory.collectAsState()
 
     val connectionRepo = remember { PrivycsApp.instance.connectionRepository }
     val registry by connectionRepo.registry.collectAsState()
@@ -328,6 +336,8 @@ fun ConnectScreen(
                     bytes = status.rxBytes,
                     icon = Icons.Outlined.ArrowDownward,
                     iconTint = Color(0xFF22C55E),
+                    speedHistory = rxSpeedHistory,
+                    sparklineColor = Color(0xFF4ADE80),
                     modifier = Modifier.weight(1f)
                 )
                 TransferCard(
@@ -335,6 +345,8 @@ fun ConnectScreen(
                     bytes = status.txBytes,
                     icon = Icons.Outlined.ArrowUpward,
                     iconTint = Color(0xFF3B82F6),
+                    speedHistory = txSpeedHistory,
+                    sparklineColor = Color(0xFF60A5FA),
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -613,6 +625,8 @@ private fun TransferCard(
     bytes: Long,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     iconTint: Color,
+    speedHistory: List<Float>,
+    sparklineColor: Color,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -647,6 +661,20 @@ private fun TransferCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
+            )
+            // Current per-second speed derived from the most recent
+            // delta - the cumulative byte counter above tells the user
+            // "how much in total", this tiny label tells them "how fast
+            // right now". Matches the desktop card's "12.3 KB/s" line.
+            Text(
+                text = SpeedTracker.formatSpeed(speedHistory.lastOrNull() ?: 0f),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            SpeedSparkline(
+                data = speedHistory,
+                color = sparklineColor,
             )
         }
     }

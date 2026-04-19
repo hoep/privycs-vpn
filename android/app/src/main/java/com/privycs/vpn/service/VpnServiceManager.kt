@@ -215,6 +215,15 @@ class VpnServiceManager private constructor(private val context: Context) {
      */
     fun updateStatus(status: VpnStatus) {
         _status.value = status
+        // Feed the sparkline tracker so the upload/download cards have
+        // a speed history to render. Non-connected samples reset the
+        // tracker so the sparkline flatlines immediately on disconnect
+        // instead of holding a stale spike into the next session.
+        com.privycs.vpn.util.SpeedTracker.record(
+            status.rxBytes,
+            status.txBytes,
+            status.connected,
+        )
         if (status.connected || status.error != null) {
             _isConnecting.value = false
         }

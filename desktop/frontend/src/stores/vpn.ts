@@ -68,6 +68,11 @@ function friendlyError(e: any, fallback: string): string {
   return fallback
 }
 
+// SPEED_HISTORY_LEN is the number of bytes/sec samples retained for the
+// sparkline chart. 30 samples at 2s poll interval = 60s of history,
+// enough to show a meaningful trend without being visually noisy.
+const SPEED_HISTORY_LEN = 30
+
 export const useVpnStore = defineStore('vpn', () => {
   const status = ref<any>(null)
   const protocols = ref<any[]>([])
@@ -75,9 +80,65 @@ export const useVpnStore = defineStore('vpn', () => {
   const loading = ref(false)
   const error = ref('')
 
+  // Rolling speed history in bytes/second, computed from successive
+  // bytes_rx / bytes_tx deltas. Each array is a fixed-length ring
+  // buffer of the most-recent SPEED_HISTORY_LEN samples. Oldest first,
+  // newest last — echarts renders them in index order.
+  const rxSpeedHistory = ref<number[]>(Array(SPEED_HISTORY_LEN).fill(0))
+  const txSpeedHistory = ref<number[]>(Array(SPEED_HISTORY_LEN).fill(0))
+
+  let lastBytesRx = 0
+  let lastBytesTx = 0
+  let lastSampleAt = 0
+
+  // updateSpeedSamples pushes one new pair into the ring buffers.
+  // Deltas are divided by the elapsed wall-clock time (not the nominal
+  // poll interval) to cope with missed polls, backgrounded apps, etc.
+  // A negative delta (counter wrap or disconnect reset) is clamped to
+  // zero so the chart does not dip into negatives.
+  function updateSpeedSamples(newStatus: any) {
+    if (!newStatus) return
+    const connected = !!newStatus.connected
+    const now = Date.now()
+    const rxBytes = Number(newStatus.bytes_rx || 0)
+    const txBytes = Number(newStatus.bytes_tx || 0)
+
+    if (!connected) {
+      // Reset on disconnect so the sparkline goes flat immediately
+      // instead of holding a stale spike when the user reconnects.
+      rxSpeedHistory.value = Array(SPEED_HISTORY_LEN).fill(0)
+      txSpeedHistory.value = Array(SPEED_HISTORY_LEN).fill(0)
+      lastBytesRx = 0
+      lastBytesTx = 0
+      lastSampleAt = 0
+      return
+    }
+
+    if (lastSampleAt === 0) {
+      // First sample of this connected session: establish baseline.
+      lastBytesRx = rxBytes
+      lastBytesTx = txBytes
+      lastSampleAt = now
+      return
+    }
+
+    const elapsedSec = Math.max(0.001, (now - lastSampleAt) / 1000)
+    const rxSpeed = Math.max(0, (rxBytes - lastBytesRx) / elapsedSec)
+    const txSpeed = Math.max(0, (txBytes - lastBytesTx) / elapsedSec)
+
+    rxSpeedHistory.value = [...rxSpeedHistory.value.slice(1), rxSpeed]
+    txSpeedHistory.value = [...txSpeedHistory.value.slice(1), txSpeed]
+
+    lastBytesRx = rxBytes
+    lastBytesTx = txBytes
+    lastSampleAt = now
+  }
+
   async function fetchStatus() {
     try {
-      status.value = await Status()
+      const newStatus = await Status()
+      status.value = newStatus
+      updateSpeedSamples(newStatus)
       error.value = ''
     } catch (e: any) {
       error.value = friendlyError(e, 'Failed to get status')
@@ -144,6 +205,7 @@ export const useVpnStore = defineStore('vpn', () => {
     }
     unsubscribe = EventsOn('vpn:status', (data: any) => {
       status.value = data
+      updateSpeedSamples(data)
     })
   }
 
@@ -168,6 +230,8 @@ export const useVpnStore = defineStore('vpn', () => {
     version,
     loading,
     error,
+    rxSpeedHistory,
+    txSpeedHistory,
     fetchStatus,
     fetchProtocols,
     connect,
@@ -178,3 +242,14 @@ export const useVpnStore = defineStore('vpn', () => {
     stopListening,
   }
 })
+
+// formatSpeed renders bytes/second as a short, readable string: "B/s",
+// "KB/s", "MB/s". Mirrors the ByteCount formatter used elsewhere in
+// the app. Exported so SpeedSparkline and ConnectionView can share.
+export function formatSpeed(bps: number): string {
+  if (!bps || bps < 1) return '0 B/s'
+  if (bps < 1024) return `${Math.round(bps)} B/s`
+  if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`
+  if (bps < 1024 * 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(1)} MB/s`
+  return `${(bps / 1024 / 1024 / 1024).toFixed(1)} GB/s`
+}
