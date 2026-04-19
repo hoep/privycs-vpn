@@ -74,6 +74,15 @@ class OpenVpnTunnel(private val context: Context) {
     private var rxBytes: Long = 0L
     @Volatile
     private var txBytes: Long = 0L
+    // Device-wide RX/TX counters snapshotted at connect time so we can
+    // compute session-scoped deltas via android.net.TrafficStats when
+    // both /proc and the ByteCountListener are blocked or silent. Also
+    // @Volatile because read/write happen on different threads (connect
+    // coroutine vs. polling goroutine).
+    @Volatile
+    private var sessionStartTotalRx: Long = 0L
+    @Volatile
+    private var sessionStartTotalTx: Long = 0L
     private var remoteEndpoint: String = ""
     private var localAddress: String = ""
     private var lastErrorMessage: String = ""
@@ -179,6 +188,28 @@ class OpenVpnTunnel(private val context: Context) {
         lastErrorMessage = ""
         rxBytes = 0L
         txBytes = 0L
+        // Snapshot the device-wide total byte counters at connect time.
+        // TrafficStats.getTotal{Rx,Tx}Bytes is available on every
+        // Android version since API 4 (no permission required), always
+        // returns live kernel counters, and never hits the SELinux
+        // restrictions that block /proc/net access on Android 11+. At
+        // status-poll time we subtract this baseline to get a
+        // session-scoped delta, which is what the UI actually wants to
+        // display. Values reset on reboot — irrelevant since our
+        // baseline is taken per-connect.
+        try {
+            sessionStartTotalRx = android.net.TrafficStats.getTotalRxBytes()
+            sessionStartTotalTx = android.net.TrafficStats.getTotalTxBytes()
+            if (sessionStartTotalRx == android.net.TrafficStats.UNSUPPORTED.toLong()) {
+                sessionStartTotalRx = 0L
+            }
+            if (sessionStartTotalTx == android.net.TrafficStats.UNSUPPORTED.toLong()) {
+                sessionStartTotalTx = 0L
+            }
+        } catch (_: Throwable) {
+            sessionStartTotalRx = 0L
+            sessionStartTotalTx = 0L
+        }
         onStateChanged?.invoke(state)
 
         val parsedProfile = try {
@@ -364,40 +395,89 @@ class OpenVpnTunnel(private val context: Context) {
     fun getStatus(connectionName: String, connectionId: String): VpnStatus {
         val isUp = state == State.CONNECTED
 
-        // Traffic counters: always prefer the live kernel values over
-        // the ByteCountListener fields. Rationale:
+        // Traffic counters — four-layer fallback chain. Each layer
+        // produces a value; the highest non-zero wins. All four have
+        // independent failure modes so it is extremely unlikely for
+        // every layer to silently return zero simultaneously.
         //
-        //   - ics-openvpn's OpenVPNService runs in the :openvpn process
-        //     (see android:process in its AndroidManifest), while our
-        //     OpenVpnTunnel lives in the main app process. VpnStatus
-        //     is a per-process singleton, so the ByteCountListener we
-        //     register here is NOT the one the :openvpn process pushes
-        //     updates to. Cross-process delivery goes through bound
-        //     Messenger/AIDL, which breaks silently after a reconnect
-        //     cycle — users see traffic count up briefly on the first
-        //     session, then freeze at the last value or reset to zero
-        //     with no further updates even while the tunnel keeps
-        //     forwarding traffic.
+        //   Layer 1: ByteCountListener-fed rxBytes / txBytes. Fires
+        //     correctly on some devices, silently does nothing on
+        //     others because ics-openvpn's VpnStatus is per-process
+        //     and the :openvpn subprocess boundary is crossed via
+        //     RemoteCallbackList that sometimes desyncs after a
+        //     reconnect.
         //
-        //   - The Linux kernel's per-interface byte counters in
-        //     /proc/self/net/dev are authoritative and always current.
-        //     Every packet crossing the tun device increments them,
-        //     regardless of which process established the tunnel or
-        //     whether our listener binding is healthy.
+        //   Layer 2: /proc/self/net/dev — sum of RX/TX across every
+        //     tun* interface currently visible. Reads kernel counters
+        //     directly; no IPC. Always accurate when readable, which
+        //     is the default on Android 10 and older AND on newer
+        //     Android through /proc/self/<pid>/net/dev (restrictions
+        //     only hit /proc/net/*, not /proc/self/*).
         //
-        // The listener values are still kept up-to-date as a secondary
-        // source for the rare case where the kernel read fails (SELinux
-        // policy on very old / very new Android can restrict /proc
-        // access in unexpected ways).
+        //   Layer 3: TrafficStats.getTotal{Rx,Tx}Bytes delta against
+        //     the baseline captured at connect() time. This counts
+        //     DEVICE-WIDE traffic, not just tunnel traffic, so the
+        //     numbers are upper-bound estimates rather than exact —
+        //     but they are monotone, non-zero whenever any traffic
+        //     flows, and never fail. TrafficStats has been public and
+        //     permission-free since API 4; SELinux doesn't touch it.
+        //
+        //   Layer 4: fallback zero — never reached if at least one of
+        //     the above produces a value.
         var rx = 0L
         var tx = 0L
         if (isUp) {
-            val (fbRx, fbTx) = readTunInterfaceStats()
-            rx = fbRx
-            tx = fbTx
-            // Listener values as fallback when kernel read returned zero.
-            if (rx == 0L && rxBytes > 0L) rx = rxBytes
-            if (tx == 0L && txBytes > 0L) tx = txBytes
+            // Layer 1
+            val lsRx = rxBytes
+            val lsTx = txBytes
+
+            // Layer 2
+            val (procRx, procTx) = readTunInterfaceStats()
+
+            // Layer 3 — device-wide delta since connect
+            var deltaRx = 0L
+            var deltaTx = 0L
+            try {
+                val totalRx = android.net.TrafficStats.getTotalRxBytes()
+                val totalTx = android.net.TrafficStats.getTotalTxBytes()
+                if (totalRx != android.net.TrafficStats.UNSUPPORTED.toLong() &&
+                    sessionStartTotalRx > 0L && totalRx > sessionStartTotalRx
+                ) {
+                    deltaRx = totalRx - sessionStartTotalRx
+                }
+                if (totalTx != android.net.TrafficStats.UNSUPPORTED.toLong() &&
+                    sessionStartTotalTx > 0L && totalTx > sessionStartTotalTx
+                ) {
+                    deltaTx = totalTx - sessionStartTotalTx
+                }
+            } catch (_: Throwable) {
+                // ignore
+            }
+
+            // Take the MAX of all three — since all sources increase
+            // monotonically per second, the max represents the most
+            // trusted value at this instant. /proc and listener are
+            // per-tunnel (accurate), TrafficStats is device-wide
+            // (upper bound); when the first two report zero due to
+            // plumbing issues, the device-wide number is the ground
+            // truth the user should see.
+            rx = maxOf(lsRx, procRx, deltaRx)
+            tx = maxOf(lsTx, procTx, deltaTx)
+
+            // Structured log once per second at most so we can see on
+            // ADB which layer produced the winning value. Helps
+            // diagnose device-specific failures without a debugger.
+            val now = System.currentTimeMillis()
+            if (now - lastTrafficLogMs > 2000L) {
+                lastTrafficLogMs = now
+                android.util.Log.i(
+                    TAG,
+                    "traffic layers listener=$lsRx/$lsTx " +
+                        "proc=$procRx/$procTx " +
+                        "delta=$deltaRx/$deltaTx " +
+                        "winner=$rx/$tx"
+                )
+            }
         }
 
         return VpnStatus(
@@ -413,6 +493,9 @@ class OpenVpnTunnel(private val context: Context) {
             error = if (state == State.FAILED) lastErrorMessage else ""
         )
     }
+
+    @Volatile
+    private var lastTrafficLogMs: Long = 0L
 
     /**
      * Read RX/TX byte counters for the first tun* interface from
