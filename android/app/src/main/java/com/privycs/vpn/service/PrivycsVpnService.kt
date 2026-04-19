@@ -362,7 +362,11 @@ class PrivycsVpnService : VpnService() {
     private fun startStatusPolling() {
         scope.launch {
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
+            var iter = 0
+            Log.i(TAG, "startStatusPolling: loop starting, scope.isActive=$isActive, currentProtocol=$currentProtocol")
             while (isActive) {
+                iter++
+                Log.i(TAG, "startStatusPolling: iteration=$iter protocol=$currentProtocol")
                 val status = when (currentProtocol) {
                     VpnProtocol.WIREGUARD -> {
                         wireGuardTunnel?.getStatus(currentConnectionName, currentConnectionId)

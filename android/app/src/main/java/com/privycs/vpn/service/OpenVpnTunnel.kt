@@ -464,20 +464,17 @@ class OpenVpnTunnel(private val context: Context) {
             rx = maxOf(lsRx, procRx, deltaRx)
             tx = maxOf(lsTx, procTx, deltaTx)
 
-            // Structured log once per second at most so we can see on
-            // ADB which layer produced the winning value. Helps
-            // diagnose device-specific failures without a debugger.
-            val now = System.currentTimeMillis()
-            if (now - lastTrafficLogMs > 2000L) {
-                lastTrafficLogMs = now
-                android.util.Log.i(
-                    TAG,
-                    "traffic layers listener=$lsRx/$lsTx " +
-                        "proc=$procRx/$procTx " +
-                        "delta=$deltaRx/$deltaTx " +
-                        "winner=$rx/$tx"
-                )
-            }
+            // Log every call. Earlier version throttled to >2000ms but the
+            // poll interval itself is 2000ms so the strict-greater check
+            // suppressed almost every log on an idle scheduler. Log volume
+            // at 2 lines/second is still trivially cheap.
+            android.util.Log.i(
+                TAG,
+                "traffic layers listener=$lsRx/$lsTx " +
+                    "proc=$procRx/$procTx " +
+                    "delta=$deltaRx/$deltaTx " +
+                    "winner=$rx/$tx"
+            )
         }
 
         return VpnStatus(
@@ -494,8 +491,6 @@ class OpenVpnTunnel(private val context: Context) {
         )
     }
 
-    @Volatile
-    private var lastTrafficLogMs: Long = 0L
 
     /**
      * Read RX/TX byte counters for the first tun* interface from
