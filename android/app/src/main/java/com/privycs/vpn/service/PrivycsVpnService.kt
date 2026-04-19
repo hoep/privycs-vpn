@@ -323,6 +323,14 @@ class PrivycsVpnService : VpnService() {
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
             manager.updateStatus(VpnStatus())
 
+            // Explicit lifecycle signal to the coordinator that the
+            // teardown is done. Without this the coordinator stayed in
+            // Disconnecting forever because updateStatus's connected-
+            // to-disconnected transition doesn't fire when _status was
+            // already wiped optimistically by VpnServiceManager.disconnect
+            // before the service even got here.
+            com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
+
             connectStartTime = 0L
             sendWidgetUpdate(connected = false)
 

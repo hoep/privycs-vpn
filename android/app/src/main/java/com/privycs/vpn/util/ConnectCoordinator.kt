@@ -65,6 +65,13 @@ object ConnectCoordinator {
 
     private const val TAG = "ConnectCoordinator"
     private const val WATCHDOG_TIMEOUT_MS = 90_000L
+    // Disconnect is short (tunnel teardown typically <2s) so the
+    // watchdog cut-off is tighter than the connect side. Belt-and-
+    // suspenders in case the service was already stopped before the
+    // ACTION_DISCONNECT intent arrived - without this, the
+    // coordinator would hang in Disconnecting forever and block
+    // subsequent connects.
+    private const val DISCONNECT_WATCHDOG_TIMEOUT_MS = 5_000L
 
     enum class IntentSource {
         USER,
@@ -195,9 +202,7 @@ object ConnectCoordinator {
                     PrivycsLogger.i(TAG, "requestDisconnect($source): accepted -> Disconnecting")
                     fireDisconnectIntent(context)
                     _state.value = State.Disconnecting(System.currentTimeMillis())
-                    // Disconnect has its own watchdog via the service,
-                    // no Coordinator watchdog for this phase.
-                    cancelWatchdog()
+                    startDisconnectWatchdog()
                     Result.Accepted
                 }
             }
@@ -320,7 +325,29 @@ object ConnectCoordinator {
             delay(WATCHDOG_TIMEOUT_MS)
             mutex.withLock {
                 if (_state.value is State.Connecting) {
-                    PrivycsLogger.w(TAG, "Watchdog fired: Connecting stuck 90s, reset to Idle")
+                    PrivycsLogger.w(TAG, "Connect watchdog fired: stuck 90s, reset to Idle")
+                    _state.value = State.Idle
+                }
+            }
+        }
+    }
+
+    /**
+     * Force-reset to Idle after DISCONNECT_WATCHDOG_TIMEOUT_MS if we
+     * are still in Disconnecting. Covers the case where the service
+     * was already stopped when ACTION_DISCONNECT fired and the
+     * intent vanished into the void, or where handleDisconnect
+     * crashes before calling markDisconnected(). Without this, the
+     * coordinator would stay in Disconnecting forever and block
+     * every subsequent connect attempt.
+     */
+    private fun startDisconnectWatchdog() {
+        cancelWatchdog()
+        watchdog = scope.launch {
+            delay(DISCONNECT_WATCHDOG_TIMEOUT_MS)
+            mutex.withLock {
+                if (_state.value is State.Disconnecting) {
+                    PrivycsLogger.w(TAG, "Disconnect watchdog fired: stuck 5s, reset to Idle")
                     _state.value = State.Idle
                 }
             }
