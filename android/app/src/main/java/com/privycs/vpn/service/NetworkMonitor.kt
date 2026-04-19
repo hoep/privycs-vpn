@@ -72,6 +72,20 @@ class NetworkMonitor private constructor(private val context: Context) {
     // connect" banner has to be true, not aspirational.
     private var lastShouldConnect: Boolean? = null
 
+    // Sticky SSID cache: once we resolve the current WiFi SSID to a
+    // real name, we remember it across evaluations. This is critical
+    // because Android's WifiManager.connectionInfo can start returning
+    // <unknown ssid> or empty once a VPN becomes the active transport,
+    // and naive re-evaluation in "except" mode then flips shouldConnect
+    // between true ("cannot determine SSID -> connect") and false
+    // ("SSID in except list") depending on which resolution the OS
+    // felt like giving us that tick. The flip-flop drove a disconnect
+    // /reconnect oscillation after a manual OpenVPN connect on a
+    // trusted-except WiFi. Cleared on network-type change so a real
+    // WiFi switch picks up the new SSID instead of reusing the old.
+    private var lastResolvedSsid: String = ""
+    private var lastResolvedNetworkType: String = ""
+
     /**
      * Start monitoring network changes. Safe to call multiple times.
      */
@@ -201,9 +215,50 @@ class NetworkMonitor private constructor(private val context: Context) {
             val codSettings = settings.connectOnDemand
 
             val networkType = detectNetworkType()
-            val ssid = detectCurrentSsid()
+            val rawSsid = detectCurrentSsid()
 
-            val (shouldConnect, ruleMatch) = evaluateRules(codSettings, networkType, ssid)
+            // Sticky SSID fallback. Android's WifiManager can start
+            // returning "" or <unknown ssid> once a VPN is the active
+            // transport on the device; we keep the last real SSID
+            // around and use it when the fresh detection came back
+            // empty, so "except" and "only" rules stay stable across
+            // the VPN-up/down flicker. Cleared on genuine network-
+            // type change (wifi -> mobile / mobile -> none / etc.)
+            // so a real network switch picks up the new SSID.
+            if (rawSsid.isNotEmpty()) {
+                lastResolvedSsid = rawSsid
+                lastResolvedNetworkType = networkType
+            } else if (networkType != lastResolvedNetworkType) {
+                lastResolvedSsid = ""
+            }
+            val effectiveSsid = if (rawSsid.isEmpty() && networkType == "wifi") {
+                lastResolvedSsid.also {
+                    if (it.isNotEmpty()) {
+                        Log.d(TAG, "SSID detection returned empty, using cached \"$it\"")
+                    }
+                }
+            } else rawSsid
+
+            val (shouldConnect, ruleMatch) = evaluateRules(codSettings, networkType, effectiveSsid)
+
+            // Stability guard: while VPN is up AND SSID detection is
+            // still uncertain (empty raw AND no cache), do NOT act on
+            // this evaluation at all. We have insufficient information
+            // to decide; acting on "safety-first shouldConnect=true"
+            // plus the previous "correctly detected in-except false"
+            // created the disconnect/reconnect oscillation reported
+            // after manual OpenVPN connect on trusted-except WiFi.
+            val vpnManagerForGuard = VpnServiceManager.getInstance(context)
+            if (vpnManagerForGuard.isConnected && networkType == "wifi" &&
+                rawSsid.isEmpty() && lastResolvedSsid.isEmpty()
+            ) {
+                Log.d(TAG, "Skipping evaluate: VPN up but SSID indeterminate (no cache)")
+                return@launch
+            }
+
+            // Use effective SSID from here on for state reporting so
+            // the UI banner reflects the value we actually decided on.
+            val ssid = effectiveSsid
 
             val newState = NetworkState(
                 networkType = networkType,
