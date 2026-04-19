@@ -1,0 +1,118 @@
+package com.privycs.vpn.util
+
+import android.content.Context
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * Heuristic detector and pause controller for Android system-level
+ * Always-On VPN.
+ *
+ * Android has no public API to query Always-On status (the
+ * Settings.Global.ALWAYS_ON_VPN_APP slot is system-access-only). We
+ * infer it by timing correlation: if our VpnService is woken with a
+ * null intent (handleAlwaysOnReconnect path) within a short window
+ * after the user explicitly tapped Disconnect in our UI, the only
+ * mechanism that could have caused that wake-up is the OS Always-On
+ * + START_STICKY auto-respawn - the system would not otherwise
+ * re-start our service right after we asked it to stop.
+ *
+ * Once detected, the flag persists in SharedPreferences across
+ * process death so the UI immediately shows the correct
+ * "managed-by-system" disconnect flow on next launch without
+ * requiring another detection round.
+ *
+ * The pause mechanism lets the user temporarily defeat Always-On
+ * auto-reconnect: UI stamps pauseUntilMs = now + X minutes,
+ * handleAlwaysOnReconnect returns early without reconnecting while
+ * pauseUntilMs > now. When the flag expires, the next Always-On
+ * trigger reconnects normally.
+ */
+object AlwaysOnDetector {
+
+    private const val PREF_NAME = "privycs_always_on"
+    private const val KEY_LAST_USER_DISCONNECT = "last_user_disconnect_ms"
+    private const val KEY_DETECTED = "always_on_detected"
+    private const val KEY_PAUSE_UNTIL = "pause_until_ms"
+
+    // 3 s is long enough to bridge the service teardown + system
+    // START_STICKY respawn delay (typically ~200-800 ms observed)
+    // but short enough that a genuine user-initiated connect after
+    // a disconnect does not falsely trigger detection.
+    private const val DETECTION_WINDOW_MS = 3_000L
+
+    private val _detected = MutableStateFlow(false)
+    val detected: StateFlow<Boolean> = _detected.asStateFlow()
+
+    /** Called from PrivycsApp.onCreate to load the persisted flag. */
+    fun init(ctx: Context) {
+        val prefs = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        _detected.value = prefs.getBoolean(KEY_DETECTED, false)
+    }
+
+    /**
+     * Stamp the current time as the last user-initiated disconnect.
+     * Called from VpnServiceManager.disconnect() BEFORE the intent is
+     * sent so the timestamp lands before START_STICKY can wake us.
+     */
+    fun stampUserDisconnect(ctx: Context) {
+        ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_LAST_USER_DISCONNECT, System.currentTimeMillis())
+            .apply()
+    }
+
+    /**
+     * Called from PrivycsVpnService.handleAlwaysOnReconnect. If a user
+     * disconnect happened within DETECTION_WINDOW_MS, we are on
+     * Always-On. Persists the flag and flips the StateFlow for any
+     * UI observers.
+     */
+    fun onAlwaysOnReconnectTriggered(ctx: Context): Boolean {
+        val prefs = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val lastUserDc = prefs.getLong(KEY_LAST_USER_DISCONNECT, 0L)
+        val now = System.currentTimeMillis()
+        val justDisconnected = lastUserDc > 0 && (now - lastUserDc) < DETECTION_WINDOW_MS
+        if (justDisconnected && !prefs.getBoolean(KEY_DETECTED, false)) {
+            prefs.edit().putBoolean(KEY_DETECTED, true).apply()
+            _detected.value = true
+        }
+        return justDisconnected
+    }
+
+    /**
+     * Set a pause window during which handleAlwaysOnReconnect must
+     * NOT reconnect. UI calls this BEFORE sending ACTION_DISCONNECT
+     * so the flag is already in place when the OS-triggered
+     * auto-respawn arrives.
+     */
+    fun pauseFor(ctx: Context, minutes: Int) {
+        val until = System.currentTimeMillis() + minutes * 60_000L
+        ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_PAUSE_UNTIL, until)
+            .apply()
+    }
+
+    /** Returns true if the pause window is still in effect. */
+    fun isPausedNow(ctx: Context): Boolean {
+        val until = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getLong(KEY_PAUSE_UNTIL, 0L)
+        return until > System.currentTimeMillis()
+    }
+
+    /** Returns the absolute ms timestamp until which pause is active, or 0. */
+    fun pauseUntilMs(ctx: Context): Long {
+        return ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getLong(KEY_PAUSE_UNTIL, 0L)
+    }
+
+    /** Clear the pause flag (e.g., when user taps Connect again). */
+    fun clearPause(ctx: Context) {
+        ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_PAUSE_UNTIL)
+            .apply()
+    }
+}

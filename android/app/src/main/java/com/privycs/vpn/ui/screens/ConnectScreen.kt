@@ -71,7 +71,9 @@ import com.privycs.vpn.R
 import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.service.VpnServiceManager
+import com.privycs.vpn.ui.components.AlwaysOnDisconnectSheet
 import com.privycs.vpn.ui.components.SpeedSparkline
+import com.privycs.vpn.util.AlwaysOnDetector
 import com.privycs.vpn.util.SpeedTracker
 import com.privycs.vpn.ui.theme.IpSecBlue
 import com.privycs.vpn.ui.theme.OpenVpnOrange
@@ -96,6 +98,12 @@ fun ConnectScreen(
     // in lockstep.
     val rxSpeedHistory by SpeedTracker.rxSpeedHistory.collectAsState()
     val txSpeedHistory by SpeedTracker.txSpeedHistory.collectAsState()
+    // If Android's system-level Always-On VPN is detected, the plain
+    // Disconnect tap is effectively useless (OS auto-respawns within
+    // ~1 s). We then route the tap into a bottom sheet offering Pause
+    // or Open-System-Settings instead.
+    val alwaysOnDetected by AlwaysOnDetector.detected.collectAsState()
+    var showAlwaysOnSheet by remember { mutableStateOf(false) }
 
     val connectionRepo = remember { PrivycsApp.instance.connectionRepository }
     val registry by connectionRepo.registry.collectAsState()
@@ -175,7 +183,13 @@ fun ConnectScreen(
             activeProtocol = activeProtocolForIcon,
             onClick = {
                 val networkMonitor = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
-                if (isConnected) {
+                if (isConnected && alwaysOnDetected) {
+                    // Always-On gate: plain disconnect is neutered by the
+                    // OS auto-respawn when Always-On is active, so route
+                    // through the pause/settings bottom sheet instead of
+                    // firing a disconnect the OS will immediately undo.
+                    showAlwaysOnSheet = true
+                } else if (isConnected) {
                     // User explicitly-disconnected but on-demand is in
                     // charge: if the current network still satisfies the
                     // rules, bring the tunnel back up immediately.
@@ -375,6 +389,19 @@ fun ConnectScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+    }
+
+    // Always-On disconnect sheet renders outside the scrollable Column
+    // so it slides up over the whole screen and is not affected by the
+    // Column's scroll state. Visibility is purely state-driven.
+    if (showAlwaysOnSheet) {
+        AlwaysOnDisconnectSheet(
+            onDismiss = { showAlwaysOnSheet = false },
+            onPauseSelected = { minutes ->
+                AlwaysOnDetector.pauseFor(context, minutes)
+                vpnManager.disconnect()
+            },
+        )
     }
 }
 

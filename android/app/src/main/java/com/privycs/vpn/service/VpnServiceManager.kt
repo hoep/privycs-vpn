@@ -141,6 +141,9 @@ class VpnServiceManager private constructor(private val context: Context) {
         }
 
         PrivycsLogger.i(TAG, "connect '${connection.name}' via ${connection.activeProtocol}")
+        // Explicit user connect cancels any active Always-On pause so
+        // the OS resumes normal auto-reconnect behavior from this point.
+        com.privycs.vpn.util.AlwaysOnDetector.clearPause(context)
         scope.launch {
             _isConnecting.value = true
             startConnectingWatchdog()
@@ -187,6 +190,11 @@ class VpnServiceManager private constructor(private val context: Context) {
      */
     fun disconnect() {
         PrivycsLogger.i(TAG, "disconnect requested")
+        // Stamp the time stamp BEFORE sending the intent so if the
+        // system's Always-On START_STICKY respawn fires while our
+        // service teardown is still in flight, handleAlwaysOnReconnect
+        // sees a fresh timestamp and can flag Always-On as detected.
+        com.privycs.vpn.util.AlwaysOnDetector.stampUserDisconnect(context)
         scope.launch {
             _isConnecting.value = true
             try {

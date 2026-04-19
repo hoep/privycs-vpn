@@ -73,6 +73,10 @@ class PrivycsApp : StrongSwanApplication() {
         instance = this
         connectionRepository = ConnectionRepository(this)
         settingsRepository = SettingsRepository(this)
+        // Load persisted Always-On detection flag so the UI on first
+        // frame already knows whether disconnect should go through the
+        // pause-or-settings bottom-sheet rather than straight teardown.
+        com.privycs.vpn.util.AlwaysOnDetector.init(this)
         createNotificationChannels()
         bootstrapOpenVpnIntegration()
         // Guaranteed first log entry every app start so the Logs screen

@@ -324,6 +324,28 @@ class PrivycsVpnService : VpnService() {
 
     private fun handleAlwaysOnReconnect() {
         scope.launch {
+            // Detection: every null-intent wake-up is a signal. If it
+            // happened within the detection window after a user-
+            // initiated disconnect, we are definitely under system
+            // Always-On control. AlwaysOnDetector persists the flag so
+            // the UI can subsequently show the pause-or-settings sheet
+            // instead of a disconnect that Always-On would just undo.
+            com.privycs.vpn.util.AlwaysOnDetector.onAlwaysOnReconnectTriggered(
+                this@PrivycsVpnService
+            )
+
+            // Pause honor: if the UI asked for a temporary pause (user
+            // tapped "Pause 5 minutes" in the Always-On disconnect
+            // sheet), we must NOT start the tunnel. stopSelf so Android
+            // does not keep the foreground notification alive for a
+            // service that is intentionally doing nothing.
+            if (com.privycs.vpn.util.AlwaysOnDetector.isPausedNow(this@PrivycsVpnService)) {
+                Log.i(TAG, "handleAlwaysOnReconnect: pause flag active - skipping reconnect")
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return@launch
+            }
+
             val connRepo = PrivycsApp.instance.connectionRepository
             // NOTE: drop the settings.alwaysOn check. Android already
             // wakes this VpnService with a null intent only when its
