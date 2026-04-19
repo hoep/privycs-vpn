@@ -421,7 +421,7 @@ class OpenVpnTunnel(private val context: Context) {
      * treats as "no fallback available, keep listener value".
      *
      * Why /proc/self and not /proc/net: Android 11+ tightened SELinux
-     * policy on `untrusted_app` so /proc/net/* is blocked for most
+     * policy on `untrusted_app` so /proc/net access is blocked for most
      * non-system apps, but /proc/self/net/ is always readable because
      * it routes through the process-owned /proc/<pid>/net/ tree and
      * inherits the per-process permissions. Interface list is the
