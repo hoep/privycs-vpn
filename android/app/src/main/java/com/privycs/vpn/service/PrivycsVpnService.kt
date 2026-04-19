@@ -107,12 +107,33 @@ class PrivycsVpnService : VpnService() {
         configContent: String,
         connectionName: String
     ) {
-        currentConnectionId = connectionId
-        currentConnectionName = connectionName
-        currentProtocol = VpnProtocol.fromString(protocolStr)
+        val newProtocol = VpnProtocol.fromString(protocolStr)
 
         scope.launch {
             try {
+                // CRITICAL: tear down ANY previous protocol tunnel before
+                // starting a new one. Android VpnService allows only one
+                // active TUN per user; if a previous tunnel's native-side
+                // state (WireGuard GoBackend goroutines, strongSwan charon,
+                // OpenVPN subprocess + management thread) is still alive
+                // when the new protocol calls VpnService.Builder.establish(),
+                // the new tunnel fd collides with the old one's writes. The
+                // symptom is a connected-looking UI where no app traffic
+                // reaches the remote server (server shows only keepalives)
+                // and the old protocol's goroutines spam
+                // "Failed to write packet to TUN device: input/output error"
+                // until ping-restart kills the new tunnel ~60s later.
+                //
+                // Kill EVERY possible leftover, not just the one matching
+                // currentProtocol: a zombie from a crashed previous connect
+                // may have currentProtocol=null but still hold a tunnel
+                // object referenced from the singleton field.
+                teardownAllProtocols()
+
+                currentConnectionId = connectionId
+                currentConnectionName = connectionName
+                currentProtocol = newProtocol
+
                 when (currentProtocol) {
                     VpnProtocol.WIREGUARD -> connectWireGuard(configContent)
                     VpnProtocol.OPENVPN -> connectOpenVpn(configContent)
@@ -130,6 +151,36 @@ class PrivycsVpnService : VpnService() {
                 manager.updateStatus(VpnStatus(error = "Connection failed: ${e.message}"))
                 stopSelf()
             }
+        }
+    }
+
+    /**
+     * Aggressively dispose all protocol tunnels and give native-side
+     * cleanup time to complete before the next tunnel grabs the VpnService
+     * slot. Safe to call even when no tunnel is active (all disconnect()
+     * calls swallow exceptions on already-down tunnels).
+     *
+     * Delay rationale:
+     * - WireGuard GoBackend select-loop goroutines: ~300-500ms to exit
+     * - strongSwan charon IKE_SA_DELETE handshake: ~1-2s round-trip
+     * - OpenVPN subprocess SIGTERM + management-socket close: ~200-500ms
+     *
+     * We wait 1500ms total so even the slowest (charon) has a chance to
+     * finish. This shows up to the user as a brief pause on protocol
+     * switch, which is acceptable vs the broken-tunnel symptom.
+     */
+    private suspend fun teardownAllProtocols() {
+        val hadSomething = wireGuardTunnel != null || openVpnTunnel != null || ipSecTunnel != null
+        try { wireGuardTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "WG teardown: ${e.message}") }
+        wireGuardTunnel = null
+        try { openVpnTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "OpenVPN teardown: ${e.message}") }
+        openVpnTunnel = null
+        try { ipSecTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "IPSec teardown: ${e.message}") }
+        ipSecTunnel = null
+
+        if (hadSomething) {
+            Log.i(TAG, "Previous tunnel torn down, waiting 1500ms for native-side cleanup")
+            delay(1500)
         }
     }
 

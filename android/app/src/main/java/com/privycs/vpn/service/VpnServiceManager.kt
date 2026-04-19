@@ -189,9 +189,18 @@ class VpnServiceManager private constructor(private val context: Context) {
                 PrivycsLogger.w(TAG, "switchProtocol: disconnect wait timed out, connecting anyway")
             }
 
-            // Short additional pad to let Service.onDestroy() complete its
-            // scope.cancel() so the next onCreate starts on a fresh scope.
-            kotlinx.coroutines.delay(150)
+            // Pad to let Service.onDestroy() complete its scope.cancel()
+            // AND let the previous protocol's native-side state finish its
+            // teardown before the next VpnService.Builder.establish() grabs
+            // the TUN slot. 150ms was not enough — the WireGuard GoBackend
+            // goroutines, strongSwan charon IKE_SA_DELETE, and OpenVPN
+            // subprocess exit all run asynchronously and routinely take
+            // 500ms-1500ms. A too-short pad causes the next tunnel to
+            // collide with the old one's lingering writes to /dev/tun,
+            // manifesting as "connected" UI with zero app traffic reaching
+            // the server (only keepalives visible in server status.log).
+            // 1500ms covers the slowest case (charon) with margin.
+            kotlinx.coroutines.delay(1500)
 
             connect(activeConn.id)
         }
