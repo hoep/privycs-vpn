@@ -452,20 +452,34 @@ class OpenVpnTunnel(private val context: Context) {
     private fun parseProcNetDev(path: String): Pair<Long, Long>? {
         return try {
             val lines = java.io.File(path).readLines()
+            // Sum RX/TX across ALL tun* interfaces visible in /proc.
+            // Rationale: on Android a VpnService reconnect creates a
+            // fresh tun device whose index may differ from the previous
+            // one (tun0 -> tun1 -> tun0 again). If we returned only the
+            // first matching row the user would see frozen counters from
+            // a stale interface after reconnect. Summing is monotonically
+            // correct for the current session because the previous tun
+            // is closed by the kernel and disappears from /proc before
+            // the next one appears — at any moment there is typically
+            // exactly one live tun, and summing over zero stale rows
+            // still gives the right answer.
+            var totalRx = 0L
+            var totalTx = 0L
+            var foundAny = false
             for (line in lines) {
                 val trimmed = line.trim()
-                // Match tun0, tun1, ... — the ics-openvpn VpnService is
-                // always established under a tun-family name on Android.
                 if (!trimmed.startsWith("tun")) continue
                 val colonIdx = trimmed.indexOf(':')
                 if (colonIdx < 0) continue
                 val fields = trimmed.substring(colonIdx + 1).trim().split(Regex("\\s+"))
                 if (fields.size < 9) continue
-                val rx = fields[0].toLongOrNull() ?: 0L
-                val tx = fields[8].toLongOrNull() ?: 0L
-                return rx to tx
+                val rx = fields[0].toLongOrNull() ?: continue
+                val tx = fields[8].toLongOrNull() ?: continue
+                totalRx += rx
+                totalTx += tx
+                foundAny = true
             }
-            null // no tun interface found — try next candidate
+            if (foundAny) totalRx to totalTx else null
         } catch (_: Exception) {
             null
         }
