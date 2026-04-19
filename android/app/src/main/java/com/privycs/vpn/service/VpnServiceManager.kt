@@ -60,25 +60,22 @@ class VpnServiceManager private constructor(private val context: Context) {
     // so the spinner can NEVER get stuck indefinitely. Stored as a Job
     // so a new connect() or a status push with connected=true can
     // cancel and restart the timer cleanly.
-    private var connectingWatchdog: Job? = null
-
-    // Intentionally NO TRANSPORT_VPN NetworkCallback here. v0.9.3.10
-    // introduced one to auto-clear stuck isConnecting when Always-On
-    // brought the tunnel up externally. But Android fires onAvailable /
-    // onLost several times in rapid succession during the Always-On
-    // disable transition (capability goes down, briefly back up, then
-    // off), and NetworkMonitor's on-demand auto-reconnect reacted to
-    // each transient onLost by firing a fresh connect() BEFORE the
-    // service's in-flight teardown finished. Two GoBackend instances
-    // ended up racing on /dev/tun, producing "Failed to write packet
-    // to TUN device: input/output error" plus a keepalive storm
-    // (~15/s instead of ~0.04/s) and the UI flipped
-    // connect/disconnect/connect indefinitely. Removing the callback
-    // makes the app self-consistent: _isConnecting is cleared by the
-    // 90s watchdog below and refreshStatus()'s ConnectivityManager
-    // reality-check; status is driven exclusively by the service
-    // lifecycle + status poll. Slower worst-case (90s vs ~100ms), but
-    // no more race conditions against system-owned VPN transitions.
+    init {
+        // Bridge ConnectCoordinator.state -> _isConnecting so all the
+        // UI code that already observes vpnManager.isConnecting keeps
+        // working without knowing the coordinator exists. Connecting
+        // and Disconnecting both display as "spinner"; Connected and
+        // Idle as "no spinner".
+        scope.launch {
+            com.privycs.vpn.util.ConnectCoordinator.state.collect { s ->
+                val connecting = s is com.privycs.vpn.util.ConnectCoordinator.State.Connecting ||
+                    s is com.privycs.vpn.util.ConnectCoordinator.State.Disconnecting
+                if (_isConnecting.value != connecting) {
+                    _isConnecting.value = connecting
+                }
+            }
+        }
+    }
 
     /**
      * Check if VPN permission has been granted.
@@ -90,6 +87,15 @@ class VpnServiceManager private constructor(private val context: Context) {
 
     /**
      * Connect using the active connection's active protocol.
+     *
+     * All the heavy lifting (Intent firing, state serialisation,
+     * preemption of automated intents, cooldown + pause gating) now
+     * lives in ConnectCoordinator. This method is a thin adapter
+     * that validates the connection, sets up UI-facing status
+     * optimistically, and hands control to the coordinator. The
+     * coordinator's state flow is bridged into _isConnecting via
+     * the observer started in init{}, so existing UI code that
+     * watches isConnecting keeps working without changes.
      */
     fun connect(connectionId: String? = null) {
         val connId = connectionId ?: connectionRepo.activeId
@@ -112,42 +118,30 @@ class VpnServiceManager private constructor(private val context: Context) {
         // the OS resumes normal auto-reconnect behavior from this point.
         com.privycs.vpn.util.AlwaysOnDetector.clearPause(context)
         scope.launch {
-            _isConnecting.value = true
-            startConnectingWatchdog()
-            try {
-                connectionRepo.setActive(connId)
+            connectionRepo.setActive(connId)
+            connectionRepo.updateLastConnected(connId)
 
-                val intent = Intent(context, PrivycsVpnService::class.java).apply {
-                    action = PrivycsVpnService.ACTION_CONNECT
-                    putExtra(PrivycsVpnService.EXTRA_CONNECTION_ID, connId)
-                    putExtra(PrivycsVpnService.EXTRA_PROTOCOL, connection.activeProtocol.name)
-                    putExtra(PrivycsVpnService.EXTRA_CONFIG_CONTENT, config.configContent)
-                    putExtra(PrivycsVpnService.EXTRA_CONNECTION_NAME, connection.name)
-                }
-                context.startForegroundService(intent)
+            // Tentative status so the UI has connection-name + endpoint
+            // to show while the tunnel establishes.
+            _status.value = VpnStatus(
+                connected = false,
+                connectionName = connection.name,
+                connectionId = connId,
+                activeProtocol = connection.activeProtocol,
+                serverEndpoint = config.serverAddress,
+                localAddress = config.localAddress,
+            )
 
-                connectionRepo.updateLastConnected(connId)
-
-                // Tentative status - actually-connected flag flips only when
-                // the service pushes a VpnStatus with connected=true (polled
-                // for WG/OpenVPN, VpnStateListener-driven for IPSec). An
-                // optimistic connected=true here caused "briefly Connected,
-                // then Disconnected until IKE finishes, then Connected again"
-                // flicker for IPSec where the actual tunnel takes ~5-10s.
-                _status.value = VpnStatus(
-                    connected = false,
-                    connectionName = connection.name,
-                    connectionId = connId,
-                    activeProtocol = connection.activeProtocol,
-                    serverEndpoint = config.serverAddress,
-                    localAddress = config.localAddress
-                )
-                // Intentionally do NOT reset _isConnecting here; it stays
-                // true until updateStatus() sees connected=true or an error.
-            } catch (e: Exception) {
-                PrivycsLogger.e(TAG, "Connect failed", e)
-                _status.value = VpnStatus(error = "Connection failed: ${e.message}")
-                _isConnecting.value = false
+            val result = com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                context,
+                com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                connection,
+            )
+            if (result is com.privycs.vpn.util.ConnectCoordinator.Result.Error ||
+                result is com.privycs.vpn.util.ConnectCoordinator.Result.Gated
+            ) {
+                PrivycsLogger.w(TAG, "connect() rejected by coordinator: $result")
+                _status.value = _status.value.copy(error = "Connection rejected: $result")
             }
         }
     }
@@ -157,25 +151,21 @@ class VpnServiceManager private constructor(private val context: Context) {
      */
     fun disconnect() {
         PrivycsLogger.i(TAG, "disconnect requested")
-        // Stamp the time stamp BEFORE sending the intent so if the
-        // system's Always-On START_STICKY respawn fires while our
-        // service teardown is still in flight, handleAlwaysOnReconnect
-        // sees a fresh timestamp and can flag Always-On as detected.
+        // Stamp the time stamp BEFORE the coordinator fires the intent
+        // so if the system's Always-On START_STICKY respawn races our
+        // service teardown, handleAlwaysOnReconnect sees a fresh
+        // timestamp and flags Always-On as detected.
         com.privycs.vpn.util.AlwaysOnDetector.stampUserDisconnect(context)
         scope.launch {
-            _isConnecting.value = true
-            try {
-                val intent = Intent(context, PrivycsVpnService::class.java).apply {
-                    action = PrivycsVpnService.ACTION_DISCONNECT
-                }
-                context.startService(intent)
-                _status.value = VpnStatus()
-            } catch (e: Exception) {
-                PrivycsLogger.e(TAG, "Disconnect failed", e)
-                _status.value = _status.value.copy(error = "Disconnect failed: ${e.message}")
-            } finally {
-                _isConnecting.value = false
-            }
+            com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                context,
+                com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+            )
+            // Tentative UI wipe. The real transition to idle happens
+            // when the service pushes updateStatus with connected=false
+            // after teardown, which bridges into the coordinator's
+            // markDisconnected() and back into our _status.
+            _status.value = VpnStatus()
         }
     }
 
@@ -253,6 +243,7 @@ class VpnServiceManager private constructor(private val context: Context) {
      * polled connected=true the same way).
      */
     fun updateStatus(status: VpnStatus) {
+        val prev = _status.value
         _status.value = status
         // Feed the sparkline tracker so the upload/download cards have
         // a speed history to render. Non-connected samples reset the
@@ -263,37 +254,36 @@ class VpnServiceManager private constructor(private val context: Context) {
             status.txBytes,
             status.connected,
         )
-        if (status.connected || status.error != null) {
-            _isConnecting.value = false
-            connectingWatchdog?.cancel()
-            connectingWatchdog = null
-        }
-    }
 
-    /**
-     * Safety net against a stuck "Connecting..." spinner. Android's
-     * always-on auto-start path, process-death-without-service-death
-     * races, and collisions between user connect() and a pre-existing
-     * tunnel established externally can all leave _isConnecting true
-     * with no resolving updateStatus() ever arriving. This coroutine
-     * force-clears the flag after a ceiling timeout so the UI button
-     * stays usable.
-     *
-     * 90 s covers every realistic tunnel-establish time on this app
-     * (IPSec charon worst-case ~30 s, OpenVPN TCP over slow-3G
-     * ~45 s) with plenty of margin. Anything taking longer is a
-     * genuine failure the user should be able to cancel.
-     */
-    private fun startConnectingWatchdog() {
-        connectingWatchdog?.cancel()
-        connectingWatchdog = scope.launch {
-            delay(90_000L)
-            if (_isConnecting.value) {
-                PrivycsLogger.w(TAG, "Connecting watchdog fired after 90s - force-clearing stuck spinner")
-                _isConnecting.value = false
+        // Bridge actual-tunnel-state -> coordinator intent-state. The
+        // coordinator needs to know when the tunnel actually reaches
+        // Connected / returns to Disconnected so its state flow stays
+        // in sync with reality. Only fire on transitions to avoid
+        // redundant coordinator writes on every poll tick.
+        if (status.connected && !prev.connected) {
+            scope.launch {
+                com.privycs.vpn.util.ConnectCoordinator.markConnected(status.connectionId)
+            }
+        } else if (!status.connected && prev.connected) {
+            scope.launch {
+                com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
+            }
+        } else if (status.error != null) {
+            // A connect attempt failed before reaching connected=true.
+            // Reset coordinator to Idle so subsequent intents aren't
+            // blocked on a zombie Connecting state.
+            scope.launch {
+                com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
             }
         }
     }
+
+    // Note: the previous in-class connecting watchdog was removed in
+    // v0.9.4. ConnectCoordinator.startWatchdog now owns the "force-
+    // reset after 90s stuck Connecting" responsibility for ALL intent
+    // sources, and _isConnecting is derived from the coordinator state
+    // via the init{} bridge - so when the coordinator's watchdog
+    // fires, the spinner clears automatically on the next state tick.
 
     /**
      * Refresh status by querying the service.
@@ -324,9 +314,13 @@ class VpnServiceManager private constructor(private val context: Context) {
                 activeProtocol = activeConn?.activeProtocol ?: _status.value.activeProtocol,
                 serverEndpoint = activeConn?.getActiveConfig()?.serverAddress ?: _status.value.serverEndpoint,
             )
-            _isConnecting.value = false
-            connectingWatchdog?.cancel()
-            connectingWatchdog = null
+            // Let coordinator know actual state is Connected; its flow
+            // will ripple back into _isConnecting via the init{} bridge.
+            scope.launch {
+                com.privycs.vpn.util.ConnectCoordinator.markConnected(
+                    activeConn?.id ?: _status.value.connectionId,
+                )
+            }
             return
         }
 

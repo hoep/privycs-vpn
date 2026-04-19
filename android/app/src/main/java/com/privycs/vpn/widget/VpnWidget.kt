@@ -146,9 +146,28 @@ class VpnWidget : AppWidgetProvider() {
                     AlwaysOnDetector.pauseFor(context, ALWAYS_ON_WIDGET_PAUSE_MINUTES)
                     Log.i(TAG, "Widget toggle with Always-On: pausing for $ALWAYS_ON_WIDGET_PAUSE_MINUTES min")
                 }
-                manager.disconnect()
+                // Route through coordinator with WIDGET source so the
+                // intent priority + state serialisation work correctly
+                // against simultaneous taps on Tile / in-app button.
+                kotlinx.coroutines.runBlocking {
+                    com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                        context,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.WIDGET,
+                    )
+                }
             } else {
-                manager.connect()
+                val connection = com.privycs.vpn.PrivycsApp.instance.connectionRepository.getActive()
+                if (connection == null) {
+                    Log.w(TAG, "Widget toggle: no active connection to connect to")
+                    return
+                }
+                kotlinx.coroutines.runBlocking {
+                    com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                        context,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.WIDGET,
+                        connection,
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Toggle failed", e)

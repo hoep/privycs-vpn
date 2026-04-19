@@ -355,6 +355,30 @@ class PrivycsVpnService : VpnService() {
                 return@launch
             }
 
+            // Coordinator gate: claim the Connecting slot with source
+            // ALWAYS_ON. If some other source already holds the slot
+            // (user just tapped Connect, or NetworkMonitor fired first
+            // because boot raced with on-demand eval), bail out -
+            // letting them finish rather than race against their
+            // handleConnect is what prevents the multi-tunnel /dev/tun
+            // collision.
+            val connRepoEarly = PrivycsApp.instance.connectionRepository
+            val activeConnEarly = connRepoEarly.getActive()
+            if (activeConnEarly == null) {
+                Log.d(TAG, "handleAlwaysOnReconnect: no active connection, stopping")
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return@launch
+            }
+            val claimed = com.privycs.vpn.util.ConnectCoordinator
+                .markAlwaysOnConnecting(activeConnEarly)
+            if (!claimed) {
+                Log.i(TAG, "handleAlwaysOnReconnect: coordinator slot taken, yielding")
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return@launch
+            }
+
             val connRepo = PrivycsApp.instance.connectionRepository
             // NOTE: drop the settings.alwaysOn check. Android already
             // wakes this VpnService with a null intent only when its

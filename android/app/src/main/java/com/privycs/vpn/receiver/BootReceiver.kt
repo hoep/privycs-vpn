@@ -60,14 +60,18 @@ class BootReceiver : BroadcastReceiver() {
 
             Log.d(TAG, "Auto-connecting to ${activeConn.name} via ${activeConn.activeProtocol.label}")
 
-            val vpnIntent = Intent(context, PrivycsVpnService::class.java).apply {
-                action = PrivycsVpnService.ACTION_CONNECT
-                putExtra(PrivycsVpnService.EXTRA_CONNECTION_ID, activeConn.id)
-                putExtra(PrivycsVpnService.EXTRA_PROTOCOL, activeConn.activeProtocol.name)
-                putExtra(PrivycsVpnService.EXTRA_CONFIG_CONTENT, config.configContent)
-                putExtra(PrivycsVpnService.EXTRA_CONNECTION_NAME, activeConn.name)
+            // Route through coordinator so if System Always-On also
+            // wakes our service at boot with its null-intent path,
+            // whichever arrives first wins and the other yields -
+            // preventing the boot-time double-tunnel race we saw in
+            // v0.9.3.10..12.
+            kotlinx.coroutines.runBlocking {
+                com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                    context,
+                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.BOOT,
+                    activeConn,
+                )
             }
-            context.startForegroundService(vpnIntent)
         } catch (e: Exception) {
             Log.e(TAG, "Auto-connect failed", e)
         }

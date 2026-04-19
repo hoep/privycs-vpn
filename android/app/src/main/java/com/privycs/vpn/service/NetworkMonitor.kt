@@ -242,38 +242,30 @@ class NetworkMonitor private constructor(private val context: Context) {
             val transitioned = prev == null || prev != shouldConnect
 
             if (shouldConnect && !vpnManager.isConnected && !vpnManager.isConnecting.value) {
-                // Cooldown gate: do NOT fire on-demand reconnect while
-                // an in-flight OS-initiated service teardown is still
-                // running. Without this, connecting here spawns a new
-                // GoBackend on /dev/tun while the old one is still
-                // writing to the same fd; observed symptoms were
-                // "Failed to write packet to TUN device: input/output
-                // error", keepalive storm (~15/s vs ~0.04/s normal)
-                // and the UI flipping connect/disconnect indefinitely
-                // when the user turned off Always-On in system
-                // settings. AlwaysOnDetector.stampSystemRevoke() is
-                // called from PrivycsVpnService.onRevoke() so this
-                // window opens the moment the OS tells us to tear
-                // down.
-                if (AlwaysOnDetector.isInSystemRevokeCooldown(context)) {
-                    Log.d(TAG, "Skipping auto-connect: in system-revoke cooldown window")
+                // All gating + serialisation now happens inside
+                // ConnectCoordinator: system-revoke cooldown, always-on
+                // pause flag, preemption by USER-source intents,
+                // duplicate-connect guard while Connecting is in
+                // flight. We just hand off the intent with the
+                // ON_DEMAND source tag and trust the coordinator's
+                // decision.
+                val connection = PrivycsApp.instance.connectionRepository.getActive()
+                if (connection == null) {
+                    Log.d(TAG, "Rules match but no active connection, skipping")
                     return@launch
                 }
-                // Guard against issuing overlapping connect calls while a
-                // previous attempt is still in-flight. Android's
-                // ConnectivityManager.NetworkCallback fires several
-                // events per second during a WiFi association (onAvailable
-                // + onCapabilitiesChanged + onLinkPropertiesChanged + ...);
-                // each would call evaluateCurrentNetwork and, without this
-                // check, each would start another connect before the first
-                // one even finishes. PrivycsVpnService is not reentrant -
-                // a second handleConnect while the first is mid-flight
-                // double-starts the native tunnel.
-                Log.d(TAG, "Rules match and VPN is off, connecting: $ruleMatch")
-                vpnManager.connect()
+                val result = com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                    context,
+                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
+                    connection,
+                )
+                Log.d(TAG, "on-demand requestConnect -> $result (rules=$ruleMatch)")
             } else if (!shouldConnect && vpnManager.isConnected && transitioned) {
                 Log.d(TAG, "Rules transitioned to no-match, disconnecting VPN: $ruleMatch")
-                vpnManager.disconnect()
+                com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                    context,
+                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
+                )
             } else if (transitioned) {
                 Log.d(TAG, "Rules transitioned but already in desired state: $ruleMatch")
             }

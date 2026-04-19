@@ -59,7 +59,19 @@ class VpnQuickSettingsTile : TileService() {
         val manager = VpnServiceManager.getInstance(applicationContext)
 
         if (manager.isConnected) {
-            manager.disconnect()
+            // Same Always-On handling as the widget: if Always-On is
+            // active, a raw disconnect bounces back via OS respawn, so
+            // apply a pause-flag first. Then route through the
+            // coordinator with TILE source.
+            if (com.privycs.vpn.util.AlwaysOnDetector.detected.value) {
+                com.privycs.vpn.util.AlwaysOnDetector.pauseFor(applicationContext, 15)
+            }
+            scope?.launch {
+                com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                    applicationContext,
+                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.TILE,
+                )
+            }
         } else {
             // Check VPN permission
             val prepareIntent = manager.prepareVpn()
@@ -68,7 +80,18 @@ class VpnQuickSettingsTile : TileService() {
                 Log.w(TAG, "VPN permission not granted, cannot connect from tile")
                 return
             }
-            manager.connect()
+            val connection = com.privycs.vpn.PrivycsApp.instance.connectionRepository.getActive()
+            if (connection == null) {
+                Log.w(TAG, "Tile tap: no active connection")
+                return
+            }
+            scope?.launch {
+                com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                    applicationContext,
+                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.TILE,
+                    connection,
+                )
+            }
         }
     }
 
