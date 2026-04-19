@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive-icon background layer. Solid Privycs-teal fills the
+    entire 108dp canvas so whatever device mask the launcher applies
+    (circle on Samsung / squircle on Pixel / teardrop on OnePlus /
+    rounded-square on MIUI) cuts out a teal region. The foreground
+    layer's existing logo circle sits on top and aligns with the
+    circle mask; on non-circle masks, the corners get filled with
+    the same teal -> no white border anywhere.
+
+    Color value matches PrivycsTeal in Theme.kt (0xFF00CDAB) so the
+    launcher icon stays visually consistent with the app's primary
+    brand color in-app.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#00CDAB" />
+</shape>

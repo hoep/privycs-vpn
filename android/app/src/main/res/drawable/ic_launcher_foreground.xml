@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive-icon foreground layer. The 108dp total canvas has a
+    66dp "safe zone" in the center that is guaranteed visible under
+    every device mask; the outer 21dp per side may be cropped. We
+    inset the existing Privycs logo bitmap so the shield-with-P
+    sits inside that safe zone while the logo's own circular teal
+    outline extends into the bleed area. Result: on circle-mask
+    launchers the logo's circle aligns flush with the device mask,
+    on squircle/rounded-square masks the teal from the background
+    layer fills the corners seamlessly.
+
+    inset=16dp gives ~76dp visible canvas for the logo, which
+    empirically matches the shield glyph size without clipping.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_privycs_logo"
+    android:inset="16dp" />

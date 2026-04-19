@@ -2,6 +2,10 @@ package com.privycs.vpn.service
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.util.Log
 import com.privycs.vpn.PrivycsApp
@@ -11,7 +15,9 @@ import com.privycs.vpn.data.models.VpnStatus
 import com.privycs.vpn.util.PrivycsLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,6 +56,63 @@ class VpnServiceManager private constructor(private val context: Context) {
     val isConnected: Boolean
         get() = _status.value.connected
 
+    // Watchdog that force-clears _isConnecting after a ceiling timeout
+    // so the spinner can NEVER get stuck indefinitely. Stored as a Job
+    // so a new connect() or a status push with connected=true can
+    // cancel and restart the timer cleanly.
+    private var connectingWatchdog: Job? = null
+
+    init {
+        // Register a permanent NetworkCallback filtered on TRANSPORT_VPN
+        // so we get a live signal whenever ANY VPN comes up or goes down
+        // on the device - including the always-on auto-start path where
+        // VpnServiceManager.connect() is never called and the UI would
+        // otherwise be left with _isConnecting stuck at true forever.
+        // Also recovers the process-death case where singleton state
+        // resets to defaults but the tunnel is already live from a
+        // previous process.
+        try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val request = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                // removeCapability NOT_VPN explicit so the request matches
+                // VPN networks specifically (default NetworkRequest builders
+                // implicitly add NOT_VPN which would filter them out).
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build()
+            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    // A VPN is live on the device. We don't try to verify
+                    // it's OURS (would require comparing interface names
+                    // which aren't stable across protocols); we just
+                    // unblock the UI. If another VPN app has the tunnel,
+                    // our own connect() will have already failed with an
+                    // error status which is handled by updateStatus().
+                    if (_isConnecting.value) {
+                        PrivycsLogger.i(TAG, "TRANSPORT_VPN available -> clearing stuck isConnecting")
+                        _isConnecting.value = false
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    // VPN went away. Clear spinner if a disconnect was
+                    // pending, and mark status as disconnected so the
+                    // UI reflects reality regardless of who shut the
+                    // tunnel down (user action, always-on toggle off,
+                    // other VPN app, tunnel crash).
+                    if (_status.value.connected) {
+                        _status.value = _status.value.copy(connected = false)
+                    }
+                    if (_isConnecting.value) {
+                        _isConnecting.value = false
+                    }
+                }
+            })
+        } catch (e: Exception) {
+            PrivycsLogger.w(TAG, "Failed to register TRANSPORT_VPN callback: ${e.message}")
+        }
+    }
+
     /**
      * Check if VPN permission has been granted.
      * Returns null if permission is granted, or an Intent to request it.
@@ -80,6 +143,7 @@ class VpnServiceManager private constructor(private val context: Context) {
         PrivycsLogger.i(TAG, "connect '${connection.name}' via ${connection.activeProtocol}")
         scope.launch {
             _isConnecting.value = true
+            startConnectingWatchdog()
             try {
                 connectionRepo.setActive(connId)
 
@@ -226,14 +290,71 @@ class VpnServiceManager private constructor(private val context: Context) {
         )
         if (status.connected || status.error != null) {
             _isConnecting.value = false
+            connectingWatchdog?.cancel()
+            connectingWatchdog = null
+        }
+    }
+
+    /**
+     * Safety net against a stuck "Connecting..." spinner. Android's
+     * always-on auto-start path, process-death-without-service-death
+     * races, and collisions between user connect() and a pre-existing
+     * tunnel established externally can all leave _isConnecting true
+     * with no resolving updateStatus() ever arriving. This coroutine
+     * force-clears the flag after a ceiling timeout so the UI button
+     * stays usable.
+     *
+     * 90 s covers every realistic tunnel-establish time on this app
+     * (IPSec charon worst-case ~30 s, OpenVPN TCP over slow-3G
+     * ~45 s) with plenty of margin. Anything taking longer is a
+     * genuine failure the user should be able to cancel.
+     */
+    private fun startConnectingWatchdog() {
+        connectingWatchdog?.cancel()
+        connectingWatchdog = scope.launch {
+            delay(90_000L)
+            if (_isConnecting.value) {
+                PrivycsLogger.w(TAG, "Connecting watchdog fired after 90s - force-clearing stuck spinner")
+                _isConnecting.value = false
+            }
         }
     }
 
     /**
      * Refresh status by querying the service.
+     *
+     * Also does a ConnectivityManager reality check: if the system
+     * reports an active VPN transport but our own status believes
+     * we're disconnected (typical after process death + always-on
+     * restart, where the UI singleton resets to defaults but the
+     * tunnel is already live), reconcile our state so the UI shows
+     * connected. Without this reconciliation the user would see a
+     * "Connect" button that, when tapped, collides with the existing
+     * tunnel and manifests as the stuck-spinner bug.
      */
     fun refreshStatus() {
         val activeConn = connectionRepo.getActive()
+        val systemVpnActive = isSystemVpnActive()
+
+        if (systemVpnActive && !isConnected) {
+            // Trust the system: a VPN is live but our state disagrees.
+            // Flip connected=true so the UI stops asking the user to
+            // re-connect something that's already connected, and clear
+            // any lingering spinner from a prior aborted connect().
+            PrivycsLogger.i(TAG, "refreshStatus: system says VPN is active - reconciling UI state")
+            _status.value = _status.value.copy(
+                connected = true,
+                connectionName = activeConn?.name ?: _status.value.connectionName,
+                connectionId = activeConn?.id ?: _status.value.connectionId,
+                activeProtocol = activeConn?.activeProtocol ?: _status.value.activeProtocol,
+                serverEndpoint = activeConn?.getActiveConfig()?.serverAddress ?: _status.value.serverEndpoint,
+            )
+            _isConnecting.value = false
+            connectingWatchdog?.cancel()
+            connectingWatchdog = null
+            return
+        }
+
         if (activeConn != null && !isConnected) {
             _status.value = VpnStatus(
                 connectionName = activeConn.name,
@@ -241,6 +362,25 @@ class VpnServiceManager private constructor(private val context: Context) {
                 activeProtocol = activeConn.activeProtocol,
                 serverEndpoint = activeConn.getActiveConfig()?.serverAddress ?: ""
             )
+        }
+    }
+
+    /**
+     * True if any Network on the device currently advertises
+     * TRANSPORT_VPN. Does not distinguish "our VPN" from a third-party
+     * VPN app, but for the refreshStatus() use case (resolving stuck
+     * spinner / post-process-death sync) that distinction is academic
+     * - the user sees a VPN shield in the status bar either way, and
+     * our connect() would collide with it either way.
+     */
+    private fun isSystemVpnActive(): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            cm.allNetworks.any { net ->
+                cm.getNetworkCapabilities(net)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+            }
+        } catch (e: Exception) {
+            false
         }
     }
 }
