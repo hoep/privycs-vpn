@@ -27,6 +27,19 @@ type OpenVPNProtocol struct {
 	connectedAt time.Time
 	serverAddr  string
 	localAddr   string
+
+	// Management-interface state cache. OpenVPN 2.7.1 Windows has a
+	// bug where rapid connect/disconnect cycles on the TCP management
+	// port trigger an internal assertion
+	// ("Assertion failed at win32.c:332 (!socket_defined(ne->sd))")
+	// that kills openvpn.exe after ~13 seconds. Status() is called
+	// every 500 ms during the connect-poll loop and every 2 s by the
+	// UI poll — without caching that sums to 3+ new TCP connections
+	// per second to 127.0.0.1:7505, which is far above the cadence
+	// the buggy management loop can tolerate. A short-lived cache
+	// (3 s) collapses the worst case to 1 query every 3 s.
+	cachedState     string
+	cachedStateTime time.Time
 }
 
 // NewOpenVPNProtocol creates a new OpenVPN protocol handler
@@ -334,7 +347,20 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 	// If the management socket isn't reachable at all, we fall back to
 	// "process is running but state unknown" — report not connected, since
 	// the user-facing guarantee is that "connected" means traffic flows.
-	state := queryOpenVPNState(ovpnMgmtHost, ovpnMgmtPort)
+	//
+	// Cache the result for 3 s to prevent hammering the management TCP
+	// socket. OpenVPN 2.7.1 on Windows 11 26200 has a crash bug
+	// (win32.c:332 assertion) triggered by rapid connect/disconnect
+	// cycles on the management port, which happens if our 500 ms
+	// connect-poll and 2 s UI-status-poll both hit it uncached.
+	var state string
+	if time.Since(o.cachedStateTime) < 3*time.Second {
+		state = o.cachedState
+	} else {
+		state = queryOpenVPNState(ovpnMgmtHost, ovpnMgmtPort)
+		o.cachedState = state
+		o.cachedStateTime = time.Now()
+	}
 	if state != "CONNECTED" {
 		return status
 	}

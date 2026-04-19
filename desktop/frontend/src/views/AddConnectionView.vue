@@ -9,14 +9,28 @@
           {{ targetConnection ? 'Add Protocol to ' + targetConnection.name : 'Add Connection' }}
         </h2>
       </div>
-      <button
-        v-if="hasApiKey"
-        @click="toggleGatewayPanel"
-        class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
-      >
-        <CloudArrowDownIcon class="w-4 h-4" />
-        Gateway
-      </button>
+      <div class="flex items-center gap-2">
+        <!-- QR code scan entry point. Opens a modal with the webcam and
+             a BarcodeDetector-backed scanning loop. Accepts WireGuard
+             raw-config QRs and Privycs enrollment URLs identically to
+             the Android side. -->
+        <button
+          @click="showQrScanner = true"
+          class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
+          title="Scan QR code"
+        >
+          <QrCodeIcon class="w-4 h-4" />
+          Scan QR
+        </button>
+        <button
+          v-if="hasApiKey"
+          @click="toggleGatewayPanel"
+          class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
+        >
+          <CloudArrowDownIcon class="w-4 h-4" />
+          Gateway
+        </button>
+      </div>
     </div>
 
     <!-- Gateway configs panel -->
@@ -166,20 +180,29 @@
         </div>
       </div>
     </div>
+
+    <QrScanModal
+      v-if="showQrScanner"
+      @scanned="handleQrScanned"
+      @close="showQrScanner = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ImportConfig, ListConnections, FetchMyProfile, DownloadAndImportConfig } from '../../wailsjs/go/main/App'
+import { ImportConfig, ListConnections, FetchMyProfile, DownloadAndImportConfig, GetSettings, UpdateSettings } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
+import QrScanModal from '@/components/QrScanModal.vue'
+import { parseQrPayload } from '@/util/qrPayload'
 import {
   ArrowLeftIcon,
   CloudArrowDownIcon,
   DocumentArrowUpIcon,
   DocumentTextIcon,
+  QrCodeIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -295,6 +318,49 @@ function handleDrop(e: DragEvent) {
   dragOver.value = false
   if (!e.dataTransfer?.files?.length) return
   processFile(e.dataTransfer.files[0])
+}
+
+// QR scanner state and handler. Opens the webcam-backed modal and
+// routes the decoded payload through the shared parser so WG configs
+// land in the same fileContent pipeline as a drag-drop import, and
+// Privycs enrollment URLs auto-fill the gateway URL / API key before
+// opening the gateway panel.
+const showQrScanner = ref(false)
+
+async function handleQrScanned(raw: string) {
+  showQrScanner.value = false
+  const payload = parseQrPayload(raw)
+  if (payload.kind === 'wireguard') {
+    // Feed the WireGuard config through the same pipeline as a file
+    // import so downstream name-deriving and protocol-detect logic
+    // stays in one place.
+    fileContent.value = payload.content
+    detectedProtocol.value = 'wireguard'
+    if (!connectionName.value) connectionName.value = 'scanned'
+    selectedFile.value = null
+    error.value = ''
+    success.value = ''
+  } else if (payload.kind === 'privycs') {
+    // Store gateway credentials if supplied and pop open the gateway
+    // panel so the user can pick which protocol to import. Does NOT
+    // auto-import because we don't know which protocol(s) the user
+    // wants and the list may be filtered by "add to existing" mode.
+    if (payload.gatewayUrl && payload.apiKey) {
+      try {
+        const currentSettings = await GetSettings()
+        currentSettings.gateway_url = payload.gatewayUrl
+        currentSettings.api_key = payload.apiKey
+        await UpdateSettings(currentSettings)
+      } catch (e) {
+        error.value = `Could not store gateway credentials: ${e}`
+        return
+      }
+    }
+    showGateway.value = true
+    await loadGatewayConfigs()
+  } else {
+    error.value = 'QR code content not recognised as a VPN config or Privycs enrollment URL'
+  }
 }
 
 function processFile(file: File) {

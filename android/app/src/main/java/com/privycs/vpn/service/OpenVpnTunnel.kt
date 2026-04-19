@@ -364,22 +364,40 @@ class OpenVpnTunnel(private val context: Context) {
     fun getStatus(connectionName: String, connectionId: String): VpnStatus {
         val isUp = state == State.CONNECTED
 
-        // Prefer the byteCountListener-fed counters; fall back to the
-        // live tun interface read if those are still zero. In practice
-        // ics-openvpn's ByteCountListener is sometimes silent when the
-        // management protocol omits the `bytecount` pacing command, or
-        // when the VpnStatus singleton state gets reset across a
-        // reconnect inside the same process. /proc/net/dev is always
-        // authoritative — the Linux kernel keeps these counters and
-        // every packet crossing the tun device increments them. Reading
-        // here instead of at listener time means the status reflects
-        // traffic even on connections where the listener never fires.
-        var rx = rxBytes
-        var tx = txBytes
-        if (isUp && (rx == 0L || tx == 0L)) {
+        // Traffic counters: always prefer the live kernel values over
+        // the ByteCountListener fields. Rationale:
+        //
+        //   - ics-openvpn's OpenVPNService runs in the :openvpn process
+        //     (see android:process in its AndroidManifest), while our
+        //     OpenVpnTunnel lives in the main app process. VpnStatus
+        //     is a per-process singleton, so the ByteCountListener we
+        //     register here is NOT the one the :openvpn process pushes
+        //     updates to. Cross-process delivery goes through bound
+        //     Messenger/AIDL, which breaks silently after a reconnect
+        //     cycle — users see traffic count up briefly on the first
+        //     session, then freeze at the last value or reset to zero
+        //     with no further updates even while the tunnel keeps
+        //     forwarding traffic.
+        //
+        //   - The Linux kernel's per-interface byte counters in
+        //     /proc/self/net/dev are authoritative and always current.
+        //     Every packet crossing the tun device increments them,
+        //     regardless of which process established the tunnel or
+        //     whether our listener binding is healthy.
+        //
+        // The listener values are still kept up-to-date as a secondary
+        // source for the rare case where the kernel read fails (SELinux
+        // policy on very old / very new Android can restrict /proc
+        // access in unexpected ways).
+        var rx = 0L
+        var tx = 0L
+        if (isUp) {
             val (fbRx, fbTx) = readTunInterfaceStats()
-            if (fbRx > rx) rx = fbRx
-            if (fbTx > tx) tx = fbTx
+            rx = fbRx
+            tx = fbTx
+            // Listener values as fallback when kernel read returned zero.
+            if (rx == 0L && rxBytes > 0L) rx = rxBytes
+            if (tx == 0L && txBytes > 0L) tx = txBytes
         }
 
         return VpnStatus(
@@ -398,11 +416,19 @@ class OpenVpnTunnel(private val context: Context) {
 
     /**
      * Read RX/TX byte counters for the first tun* interface from
-     * /proc/net/dev. Returns (0, 0) if no tun interface is visible or
-     * the file cannot be parsed — a safe default that the caller treats
-     * as "no fallback available, keep listener value".
+     * /proc/self/net/dev. Returns (0, 0) if no tun interface is visible
+     * or the file cannot be parsed — a safe default that the caller
+     * treats as "no fallback available, keep listener value".
      *
-     * /proc/net/dev format (header + one row per interface):
+     * Why /proc/self and not /proc/net: Android 11+ tightened SELinux
+     * policy on `untrusted_app` so /proc/net/* is blocked for most
+     * non-system apps, but /proc/self/net/ is always readable because
+     * it routes through the process-owned /proc/<pid>/net/ tree and
+     * inherits the per-process permissions. Interface list is the
+     * same — Android does not namespace network interfaces per process
+     * so tun0 is visible regardless of which /proc subtree we read.
+     *
+     * /proc/*/net/dev format (header + one row per interface):
      *   Interface  |        Receive                                           |  Transmit
      *   face       | bytes    packets errs drop fifo frame compressed multi  | bytes    packets errs drop fifo colls carrier compressed
      *   tun0:        123456    100     0    0    0    0     0          0       78901     80      0    0    0    0     0       0
@@ -412,8 +438,20 @@ class OpenVpnTunnel(private val context: Context) {
      * per-interface row.
      */
     private fun readTunInterfaceStats(): Pair<Long, Long> {
+        // Try /proc/self/net/dev first (always readable). Fall back to
+        // /proc/net/dev for the pre-Android-11 case where it's still
+        // readable — some devices keep the old permissive policy.
+        val candidates = listOf("/proc/self/net/dev", "/proc/net/dev")
+        for (path in candidates) {
+            val result = parseProcNetDev(path)
+            if (result != null) return result
+        }
+        return 0L to 0L
+    }
+
+    private fun parseProcNetDev(path: String): Pair<Long, Long>? {
         return try {
-            val lines = java.io.File("/proc/net/dev").readLines()
+            val lines = java.io.File(path).readLines()
             for (line in lines) {
                 val trimmed = line.trim()
                 // Match tun0, tun1, ... — the ics-openvpn VpnService is
@@ -427,9 +465,9 @@ class OpenVpnTunnel(private val context: Context) {
                 val tx = fields[8].toLongOrNull() ?: 0L
                 return rx to tx
             }
-            0L to 0L
+            null // no tun interface found — try next candidate
         } catch (_: Exception) {
-            0L to 0L
+            null
         }
     }
 

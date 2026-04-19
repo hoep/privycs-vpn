@@ -1,5 +1,6 @@
 package com.privycs.vpn.ui.screens
 
+import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -62,6 +64,9 @@ import com.privycs.vpn.api.GatewayApiClient
 import com.privycs.vpn.config.ConfigParser
 import com.privycs.vpn.data.models.RemoteConfigEntry
 import com.privycs.vpn.data.models.VpnProtocol
+import com.privycs.vpn.util.QrCodePayload
+import com.privycs.vpn.util.QrCodeScanner
+import com.privycs.vpn.util.parseQrPayload
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -164,6 +169,75 @@ fun AddConnectionScreen(
                     }
                 },
                 actions = {
+                    // QR code scan — camera-based import. Works for raw
+                    // WireGuard configs (wg-quick standard QR) out of
+                    // the box; for OpenVPN/IPSec it accepts a
+                    // privycs://enroll URL that points back at the
+                    // gateway the QR was generated from. GMS
+                    // CodeScanner handles the camera permission in its
+                    // own process, so we don't need CAMERA in the
+                    // manifest.
+                    IconButton(onClick = {
+                        val act = context as? Activity ?: return@IconButton
+                        scope.launch {
+                            importError = null
+                            try {
+                                val raw = QrCodeScanner.scan(act) ?: return@launch
+                                when (val payload = parseQrPayload(raw)) {
+                                    is QrCodePayload.WireGuardConfig -> {
+                                        fileContent = payload.content
+                                        selectedFilename = "scanned.conf"
+                                        detectedProtocol = ConfigParser.detectProtocol(
+                                            payload.content, selectedFilename
+                                        )
+                                        if (detectedProtocol == null) {
+                                            importError = "Scanned config did not validate as WireGuard"
+                                        } else if (connectionName.isBlank()) {
+                                            connectionName = ConfigParser.deriveConnectionName(selectedFilename)
+                                        }
+                                    }
+                                    is QrCodePayload.PrivycsEnrollment -> {
+                                        if (!payload.gatewayUrl.isNullOrBlank() &&
+                                            !payload.apiKey.isNullOrBlank()) {
+                                            settingsRepo.updateGatewayConfig(
+                                                payload.gatewayUrl,
+                                                payload.apiKey
+                                            )
+                                        }
+                                        showGateway = true
+                                        if (gatewayConfigs.isEmpty() && !gatewayLoading) {
+                                            gatewayLoading = true
+                                            gatewayError = null
+                                            try {
+                                                val url = payload.gatewayUrl ?: settings.gatewayUrl
+                                                val key = payload.apiKey ?: settings.apiKey
+                                                val client = GatewayApiClient(url, key)
+                                                val profile = client.fetchProfile()
+                                                gatewayConfigs = profile.configs
+                                                client.close()
+                                            } catch (e: Exception) {
+                                                gatewayError = e.message
+                                            } finally {
+                                                gatewayLoading = false
+                                            }
+                                        }
+                                    }
+                                    is QrCodePayload.Unknown -> {
+                                        importError = "QR code content not recognised as a VPN config or Privycs enrollment URL"
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                importError = "QR scan failed: ${e.message}"
+                            }
+                        }
+                    }) {
+                        Icon(
+                            Icons.Filled.QrCodeScanner,
+                            contentDescription = "Scan QR code",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     // Gateway toggle — only usable with API key configured.
                     if (settings.gatewayUrl.isNotBlank() && settings.apiKey.isNotBlank()) {
                         IconButton(onClick = {

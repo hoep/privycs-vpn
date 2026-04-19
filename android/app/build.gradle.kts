@@ -12,8 +12,8 @@ android {
         applicationId = "com.privycs.vpn"
         minSdk = 26
         targetSdk = 34
-        versionCode = 921
-        versionName = "0.9.2.1"
+        versionCode = 930
+        versionName = "0.9.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -149,6 +149,15 @@ dependencies {
 
     // DataStore Preferences
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+
+    // QR code scanner via Google Play Services Code Scanner.
+    // Uses Google Play Services' own camera UI in a separate process,
+    // so we do NOT need to declare the CAMERA permission in the
+    // manifest and users are not prompted for camera access by our
+    // app - GMS handles the UX itself. Replaces the alternatives of
+    // ML Kit Barcode Scanning (needs manual CameraX + camera perm) and
+    // ZXing (older, more boilerplate).
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

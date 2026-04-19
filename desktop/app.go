@@ -405,7 +405,7 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	//     the wg-quick call returns, which already blocks that long)
 	//   - IPSec: IKE_SA + CHILD_SA negotiation: up to ~20s
 	const connectTimeout = 30 * time.Second
-	const pollInterval = 500 * time.Millisecond
+	const pollInterval = 3 * time.Second
 	a.mu.Unlock() // release during blocking poll so status emitter can read state
 	deadline := time.Now().Add(connectTimeout)
 	tunnelUp := false

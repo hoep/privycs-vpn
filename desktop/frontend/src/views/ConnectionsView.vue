@@ -3,6 +3,17 @@
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">Connections</h2>
       <div class="flex items-center gap-3">
+        <!-- QR code scan — sits next to the cloud/gateway icon to
+             group the two "import from outside" actions visually.
+             Mirrors the Android ConnectionsScreen placement. -->
+        <button
+          @click="showQrScanner = true"
+          class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
+          title="Scan QR code"
+        >
+          <QrCodeIcon class="w-4 h-4" />
+          Scan QR
+        </button>
         <button
           v-if="hasApiKey"
           @click="toggleRemoteConfigs"
@@ -179,6 +190,12 @@
         </div>
       </div>
     </div>
+
+    <QrScanModal
+      v-if="showQrScanner"
+      @scanned="handleQrScanned"
+      @close="showQrScanner = false"
+    />
   </div>
 </template>
 
@@ -186,19 +203,52 @@
 import { ref, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
-import { ListConnections, ActivateConnection, DeleteConnection, RenameConnection, FetchMyProfile, DownloadAndImportConfig, RemoveProtocolFromConnection } from '../../wailsjs/go/main/App'
+import { ListConnections, ActivateConnection, DeleteConnection, RenameConnection, FetchMyProfile, DownloadAndImportConfig, RemoveProtocolFromConnection, ImportConfig, GetSettings, UpdateSettings } from '../../wailsjs/go/main/App'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
+import QrScanModal from '@/components/QrScanModal.vue'
+import { parseQrPayload } from '@/util/qrPayload'
 import {
   PlusIcon,
   PencilIcon,
   DocumentTextIcon,
   TrashIcon,
   CloudArrowDownIcon,
+  QrCodeIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const vpn = useVpnStore()
 const connections = ref<any[]>([])
+const showQrScanner = ref(false)
+
+// Route a scanned QR payload into the right import path. Raw WG
+// configs go straight through ImportConfig so the user doesn't need
+// another click; Privycs enrollment URLs store the gateway
+// credentials and open the gateway panel so the user can pick which
+// protocol to import.
+async function handleQrScanned(raw: string) {
+  showQrScanner.value = false
+  const payload = parseQrPayload(raw)
+  try {
+    if (payload.kind === 'wireguard') {
+      await ImportConfig(payload.content, 'scanned', 'scanned.conf')
+      await loadConnections()
+    } else if (payload.kind === 'privycs') {
+      if (payload.gatewayUrl && payload.apiKey) {
+        const s = await GetSettings()
+        s.gateway_url = payload.gatewayUrl
+        s.api_key = payload.apiKey
+        await UpdateSettings(s)
+      }
+      showRemoteConfigs.value = true
+      await loadRemoteConfigs()
+    } else {
+      actionError.value = 'QR content not recognised as a VPN config or Privycs enrollment URL'
+    }
+  } catch (e: any) {
+    actionError.value = `QR import failed: ${e}`
+  }
+}
 const editingId = ref('')
 const editName = ref('')
 const renameInput = ref<HTMLInputElement | null>(null)
