@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,16 +27,21 @@ type OpenVPNProtocol struct {
 	serverAddr  string
 	localAddr   string
 
-	// Management-interface state cache. OpenVPN 2.7.1 Windows has a
-	// bug where rapid connect/disconnect cycles on the TCP management
-	// port trigger an internal assertion
-	// ("Assertion failed at win32.c:332 (!socket_defined(ne->sd))")
-	// that kills openvpn.exe after ~13 seconds. Status() is called
-	// every 500 ms during the connect-poll loop and every 2 s by the
-	// UI poll — without caching that sums to 3+ new TCP connections
-	// per second to 127.0.0.1:7505, which is far above the cadence
-	// the buggy management loop can tolerate. A short-lived cache
-	// (3 s) collapses the worst case to 1 query every 3 s.
+	// Offset in the OpenVPN log file at the moment we launched the
+	// current session. State detection reads only content after this
+	// offset so stale "Initialization Sequence Completed" lines from
+	// previous sessions don't produce false positives. Set in Up(),
+	// cleared in Down().
+	logStartOffset int64
+
+	// Short-lived state cache. OpenVPN 2.7.1 Windows has a known TCP
+	// management-socket bug (win32.c:332 assertion) that crashes the
+	// daemon on rapid connect/disconnect cycles to port 7505; the
+	// OpenVPN community recommends avoiding the management socket
+	// altogether. We derive state from the openvpn.log file instead,
+	// but still cache the result for 3 s so Status()-heavy callers
+	// (UI poll every 2 s, connect poll every 3 s) don't repeatedly
+	// re-read + re-scan the log for no reason.
 	cachedState     string
 	cachedStateTime time.Time
 }
@@ -97,6 +101,19 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 
 	logPath := filepath.Join(appDataDir(), "openvpn.log")
 	pidPath := filepath.Join(appDataDir(), "openvpn.pid")
+
+	// Remember the log file's size at spawn time so Status() can skip
+	// any content written by previous OpenVPN sessions (which would
+	// otherwise contain a stale "Initialization Sequence Completed"
+	// line and cause a false positive for the very first state check).
+	if fi, err := os.Stat(logPath); err == nil {
+		o.logStartOffset = fi.Size()
+	} else {
+		o.logStartOffset = 0
+	}
+	// Reset any cached state from a previous run.
+	o.cachedState = ""
+	o.cachedStateTime = time.Time{}
 
 	log.Printf("Starting OpenVPN via %s", ovpnExe)
 
@@ -252,61 +269,78 @@ func (o *OpenVPNProtocol) downUnixOpenVPN(ctx context.Context) {
 	}
 }
 
-// queryOpenVPNState opens a short-lived TCP connection to the OpenVPN
-// management interface and returns the current tunnel state string. The
-// management protocol replies to `state` with a line prefixed by ">STATE:"
-// whose second comma-separated field is the state name — CONNECTED means
-// the handshake completed, routes are installed, and the tunnel is truly
-// up. Any earlier state (CONNECTING, WAIT, AUTH, GET_CONFIG, ASSIGN_IP,
-// ADD_ROUTES) means "still working"; RECONNECTING/EXITING means failure.
-// Returns an empty string on any I/O error — caller treats that as
-// "cannot determine, assume not connected".
-func queryOpenVPNState(host, port string) string {
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), 1*time.Second)
+// readOpenVPNStateFromLog determines the current OpenVPN tunnel state by
+// tailing the openvpn.log file from the offset captured at Up() time.
+// This avoids the management TCP socket entirely.
+//
+// Rationale: OpenVPN 2.7.1 on Windows has a known TCP-management-socket
+// bug (win32.c:332 assertion, see Netgate / openvpn community forums)
+// that triggers after a handful of short-lived management connections
+// no matter how infrequent. The community-recommended workaround is to
+// either keep one persistent management connection (still risks other
+// 2.7.1-series bugs) or to drive state detection from the log. The log
+// is the authoritative source anyway — OpenVPN writes
+// "Initialization Sequence Completed" exactly once per successful
+// tunnel setup, and terminal states ("Exiting due to fatal error",
+// "SIGTERM received", "process exiting") are logged just as reliably.
+//
+// Returns one of:
+//   - "CONNECTED": Initialization Sequence Completed has been logged,
+//     no fatal-exit line after it
+//   - "CONNECTING": no init-complete line yet, no fatal-exit, still
+//     in setup phase
+//   - "EXITING":   fatal exit or SIGTERM observed after init-complete
+//     (tunnel torn down)
+//   - "":          log unreadable; caller treats as "unknown, assume
+//     not yet connected"
+func (o *OpenVPNProtocol) readOpenVPNStateFromLog() string {
+	logPath := filepath.Join(appDataDir(), "openvpn.log")
+	f, err := os.Open(logPath)
 	if err != nil {
 		return ""
 	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(1 * time.Second))
+	defer f.Close()
 
-	if _, err := conn.Write([]byte("state\nquit\n")); err != nil {
+	// Seek to the offset captured at Up() time so we only read lines
+	// from the current session. If the log rotated since Up() (size <
+	// offset), start from 0 — the file is fresh and everything in it
+	// belongs to the current run.
+	fi, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	start := o.logStartOffset
+	if fi.Size() < start {
+		start = 0
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
 		return ""
 	}
 
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil && err != io.EOF {
+	buf, err := io.ReadAll(f)
+	if err != nil {
 		return ""
 	}
+	content := string(buf)
 
-	for _, line := range strings.Split(string(buf[:n]), "\n") {
-		line = strings.TrimSpace(line)
-		// OpenVPN prefixes async state messages with ">STATE:", sync
-		// responses with an unprefixed epoch,<state>,... line. Match both.
-		line = strings.TrimPrefix(line, ">STATE:")
-		parts := strings.Split(line, ",")
-		if len(parts) >= 2 {
-			// Epoch timestamp is parts[0] — it's all digits for real
-			// state lines; everything else (OK, help text) fails this
-			// check and is silently ignored.
-			if len(parts[0]) >= 8 && isAllDigits(parts[0]) {
-				return parts[1]
-			}
-		}
+	// Terminal states trump initialization-complete. If the process
+	// logged a fatal exit, the tunnel is down even if init-complete
+	// was logged earlier in the same session.
+	if strings.Contains(content, "Exiting due to fatal error") ||
+		strings.Contains(content, "SIGTERM received") ||
+		strings.Contains(content, "process exiting") {
+		return "EXITING"
 	}
-	return ""
-}
 
-func isAllDigits(s string) bool {
-	if s == "" {
-		return false
+	// "Initialization Sequence Completed" is OpenVPN's canonical
+	// "tunnel is now up" marker — emitted once after routes are
+	// installed and the data channel is ready. Match case-insensitive
+	// because different log verbosity levels vary capitalisation.
+	if strings.Contains(content, "Initialization Sequence Completed") {
+		return "CONNECTED"
 	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+
+	return "CONNECTING"
 }
 
 func (o *OpenVPNProtocol) Status() ProtocolStatus {
@@ -341,23 +375,16 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 		return status
 	}
 
-	// Query management interface for the actual tunnel state. Only CONNECTED
-	// counts as "truly up" — any transient state (CONNECTING, WAIT, AUTH,
-	// GET_CONFIG, ASSIGN_IP, ADD_ROUTES) means setup is still in progress.
-	// If the management socket isn't reachable at all, we fall back to
-	// "process is running but state unknown" — report not connected, since
-	// the user-facing guarantee is that "connected" means traffic flows.
-	//
-	// Cache the result for 3 s to prevent hammering the management TCP
-	// socket. OpenVPN 2.7.1 on Windows 11 26200 has a crash bug
-	// (win32.c:332 assertion) triggered by rapid connect/disconnect
-	// cycles on the management port, which happens if our 500 ms
-	// connect-poll and 2 s UI-status-poll both hit it uncached.
+	// Determine tunnel state by reading the openvpn.log file. See
+	// readOpenVPNStateFromLog for the full rationale — tl;dr: OpenVPN
+	// 2.7.1 Windows crashes on repeated management-socket usage so we
+	// derive state from the log file instead. Cached for 3 s so UI
+	// polling (every 2 s) doesn't re-read the log on every tick.
 	var state string
-	if time.Since(o.cachedStateTime) < 3*time.Second {
+	if time.Since(o.cachedStateTime) < 3*time.Second && o.cachedState != "" {
 		state = o.cachedState
 	} else {
-		state = queryOpenVPNState(ovpnMgmtHost, ovpnMgmtPort)
+		state = o.readOpenVPNStateFromLog()
 		o.cachedState = state
 		o.cachedStateTime = time.Now()
 	}
