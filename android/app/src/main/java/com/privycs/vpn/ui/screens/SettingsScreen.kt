@@ -2,9 +2,11 @@ package com.privycs.vpn.ui.screens
 
 import android.app.Activity
 import android.content.Intent
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -365,6 +368,54 @@ fun SettingsScreen(
                     checked = settings.alwaysOn,
                     onCheckedChange = { scope.launch { settingsRepo.updateAlwaysOn(it) } }
                 )
+
+                // Always-on VPN auto-start after boot is governed by an
+                // Android system-level setting, not by this app. Google's
+                // security model explicitly prevents any app from enabling
+                // "Always-on VPN" in code — the user must flip it in
+                // Settings → Network & Internet → VPN → <our app> → gear.
+                // We can deep-link them straight to the VPN settings list
+                // via ACTION_VPN_SETTINGS so they only need two taps
+                // (pick us, open gear). The per-app sub-page itself is not
+                // exposed as a public intent, so two taps is the minimum.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .clickable {
+                            runCatching {
+                                val intent = Intent(Settings.ACTION_VPN_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                            }.onFailure {
+                                Toast.makeText(
+                                    context,
+                                    "Could not open Android VPN settings",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto-start after reboot",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Open Android system settings to enable Always-on VPN (required — Android does not allow apps to enable this programmatically).",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = "Open Android VPN settings",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 12.dp)
+                    )
+                }
             }
 
             // -- Connect on Demand --

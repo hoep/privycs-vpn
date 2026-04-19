@@ -363,6 +363,17 @@ class PrivycsVpnService : VpnService() {
         scope.launch {
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
             var iter = 0
+            // Delay BEFORE the first status read so the tunnel has a
+            // chance to transition out of DISCONNECTED. Otherwise the
+            // very first iteration races the state listener and sees
+            // state=DISCONNECTED, the stillTransient check fails
+            // (neither CONNECTING nor CONNECTED yet), and the loop
+            // breaks immediately with "Tunnel went down unexpectedly".
+            // That single-iteration death left the UI stuck at uptime
+            // 0 and rxBytes/txBytes frozen at the onStateChanged
+            // callback's one-shot values for the rest of the session.
+            delay(STATUS_POLL_INTERVAL_MS)
+            val loopStart = System.currentTimeMillis()
             Log.i(TAG, "startStatusPolling: loop starting, scope.isActive=$isActive, currentProtocol=$currentProtocol")
             while (isActive) {
                 iter++
@@ -385,17 +396,17 @@ class PrivycsVpnService : VpnService() {
                     sendWidgetUpdate(status.connected)
 
                     if (!status.connected) {
-                        // Break only on hard DISCONNECTED. IPSec spends the
-                        // first ~5-10s of every connect in CONNECTING, during
-                        // which getStatus().connected is false. Breaking the
-                        // poll loop there meant the loop exited BEFORE the SA
-                        // came up, so uptime froze at 0/1s forever. For
-                        // WireGuard/OpenVPN tunnel.connect() returns only
-                        // after the tunnel is live, so their State is always
-                        // CONNECTED by the time the poll starts - checking
-                        // the tunnel State instead of status.connected keeps
-                        // that fast path intact.
-                        val stillTransient = when (currentProtocol) {
+                        // Break only on hard DISCONNECTED AND outside the
+                        // initial warm-up window. The first 15 seconds are
+                        // always treated as "still coming up" regardless
+                        // of current state, because OpenVPN state goes
+                        // DISCONNECTED -> CONNECTING -> ... -> CONNECTED
+                        // and we race the state listener on every fresh
+                        // poll-loop start. Without the warm-up guard we
+                        // would break on iteration 1 before the state
+                        // listener even fired once.
+                        val warmingUp = System.currentTimeMillis() - loopStart < 15_000L
+                        val stillTransient = warmingUp || when (currentProtocol) {
                             VpnProtocol.IPSEC -> {
                                 val s = ipSecTunnel?.getState()
                                 s == IpSecTunnel.State.CONNECTING ||
