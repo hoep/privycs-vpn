@@ -10,6 +10,7 @@ import android.os.Build
 import android.util.Log
 import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.data.models.ConnectOnDemandSettings
+import com.privycs.vpn.util.AlwaysOnDetector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -241,6 +242,23 @@ class NetworkMonitor private constructor(private val context: Context) {
             val transitioned = prev == null || prev != shouldConnect
 
             if (shouldConnect && !vpnManager.isConnected && !vpnManager.isConnecting.value) {
+                // Cooldown gate: do NOT fire on-demand reconnect while
+                // an in-flight OS-initiated service teardown is still
+                // running. Without this, connecting here spawns a new
+                // GoBackend on /dev/tun while the old one is still
+                // writing to the same fd; observed symptoms were
+                // "Failed to write packet to TUN device: input/output
+                // error", keepalive storm (~15/s vs ~0.04/s normal)
+                // and the UI flipping connect/disconnect indefinitely
+                // when the user turned off Always-On in system
+                // settings. AlwaysOnDetector.stampSystemRevoke() is
+                // called from PrivycsVpnService.onRevoke() so this
+                // window opens the moment the OS tells us to tear
+                // down.
+                if (AlwaysOnDetector.isInSystemRevokeCooldown(context)) {
+                    Log.d(TAG, "Skipping auto-connect: in system-revoke cooldown window")
+                    return@launch
+                }
                 // Guard against issuing overlapping connect calls while a
                 // previous attempt is still in-flight. Android's
                 // ConnectivityManager.NetworkCallback fires several

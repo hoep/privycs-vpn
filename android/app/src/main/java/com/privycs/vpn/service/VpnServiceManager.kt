@@ -62,56 +62,23 @@ class VpnServiceManager private constructor(private val context: Context) {
     // cancel and restart the timer cleanly.
     private var connectingWatchdog: Job? = null
 
-    init {
-        // Register a permanent NetworkCallback filtered on TRANSPORT_VPN
-        // so we get a live signal whenever ANY VPN comes up or goes down
-        // on the device - including the always-on auto-start path where
-        // VpnServiceManager.connect() is never called and the UI would
-        // otherwise be left with _isConnecting stuck at true forever.
-        // Also recovers the process-death case where singleton state
-        // resets to defaults but the tunnel is already live from a
-        // previous process.
-        try {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val request = NetworkRequest.Builder()
-                .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
-                // removeCapability NOT_VPN explicit so the request matches
-                // VPN networks specifically (default NetworkRequest builders
-                // implicitly add NOT_VPN which would filter them out).
-                .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-                .build()
-            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    // A VPN is live on the device. We don't try to verify
-                    // it's OURS (would require comparing interface names
-                    // which aren't stable across protocols); we just
-                    // unblock the UI. If another VPN app has the tunnel,
-                    // our own connect() will have already failed with an
-                    // error status which is handled by updateStatus().
-                    if (_isConnecting.value) {
-                        PrivycsLogger.i(TAG, "TRANSPORT_VPN available -> clearing stuck isConnecting")
-                        _isConnecting.value = false
-                    }
-                }
-
-                override fun onLost(network: Network) {
-                    // VPN went away. Clear spinner if a disconnect was
-                    // pending, and mark status as disconnected so the
-                    // UI reflects reality regardless of who shut the
-                    // tunnel down (user action, always-on toggle off,
-                    // other VPN app, tunnel crash).
-                    if (_status.value.connected) {
-                        _status.value = _status.value.copy(connected = false)
-                    }
-                    if (_isConnecting.value) {
-                        _isConnecting.value = false
-                    }
-                }
-            })
-        } catch (e: Exception) {
-            PrivycsLogger.w(TAG, "Failed to register TRANSPORT_VPN callback: ${e.message}")
-        }
-    }
+    // Intentionally NO TRANSPORT_VPN NetworkCallback here. v0.9.3.10
+    // introduced one to auto-clear stuck isConnecting when Always-On
+    // brought the tunnel up externally. But Android fires onAvailable /
+    // onLost several times in rapid succession during the Always-On
+    // disable transition (capability goes down, briefly back up, then
+    // off), and NetworkMonitor's on-demand auto-reconnect reacted to
+    // each transient onLost by firing a fresh connect() BEFORE the
+    // service's in-flight teardown finished. Two GoBackend instances
+    // ended up racing on /dev/tun, producing "Failed to write packet
+    // to TUN device: input/output error" plus a keepalive storm
+    // (~15/s instead of ~0.04/s) and the UI flipped
+    // connect/disconnect/connect indefinitely. Removing the callback
+    // makes the app self-consistent: _isConnecting is cleared by the
+    // 90s watchdog below and refreshStatus()'s ConnectivityManager
+    // reality-check; status is driven exclusively by the service
+    // lifecycle + status poll. Slower worst-case (90s vs ~100ms), but
+    // no more race conditions against system-owned VPN transitions.
 
     /**
      * Check if VPN permission has been granted.

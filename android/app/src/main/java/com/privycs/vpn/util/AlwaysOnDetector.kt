@@ -35,6 +35,16 @@ object AlwaysOnDetector {
     private const val KEY_LAST_USER_DISCONNECT = "last_user_disconnect_ms"
     private const val KEY_DETECTED = "always_on_detected"
     private const val KEY_PAUSE_UNTIL = "pause_until_ms"
+    private const val KEY_LAST_SYSTEM_REVOKE = "last_system_revoke_ms"
+
+    // NetworkMonitor must not fire on-demand reconnect for this long
+    // after the OS revokes our VPN permission. The in-flight service
+    // teardown (WireGuard goroutines + GoBackend close + TUN fd
+    // release) runs asynchronously and can take up to ~4s. Firing a
+    // new connect before it completes produces a multi-tunnel race
+    // that manifests as "Failed to write packet to TUN device:
+    // input/output error" plus a keepalive storm.
+    const val SYSTEM_REVOKE_COOLDOWN_MS = 5_000L
 
     // 3 s is long enough to bridge the service teardown + system
     // START_STICKY respawn delay (typically ~200-800 ms observed)
@@ -114,5 +124,26 @@ object AlwaysOnDetector {
             .edit()
             .remove(KEY_PAUSE_UNTIL)
             .apply()
+    }
+
+    /**
+     * Called from PrivycsVpnService.onRevoke (system tore down our
+     * VPN permission, e.g., user disabled Always-On or another VPN
+     * app took over). Timestamp feeds the SYSTEM_REVOKE_COOLDOWN_MS
+     * gate in NetworkMonitor so on-demand auto-reconnect does not
+     * fight an in-flight service teardown.
+     */
+    fun stampSystemRevoke(ctx: Context) {
+        ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_LAST_SYSTEM_REVOKE, System.currentTimeMillis())
+            .apply()
+    }
+
+    /** True if a system-initiated VPN revoke happened within the cooldown window. */
+    fun isInSystemRevokeCooldown(ctx: Context): Boolean {
+        val last = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getLong(KEY_LAST_SYSTEM_REVOKE, 0L)
+        return last > 0 && (System.currentTimeMillis() - last) < SYSTEM_REVOKE_COOLDOWN_MS
     }
 }

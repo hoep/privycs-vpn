@@ -95,8 +95,17 @@ class PrivycsVpnService : VpnService() {
     }
 
     override fun onRevoke() {
-        // VPN permission revoked by user or system
+        // VPN permission revoked by user or system. Typical triggers:
+        // the user disables our Always-On toggle, another VPN app
+        // takes over the VPN slot, or the user taps Disconnect on the
+        // system VPN settings page. Stamp the timestamp so
+        // NetworkMonitor skips on-demand auto-reconnect for the next
+        // few seconds - otherwise it collides with the in-flight
+        // service teardown and spawns a second GoBackend on the same
+        // /dev/tun (observed symptom: "Failed to write packet to TUN
+        // device: input/output error" + keepalive storm).
         Log.w(TAG, "VPN permission revoked")
+        com.privycs.vpn.util.AlwaysOnDetector.stampSystemRevoke(this)
         handleDisconnect()
         super.onRevoke()
     }
