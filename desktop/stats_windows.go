@@ -8,12 +8,54 @@ import (
 	"strings"
 )
 
-// getWindowsTrafficStats retrieves network adapter traffic statistics on Windows.
-// Uses .NET NetworkInterface which works for ALL adapter types: WireGuard (Wintun),
-// OpenVPN (TAP/TUN), IPSec/IKEv2 (RAS WAN Miniport), and standard Ethernet.
-// Does NOT require admin privileges.
+// getWindowsTrafficStats retrieves network adapter traffic statistics on
+// Windows. Two probe paths in order:
+//
+//  1. Get-NetAdapterStatistics — queries the native NDIS driver counters
+//     via WMI. Works for DCO-offloaded adapters (ovpn-dco) which skip
+//     the IP layer and therefore return zero on .NET's IPv4Statistics.
+//     OpenVPN 2.6+ on Windows defaults to ovpn-dco, so this is the
+//     common case. No admin privileges required.
+//
+//  2. .NET NetworkInterface IPv4Statistics — fallback for classic TAP
+//     adapters on older OpenVPN / IPSec RAS / Wintun (which routes
+//     traffic through the IP stack and populates IPv4Statistics).
+//
+// The caller passes a substring ("OpenVPN", "WireGuard", "Privycs") —
+// both probes match any adapter with that substring in its name or
+// description, so "OpenVPN" finds both "OpenVPN TAP-Windows6" and
+// "OpenVPN Data Channel Offload" regardless of which driver is loaded.
 func getWindowsTrafficStats(adapterName string) (rx, tx int64) {
-	// Use .NET NetworkInterface — works for WireGuard, OpenVPN, IPSec, all types
+	// Path 1: Get-NetAdapterStatistics — works for ovpn-dco and Wintun.
+	// Filter by InterfaceDescription (more stable than Name which the
+	// user can rename). Take Receive/Send Bytes across all OK-status
+	// adapters matching the substring. Summing (Select-Object
+	// -First 1 | Measure-Object | Sum) makes the query robust to the
+	// case where multiple matching adapters exist (stale VPN adapters
+	// left over from prior sessions).
+	psNetAdapter := fmt.Sprintf(
+		`$a = Get-NetAdapter -ErrorAction SilentlyContinue | `+
+			`Where-Object { $_.Status -eq 'Up' -and ($_.Name -like '*%s*' -or $_.InterfaceDescription -like '*%s*') } | `+
+			`Select-Object -First 1; `+
+			`if ($a) { $s = $a | Get-NetAdapterStatistics; "$($s.ReceivedBytes) $($s.SentBytes)" } else { "0 0" }`,
+		adapterName, adapterName)
+
+	if out, err := execHidden("powershell", "-NoProfile", "-Command", psNetAdapter).CombinedOutput(); err == nil {
+		result := strings.TrimSpace(string(out))
+		parts := strings.Fields(result)
+		if len(parts) >= 2 {
+			fmt.Sscan(parts[0], &rx)
+			fmt.Sscan(parts[1], &tx)
+			if rx > 0 || tx > 0 {
+				log.Printf("Traffic stats for %s (NetAdapter): rx=%d tx=%d", adapterName, rx, tx)
+				return rx, tx
+			}
+		}
+	}
+
+	// Path 2: .NET NetworkInterface fallback. Useful when Get-NetAdapter
+	// is unavailable (ancient Windows) or the adapter uses classic TAP
+	// driver that routes through the IP stack.
 	psCmd := fmt.Sprintf(
 		`[System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | `+
 			`Where-Object { ($_.OperationalStatus -eq 'Up') -and ($_.Name -eq '%s' -or $_.Name -like '*%s*' -or $_.Description -like '*%s*') } | `+
@@ -38,7 +80,7 @@ func getWindowsTrafficStats(adapterName string) (rx, tx int64) {
 	}
 
 	if rx > 0 || tx > 0 {
-		log.Printf("Traffic stats for %s: rx=%d tx=%d", adapterName, rx, tx)
+		log.Printf("Traffic stats for %s (.NET): rx=%d tx=%d", adapterName, rx, tx)
 	}
 	return rx, tx
 }

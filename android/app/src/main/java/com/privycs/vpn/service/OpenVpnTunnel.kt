@@ -428,12 +428,12 @@ class OpenVpnTunnel(private val context: Context) {
      * same — Android does not namespace network interfaces per process
      * so tun0 is visible regardless of which /proc subtree we read.
      *
-     * /proc/*/net/dev format (header + one row per interface):
+     * /proc/pid/net/dev format (header + one row per interface):
      *   Interface  |        Receive                                           |  Transmit
      *   face       | bytes    packets errs drop fifo frame compressed multi  | bytes    packets errs drop fifo colls carrier compressed
      *   tun0:        123456    100     0    0    0    0     0          0       78901     80      0    0    0    0     0       0
      *
-     * Columns after the colon: [rxBytes, rxPackets, ..., txBytes, ...]
+     * Columns after the colon: rxBytes, rxPackets, ..., txBytes, ...
      * We only need rxBytes (index 0) and txBytes (index 8) of the
      * per-interface row.
      */
