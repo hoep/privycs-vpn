@@ -81,14 +81,14 @@ class VpnQuickSettingsTile : TileService() {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 tile.subtitle = "Connected"
             }
-            tile.icon = Icon.createWithResource(this, android.R.drawable.ic_lock_lock)
+            tile.icon = Icon.createWithResource(this, R.drawable.ic_privycs_shield)
         } else {
             tile.state = Tile.STATE_INACTIVE
             tile.label = "Privycs VPN"
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 tile.subtitle = "Disconnected"
             }
-            tile.icon = Icon.createWithResource(this, android.R.drawable.ic_lock_idle_lock)
+            tile.icon = Icon.createWithResource(this, R.drawable.ic_privycs_shield)
         }
 
         tile.updateTile()

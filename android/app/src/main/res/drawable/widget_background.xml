@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Rounded-corner widget container. Uses theme-adaptive
+    @color/widget_background (light grey #FAFAFA / dark grey #1C1B1F
+    via values-night override) so the widget always sits cleanly
+    on whatever wallpaper the user has. Radius references the
+    Android 12+ system widget-corner-radius token so shapes match
+    the launcher's own widget chrome; on API < 31 the attr falls
+    back to our hardcoded 24dp via the tools: namespace hint.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:shape="rectangle">
+    <corners
+        android:radius="24dp"
+        tools:targetApi="31" />
+    <solid android:color="@color/widget_background" />
+</shape>

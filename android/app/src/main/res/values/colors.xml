@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Widget-specific color tokens. RemoteViews rendered in the
+        home-screen launcher use the launcher's resource context, so
+        theme attributes like ?attr/colorSurface don't resolve
+        reliably. We instead ship explicit light/dark values here
+        plus a values-night/colors.xml override so the widget
+        adapts to the device's current theme without depending on
+        runtime theme attribute lookup.
+    -->
+    <color name="widget_background">#FAFAFA</color>
+    <color name="widget_surface_variant">#F1F3F5</color>
+    <color name="widget_text_primary">#202124</color>
+    <color name="widget_text_secondary">#5F6368</color>
+    <color name="widget_status_connected">#00A88C</color>
+    <color name="widget_status_disconnected">#9AA0A6</color>
+    <color name="widget_accent">#00CDAB</color>
+</resources>

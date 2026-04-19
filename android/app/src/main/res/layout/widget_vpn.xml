@@ -1,66 +1,91 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Privycs VPN home-screen widget.
+
+    Root id = @android:id/background is CRITICAL on Android 12+:
+    it tells the launcher to apply the system widget chrome
+    (rounded corners, Material You tinting) to THIS view as the
+    canonical container. Without it, the launcher wraps the
+    widget in its own default container AND our background shows
+    underneath -> the dreaded "dark border, dark fill" artifact
+    seen in v0.9.3.10 and earlier.
+
+    Theme adaptation: @color/widget_* tokens have light + dark
+    variants (values-night/colors.xml), so no runtime theme-attr
+    lookup in the RemoteViews context (which is the launcher's
+    context, not ours).
+-->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/widget_root"
+    android:id="@android:id/background"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
+    android:gravity="center"
     android:padding="12dp"
-    android:background="@android:color/background_dark"
-    android:gravity="center_horizontal">
+    android:background="@drawable/widget_background">
 
     <ImageView
         android:id="@+id/widget_icon"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@android:drawable/ic_lock_idle_lock"
-        android:contentDescription="VPN Status Icon" />
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:src="@drawable/ic_privycs_logo"
+        android:contentDescription="@string/widget_description" />
 
     <TextView
         android:id="@+id/widget_status"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Disconnected"
+        android:text="@string/widget_status_disconnected"
         android:textSize="14sp"
         android:textStyle="bold"
-        android:textColor="#9E9E9E"
-        android:layout_marginTop="4dp" />
-
-    <TextView
-        android:id="@+id/widget_connection_name"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Privycs VPN"
-        android:textSize="12sp"
-        android:textColor="#FFFFFF"
-        android:layout_marginTop="2dp"
+        android:textColor="@color/widget_status_disconnected"
+        android:layout_marginTop="8dp"
         android:singleLine="true"
         android:ellipsize="end" />
 
     <TextView
-        android:id="@+id/widget_protocol"
-        android:layout_width="wrap_content"
+        android:id="@+id/widget_connection_name"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text=""
-        android:textSize="10sp"
-        android:textColor="#B0BEC5"
-        android:layout_marginTop="2dp" />
+        android:text="@string/app_name"
+        android:textSize="12sp"
+        android:textColor="@color/widget_text_primary"
+        android:layout_marginTop="2dp"
+        android:gravity="center"
+        android:singleLine="true"
+        android:ellipsize="end" />
 
     <TextView
         android:id="@+id/widget_uptime"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text=""
-        android:textSize="10sp"
-        android:textColor="#B0BEC5"
-        android:layout_marginTop="2dp" />
+        android:textSize="11sp"
+        android:textColor="@color/widget_text_secondary"
+        android:layout_marginTop="2dp"
+        android:singleLine="true" />
 
-    <Button
+    <!--
+        Toggle button styled as a compact pill. Text swaps between
+        "Connect" and "Disconnect" at runtime via setTextViewText.
+        Background uses a second rounded-corner drawable so it
+        looks like a Material button even without pulling in the
+        full Material Components theme (unreachable from the
+        launcher's context).
+    -->
+    <TextView
         android:id="@+id/widget_toggle_button"
         android:layout_width="match_parent"
         android:layout_height="36dp"
-        android:text="Toggle"
-        android:textSize="12sp"
-        android:layout_marginTop="6dp" />
+        android:layout_marginTop="10dp"
+        android:background="@drawable/widget_button_background"
+        android:text="@string/widget_connect"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:textColor="@color/widget_text_primary"
+        android:gravity="center"
+        android:singleLine="true"
+        android:paddingHorizontal="8dp" />
 
 </LinearLayout>

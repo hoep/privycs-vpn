@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Dark-mode override. System picks these values when
+        uiMode=night is active (user enables dark theme or the
+        launcher runs in dark mode). Matches Material 3's dark
+        surface tone (surface / surface-variant pairing).
+    -->
+    <color name="widget_background">#1C1B1F</color>
+    <color name="widget_surface_variant">#2B2A2F</color>
+    <color name="widget_text_primary">#E6E1E5</color>
+    <color name="widget_text_secondary">#A8A8AF</color>
+    <color name="widget_status_connected">#33D7BC</color>
+    <color name="widget_status_disconnected">#6B6E75</color>
+    <color name="widget_accent">#33D7BC</color>
+</resources>

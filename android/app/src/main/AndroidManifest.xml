@@ -64,7 +64,7 @@
         <service
             android:name=".tile.VpnQuickSettingsTile"
             android:exported="true"
-            android:icon="@android:drawable/ic_lock_lock"
+            android:icon="@drawable/ic_privycs_shield"
             android:label="@string/vpn_tile_label"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>

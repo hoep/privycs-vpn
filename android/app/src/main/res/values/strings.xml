@@ -7,6 +7,11 @@
     <string name="vpn_notification_disconnected">Disconnected</string>
     <string name="action_disconnect">Disconnect</string>
     <string name="widget_description">Shows VPN connection status and allows quick toggle</string>
+    <string name="widget_status_connected">Connected</string>
+    <string name="widget_status_disconnected">Disconnected</string>
+    <string name="widget_status_connecting">Connecting…</string>
+    <string name="widget_connect">Connect</string>
+    <string name="widget_disconnect">Disconnect</string>
     <string name="vpn_tile_label">Privycs VPN</string>
 
     <!--

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Button chrome for the widget toggle. Uses widget_surface_variant
+    (slightly off from the main widget_background) so the button
+    visually separates from the container without requiring a
+    stroke or elevation (RemoteViews don't support elevation).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="18dp" />
+    <solid android:color="@color/widget_surface_variant" />
+</shape>
