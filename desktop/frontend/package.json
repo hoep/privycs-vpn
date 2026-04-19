@@ -1,7 +1,7 @@
 {
   "name": "privycs-vpn-frontend",
   "private": true,
-  "version": "0.9.3.7",
+  "version": "0.9.3.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
