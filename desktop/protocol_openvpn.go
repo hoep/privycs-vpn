@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -237,6 +239,63 @@ func (o *OpenVPNProtocol) downUnixOpenVPN(ctx context.Context) {
 	}
 }
 
+// queryOpenVPNState opens a short-lived TCP connection to the OpenVPN
+// management interface and returns the current tunnel state string. The
+// management protocol replies to `state` with a line prefixed by ">STATE:"
+// whose second comma-separated field is the state name — CONNECTED means
+// the handshake completed, routes are installed, and the tunnel is truly
+// up. Any earlier state (CONNECTING, WAIT, AUTH, GET_CONFIG, ASSIGN_IP,
+// ADD_ROUTES) means "still working"; RECONNECTING/EXITING means failure.
+// Returns an empty string on any I/O error — caller treats that as
+// "cannot determine, assume not connected".
+func queryOpenVPNState(host, port string) string {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), 1*time.Second)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(1 * time.Second))
+
+	if _, err := conn.Write([]byte("state\nquit\n")); err != nil {
+		return ""
+	}
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil && err != io.EOF {
+		return ""
+	}
+
+	for _, line := range strings.Split(string(buf[:n]), "\n") {
+		line = strings.TrimSpace(line)
+		// OpenVPN prefixes async state messages with ">STATE:", sync
+		// responses with an unprefixed epoch,<state>,... line. Match both.
+		line = strings.TrimPrefix(line, ">STATE:")
+		parts := strings.Split(line, ",")
+		if len(parts) >= 2 {
+			// Epoch timestamp is parts[0] — it's all digits for real
+			// state lines; everything else (OK, help text) fails this
+			// check and is silently ignored.
+			if len(parts[0]) >= 8 && isAllDigits(parts[0]) {
+				return parts[1]
+			}
+		}
+	}
+	return ""
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func (o *OpenVPNProtocol) Status() ProtocolStatus {
 	status := ProtocolStatus{
 		Protocol:      "openvpn",
@@ -244,41 +303,49 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 		LocalAddress:  o.localAddr,
 	}
 
-	// Check if OpenVPN process is running
+	// Process liveness is a necessary but NOT sufficient signal — openvpn.exe
+	// may be stuck in a RESOLVE-retry loop or crashing repeatedly at NETSH,
+	// which previously made the UI falsely report "connected" for ~10s until
+	// the user noticed traffic wasn't flowing. Management-interface "state"
+	// query is the authoritative source.
+	processRunning := false
 	if runtime.GOOS == "windows" {
-		// On Windows, proc.Signal(nil) doesn't work. Use tasklist instead.
 		out, err := execHidden("tasklist", "/FI", "IMAGENAME eq openvpn.exe", "/NH").CombinedOutput()
-		if err == nil && strings.Contains(string(out), "openvpn.exe") {
-			status.Connected = true
-			status.ConnectedAt = o.connectedAt.Format(time.RFC3339)
-			// OpenVPN TAP/TUN adapter — search by common adapter names
-			status.BytesRx, status.BytesTx = getWindowsTrafficStats("OpenVPN")
-		}
+		processRunning = err == nil && strings.Contains(string(out), "openvpn.exe")
 	} else {
-		// On Unix, check PID file + signal
 		pidPath := filepath.Join(appDataDir(), "openvpn.pid")
-		pidData, err := os.ReadFile(pidPath)
-		if err == nil {
+		if pidData, err := os.ReadFile(pidPath); err == nil {
 			var pid int
 			if _, err := fmt.Sscan(strings.TrimSpace(string(pidData)), &pid); err == nil && pid > 0 {
 				if proc, err := os.FindProcess(pid); err == nil {
-					if proc.Signal(nil) == nil {
-						status.Connected = true
-						status.ConnectedAt = o.connectedAt.Format(time.RFC3339)
-						// Read traffic stats from tun interface
-						if runtime.GOOS == "linux" {
-							status.BytesRx, status.BytesTx = getLinuxInterfaceStats("tun0")
-						}
-					}
+					processRunning = proc.Signal(nil) == nil
 				}
 			}
 		}
 	}
 
-	// No fallback — only trust actual process detection, not timestamps.
-	// The connectedAt fallback caused disconnect to appear to "reconnect"
-	// because the status emitter would see connectedAt set and report connected.
+	if !processRunning {
+		return status
+	}
 
+	// Query management interface for the actual tunnel state. Only CONNECTED
+	// counts as "truly up" — any transient state (CONNECTING, WAIT, AUTH,
+	// GET_CONFIG, ASSIGN_IP, ADD_ROUTES) means setup is still in progress.
+	// If the management socket isn't reachable at all, we fall back to
+	// "process is running but state unknown" — report not connected, since
+	// the user-facing guarantee is that "connected" means traffic flows.
+	state := queryOpenVPNState(ovpnMgmtHost, ovpnMgmtPort)
+	if state != "CONNECTED" {
+		return status
+	}
+
+	status.Connected = true
+	status.ConnectedAt = o.connectedAt.Format(time.RFC3339)
+	if runtime.GOOS == "windows" {
+		status.BytesRx, status.BytesTx = getWindowsTrafficStats("OpenVPN")
+	} else if runtime.GOOS == "linux" {
+		status.BytesRx, status.BytesTx = getLinuxInterfaceStats("tun0")
+	}
 	return status
 }
 

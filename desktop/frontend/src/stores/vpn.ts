@@ -5,16 +5,66 @@ import { EventsOn } from '../../wailsjs/runtime/runtime'
 
 // Map raw backend errors to user-friendly messages.
 // Backend errors often contain Go stack details that confuse end users.
+// Matches the Android error-mapping fidelity (PrivycsLogger + VpnStatus.error
+// in VpnServiceManager) so cross-device users see consistent wording.
 function friendlyError(e: any, fallback: string): string {
-  const msg = e?.toString() || ''
-  if (msg.includes('not found')) return 'VPN software not installed on this system'
+  const msg = (e?.toString() || '').toLowerCase()
+
+  // Auth / certificate failures — most common real-world failure mode.
+  // OpenVPN emits "AUTH_FAILED" or "TLS Error", WireGuard "unknown peer",
+  // strongSwan "authentication failed".
+  if (msg.includes('auth_failed') || msg.includes('auth failed') || msg.includes('authentication')) {
+    return 'Authentication failed — your credentials or certificate may be invalid'
+  }
+  if (msg.includes('tls error') || msg.includes('tls handshake') || msg.includes('certificate')) {
+    return 'TLS / certificate error — server identity could not be verified'
+  }
+  if (msg.includes('unknown peer') || msg.includes('key mismatch')) {
+    return 'WireGuard key mismatch — re-import your config from the gateway'
+  }
+
+  // DNS / connectivity. Seen with proto udp6 when the client's resolver
+  // strips AAAA records, or when the gateway hostname is wrong.
+  if (msg.includes('resolve') || msg.includes('no such host') || msg.includes('name resolution')) {
+    return 'Could not resolve the server hostname — check your DNS and internet connection'
+  }
+  if (msg.includes('connection refused') || msg.includes('econnrefused')) {
+    return 'Server refused the connection — the VPN service may be down or the port is blocked'
+  }
+  if (msg.includes('no route to host') || msg.includes('network unreachable')) {
+    return 'Server is unreachable — check your network or firewall'
+  }
+
+  // Tunnel-setup failures.
+  if (msg.includes('did not come up') || msg.includes('timed out') || msg.includes('timeout')) {
+    return 'Tunnel did not come up in time — check the Logs view for details'
+  }
+  if (msg.includes('tun')) {
+    if (msg.includes('open') || msg.includes('create')) {
+      return 'Could not open the TUN device — another VPN may already be active'
+    }
+  }
+
+  // Permission / privilege failures.
+  if (msg.includes('permission') || msg.includes('denied') || msg.includes('not permitted')) {
+    return 'Permission denied — admin/root privileges are required for VPN setup'
+  }
+  if (msg.includes('helper') && (msg.includes('install') || msg.includes('reachable'))) {
+    return 'Privileged helper is not installed — see Settings to install it'
+  }
+
+  // Config / import.
+  if (msg.includes('parse') || msg.includes('invalid config') || msg.includes('malformed')) {
+    return 'Configuration file could not be parsed — it may be corrupt or incomplete'
+  }
+
+  // Environmental.
+  if (msg.includes('not found')) return 'VPN software is not installed on this system'
   if (msg.includes('no active protocol')) return 'No protocol configured — import a config first'
   if (msg.includes('not available')) return 'This protocol is not available on your system'
-  if (msg.includes('connection failed')) return 'Connection failed — check your config and network'
-  if (msg.includes('timeout') || msg.includes('Timeout')) return 'Operation timed out — please try again'
-  if (msg.includes('permission') || msg.includes('denied')) return 'Permission denied — admin rights required'
-  if (msg.includes('already')) return 'Tunnel is already running'
-  // If none matched, use a short fallback instead of raw error
+  if (msg.includes('already')) return 'A tunnel is already running — disconnect first'
+
+  // Catch-all — use fallback instead of leaking raw Go error.
   return fallback
 }
 

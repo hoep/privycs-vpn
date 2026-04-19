@@ -262,6 +262,99 @@
         </router-link>
       </div>
 
+      <!-- IPv6 LAN Bypass -->
+      <div class="card p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">IPv6 LAN Bypass</h3>
+        <p class="text-[10px] text-gray-400 mb-2">
+          IPv6 prefixes that should reach your local network directly instead of going through the VPN.
+          One CIDR per line. Example: <code>2a03:c100:f604:8b00::/56</code>
+        </p>
+        <textarea
+          v-model="ipv6BypassText"
+          @blur="saveIPv6Bypass"
+          rows="3"
+          placeholder="::/0 (disabled)&#10;2a03:c100:f604:8b00::/56"
+          class="w-full bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-xs font-mono p-2 rounded border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+          spellcheck="false"
+        />
+        <p class="text-[10px] text-gray-500 mt-1">
+          Applied automatically after each successful connect. Needs the privileged helper for route installation.
+        </p>
+      </div>
+
+      <!-- Backup & Restore -->
+      <div class="card p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Backup &amp; Restore</h3>
+        <p class="text-[10px] text-gray-400 mb-3">
+          Export all connections and settings as an encrypted file. Use the same passphrase to restore on another device.
+        </p>
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            @click="showExport = true"
+            class="btn-secondary py-2 text-xs"
+          >
+            Export...
+          </button>
+          <button
+            @click="showImport = true"
+            class="btn-secondary py-2 text-xs"
+          >
+            Import...
+          </button>
+        </div>
+        <p v-if="backupMessage" class="text-xs mt-2" :class="backupError ? 'text-red-400' : 'text-green-400'">
+          {{ backupMessage }}
+        </p>
+      </div>
+
+      <!-- Export modal -->
+      <div v-if="showExport" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" @click.self="showExport = false">
+        <div class="card p-4 w-full max-w-sm">
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Export backup</h3>
+          <label class="text-xs text-gray-600 dark:text-gray-300 block mb-1">Passphrase (min 8 chars)</label>
+          <input v-model="exportPassphrase" type="password" autocomplete="new-password"
+            class="input-sm w-full mb-2" placeholder="Passphrase" />
+          <label class="text-xs text-gray-600 dark:text-gray-300 block mb-1">Confirm passphrase</label>
+          <input v-model="exportPassphraseConfirm" type="password" autocomplete="new-password"
+            class="input-sm w-full mb-3" placeholder="Repeat" />
+          <p v-if="exportError" class="text-xs text-red-400 mb-2">{{ exportError }}</p>
+          <div class="flex justify-end gap-2">
+            <button @click="showExport = false" class="btn-secondary px-3 py-1.5 text-xs">Cancel</button>
+            <button
+              @click="doExport"
+              :disabled="!exportReady || exporting"
+              class="btn-primary px-3 py-1.5 text-xs disabled:opacity-40"
+            >
+              {{ exporting ? 'Exporting...' : 'Export' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Import modal -->
+      <div v-if="showImport" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" @click.self="showImport = false">
+        <div class="card p-4 w-full max-w-sm">
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Import backup</h3>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Importing replaces your current connections and settings.
+          </p>
+          <label class="text-xs text-gray-600 dark:text-gray-300 block mb-1">Passphrase</label>
+          <input v-model="importPassphrase" type="password" autocomplete="current-password"
+            class="input-sm w-full mb-3" placeholder="Passphrase" />
+          <p v-if="importError" class="text-xs text-red-400 mb-2">{{ importError }}</p>
+          <div class="flex justify-end gap-2">
+            <button @click="showImport = false" class="btn-secondary px-3 py-1.5 text-xs">Cancel</button>
+            <button
+              @click="doImport"
+              :disabled="importPassphrase.length === 0 || importing"
+              class="btn-primary px-3 py-1.5 text-xs disabled:opacity-40"
+            >
+              {{ importing ? 'Importing...' : 'Import' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Appearance -->
       <div class="card p-4">
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Appearance</h3>
@@ -307,9 +400,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useVpnStore } from '@/stores/vpn'
-import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper } from '../../wailsjs/go/main/App'
+import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
 
 const vpn = useVpnStore()
@@ -367,6 +460,103 @@ async function saveSettingsImmediate() {
     await UpdateSettings(settings.value)
   } catch (e) {
     console.error('Failed to save settings:', e)
+  }
+}
+
+// --- Backup / Restore state ---
+// Mirrors the Android SettingsScreen export/import flow: passphrase-gated
+// JSON envelope containing connections + settings, AES-256-GCM encrypted.
+const showExport = ref(false)
+const showImport = ref(false)
+const exportPassphrase = ref('')
+const exportPassphraseConfirm = ref('')
+const importPassphrase = ref('')
+const exportError = ref('')
+const importError = ref('')
+const exporting = ref(false)
+const importing = ref(false)
+const backupMessage = ref('')
+const backupError = ref(false)
+
+const exportReady = computed(() =>
+  exportPassphrase.value.length >= 8 &&
+  exportPassphrase.value === exportPassphraseConfirm.value
+)
+
+async function doExport() {
+  exportError.value = ''
+  if (exportPassphrase.value.length < 8) {
+    exportError.value = 'Passphrase must be at least 8 characters'
+    return
+  }
+  if (exportPassphrase.value !== exportPassphraseConfirm.value) {
+    exportError.value = 'Passphrases do not match'
+    return
+  }
+  exporting.value = true
+  try {
+    const path = await PickBackupSavePath()
+    if (!path) {
+      // User cancelled the OS dialog. Not an error — just leave the
+      // modal open so they can try again or explicitly cancel.
+      exporting.value = false
+      return
+    }
+    await ExportBackup(path, exportPassphrase.value)
+    backupMessage.value = `Backup saved to ${path}`
+    backupError.value = false
+    showExport.value = false
+    // Wipe passphrases from memory so a later screenshot/log doesn't leak
+    exportPassphrase.value = ''
+    exportPassphraseConfirm.value = ''
+  } catch (e: any) {
+    exportError.value = e?.toString() || 'Export failed'
+  } finally {
+    exporting.value = false
+  }
+}
+
+// --- IPv6 LAN bypass textarea binding ---
+// Two-way sync between the settings.ipv6_lan_bypass string array and a
+// newline-separated textarea. Saved on blur so we don't roundtrip the
+// backend on every keystroke.
+const ipv6BypassText = ref('')
+
+function syncIPv6BypassFromSettings() {
+  const list = settings.value.ipv6_lan_bypass || []
+  ipv6BypassText.value = Array.isArray(list) ? list.join('\n') : ''
+}
+
+async function saveIPv6Bypass() {
+  const lines = ipv6BypassText.value
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith('#'))
+  settings.value.ipv6_lan_bypass = lines
+  await saveSettingsImmediate()
+}
+
+async function doImport() {
+  importError.value = ''
+  importing.value = true
+  try {
+    const path = await PickBackupOpenPath()
+    if (!path) {
+      importing.value = false
+      return
+    }
+    await ImportBackup(path, importPassphrase.value)
+    backupMessage.value = 'Backup restored. Please reopen the app to apply changes.'
+    backupError.value = false
+    showImport.value = false
+    importPassphrase.value = ''
+    // Reload settings in-place so at least the currently-visible screen reflects the change
+    await loadSettings()
+  } catch (e: any) {
+    importError.value = e?.toString().replace('Error: ', '') || 'Import failed'
+    backupError.value = true
+  } finally {
+    importing.value = false
   }
 }
 
@@ -474,6 +664,7 @@ async function loadSettings() {
         startCodStatusPolling()
       }
     }
+    syncIPv6BypassFromSettings()
     applyTheme()
   } catch (e) {
     console.error('Failed to load settings:', e)

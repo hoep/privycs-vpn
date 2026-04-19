@@ -363,18 +363,74 @@ class OpenVpnTunnel(private val context: Context) {
 
     fun getStatus(connectionName: String, connectionId: String): VpnStatus {
         val isUp = state == State.CONNECTED
+
+        // Prefer the byteCountListener-fed counters; fall back to the
+        // live tun interface read if those are still zero. In practice
+        // ics-openvpn's ByteCountListener is sometimes silent when the
+        // management protocol omits the `bytecount` pacing command, or
+        // when the VpnStatus singleton state gets reset across a
+        // reconnect inside the same process. /proc/net/dev is always
+        // authoritative — the Linux kernel keeps these counters and
+        // every packet crossing the tun device increments them. Reading
+        // here instead of at listener time means the status reflects
+        // traffic even on connections where the listener never fires.
+        var rx = rxBytes
+        var tx = txBytes
+        if (isUp && (rx == 0L || tx == 0L)) {
+            val (fbRx, fbTx) = readTunInterfaceStats()
+            if (fbRx > rx) rx = fbRx
+            if (fbTx > tx) tx = fbTx
+        }
+
         return VpnStatus(
             connected = isUp,
             connectionName = connectionName,
             connectionId = connectionId,
             activeProtocol = VpnProtocol.OPENVPN,
             uptime = if (isUp && connectedSince > 0) System.currentTimeMillis() - connectedSince else 0L,
-            rxBytes = rxBytes,
-            txBytes = txBytes,
+            rxBytes = rx,
+            txBytes = tx,
             serverEndpoint = remoteEndpoint,
             localAddress = localAddress,
             error = if (state == State.FAILED) lastErrorMessage else ""
         )
+    }
+
+    /**
+     * Read RX/TX byte counters for the first tun* interface from
+     * /proc/net/dev. Returns (0, 0) if no tun interface is visible or
+     * the file cannot be parsed — a safe default that the caller treats
+     * as "no fallback available, keep listener value".
+     *
+     * /proc/net/dev format (header + one row per interface):
+     *   Interface  |        Receive                                           |  Transmit
+     *   face       | bytes    packets errs drop fifo frame compressed multi  | bytes    packets errs drop fifo colls carrier compressed
+     *   tun0:        123456    100     0    0    0    0     0          0       78901     80      0    0    0    0     0       0
+     *
+     * Columns after the colon: [rxBytes, rxPackets, ..., txBytes, ...]
+     * We only need rxBytes (index 0) and txBytes (index 8) of the
+     * per-interface row.
+     */
+    private fun readTunInterfaceStats(): Pair<Long, Long> {
+        return try {
+            val lines = java.io.File("/proc/net/dev").readLines()
+            for (line in lines) {
+                val trimmed = line.trim()
+                // Match tun0, tun1, ... — the ics-openvpn VpnService is
+                // always established under a tun-family name on Android.
+                if (!trimmed.startsWith("tun")) continue
+                val colonIdx = trimmed.indexOf(':')
+                if (colonIdx < 0) continue
+                val fields = trimmed.substring(colonIdx + 1).trim().split(Regex("\\s+"))
+                if (fields.size < 9) continue
+                val rx = fields[0].toLongOrNull() ?: 0L
+                val tx = fields[8].toLongOrNull() ?: 0L
+                return rx to tx
+            }
+            0L to 0L
+        } catch (_: Exception) {
+            0L to 0L
+        }
     }
 
     /**

@@ -385,7 +385,52 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		// Without this, a failed connect bricks the user's internet.
 		a.killSwitch.Deactivate()
 		wailsRuntime.EventsEmit(appCtx, "vpn:error", upErr.Error())
+		Notify("VPN connection failed",
+			fmt.Sprintf("%s tunnel could not be started: %s", activeProto, upErr.Error()),
+			NotifyError)
 		return nil, fmt.Errorf("connection failed: %w", upErr)
+	}
+
+	// Wait for the tunnel to actually be up before reporting Connected=true.
+	// proto.Up() returns as soon as the daemon/process is kicked off, but
+	// that is not the same as "tunnel is routing traffic". OpenVPN on
+	// Windows previously crashed at NETSH a few seconds after Up() returned
+	// yet the UI happily reported "connected" because we set the flag
+	// unconditionally. Now we poll proto.Status() — which consults the
+	// OpenVPN management interface / wg-show / swanctl for the actual
+	// state — and only transition to connected after it reports true.
+	// Timeout must fit realistic worst case:
+	//   - OpenVPN TLS handshake on slow links: up to ~15s
+	//   - WireGuard: <1s (handshake is lazy; we consider established when
+	//     the wg-quick call returns, which already blocks that long)
+	//   - IPSec: IKE_SA + CHILD_SA negotiation: up to ~20s
+	const connectTimeout = 30 * time.Second
+	const pollInterval = 500 * time.Millisecond
+	a.mu.Unlock() // release during blocking poll so status emitter can read state
+	deadline := time.Now().Add(connectTimeout)
+	tunnelUp := false
+	for time.Now().Before(deadline) {
+		if proto.Status().Connected {
+			tunnelUp = true
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+	a.mu.Lock()
+
+	if !tunnelUp {
+		// Tunnel never actually came up. Clean up: kill the daemon, drop
+		// kill switch, surface the real error. Without this we'd leave the
+		// user in a half-broken state (daemon stuck in retry loop, kill
+		// switch blocking all traffic, UI optimistically happy).
+		a.mu.Unlock()
+		_ = proto.Down(appCtx)
+		a.mu.Lock()
+		a.killSwitch.Deactivate()
+		errMsg := fmt.Sprintf("%s tunnel did not come up within %v — check logs", activeProto, connectTimeout)
+		wailsRuntime.EventsEmit(appCtx, "vpn:error", errMsg)
+		Notify("VPN connection timed out", errMsg, NotifyError)
+		return nil, fmt.Errorf("%s", errMsg)
 	}
 
 	a.connected = true
@@ -399,6 +444,44 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 
 	wailsRuntime.EventsEmit(appCtx, "vpn:connected", activeProto)
 	log.Printf("Connected via %s", protocol)
+
+	// IPv6 LAN bypass: now that the tunnel is actually up (Status has
+	// reported CONNECTED), install more-specific routes for each
+	// user-configured IPv6 LAN prefix through the physical default
+	// gateway. OpenVPN's server-pushed `route-ipv6 X fe80::Y` would
+	// have done this, but all three desktop OSes require explicit
+	// interface scope for link-local next-hops which the server can't
+	// provide. Prefer the privileged helper for the netsh / ip-route
+	// calls; fall back to direct exec if helper isn't installed (best-
+	// effort, will fail if user isn't admin/root).
+	if len(a.settings.IPv6LANBypass) > 0 {
+		go func(prefixes []string) {
+			client := NewHelperClient()
+			if client.IsHelperReachable() {
+				if _, err := client.SendCommand("ipv6_bypass_apply", map[string]string{
+					"prefixes": strings.Join(prefixes, ","),
+				}); err != nil {
+					log.Printf("IPv6 bypass via helper failed, trying direct: %v", err)
+					_ = ApplyIPv6LANBypass(prefixes)
+				}
+			} else {
+				_ = ApplyIPv6LANBypass(prefixes)
+			}
+		}(a.settings.IPv6LANBypass)
+	}
+
+	// Notify user — matches Android foreground notification behaviour
+	// (see PrivycsVpnService buildNotification). Desktop users had no
+	// feedback when the tunnel came up in the background via auto-connect.
+	connName := ""
+	if conn := a.connections.Active(); conn != nil {
+		connName = conn.Name
+	}
+	notifyBody := fmt.Sprintf("%s tunnel is active", strings.ToUpper(activeProto))
+	if connName != "" {
+		notifyBody = fmt.Sprintf("%s connected via %s", connName, strings.ToUpper(activeProto))
+	}
+	Notify("VPN connected", notifyBody, NotifyInfo)
 
 	return a.statusLocked(), nil
 }
@@ -423,6 +506,23 @@ func (a *App) disconnectInternal() error {
 	a.connectedAt = time.Time{}
 
 	log.Printf("Disconnecting %s...", a.activeProtocol)
+
+	// Tear down IPv6 LAN bypass BEFORE the tunnel goes down, so the
+	// more-specific routes we added don't outlive the session. Doing
+	// it after proto.Down() would leave the routes in the kernel
+	// pointing at a physical gateway that may have changed state
+	// (WiFi dropped, adapter reset, etc.) since we installed them.
+	if len(a.settings.IPv6LANBypass) > 0 {
+		client := NewHelperClient()
+		if client.IsHelperReachable() {
+			_, _ = client.SendCommand("ipv6_bypass_remove", map[string]string{
+				"prefixes": strings.Join(a.settings.IPv6LANBypass, ","),
+			})
+		} else {
+			_ = RemoveIPv6LANBypass(a.settings.IPv6LANBypass)
+		}
+	}
+
 	if err := proto.Down(a.ctx); err != nil {
 		log.Printf("Disconnect error (non-fatal): %v", err)
 	}
@@ -435,6 +535,7 @@ func (a *App) disconnectInternal() error {
 
 	wailsRuntime.EventsEmit(a.ctx, "vpn:disconnected", a.activeProtocol)
 	log.Println("Disconnected")
+	Notify("VPN disconnected", fmt.Sprintf("%s tunnel closed", strings.ToUpper(a.activeProtocol)), NotifyInfo)
 
 	return nil
 }
@@ -932,9 +1033,47 @@ func (a *App) SaveActiveConfigContent(content string) error {
 // LOGS & DIAGNOSTICS
 // ============================================================================
 
-// GetLogs returns recent log entries
+// GetLogs returns the merged tail of every log file the app writes,
+// prefixed with a source tag so the user can tell at a glance which
+// daemon produced the line. Mirrors Android LogsScreen which merges
+// app-event log + charon (strongSwan) log into one view.
 func (a *App) GetLogs() []string {
-	return getRecentLogs(100)
+	return getMergedLogs(500)
+}
+
+// ClearLogs truncates all Privycs-written log files. Does NOT touch
+// external daemon logs we don't own (charon, wg, etc.). Called from the
+// LogsView "Clear" button.
+func (a *App) ClearLogs() error {
+	return clearLogs()
+}
+
+// PickBackupSavePath asks the OS for a save-file dialog and returns the
+// path the user chose. Empty string means the user cancelled — caller
+// MUST treat that as "no-op" rather than "error" so the UI doesn't
+// flash an error toast on cancel. Default name "privycs-backup.json"
+// matches the Android convention so cross-device users see familiar
+// filenames.
+func (a *App) PickBackupSavePath() (string, error) {
+	return wailsRuntime.SaveFileDialog(a.ctx, wailsRuntime.SaveDialogOptions{
+		Title:           "Export Privycs Backup",
+		DefaultFilename: "privycs-backup.json",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "Privycs Backup (*.json)", Pattern: "*.json"},
+		},
+	})
+}
+
+// PickBackupOpenPath asks the OS for an open-file dialog. Same semantics
+// as PickBackupSavePath: empty = cancelled, not an error.
+func (a *App) PickBackupOpenPath() (string, error) {
+	return wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "Import Privycs Backup",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "Privycs Backup (*.json)", Pattern: "*.json"},
+			{DisplayName: "All Files", Pattern: "*"},
+		},
+	})
 }
 
 // GetVersion returns the app version

@@ -35,6 +35,11 @@ const routes = [
     name: 'Logs',
     component: () => import('@/views/LogsView.vue'),
   },
+  {
+    path: '/split-tunnel',
+    name: 'SplitTunnel',
+    component: () => import('@/views/SplitTunnelView.vue'),
+  },
 ]
 
 const router = createRouter({

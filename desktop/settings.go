@@ -40,6 +40,16 @@ type AppSettings struct {
 	LogLevel           string                  `json:"log_level"`    // debug, info, warn, error
 	GatewayURL         string                  `json:"gateway_url,omitempty"`
 	APIKey             string                  `json:"api_key,omitempty"`
+
+	// IPv6LANBypass is a list of IPv6 CIDR prefixes (e.g. the user's
+	// home-LAN /56) that should reach the local physical gateway
+	// directly instead of traversing the VPN tunnel. Required because
+	// OpenVPN's `route-ipv6 ... net_gateway` syntax doesn't exist and
+	// all three desktop OSes fail to install a link-local gateway
+	// without explicit interface scope — the Privycs app discovers the
+	// physical gateway post-connect and installs more-specific routes.
+	// Empty list = all IPv6 goes through the tunnel (full tunnel).
+	IPv6LANBypass []string `json:"ipv6_lan_bypass,omitempty"`
 }
 
 // LoadSettings reads settings from disk or returns defaults
@@ -139,6 +149,71 @@ func getRecentLogs(n int) []string {
 		lines = lines[len(lines)-n:]
 	}
 	return lines
+}
+
+// logSource describes one of several log files the app surfaces in the
+// merged LogsView. Each entry contributes up to `perFile` lines, tagged
+// with the source so the user can tell them apart.
+type logSource struct {
+	tag  string
+	path string
+}
+
+// knownLogSources lists the files we read when the LogsView asks for
+// a merged tail. Any file that doesn't exist (because e.g. OpenVPN has
+// never been started) is silently skipped — no error shown to user.
+func knownLogSources() []logSource {
+	return []logSource{
+		{"app", filepath.Join(appDataDir(), "privycs-vpn.log")},
+		{"openvpn", filepath.Join(appDataDir(), "openvpn.log")},
+		// WireGuard / IPSec don't have per-app log files on desktop;
+		// their output is captured inside the app log via log.Printf.
+	}
+}
+
+// getMergedLogs returns the tail of every known log source, each line
+// prefixed with "[tag] " so the UI can render a single merged stream.
+// perFile caps per-source line count to prevent one chatty daemon from
+// flooding the view.
+func getMergedLogs(perFile int) []string {
+	var out []string
+	for _, src := range knownLogSources() {
+		data, err := os.ReadFile(src.path)
+		if err != nil {
+			continue // silently skip missing files
+		}
+		if len(data) == 0 {
+			continue
+		}
+		lines := splitLines(string(data))
+		if len(lines) > perFile {
+			lines = lines[len(lines)-perFile:]
+		}
+		for _, ln := range lines {
+			out = append(out, fmt.Sprintf("[%s] %s", src.tag, ln))
+		}
+	}
+	if len(out) == 0 {
+		return []string{"No logs yet. Connect to a VPN or trigger an action to generate entries."}
+	}
+	return out
+}
+
+// clearLogs truncates every Privycs-owned log file. External daemon
+// logs (e.g. /var/log/charon.log) are not touched — we don't own them.
+func clearLogs() error {
+	var firstErr error
+	for _, src := range knownLogSources() {
+		if _, err := os.Stat(src.path); os.IsNotExist(err) {
+			continue
+		}
+		if err := os.Truncate(src.path, 0); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("truncate %s: %w", src.path, err)
+			}
+		}
+	}
+	return firstErr
 }
 
 func splitLines(s string) []string {

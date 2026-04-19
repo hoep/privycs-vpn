@@ -14,20 +14,75 @@
 
     <!-- Connection UI -->
     <template v-else>
-      <!-- Connect Button -->
+      <!-- Connect-on-Demand banner, visible whenever the feature is
+           enabled so the user knows the tunnel state may change
+           automatically based on network conditions. Matches Android
+           ConnectScreen on-demand banner. -->
+      <div v-if="codStatus?.enabled" class="w-full max-w-sm mb-3">
+        <div class="card flex items-center gap-2 px-3 py-2">
+          <span class="inline-block w-2 h-2 rounded-full flex-shrink-0"
+            :class="codStatus.vpn_connected
+              ? 'bg-green-400'
+              : codStatus.rule_match
+                ? 'bg-yellow-400 animate-pulse'
+                : 'bg-gray-400'"
+          />
+          <div class="flex-1 min-w-0">
+            <div class="text-[11px] font-semibold text-gray-700 dark:text-gray-200">On-demand</div>
+            <div class="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+              {{ codDescription }}
+            </div>
+          </div>
+          <router-link to="/settings" class="text-[10px] text-primary-400 hover:text-primary-300 flex-shrink-0">
+            Edit
+          </router-link>
+        </div>
+      </div>
+
+      <!-- Connect Button — animations match Android ConnectScreen:
+           * Disconnected: neutral background, outlined button, no motion.
+           * Connecting: subtle scale pulse on the button, large ring
+             progress spinner replaces the icon.
+           * Connected: outer pulse-ring + soft glow, gradient-filled
+             button, icon fades in over 300ms. -->
       <div class="mt-4 mb-5 relative">
-        <div class="w-40 h-40 rounded-full flex items-center justify-center"
+        <div class="w-40 h-40 rounded-full flex items-center justify-center relative"
           :class="isConnected ? 'bg-primary-500/5' : 'bg-gray-100 dark:bg-gray-800/50'">
+          <!-- Glow ring, visible only once the tunnel is up. Behind the
+               button so it reads as a halo. -->
+          <div v-if="isConnected" class="absolute inset-[-12px] rounded-full connect-glow pointer-events-none"></div>
+          <!-- Outer pulse, subtle — same behaviour as before. -->
           <div v-if="isConnected" class="absolute inset-0 rounded-full border-2 border-primary-500/30 pulse-ring pointer-events-none"></div>
           <button @click="toggleConnection" :disabled="vpn.loading"
-            class="w-32 h-32 rounded-full flex flex-col items-center justify-center transition-all duration-300 focus:outline-none"
-            :class="isConnected
-              ? 'bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40'
-              : 'bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'">
-            <ArrowPathIcon v-if="vpn.loading" class="w-8 h-8 text-white animate-spin" />
-            <ShieldCheckIcon v-else class="w-12 h-12 transition-all"
+            class="w-32 h-32 rounded-full flex flex-col items-center justify-center transition-all duration-300 focus:outline-none relative"
+            :class="[
+              isConnected
+                ? 'bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40'
+                : 'bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500',
+              vpn.loading ? 'connect-pulse' : ''
+            ]">
+            <!-- Connecting: large SVG progress ring. Looks more native
+                 than a spinning arrow icon and reads correctly in light
+                 theme too (the Android equivalent). -->
+            <svg v-if="vpn.loading" class="w-10 h-10 animate-spin" viewBox="0 0 48 48" fill="none" stroke-width="4">
+              <circle cx="24" cy="24" r="20" stroke="rgba(255,255,255,0.15)" />
+              <path d="M 24 4 a 20 20 0 0 1 20 20" stroke="white" stroke-linecap="round" />
+            </svg>
+            <!-- Protocol logo (WireGuard/OpenVPN/IPSec brand icon) when a
+                 protocol is active. When connected over a solid colored
+                 background, tint the icon white so the brand-color doesn't
+                 clash with the button's gradient. Falls back to generic
+                 shield only when no protocol is configured yet. -->
+            <ProtocolIcon
+              v-else-if="vpn.status?.active_protocol"
+              :protocol="vpn.status.active_protocol"
+              size="3xl"
+              :tint="isConnected ? 'white' : undefined"
+              class="transition-all duration-300"
+            />
+            <ShieldCheckIcon v-else class="w-12 h-12 transition-all duration-300"
               :class="isConnected ? 'text-white' : 'text-gray-500'" />
-            <span class="text-[11px] font-semibold mt-1.5" :class="isConnected ? 'text-white/90' : 'text-gray-500 dark:text-gray-400'">
+            <span class="text-[11px] font-semibold mt-1.5 transition-colors duration-300" :class="isConnected ? 'text-white/90' : 'text-gray-500 dark:text-gray-400'">
               {{ connectionLabel }}
             </span>
           </button>
@@ -197,7 +252,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useVpnStore } from '@/stores/vpn'
-import { SelectProtocol, ListConnections, ActivateConnection, GetActiveConfigContent, SaveActiveConfigContent } from '../../wailsjs/go/main/App'
+import { SelectProtocol, ListConnections, ActivateConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus } from '../../wailsjs/go/main/App'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import {
   ShieldCheckIcon,
@@ -282,11 +337,49 @@ function onClickOutside(e: Event) {
   }
 }
 
+// Poll on-demand status so the banner reflects network changes without
+// requiring the user to reopen Settings. 5s matches the Settings-view
+// poll interval — same backend evaluator, so shorter cadence would just
+// burn CPU for no new information.
+const codStatus = ref<any>(null)
+let codInterval: ReturnType<typeof setInterval> | null = null
+
+async function pollCod() {
+  try {
+    codStatus.value = await GetConnectOnDemandStatus()
+  } catch {
+    codStatus.value = null
+  }
+}
+
+// Compact human-readable description of the current on-demand state.
+// Mirrors the Android ConnectScreen banner text so cross-device users
+// see consistent wording.
+const codDescription = computed(() => {
+  const c = codStatus.value
+  if (!c || !c.enabled) return ''
+  if (c.vpn_connected) {
+    return `VPN active for ${c.ssid || c.network_type || 'current network'}`
+  }
+  if (c.rule_match) {
+    return `Rule matched — connecting to ${c.ssid || c.network_type || 'network'}...`
+  }
+  if (c.ssid) return `Watching ${c.ssid} (${c.network_type})`
+  if (c.network_type && c.network_type !== 'none') return `Watching ${c.network_type}`
+  return 'No network — idle'
+})
+
 onMounted(() => {
   loadConnections()
+  pollCod()
+  codInterval = setInterval(pollCod, 5000)
   document.addEventListener('click', onClickOutside)
 })
 onUnmounted(() => {
+  if (codInterval) {
+    clearInterval(codInterval)
+    codInterval = null
+  }
   document.removeEventListener('click', onClickOutside)
 })
 
