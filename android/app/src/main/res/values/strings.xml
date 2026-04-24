@@ -12,6 +12,13 @@
     <string name="widget_status_connecting">Connecting…</string>
     <string name="widget_connect">Connect</string>
     <string name="widget_disconnect">Disconnect</string>
+    <string name="widget_arrow_download">↓</string>
+    <string name="widget_arrow_upload">↑</string>
+    <string name="widget_protocol_wireguard">WireGuard</string>
+    <string name="widget_protocol_openvpn">OpenVPN</string>
+    <string name="widget_protocol_ipsec">IPSec</string>
+    <string name="widget_sparkline_rx_description">Download speed chart</string>
+    <string name="widget_sparkline_tx_description">Upload speed chart</string>
     <string name="vpn_tile_label">Privycs VPN</string>
 
     <!--

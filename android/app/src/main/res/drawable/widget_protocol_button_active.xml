@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Protocol switcher button — active state.
+
+    Applied by VpnWidget.kt to the currently-active protocol
+    (WG/OVPN/IPSec) via RemoteViews "setBackgroundResource".
+    widget_accent is the Privycs turquoise (#00CDAB light /
+    #33D7BC dark) so the active protocol visually pops against
+    the widget's neutral background.
+
+    State-based selectors do not work in RemoteViews on all
+    launchers (the launcher's context skips state propagation),
+    so we deliberately use two separate drawables that Kotlin
+    swaps in rather than one selector drawable.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_accent" />
+    <corners android:radius="6dp" />
+</shape>

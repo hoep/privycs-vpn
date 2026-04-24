@@ -1,19 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Privycs VPN home-screen widget.
+    Privycs VPN home-screen widget — compact mirror of the app's
+    Connect screen. Three stacked sections:
 
-    Root id = @android:id/background is CRITICAL on Android 12+:
-    it tells the launcher to apply the system widget chrome
-    (rounded corners, Material You tinting) to THIS view as the
-    canonical container. Without it, the launcher wraps the
-    widget in its own default container AND our background shows
-    underneath -> the dreaded "dark border, dark fill" artifact
-    seen in v0.9.3.10 and earlier.
+    1. Logo + Status row. Logo is the primary connect/disconnect
+       tap-target (same affordance as in the app). android:tint
+       swaps between widget_status_disconnected (grey) and
+       widget_accent (brand turquoise) at runtime. If the source
+       asset turns out to have baked-in colour (PNG without alpha),
+       tint will fall through to the original — consider swapping
+       to a tintable vector drawable.
+    2. Protocol switcher row. Three ImageViews with per-protocol
+       vector assets (ic_protocol_*). VpnWidget.kt sets the
+       background drawable at runtime (active = widget_accent,
+       inactive = widget_surface_variant) via RemoteViews
+       setInt/"setBackgroundResource". ImageView is used instead of
+       Button because Button doesn't render vector drawableLeft
+       cleanly in RemoteViews on some launchers (One UI quirk).
+    3. Traffic sparklines. Each row: arrow glyph, sparkline Bitmap
+       (rendered in Kotlin by WidgetSparklineRenderer per update
+       tick), throughput value. The ImageView width stretches via
+       layout_weight so the sparkline fills available space; the
+       value text is min-width clamped so it doesn't collapse when
+       transfer is 0 B/s.
 
-    Theme adaptation: @color/widget_* tokens have light + dark
-    variants (values-night/colors.xml), so no runtime theme-attr
-    lookup in the RemoteViews context (which is the launcher's
-    context, not ours).
+    Root id = @android:id/background stays as before — Android 12+
+    needs this exact id to apply the system widget chrome to our
+    LinearLayout instead of wrapping it in a dark container.
 -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -21,71 +34,212 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:gravity="center"
     android:padding="12dp"
     android:background="@drawable/widget_background">
 
-    <ImageView
-        android:id="@+id/widget_icon"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:src="@drawable/ic_privycs_logo"
-        android:contentDescription="@string/widget_description" />
-
-    <TextView
-        android:id="@+id/widget_status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/widget_status_disconnected"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:textColor="@color/widget_status_disconnected"
-        android:layout_marginTop="8dp"
-        android:singleLine="true"
-        android:ellipsize="end" />
-
-    <TextView
-        android:id="@+id/widget_connection_name"
+    <!-- Section 1: Logo + Status -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/app_name"
-        android:textSize="12sp"
-        android:textColor="@color/widget_text_primary"
-        android:layout_marginTop="2dp"
-        android:gravity="center"
-        android:singleLine="true"
-        android:ellipsize="end" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-    <TextView
-        android:id="@+id/widget_uptime"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textSize="11sp"
-        android:textColor="@color/widget_text_secondary"
-        android:layout_marginTop="2dp"
-        android:singleLine="true" />
+        <ImageView
+            android:id="@+id/widget_icon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_privycs_logo"
+            android:tint="@color/widget_status_disconnected"
+            android:contentDescription="@string/widget_description" />
 
-    <!--
-        Toggle button styled as a compact pill. Text swaps between
-        "Connect" and "Disconnect" at runtime via setTextViewText.
-        Background uses a second rounded-corner drawable so it
-        looks like a Material button even without pulling in the
-        full Material Components theme (unreachable from the
-        launcher's context).
-    -->
-    <TextView
-        android:id="@+id/widget_toggle_button"
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_status_disconnected"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/widget_status_disconnected"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/widget_connection_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textSize="12sp"
+                android:textColor="@color/widget_text_primary"
+                android:layout_marginTop="1dp"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_uptime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="11sp"
+            android:textColor="@color/widget_text_secondary"
+            android:layout_marginStart="6dp"
+            android:fontFamily="monospace"
+            android:singleLine="true" />
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
         android:layout_width="match_parent"
-        android:layout_height="36dp"
-        android:layout_marginTop="10dp"
-        android:background="@drawable/widget_button_background"
-        android:text="@string/widget_connect"
-        android:textSize="13sp"
-        android:textStyle="bold"
-        android:textColor="@color/widget_text_primary"
-        android:gravity="center"
-        android:singleLine="true"
-        android:paddingHorizontal="8dp" />
+        android:layout_height="1dp"
+        android:layout_marginVertical="8dp"
+        android:background="@color/widget_surface_variant" />
+
+    <!-- Section 2: Protocol Switcher -->
+    <LinearLayout
+        android:id="@+id/widget_protocol_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:weightSum="3"
+        android:gravity="center">
+
+        <ImageView
+            android:id="@+id/widget_protocol_wg"
+            android:layout_width="0dp"
+            android:layout_height="32dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_protocol_wireguard"
+            android:background="@drawable/widget_protocol_button_inactive"
+            android:contentDescription="@string/widget_protocol_wireguard" />
+
+        <ImageView
+            android:id="@+id/widget_protocol_ovpn"
+            android:layout_width="0dp"
+            android:layout_height="32dp"
+            android:layout_weight="1"
+            android:layout_marginHorizontal="2dp"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_protocol_openvpn"
+            android:background="@drawable/widget_protocol_button_inactive"
+            android:contentDescription="@string/widget_protocol_openvpn" />
+
+        <ImageView
+            android:id="@+id/widget_protocol_ipsec"
+            android:layout_width="0dp"
+            android:layout_height="32dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_protocol_strongswan"
+            android:background="@drawable/widget_protocol_button_inactive"
+            android:contentDescription="@string/widget_protocol_ipsec" />
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="8dp"
+        android:background="@color/widget_surface_variant" />
+
+    <!-- Section 3: Traffic sparklines -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Download row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_arrow_download"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@color/widget_status_connected"
+                android:minWidth="16dp"
+                android:gravity="center" />
+
+            <ImageView
+                android:id="@+id/widget_sparkline_rx"
+                android:layout_width="0dp"
+                android:layout_height="22dp"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="6dp"
+                android:scaleType="fitXY"
+                android:contentDescription="@string/widget_sparkline_rx_description" />
+
+            <TextView
+                android:id="@+id/widget_rx_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 B/s"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/widget_text_primary"
+                android:minWidth="72dp"
+                android:gravity="end"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <!-- Upload row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_arrow_upload"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@color/widget_accent"
+                android:minWidth="16dp"
+                android:gravity="center" />
+
+            <ImageView
+                android:id="@+id/widget_sparkline_tx"
+                android:layout_width="0dp"
+                android:layout_height="22dp"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="6dp"
+                android:scaleType="fitXY"
+                android:contentDescription="@string/widget_sparkline_tx_description" />
+
+            <TextView
+                android:id="@+id/widget_tx_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 B/s"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/widget_text_primary"
+                android:minWidth="72dp"
+                android:gravity="end"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+    </LinearLayout>
 
 </LinearLayout>

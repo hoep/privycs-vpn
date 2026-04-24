@@ -2,36 +2,33 @@
 <!--
     Privycs VPN home-screen widget configuration.
 
-    Size:
-    - minWidth/minHeight 110dp: roughly 2x2 launcher cells on most
-      devices. Enough for icon + status + toggle button without
-      clipping on the densest launchers (Pixel, Samsung One UI).
-    - targetCellWidth/Height (API 31+): preferred layout is 2x3,
-      giving room for connection name + protocol + uptime without
-      the user needing to resize.
-    - resizeMode horizontal|vertical: user can make it wider or
-      taller if they want more breathing room.
+    Size (4x3 cells):
+    - Widget renders three stacked sections: connect toggle + status,
+      protocol switcher row, traffic sparklines with values. 4x3 is
+      the minimum that fits all three without clipping on dense
+      launchers (Pixel, Samsung One UI).
+    - 250x180dp corresponds to ~4x3 cells on most launchers.
+    - minResizeWidth/Height lock the minimum user-resize so the
+      sparkline bitmaps stay legible if the user shrinks the widget.
 
     previewImage:
-    - @drawable/ic_privycs_logo (the branded shield + P) so the
-      widget picker shows "this is a Privycs widget" at a glance
-      instead of the generic Android lock-icon it used to show.
+    - @drawable/ic_privycs_logo shows "this is a Privycs widget" in
+      the launcher's widget picker.
 
-    updatePeriodMillis:
-    - 0 disables automatic periodic updates since our service
-      drives updates via sendStatusUpdate broadcast whenever state
-      changes. The previous 600000ms (10min) was both too slow
-      (10min between auto-refreshes when service is dead) and
-      irrelevant (broadcast path covers the signal). Value 0 also
-      saves battery.
+    updatePeriodMillis = 0:
+    - Service-driven broadcast pushes updates whenever state changes
+      (status transitions, traffic samples every 1-2s). System-
+      scheduled updates would be wasteful.
 -->
 <appwidget-provider
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:initialLayout="@layout/widget_vpn"
-    android:minWidth="110dp"
-    android:minHeight="110dp"
-    android:targetCellWidth="2"
+    android:minWidth="250dp"
+    android:minHeight="180dp"
+    android:minResizeWidth="250dp"
+    android:minResizeHeight="180dp"
+    android:targetCellWidth="4"
     android:targetCellHeight="3"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="0"

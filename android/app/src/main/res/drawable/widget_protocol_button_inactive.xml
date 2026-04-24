@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Protocol switcher button — inactive state.
+
+    Default state for all three protocol buttons. VpnWidget.kt
+    swaps in widget_protocol_button_active.xml for the currently
+    active protocol so exactly one is highlighted at any time.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_surface_variant" />
+    <corners android:radius="6dp" />
+</shape>
