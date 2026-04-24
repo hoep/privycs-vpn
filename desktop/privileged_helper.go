@@ -117,14 +117,28 @@ func (h *PrivilegedHelper) Start() error {
 		return fmt.Errorf("failed to listen on %s: %w", socketPath, err)
 	}
 
-	// Socket permissions: on Unix owner+group only; on Windows we re-apply
-	// the ACL explicitly on the just-created socket file because the file
-	// is recreated each service start and may not pick up the directory
-	// inheritance in time for the first client connect.
+	// Socket permissions:
+	// - Windows: re-apply the Authenticated-Users ACL explicitly on
+	//   the just-created socket file because the file is recreated
+	//   each service start and may not pick up the directory
+	//   inheritance in time for the first client connect.
+	// - Linux/macOS: helper runs as root under systemd/launchd, so
+	//   the socket's owner/group is root:root. The desktop app
+	//   runs as the login user. 0660 would only allow root or root-
+	//   group members - neither of which the login user is - so
+	//   client connects fail with EACCES and IsHelperRunning()
+	//   permanently returns false even while systemd happily
+	//   reports the service as active. Use 0666 and rely on the
+	//   IPC layer to reject malformed peers.
+	//
+	//   TODO: tighten with SO_PEERCRED once the installer passes
+	//   the invoking user's UID to the helper via EnvironmentFile -
+	//   then the helper can reject connects from any other UID
+	//   and the permissive 0666 is redundant defence-in-depth.
 	if runtime.GOOS == "windows" {
 		exec.Command("icacls", socketPath, "/grant", "*S-1-5-11:F").Run()
 	} else {
-		os.Chmod(socketPath, 0660)
+		os.Chmod(socketPath, 0666)
 	}
 
 	h.mu.Lock()
