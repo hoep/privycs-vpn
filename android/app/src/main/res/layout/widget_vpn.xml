@@ -44,12 +44,15 @@
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
+        <!-- No android:tint here: lint (UseAppTint) insists on app:tint
+             which AppCompat does not apply in RemoteViews anyway.
+             Tint is set at runtime via VpnWidget.updateWidgetWithStatus
+             using RemoteViews.setInt(..., "setColorFilter", ...). -->
         <ImageView
             android:id="@+id/widget_icon"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@drawable/ic_privycs_logo"
-            android:tint="@color/widget_status_disconnected"
             android:contentDescription="@string/widget_description" />
 
         <LinearLayout
