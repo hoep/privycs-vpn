@@ -264,18 +264,30 @@ class VpnServiceManager private constructor(private val context: Context) {
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markConnected(status.connectionId)
             }
-            // Kill Switch: arm after any successful connect. Setting
-            // check done here rather than in KillSwitchManager so the
-            // manager stays side-effect-free and the setting lookup
-            // happens lazily (it's a blocking DataStore read).
+        }
+        // Kill Switch: defensively arm on every connected status
+        // push, not only on the disconnected->connected transition.
+        // The transition-only check missed several real cases:
+        //  - User toggles Kill Switch ON while already connected
+        //  - App process restarts while Always-On VPN holds the
+        //    tunnel up (no transition event in the new process)
+        //  - User toggles KS off-and-on during a connected session
+        //    (disarm() drops to IDLE, but no re-arm fired because
+        //    status.connected didn't change)
+        // arm() is idempotent (no-op when already ARMED), so the
+        // overhead of re-checking on every poll tick is negligible.
+        if (status.connected) {
             scope.launch {
                 val settings = com.privycs.vpn.PrivycsApp.instance
                     .settingsRepository.getSettingsBlocking()
-                if (settings.killSwitchEnabled) {
+                if (settings.killSwitchEnabled &&
+                    !com.privycs.vpn.util.KillSwitchManager.isArmed()
+                ) {
                     com.privycs.vpn.util.KillSwitchManager.arm()
                 }
             }
-        } else if (!status.connected && prev.connected) {
+        }
+        if (!status.connected && prev.connected) {
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
             }

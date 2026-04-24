@@ -112,6 +112,16 @@ class SettingsRepository(private val context: Context) {
         // would look broken.
         if (!enabled) {
             com.privycs.vpn.util.KillSwitchManager.disarm()
+            return
+        }
+        // Toggled ON while already connected: arm now. The
+        // connected-transition path in VpnServiceManager wouldn't
+        // fire in this case (status.connected isn't changing), and
+        // waiting for the next poll-tick defensive-arm is a
+        // 0-2s UX lag the user shouldn't have to see.
+        val manager = com.privycs.vpn.service.VpnServiceManager.getInstance(context)
+        if (manager.isConnected && !com.privycs.vpn.util.KillSwitchManager.isArmed()) {
+            com.privycs.vpn.util.KillSwitchManager.arm()
         }
     }
 
