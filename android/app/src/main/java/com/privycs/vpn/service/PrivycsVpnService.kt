@@ -85,6 +85,31 @@ class PrivycsVpnService : VpnService() {
         }
 
         registerKillSwitchNetworkWatcher()
+
+        // Polling fallback: some OEM builds (Samsung One UI, MIUI,
+        // OxygenOS) have observed onLost quirks when a VPN is the
+        // active default - the callback either fires late or not at
+        // all. Rather than trust a single signal, poll every 3s
+        // while armed: if the system has no non-VPN network at all,
+        // that's an unambiguous drop regardless of whether any
+        // callback fired. Cheap check (no wake-locks, no network
+        // traffic), runs only during the armed window.
+        scope.launch {
+            while (isActive) {
+                delay(3000)
+                if (com.privycs.vpn.util.KillSwitchManager.state.value
+                    == com.privycs.vpn.util.KillSwitchManager.State.ARMED
+                ) {
+                    val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                    if (!hasAnyNonVpnNetwork(cm)) {
+                        Log.i(TAG, "Kill switch poll: no non-VPN network while armed → engageSinkhole")
+                        com.privycs.vpn.util.KillSwitchManager.engageSinkhole(
+                            "poll: no non-VPN network",
+                        )
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -111,6 +136,7 @@ class PrivycsVpnService : VpnService() {
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onLost(network: android.net.Network) {
                 super.onLost(network)
+                Log.d(TAG, "Kill switch onLost fired for network=$network, armed=${com.privycs.vpn.util.KillSwitchManager.isArmed()}")
                 scope.launch {
                     // Grace period for WiFi-to-mobile handoffs:
                     // during a handoff both the losing and gaining
@@ -119,8 +145,14 @@ class PrivycsVpnService : VpnService() {
                     // non-VPN network remains after the dust
                     // settles.
                     delay(1500)
-                    if (!com.privycs.vpn.util.KillSwitchManager.isArmed()) return@launch
-                    if (hasAnyNonVpnNetwork(cm)) return@launch
+                    if (!com.privycs.vpn.util.KillSwitchManager.isArmed()) {
+                        Log.d(TAG, "Kill switch onLost post-delay: not armed, skipping")
+                        return@launch
+                    }
+                    if (hasAnyNonVpnNetwork(cm)) {
+                        Log.d(TAG, "Kill switch onLost post-delay: another non-VPN network present, skipping")
+                        return@launch
+                    }
                     Log.i(TAG, "Network watcher: all non-VPN networks lost while armed → engageSinkhole")
                     com.privycs.vpn.util.KillSwitchManager.engageSinkhole(
                         "all non-VPN networks lost",
@@ -130,6 +162,7 @@ class PrivycsVpnService : VpnService() {
 
             override fun onAvailable(network: android.net.Network) {
                 super.onAvailable(network)
+                Log.d(TAG, "Kill switch onAvailable fired for network=$network")
                 // No direct action needed: if the sinkhole is
                 // active and a new non-VPN network appears, we
                 // STAY in sinkhole mode until the user (or the
