@@ -94,12 +94,16 @@
             android:singleLine="true" />
     </LinearLayout>
 
-    <!-- Divider -->
-    <View
+    <!-- Divider (TextView because RemoteViews whitelist disallows
+         bare View; TextView is allowed and renders as a 1dp strip
+         when given an empty text + fixed height + background). -->
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginVertical="8dp"
-        android:background="@color/widget_surface_variant" />
+        android:background="@color/widget_surface_variant"
+        android:text=""
+        android:importantForAccessibility="no" />
 
     <!-- Section 2: Protocol Switcher -->
     <LinearLayout
@@ -147,12 +151,16 @@
             android:contentDescription="@string/widget_protocol_ipsec" />
     </LinearLayout>
 
-    <!-- Divider -->
-    <View
+    <!-- Divider (TextView because RemoteViews whitelist disallows
+         bare View; TextView is allowed and renders as a 1dp strip
+         when given an empty text + fixed height + background). -->
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginVertical="8dp"
-        android:background="@color/widget_surface_variant" />
+        android:background="@color/widget_surface_variant"
+        android:text=""
+        android:importantForAccessibility="no" />
 
     <!-- Section 3: Traffic sparklines -->
     <LinearLayout
