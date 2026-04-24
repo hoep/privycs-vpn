@@ -315,8 +315,19 @@ class NetworkMonitor private constructor(private val context: Context) {
                     connection,
                 )
                 Log.d(TAG, "on-demand requestConnect -> $result (rules=$ruleMatch)")
-            } else if (!shouldConnect && vpnManager.isConnected && transitioned) {
-                Log.d(TAG, "Rules transitioned to no-match, disconnecting VPN: $ruleMatch")
+            } else if (!shouldConnect && vpnManager.isConnected) {
+                // Drop the `&& transitioned` gate that lived here: if
+                // we're connected and the rules say we shouldn't be,
+                // always issue a disconnect - not only on the flip
+                // from shouldConnect=true. Without this, a user who
+                // connects manually while already sitting inside an
+                // except-list SSID stays connected forever because
+                // the rule state is stable-false across polls (no
+                // transition event), even though the rule clearly
+                // says "disconnect here". requestDisconnect is
+                // idempotent (returns AlreadyIdle if tunnel is
+                // already down), so re-firing is free.
+                Log.d(TAG, "Rules say no-match while connected, disconnecting VPN: $ruleMatch")
                 com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
                     context,
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
