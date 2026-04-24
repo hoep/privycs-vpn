@@ -88,14 +88,23 @@ class PrivycsVpnService : VpnService() {
     }
 
     /**
-     * Register a ConnectivityManager callback so we notice an
-     * unexpected tunnel drop the moment the underlying network
-     * disappears - not 30-90s later when the tunnel plugin finally
-     * gives up its own keepalive. Without this hook, airplane
-     * mode / WiFi-off scenarios leave the KillSwitchManager in
-     * ARMED state indefinitely and the sinkhole never engages,
-     * so traffic continues flowing once the non-VPN network
-     * comes back.
+     * Register a ConnectivityManager callback that fires the
+     * moment the underlying non-VPN network disappears - not
+     * 30-90s later when the tunnel plugin's own keepalive
+     * finally times out.
+     *
+     * Why NOT registerDefaultNetworkCallback: when our VPN is
+     * active it BECOMES the default network. Airplane mode takes
+     * down WiFi/Mobile underneath, but the VPN tun fd is still
+     * open and stays the default from Android's perspective, so
+     * onLost never fires. The v0.9.9.1 implementation had this
+     * bug.
+     *
+     * Right mechanism: registerNetworkCallback with a filter
+     * that requires NET_CAPABILITY_NOT_VPN. This observes every
+     * non-VPN network directly and ignores our own tunnel. When
+     * airplane mode drops WiFi + Mobile, both match the filter
+     * and fire onLost independently of what the VPN is doing.
      */
     private fun registerKillSwitchNetworkWatcher() {
         val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
@@ -114,7 +123,7 @@ class PrivycsVpnService : VpnService() {
                     if (hasAnyNonVpnNetwork(cm)) return@launch
                     Log.i(TAG, "Network watcher: all non-VPN networks lost while armed → engageSinkhole")
                     com.privycs.vpn.util.KillSwitchManager.engageSinkhole(
-                        "default network lost",
+                        "all non-VPN networks lost",
                     )
                 }
             }
@@ -132,8 +141,12 @@ class PrivycsVpnService : VpnService() {
         }
         killSwitchNetworkCallback = callback
         try {
-            cm.registerDefaultNetworkCallback(callback)
-            Log.d(TAG, "Kill switch network watcher registered")
+            val request = android.net.NetworkRequest.Builder()
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build()
+            cm.registerNetworkCallback(request, callback)
+            Log.d(TAG, "Kill switch network watcher registered (non-VPN filter)")
         } catch (e: Exception) {
             Log.w(TAG, "Kill switch network watcher registration failed", e)
             killSwitchNetworkCallback = null
