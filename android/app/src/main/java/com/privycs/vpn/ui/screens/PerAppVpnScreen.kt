@@ -57,7 +57,7 @@ import kotlinx.coroutines.withContext
 /**
  * Split tunnel mode: include only selected apps or exclude selected apps from VPN.
  */
-enum class SplitTunnelMode {
+enum class PerAppVpnMode {
     EXCLUDE,
     INCLUDE
 }
@@ -71,7 +71,7 @@ data class AppEntry(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SplitTunnelScreen(
+fun PerAppVpnScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -82,9 +82,9 @@ fun SplitTunnelScreen(
     var mode by remember {
         mutableStateOf(
             if (settingsPrefs.getString("mode", "exclude") == "include")
-                SplitTunnelMode.INCLUDE
+                PerAppVpnMode.INCLUDE
             else
-                SplitTunnelMode.EXCLUDE
+                PerAppVpnMode.EXCLUDE
         )
     }
 
@@ -127,7 +127,7 @@ fun SplitTunnelScreen(
     fun saveSettings() {
         val selectedPackages = apps.filter { it.selected }.map { it.packageName }.toSet()
         settingsPrefs.edit()
-            .putString("mode", if (mode == SplitTunnelMode.INCLUDE) "include" else "exclude")
+            .putString("mode", if (mode == PerAppVpnMode.INCLUDE) "include" else "exclude")
             .putStringSet("packages", selectedPackages)
             .apply()
     }
@@ -137,7 +137,7 @@ fun SplitTunnelScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "Split Tunnel",
+                        "Per-App VPN",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -181,9 +181,9 @@ fun SplitTunnelScreen(
 
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         SegmentedButton(
-                            selected = mode == SplitTunnelMode.EXCLUDE,
+                            selected = mode == PerAppVpnMode.EXCLUDE,
                             onClick = {
-                                mode = SplitTunnelMode.EXCLUDE
+                                mode = PerAppVpnMode.EXCLUDE
                                 saveSettings()
                             },
                             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
@@ -191,9 +191,9 @@ fun SplitTunnelScreen(
                             Text("Exclude Selected", style = MaterialTheme.typography.labelSmall)
                         }
                         SegmentedButton(
-                            selected = mode == SplitTunnelMode.INCLUDE,
+                            selected = mode == PerAppVpnMode.INCLUDE,
                             onClick = {
-                                mode = SplitTunnelMode.INCLUDE
+                                mode = PerAppVpnMode.INCLUDE
                                 saveSettings()
                             },
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
@@ -206,8 +206,8 @@ fun SplitTunnelScreen(
 
                     Text(
                         text = when (mode) {
-                            SplitTunnelMode.EXCLUDE -> "Selected apps will bypass the VPN and use the normal network."
-                            SplitTunnelMode.INCLUDE -> "Only selected apps will use the VPN. All other traffic bypasses it."
+                            PerAppVpnMode.EXCLUDE -> "Selected apps will bypass the VPN and use the normal network."
+                            PerAppVpnMode.INCLUDE -> "Only selected apps will use the VPN. All other traffic bypasses it."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

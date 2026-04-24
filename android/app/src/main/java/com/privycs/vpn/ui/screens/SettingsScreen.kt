@@ -80,7 +80,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(
     onNavigateToLogs: () -> Unit,
-    onNavigateToSplitTunnel: () -> Unit = {}
+    onNavigateToPerAppVpn: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val settingsRepo = remember { PrivycsApp.instance.settingsRepository }
@@ -701,19 +701,19 @@ fun SettingsScreen(
                 }
             }
 
-            // -- Split Tunnel --
-            SettingsSection(title = "SPLIT TUNNEL") {
+            // -- Per-App VPN --
+            SettingsSection(title = "PER-APP VPN") {
                 Text(
-                    text = "Choose which apps use the VPN connection.",
+                    text = "Choose which apps use the VPN tunnel.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
-                    onClick = onNavigateToSplitTunnel,
+                    onClick = onNavigateToPerAppVpn,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Configure Split Tunnel")
+                    Text("Configure Per-App VPN")
                 }
             }
 

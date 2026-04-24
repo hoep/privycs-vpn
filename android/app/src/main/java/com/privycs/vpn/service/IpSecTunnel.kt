@@ -249,7 +249,44 @@ class IpSecTunnel(private val context: Context) {
         if (cfg.splitTunneling.isNotEmpty()) {
             profile.setExcludedSubnets(cfg.splitTunneling.joinToString(" "))
         }
+        applyPerAppVpnSettings(profile)
         return profile
+    }
+
+    /**
+     * Propagate the app-level Per-App-VPN configuration into
+     * strongSwan's VpnProfile. strongSwan's CharonVpnService already
+     * honours these two fields (selectedApps + selectedAppsHandling)
+     * by calling VpnService.Builder.addAllowedApplication /
+     * addDisallowedApplication when it builds the tunnel.
+     *
+     * Source of truth is the shared "split_tunnel" SharedPreferences
+     * bucket written by PerAppVpnScreen - same keys/values as the
+     * WireGuard and OpenVPN paths consume, so one UI drives all
+     * three protocols.
+     */
+    private fun applyPerAppVpnSettings(profile: VpnProfile) {
+        try {
+            val prefs = context.getSharedPreferences("split_tunnel", Context.MODE_PRIVATE)
+            val mode = prefs.getString("mode", "disabled") ?: "disabled"
+            val packages = prefs.getStringSet("packages", emptySet()) ?: emptySet()
+
+            if (mode == "disabled" || packages.isEmpty()) {
+                profile.setSelectedAppsHandling(VpnProfile.SelectedAppsHandling.SELECTED_APPS_DISABLE)
+                return
+            }
+
+            profile.setSelectedApps(java.util.TreeSet(packages))
+            profile.setSelectedAppsHandling(
+                when (mode) {
+                    "include" -> VpnProfile.SelectedAppsHandling.SELECTED_APPS_ONLY
+                    "exclude" -> VpnProfile.SelectedAppsHandling.SELECTED_APPS_EXCLUDE
+                    else -> VpnProfile.SelectedAppsHandling.SELECTED_APPS_DISABLE
+                },
+            )
+        } catch (e: Exception) {
+            PrivycsLogger.w(TAG, "Failed to apply Per-App VPN settings to IPSec profile: ${e.message}")
+        }
     }
 
     /**
@@ -272,6 +309,8 @@ class IpSecTunnel(private val context: Context) {
                 existing.setMTU(profile.getMTU())
                 existing.setDnsServers(profile.getDnsServers())
                 existing.setExcludedSubnets(profile.getExcludedSubnets())
+                existing.setSelectedApps(profile.getSelectedApps())
+                existing.setSelectedAppsHandling(profile.getSelectedAppsHandling())
                 source.updateVpnProfile(existing)
                 existing.getUUID()
             } else {
