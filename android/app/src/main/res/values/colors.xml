@@ -15,5 +15,6 @@
     <color name="widget_text_secondary">#5F6368</color>
     <color name="widget_status_connected">#00A88C</color>
     <color name="widget_status_disconnected">#9AA0A6</color>
+    <color name="widget_status_kill_switch">#DC2626</color>
     <color name="widget_accent">#00CDAB</color>
 </resources>

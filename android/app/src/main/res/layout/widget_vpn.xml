@@ -1,24 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Privycs VPN home-screen widget - Connect-screen mirror (v3).
+    Privycs VPN home-screen widget - Connect-screen mirror (v4).
 
-    Layout improvements over v0.9.6.0:
+    User spec (v1.0.0): "Exactly like screenshots/widget.png, minus
+    the bottom whitespace of the Connect screen." That means 9 rows
+    stacked vertically, no large empty regions:
 
-    - Circle scales with available vertical space instead of sitting
-      fixed at 68dp in a weight=1 container. The FrameLayout around
-      the circle image gets the weight, the ImageView inside uses
-      match_parent + scaleType=fitCenter, so the circle grows from
-      ~80dp at 4x3 widget size up to ~130dp at 4x4. Fixes the
-      "button lost in an empty sea" look.
+      1. Big circular status button (scales with widget height)
+      2. Uptime (big monospace, centered)
+      3. Connection name + chevron
+      4. Protocol pills (WG / IPSec / OVPN, active one tinted)
+      5. Endpoint text (small, centered, mono)
+      6. Two traffic cards side-by-side (Download / Upload) -
+         each: label, cumulative total, per-second speed, sparkline
+      7. VPN IP card (label + value)
+      8. Endpoint card (label + value)
 
-    - Protocol switcher height 40dp (was 26). Bigger finger target
-      and more visible brand icons.
+    Kill-Switch Sinkhole state: when KillSwitchManager reports
+    SINKHOLE, the circle gets tinted red (#DC2626 / red-600) and
+    its icon swaps to ic_kill_switch_sinkhole so the user sees
+    the active block state directly on the home screen without
+    opening the app.
 
-    - Traffic row height 28dp with 22dp sparklines (was 22/16).
-      Sparklines are now actually legible when traffic is flowing.
-
-    - Padding 6dp (was 8) and 2dp section gaps (was 4) to spend the
-      saved pixels on content instead of whitespace.
+    RemoteViews whitelist constraints: LinearLayout, FrameLayout,
+    ImageView, TextView allowed; no View/Space/CardView. Rounded
+    cards are LinearLayouts with widget_card_background drawable.
 
     Root id = @android:id/background stays critical for Android 12+
     widget chrome (rounded corners, Material You tinting).
@@ -29,63 +35,25 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="6dp"
+    android:padding="8dp"
     android:background="@drawable/widget_background">
 
-    <!-- Section 1: Header - connection name + server endpoint -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
-
-        <TextView
-            android:id="@+id/widget_header_name"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/app_name"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:textColor="@color/widget_text_primary"
-            android:singleLine="true"
-            android:ellipsize="end" />
-
-        <TextView
-            android:id="@+id/widget_header_endpoint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text=""
-            android:textSize="10sp"
-            android:textColor="@color/widget_text_secondary"
-            android:fontFamily="monospace"
-            android:singleLine="true"
-            android:ellipsize="middle" />
-    </LinearLayout>
-
-    <!-- Section 2: Big circular connect button.
-         Outer vertical LinearLayout gets layout_weight=1 so this
-         whole section expands to fill remaining vertical space.
-         Inside, the FrameLayout containing the circle also has
-         weight=1, so the circle takes most of the section height.
-         The label sits wrap_content below as its own row, so the
-         circle never overlaps the status text. The circle ImageView
-         uses match_parent + scaleType=fitCenter, producing a
-         circle that scales with available space (roughly 70-130dp
-         depending on widget size). Click target is the outer
-         LinearLayout, covering the whole tap area. -->
+    <!-- 1. Big circular status button.
+         Gets weight=1 so it takes remaining space after fixed rows
+         below claim their wrap_content heights. FrameLayout + fitCenter
+         circle means a mostly-square circle even on wide widgets. -->
     <LinearLayout
         android:id="@+id/widget_button_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="2dp"
-        android:layout_marginBottom="2dp"
         android:orientation="vertical"
-        android:gravity="center_horizontal">
+        android:gravity="center_horizontal"
+        android:minHeight="88dp">
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1">
+            android:layout_height="match_parent">
 
             <ImageView
                 android:id="@+id/widget_button_bg"
@@ -96,15 +64,6 @@
                 android:contentDescription="@string/widget_description"
                 android:adjustViewBounds="true" />
 
-            <!-- Single icon that always reflects the active
-                 protocol (or the saved connection's protocol when
-                 disconnected). match_parent + fitCenter + padding
-                 makes the icon scale with the circle's size - at
-                 a ~60% ratio at typical 4x3 widget dimensions, so
-                 it reads at the same visual weight as the in-app
-                 ConnectScreen icon. Brand colours of the protocol
-                 drawables are preserved; the disconnected state
-                 is communicated by the grey circle background. -->
             <ImageView
                 android:id="@+id/widget_button_icon"
                 android:layout_width="match_parent"
@@ -114,130 +73,361 @@
                 android:src="@drawable/ic_protocol_wireguard"
                 android:scaleType="fitCenter" />
         </FrameLayout>
-
-        <TextView
-            android:id="@+id/widget_button_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="@string/widget_status_disconnected"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:textColor="@color/widget_status_disconnected"
-            android:singleLine="true" />
     </LinearLayout>
 
-    <!-- Section 3: Protocol switcher. 40dp gives finger-friendly
-         touch targets and lets the brand icons breathe. -->
+    <!-- 2. Uptime - big monospace text, centered -->
+    <TextView
+        android:id="@+id/widget_uptime"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:text="00:00:00"
+        android:textSize="18sp"
+        android:fontFamily="monospace"
+        android:textColor="@color/widget_text_primary"
+        android:singleLine="true" />
+
+    <!-- 3. Connection name + chevron.
+         Chevron is decorative (not clickable in RemoteViews - click
+         falls through to the root body → open-app intent), purely
+         to signal "this is the active connection you could switch". -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="40dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/widget_connection_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textSize="12sp"
+            android:textColor="@color/widget_text_primary"
+            android:singleLine="true"
+            android:ellipsize="end" />
+
+        <ImageView
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_marginStart="4dp"
+            android:src="@drawable/ic_widget_chevron_down"
+            android:contentDescription="@null" />
+    </LinearLayout>
+
+    <!-- 4. Protocol pills (WG / IPSec / OVPN). Each pill is a
+         horizontal LinearLayout with icon + label text. Pill
+         background switches between active/inactive drawables. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
         android:orientation="horizontal"
         android:weightSum="3">
 
-        <ImageView
+        <LinearLayout
             android:id="@+id/widget_protocol_wg"
             android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:layout_height="28dp"
             android:layout_weight="1"
             android:layout_marginEnd="3dp"
-            android:padding="8dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_protocol_wireguard"
-            android:background="@drawable/widget_protocol_button_inactive"
-            android:contentDescription="@string/widget_protocol_wireguard" />
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:background="@drawable/widget_protocol_button_inactive">
 
-        <ImageView
-            android:id="@+id/widget_protocol_ovpn"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginHorizontal="1dp"
-            android:padding="8dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_protocol_openvpn"
-            android:background="@drawable/widget_protocol_button_inactive"
-            android:contentDescription="@string/widget_protocol_openvpn" />
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_protocol_wireguard"
+                android:scaleType="fitCenter"
+                android:contentDescription="@null" />
 
-        <ImageView
+            <TextView
+                android:id="@+id/widget_protocol_wg_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="@string/widget_protocol_wireguard"
+                android:textSize="10sp"
+                android:textColor="@color/widget_text_primary"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/widget_protocol_ipsec"
             android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:layout_height="28dp"
+            android:layout_weight="1"
+            android:layout_marginHorizontal="1dp"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:background="@drawable/widget_protocol_button_inactive">
+
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_protocol_strongswan"
+                android:scaleType="fitCenter"
+                android:contentDescription="@null" />
+
+            <TextView
+                android:id="@+id/widget_protocol_ipsec_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="@string/widget_protocol_ipsec"
+                android:textSize="10sp"
+                android:textColor="@color/widget_text_primary"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_protocol_ovpn"
+            android:layout_width="0dp"
+            android:layout_height="28dp"
             android:layout_weight="1"
             android:layout_marginStart="3dp"
-            android:padding="8dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_protocol_strongswan"
-            android:background="@drawable/widget_protocol_button_inactive"
-            android:contentDescription="@string/widget_protocol_ipsec" />
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:background="@drawable/widget_protocol_button_inactive">
+
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_protocol_openvpn"
+                android:scaleType="fitCenter"
+                android:contentDescription="@null" />
+
+            <TextView
+                android:id="@+id/widget_protocol_ovpn_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="@string/widget_protocol_openvpn"
+                android:textSize="10sp"
+                android:textColor="@color/widget_text_primary"
+                android:singleLine="true" />
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- Section 4: Traffic - download + upload side by side. 28dp
-         row with 22dp sparklines (up from 22/16) so curves are
-         clearly readable. -->
+    <!-- 5. Endpoint text (small, centered, mono) -->
+    <TextView
+        android:id="@+id/widget_endpoint_center"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:text=""
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:textColor="@color/widget_text_secondary"
+        android:singleLine="true"
+        android:ellipsize="middle" />
+
+    <!-- 6. Two traffic cards (Download / Upload) side by side. -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="28dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="3dp"
+            android:orientation="vertical"
+            android:padding="6dp"
+            android:background="@drawable/widget_card_background">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/widget_arrow_download"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/widget_status_connected" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="3dp"
+                    android:text="@string/widget_label_download"
+                    android:textSize="10sp"
+                    android:textColor="@color/widget_text_secondary" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/widget_rx_total"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="0 B"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@color/widget_text_primary"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/widget_rx_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="0 B/s"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/widget_text_secondary"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <ImageView
+                android:id="@+id/widget_sparkline_rx"
+                android:layout_width="match_parent"
+                android:layout_height="18dp"
+                android:layout_marginTop="2dp"
+                android:scaleType="fitXY"
+                android:contentDescription="@string/widget_sparkline_rx_description" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="3dp"
+            android:orientation="vertical"
+            android:padding="6dp"
+            android:background="@drawable/widget_card_background">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/widget_arrow_upload"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/widget_accent" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="3dp"
+                    android:text="@string/widget_label_upload"
+                    android:textSize="10sp"
+                    android:textColor="@color/widget_text_secondary" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/widget_tx_total"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="0 B"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@color/widget_text_primary"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/widget_tx_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="0 B/s"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/widget_text_secondary"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <ImageView
+                android:id="@+id/widget_sparkline_tx"
+                android:layout_width="match_parent"
+                android:layout_height="18dp"
+                android:layout_marginTop="2dp"
+                android:scaleType="fitXY"
+                android:contentDescription="@string/widget_sparkline_tx_description" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 7. VPN IP card -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginTop="3dp">
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="5dp"
+        android:background="@drawable/widget_card_background">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/widget_arrow_download"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:textColor="@color/widget_status_connected" />
-
-        <ImageView
-            android:id="@+id/widget_sparkline_rx"
-            android:layout_width="44dp"
-            android:layout_height="22dp"
-            android:layout_marginHorizontal="3dp"
-            android:scaleType="fitXY"
-            android:contentDescription="@string/widget_sparkline_rx_description" />
+            android:text="@string/widget_label_vpn_ip"
+            android:textSize="10sp"
+            android:textColor="@color/widget_text_secondary"
+            android:singleLine="true" />
 
         <TextView
-            android:id="@+id/widget_rx_value"
+            android:id="@+id/widget_vpn_ip"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="0 B/s"
-            android:textSize="11sp"
+            android:layout_marginStart="8dp"
+            android:gravity="end"
+            android:text="—"
+            android:textSize="10sp"
             android:fontFamily="monospace"
             android:textColor="@color/widget_text_primary"
             android:singleLine="true"
             android:ellipsize="end" />
+    </LinearLayout>
+
+    <!-- 8. Endpoint card -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="5dp"
+        android:background="@drawable/widget_card_background">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/widget_arrow_upload"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:textColor="@color/widget_accent"
-            android:layout_marginStart="4dp" />
-
-        <ImageView
-            android:id="@+id/widget_sparkline_tx"
-            android:layout_width="44dp"
-            android:layout_height="22dp"
-            android:layout_marginHorizontal="3dp"
-            android:scaleType="fitXY"
-            android:contentDescription="@string/widget_sparkline_tx_description" />
+            android:text="@string/widget_label_endpoint"
+            android:textSize="10sp"
+            android:textColor="@color/widget_text_secondary"
+            android:singleLine="true" />
 
         <TextView
-            android:id="@+id/widget_tx_value"
+            android:id="@+id/widget_endpoint_value"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="0 B/s"
-            android:textSize="11sp"
+            android:layout_marginStart="8dp"
+            android:gravity="end"
+            android:text="—"
+            android:textSize="10sp"
             android:fontFamily="monospace"
             android:textColor="@color/widget_text_primary"
             android:singleLine="true"
-            android:ellipsize="end" />
+            android:ellipsize="middle" />
     </LinearLayout>
 
 </LinearLayout>

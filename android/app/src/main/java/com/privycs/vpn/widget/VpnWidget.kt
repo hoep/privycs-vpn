@@ -120,11 +120,15 @@ class VpnWidget : AppWidgetProvider() {
         val protocol = st?.activeProtocol?.label ?: ""
         val uptime = st?.uptime ?: 0L
         val serverEndpoint = st?.serverEndpoint ?: ""
+        val localAddress = st?.localAddress ?: ""
+        val rxBytes = st?.rxBytes ?: 0L
+        val txBytes = st?.txBytes ?: 0L
 
         for (appWidgetId in appWidgetIds) {
             updateWidgetWithStatus(
                 context, appWidgetManager, appWidgetId,
                 connected, connectionName, protocol, uptime, serverEndpoint,
+                localAddress, rxBytes, txBytes,
             )
         }
     }
@@ -146,14 +150,20 @@ class VpnWidget : AppWidgetProvider() {
                 val protocol = intent.getStringExtra(EXTRA_PROTOCOL) ?: ""
                 val uptime = intent.getLongExtra(EXTRA_UPTIME, 0L)
 
-                // serverEndpoint is not in the broadcast intent;
-                // read it live from the service so the header stays
-                // accurate even when the sender doesn't attach it.
-                val serverEndpoint = try {
-                    VpnServiceManager.getInstance(context).status.value.serverEndpoint
+                // serverEndpoint, localAddress, rx/tx totals are not in
+                // the broadcast intent; read them live from the service
+                // so every widget row stays accurate even when the
+                // sender doesn't attach them. The traffic samples come
+                // through SpeedTracker globals anyway.
+                val st = try {
+                    VpnServiceManager.getInstance(context).status.value
                 } catch (_: Exception) {
-                    ""
+                    null
                 }
+                val serverEndpoint = st?.serverEndpoint ?: ""
+                val localAddress = st?.localAddress ?: ""
+                val rxBytes = st?.rxBytes ?: 0L
+                val txBytes = st?.txBytes ?: 0L
 
                 val appWidgetManager = AppWidgetManager.getInstance(context)
                 val widgetIds = appWidgetManager.getAppWidgetIds(
@@ -163,6 +173,7 @@ class VpnWidget : AppWidgetProvider() {
                     updateWidgetWithStatus(
                         context, appWidgetManager, widgetId,
                         connected, connectionName, protocol, uptime, serverEndpoint,
+                        localAddress, rxBytes, txBytes,
                     )
                 }
             }
@@ -313,64 +324,83 @@ class VpnWidget : AppWidgetProvider() {
         protocol: String,
         uptime: Long,
         serverEndpoint: String,
+        localAddress: String,
+        rxBytes: Long,
+        txBytes: Long,
     ) {
         val views = RemoteViews(context.packageName, R.layout.widget_vpn)
         val activeProtocol = VpnProtocol.fromString(protocol)
 
-        // --- Section 1: Header ---
-        views.setTextViewText(
-            R.id.widget_header_name,
-            connectionName.ifBlank { context.getString(R.string.app_name) },
-        )
-        views.setTextViewText(
-            R.id.widget_header_endpoint,
-            if (connected && serverEndpoint.isNotBlank()) serverEndpoint
-            else context.getString(R.string.widget_endpoint_not_connected),
-        )
+        // KillSwitchManager drives the widget's "danger" state. When
+        // SINKHOLE is active, the VPN is down but the block-all tun fd
+        // is in place - the user should see the block state, not a
+        // grey "disconnected" mask. We read the StateFlow value
+        // directly since AppWidgetProvider is a broadcast receiver
+        // (no lifecycle scope for collect).
+        val killSwitchSinkhole = com.privycs.vpn.util.KillSwitchManager
+            .state.value == com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE
 
-        // --- Section 2: Big circular connect button ---
+        // --- Section 1: Big circular status button ---
         val statusColor = ContextCompat.getColor(
             context,
-            if (connected) R.color.widget_status_connected
-            else R.color.widget_status_disconnected,
+            when {
+                killSwitchSinkhole -> R.color.widget_status_kill_switch
+                connected -> R.color.widget_status_connected
+                else -> R.color.widget_status_disconnected
+            },
         )
 
         // Circle backdrop tint via colorFilter (SRC_IN, so the oval
         // shape is fully repainted with the tint colour).
         views.setInt(R.id.widget_button_bg, "setColorFilter", statusColor)
 
-        // Resolve the protocol to show in the button. When connected
-        // we trust the live VpnServiceManager status. When disconnected
-        // we fall back to the active connection's saved activeProtocol
-        // so the user still sees "WG" / "OVPN" / "IPSec" - the icon
-        // reflects what they'd connect to, not a generic shield.
+        // Resolve the icon in the circle. Sinkhole wins over everything
+        // else - the user must see it's the Kill-Switch shield, not
+        // the protocol icon. Otherwise: live active protocol when
+        // connected, saved active protocol when disconnected (so the
+        // circle stays informative even before they reconnect).
         val displayProtocol = activeProtocol
             ?: com.privycs.vpn.PrivycsApp.instance.connectionRepository
                 .getActive()?.activeProtocol
-        val iconRes = when (displayProtocol) {
-            VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
-            VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
-            VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
-            null -> R.drawable.ic_privycs_logo // no connections at all
+        val iconRes = when {
+            killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
+            displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
+            displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
+            displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
+            else -> R.drawable.ic_privycs_logo
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
 
+        // --- Section 2: Uptime (big monospace) ---
         views.setTextViewText(
-            R.id.widget_button_label,
-            if (connected) {
-                "${context.getString(R.string.widget_status_connected)} ${formatUptime(uptime)}".trim()
-            } else {
-                context.getString(R.string.widget_status_disconnected)
+            R.id.widget_uptime,
+            when {
+                killSwitchSinkhole -> context.getString(R.string.widget_status_kill_switch_active)
+                connected -> formatUptimeClock(uptime)
+                else -> context.getString(R.string.widget_status_disconnected)
             },
         )
-        views.setTextColor(R.id.widget_button_label, statusColor)
+        views.setTextColor(R.id.widget_uptime, statusColor)
 
-        // --- Section 3: Protocol switcher ---
+        // --- Section 3: Connection name (+ chevron is in XML, decorative) ---
+        views.setTextViewText(
+            R.id.widget_connection_name,
+            connectionName.ifBlank { context.getString(R.string.app_name) },
+        )
+
+        // --- Section 4: Protocol pills ---
         setProtocolButtonState(views, R.id.widget_protocol_wg, activeProtocol == VpnProtocol.WIREGUARD)
-        setProtocolButtonState(views, R.id.widget_protocol_ovpn, activeProtocol == VpnProtocol.OPENVPN)
         setProtocolButtonState(views, R.id.widget_protocol_ipsec, activeProtocol == VpnProtocol.IPSEC)
+        setProtocolButtonState(views, R.id.widget_protocol_ovpn, activeProtocol == VpnProtocol.OPENVPN)
 
-        // --- Section 4: Traffic sparklines + values ---
+        // --- Section 5: Endpoint (centered below pills) ---
+        views.setTextViewText(
+            R.id.widget_endpoint_center,
+            if (connected && serverEndpoint.isNotBlank()) serverEndpoint
+            else context.getString(R.string.widget_endpoint_not_connected),
+        )
+
+        // --- Section 6: Traffic cards (Download / Upload) ---
         val rxHistory = SpeedTracker.rxSpeedHistory.value
         val txHistory = SpeedTracker.txSpeedHistory.value
         views.setImageViewBitmap(
@@ -385,6 +415,8 @@ class VpnWidget : AppWidgetProvider() {
                 txHistory, SPARKLINE_TX_COLOR, SPARKLINE_WIDTH_PX, SPARKLINE_HEIGHT_PX,
             ),
         )
+        views.setTextViewText(R.id.widget_rx_total, formatBytes(rxBytes))
+        views.setTextViewText(R.id.widget_tx_total, formatBytes(txBytes))
         views.setTextViewText(
             R.id.widget_rx_value,
             SpeedTracker.formatSpeed(SpeedTracker.latestRxBps()),
@@ -392,6 +424,18 @@ class VpnWidget : AppWidgetProvider() {
         views.setTextViewText(
             R.id.widget_tx_value,
             SpeedTracker.formatSpeed(SpeedTracker.latestTxBps()),
+        )
+
+        // --- Section 7: VPN IP row ---
+        views.setTextViewText(
+            R.id.widget_vpn_ip,
+            if (connected && localAddress.isNotBlank()) localAddress else "—",
+        )
+
+        // --- Section 8: Endpoint row ---
+        views.setTextViewText(
+            R.id.widget_endpoint_value,
+            if (connected && serverEndpoint.isNotBlank()) serverEndpoint else "—",
         )
 
         // --- Click targets ---
@@ -468,15 +512,33 @@ class VpnWidget : AppWidgetProvider() {
         )
     }
 
-    private fun formatUptime(seconds: Long): String {
-        if (seconds <= 0) return ""
-        val hours = seconds / 3600
-        val minutes = (seconds % 3600) / 60
-        val secs = seconds % 60
-        return when {
-            hours > 0 -> String.format("%dh %02dm", hours, minutes)
-            minutes > 0 -> String.format("%dm %02ds", minutes, secs)
-            else -> String.format("%ds", secs)
+    /**
+     * HH:MM:SS uptime for the big widget clock. Always fixed-width
+     * so the monospace layout doesn't jitter as digits grow.
+     */
+    private fun formatUptimeClock(seconds: Long): String {
+        val s = if (seconds < 0) 0L else seconds
+        val hours = s / 3600
+        val minutes = (s % 3600) / 60
+        val secs = s % 60
+        return String.format("%02d:%02d:%02d", hours, minutes, secs)
+    }
+
+    /**
+     * Human-readable byte total for RX/TX card values. Uses base-2
+     * (KiB/MiB) binning since VPN stats are kernel counters, not
+     * marketing megabits. String formatted with a decimal comma on
+     * de-DE locale matches the in-app Connect screen formatting.
+     */
+    private fun formatBytes(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val units = arrayOf("KB", "MB", "GB", "TB")
+        var v = bytes.toDouble() / 1024.0
+        var idx = 0
+        while (v >= 1024.0 && idx < units.size - 1) {
+            v /= 1024.0
+            idx++
         }
+        return String.format("%.1f %s", v, units[idx])
     }
 }

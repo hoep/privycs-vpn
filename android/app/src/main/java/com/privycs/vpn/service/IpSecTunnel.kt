@@ -276,7 +276,13 @@ class IpSecTunnel(private val context: Context) {
                 return
             }
 
-            profile.setSelectedApps(java.util.TreeSet(packages))
+            // Include mode MUST include our own package so strongSwan's
+            // charon daemon (running in-process) can reach the VPN
+            // gateway to negotiate the SA. Without this, SELECTED_APPS_ONLY
+            // with "only Elba" filtered out the IKE/ESP handshake
+            // itself and the tunnel never established.
+            val finalPackages = if (mode == "include") packages + context.packageName else packages
+            profile.setSelectedApps(java.util.TreeSet(finalPackages))
             profile.setSelectedAppsHandling(
                 when (mode) {
                     "include" -> VpnProfile.SelectedAppsHandling.SELECTED_APPS_ONLY

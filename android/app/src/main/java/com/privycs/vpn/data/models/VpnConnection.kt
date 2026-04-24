@@ -97,14 +97,6 @@ enum class AppTheme {
 }
 
 @Serializable
-enum class RoutingMode {
-    @SerialName("full")
-    FULL,
-    @SerialName("split")
-    SPLIT
-}
-
-@Serializable
 data class ConnectOnDemandSettings(
     val enabled: Boolean = false,
     val trigger: String = "wifi_mobile",  // "wifi", "mobile", "wifi_mobile"
@@ -122,13 +114,9 @@ data class AppSettings(
     val killSwitchEnabled: Boolean = false,
     @SerialName("auto_connect_on_start")
     val autoConnectOnStart: Boolean = false,
-    @SerialName("always_on")
-    val alwaysOn: Boolean = false,
     val theme: AppTheme = AppTheme.SYSTEM,
     @SerialName("dns_override")
     val dnsOverride: String = "",
-    @SerialName("routing_mode")
-    val routingMode: RoutingMode = RoutingMode.FULL,
     @SerialName("gateway_url")
     val gatewayUrl: String = "",
     @SerialName("api_key")

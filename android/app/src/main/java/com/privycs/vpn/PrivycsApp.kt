@@ -66,7 +66,15 @@ class PrivycsApp : StrongSwanApplication() {
     @Suppress("unused")
     private var openVpnStatusListener: de.blinkt.openvpn.core.StatusListener? = null
 
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Process-lifetime coroutine scope. Public so UI callers can
+    // launch persistence-critical work here that MUST survive the
+    // caller Composable leaving the composition (e.g. a user toggling
+    // a setting and immediately navigating away / killing the app).
+    // rememberCoroutineScope() in Compose is bound to the composition
+    // lifecycle, so a fast back-out can cancel an in-flight
+    // DataStore.edit before disk I/O finishes, dropping the write -
+    // observed concretely on the Connect-on-Demand toggle in v0.9.9.5.
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()

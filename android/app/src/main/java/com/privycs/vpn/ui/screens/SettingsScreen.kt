@@ -70,7 +70,6 @@ import com.privycs.vpn.api.GatewayApiClient
 import com.privycs.vpn.backup.CloudBackupManager
 import com.privycs.vpn.data.models.AppTheme
 import com.privycs.vpn.data.models.ConnectOnDemandSettings
-import com.privycs.vpn.data.models.RoutingMode
 import com.privycs.vpn.service.NetworkMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -86,6 +85,13 @@ fun SettingsScreen(
     val settingsRepo = remember { PrivycsApp.instance.settingsRepository }
     val settings by settingsRepo.settingsFlow.collectAsState(initial = settingsRepo.defaultSettings())
     val scope = rememberCoroutineScope()
+    // Process-scoped coroutine for persistence writes. Settings writes
+    // that happen on a rememberCoroutineScope() get cancelled if the
+    // user backs out of the screen before the DataStore edit flushes
+    // to disk - observed concretely: toggling Connect-on-Demand off
+    // then closing the app left COD re-enabled after reboot because
+    // the write coroutine was cancelled mid-flush.
+    val persistScope = com.privycs.vpn.PrivycsApp.instance.appScope
 
     // Gateway verification state
     var verifying by remember { mutableStateOf(false) }
@@ -268,7 +274,7 @@ fun SettingsScreen(
                     value = gatewayUrl,
                     onValueChange = {
                         gatewayUrl = it
-                        scope.launch {
+                        persistScope.launch {
                             settingsRepo.updateGatewayConfig(it, apiKey)
                         }
                     },
@@ -284,7 +290,7 @@ fun SettingsScreen(
                     value = apiKey,
                     onValueChange = {
                         apiKey = it
-                        scope.launch {
+                        persistScope.launch {
                             settingsRepo.updateGatewayConfig(gatewayUrl, it)
                         }
                     },
@@ -365,15 +371,20 @@ fun SettingsScreen(
                     title = "Kill Switch",
                     description = killSwitchDescription,
                     checked = settings.killSwitchEnabled,
-                    onCheckedChange = { scope.launch { settingsRepo.updateKillSwitch(it) } }
+                    onCheckedChange = { persistScope.launch { settingsRepo.updateKillSwitch(it) } }
                 )
 
-                SettingsToggle(
-                    title = "Always-On VPN",
-                    description = "Reconnect automatically after disconnection",
-                    checked = settings.alwaysOn,
-                    onCheckedChange = { scope.launch { settingsRepo.updateAlwaysOn(it) } }
-                )
+                // App-level "Auto-connect on boot" toggle removed in
+                // v0.9.9.6: it was redundant with Connect-on-Demand.
+                // With COD enabled (default trigger: wifi_mobile),
+                // BootReceiver already hands off to NetworkMonitor,
+                // which connects whenever the rule matches - and the
+                // default rule matches right after boot as soon as
+                // Android has a non-VPN network. The separate toggle
+                // just duplicated that behaviour with coarser logic.
+                // The System Always-On VPN row below still links to
+                // Android Settings for OS-level enforcement, which is
+                // a different feature and stays.
 
                 // Always-on VPN auto-start after boot is governed by an
                 // Android system-level setting, not by this app. Google's
@@ -405,12 +416,12 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Auto-start after reboot",
+                            text = "System Always-On VPN",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Open Android system settings to enable Always-on VPN (required — Android does not allow apps to enable this programmatically).",
+                            text = "Optional: enforce the tunnel at OS level (blocks traffic without VPN even if the app is killed). Must be enabled in Android Settings — Android does not allow apps to set this programmatically.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -438,17 +449,39 @@ fun SettingsScreen(
                     description = "Automatically connect VPN based on network rules",
                     checked = cod.enabled,
                     onCheckedChange = { enabled ->
-                        scope.launch {
+                        // Persistence on persistScope, NOT rememberCoroutineScope:
+                        // the DataStore write + any follow-up disconnect must
+                        // survive the user backing out of Settings or killing
+                        // the app right after toggling. Compose's scope gets
+                        // cancelled on composition leave, which was dropping
+                        // the write and leaving COD re-enabled after reboot.
+                        persistScope.launch {
                             val updated = cod.copy(enabled = enabled)
                             settingsRepo.updateConnectOnDemand(updated)
                             if (enabled) {
                                 networkMonitor.start()
-                                // Re-evaluate immediately so the live status
-                                // chip reflects the current decision without
-                                // waiting for the next network event.
                                 networkMonitor.reevaluate()
                             } else {
                                 networkMonitor.stop()
+                                // Tear the tunnel down when the user turns
+                                // COD off while connected. Rationale: in
+                                // practice the tunnel is usually up because
+                                // COD drove it up; a user turning COD off
+                                // expects "stop auto-managing and stop NOW",
+                                // not "stop auto-managing but leave me
+                                // connected". If they want to stay connected
+                                // they can just not toggle COD off. Going
+                                // through ConnectCoordinator with USER source
+                                // also disarms the Kill Switch so the
+                                // sinkhole doesn't engage on this teardown.
+                                val manager = com.privycs.vpn.service.VpnServiceManager
+                                    .getInstance(context)
+                                if (manager.isConnected) {
+                                    com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                                        context,
+                                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                                    )
+                                }
                             }
                         }
                     }
@@ -475,7 +508,7 @@ fun SettingsScreen(
                             SegmentedButton(
                                 selected = cod.trigger == value,
                                 onClick = {
-                                    scope.launch {
+                                    persistScope.launch {
                                         settingsRepo.updateConnectOnDemand(cod.copy(trigger = value))
                                         networkMonitor.reevaluate()
                                     }
@@ -512,7 +545,7 @@ fun SettingsScreen(
                                     selected = cod.ssidMode == value,
                                     onClick = {
                                         ensureLocationPermissionIfNeeded(value)
-                                        scope.launch {
+                                        persistScope.launch {
                                             settingsRepo.updateConnectOnDemand(
                                                 cod.copy(ssidMode = value)
                                             )
@@ -550,7 +583,7 @@ fun SettingsScreen(
                                     onClick = {
                                         val trimmed = ssidInput.trim()
                                         if (trimmed.isNotEmpty() && trimmed !in cod.ssidList) {
-                                            scope.launch {
+                                            persistScope.launch {
                                                 settingsRepo.updateConnectOnDemand(
                                                     cod.copy(
                                                         ssidList = cod.ssidList + trimmed
@@ -580,7 +613,7 @@ fun SettingsScreen(
                                             trailingIcon = {
                                                 IconButton(
                                                     onClick = {
-                                                        scope.launch {
+                                                        persistScope.launch {
                                                             settingsRepo.updateConnectOnDemand(
                                                                 cod.copy(
                                                                     ssidList = cod.ssidList - ssid
@@ -657,7 +690,7 @@ fun SettingsScreen(
                     value = dnsOverride,
                     onValueChange = {
                         dnsOverride = it
-                        scope.launch {
+                        persistScope.launch {
                             settingsRepo.updateSettings(settings.copy(dnsOverride = it))
                         }
                     },
@@ -667,44 +700,6 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Routing Mode",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    SingleChoiceSegmentedButtonRow {
-                        SegmentedButton(
-                            selected = settings.routingMode == RoutingMode.FULL,
-                            onClick = {
-                                scope.launch {
-                                    settingsRepo.updateSettings(settings.copy(routingMode = RoutingMode.FULL))
-                                }
-                            },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-                        ) {
-                            Text("Full", style = MaterialTheme.typography.labelSmall)
-                        }
-                        SegmentedButton(
-                            selected = settings.routingMode == RoutingMode.SPLIT,
-                            onClick = {
-                                scope.launch {
-                                    settingsRepo.updateSettings(settings.copy(routingMode = RoutingMode.SPLIT))
-                                }
-                            },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-                        ) {
-                            Text("Split", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }
             }
 
             // -- Per-App VPN --
@@ -783,7 +778,7 @@ fun SettingsScreen(
                             SegmentedButton(
                                 selected = settings.theme == theme,
                                 onClick = {
-                                    scope.launch { settingsRepo.updateTheme(theme) }
+                                    persistScope.launch { settingsRepo.updateTheme(theme) }
                                 },
                                 shape = SegmentedButtonDefaults.itemShape(
                                     index = index,

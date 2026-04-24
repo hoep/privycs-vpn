@@ -10,7 +10,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.privycs.vpn.data.models.AppSettings
 import com.privycs.vpn.data.models.AppTheme
 import com.privycs.vpn.data.models.ConnectOnDemandSettings
-import com.privycs.vpn.data.models.RoutingMode
 import com.privycs.vpn.data.models.VpnProtocol
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -25,10 +24,8 @@ class SettingsRepository(private val context: Context) {
         val ACTIVE_PROTOCOL = stringPreferencesKey("active_protocol")
         val KILL_SWITCH = booleanPreferencesKey("kill_switch_enabled")
         val AUTO_CONNECT = booleanPreferencesKey("auto_connect_on_start")
-        val ALWAYS_ON = booleanPreferencesKey("always_on")
         val THEME = stringPreferencesKey("theme")
         val DNS_OVERRIDE = stringPreferencesKey("dns_override")
-        val ROUTING_MODE = stringPreferencesKey("routing_mode")
         val GATEWAY_URL = stringPreferencesKey("gateway_url")
         val API_KEY = stringPreferencesKey("api_key")
         val COD_ENABLED = booleanPreferencesKey("cod_enabled")
@@ -43,10 +40,8 @@ class SettingsRepository(private val context: Context) {
                 ?: VpnProtocol.WIREGUARD,
             killSwitchEnabled = prefs[Keys.KILL_SWITCH] ?: false,
             autoConnectOnStart = prefs[Keys.AUTO_CONNECT] ?: false,
-            alwaysOn = prefs[Keys.ALWAYS_ON] ?: false,
             theme = prefs[Keys.THEME]?.let { parseTheme(it) } ?: AppTheme.SYSTEM,
             dnsOverride = prefs[Keys.DNS_OVERRIDE] ?: "",
-            routingMode = prefs[Keys.ROUTING_MODE]?.let { parseRoutingMode(it) } ?: RoutingMode.FULL,
             gatewayUrl = prefs[Keys.GATEWAY_URL] ?: "",
             apiKey = prefs[Keys.API_KEY] ?: "",
             connectOnDemand = ConnectOnDemandSettings(
@@ -75,10 +70,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.ACTIVE_PROTOCOL] = settings.activeProtocol.name.lowercase()
             prefs[Keys.KILL_SWITCH] = settings.killSwitchEnabled
             prefs[Keys.AUTO_CONNECT] = settings.autoConnectOnStart
-            prefs[Keys.ALWAYS_ON] = settings.alwaysOn
             prefs[Keys.THEME] = settings.theme.name.lowercase()
             prefs[Keys.DNS_OVERRIDE] = settings.dnsOverride
-            prefs[Keys.ROUTING_MODE] = settings.routingMode.name.lowercase()
             prefs[Keys.GATEWAY_URL] = settings.gatewayUrl
             prefs[Keys.API_KEY] = settings.apiKey
             prefs[Keys.COD_ENABLED] = settings.connectOnDemand.enabled
@@ -131,12 +124,6 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    suspend fun updateAlwaysOn(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[Keys.ALWAYS_ON] = enabled
-        }
-    }
-
     suspend fun updateConnectOnDemand(cod: ConnectOnDemandSettings) {
         context.dataStore.edit { prefs ->
             prefs[Keys.COD_ENABLED] = cod.enabled
@@ -152,8 +139,4 @@ class SettingsRepository(private val context: Context) {
         else -> AppTheme.SYSTEM
     }
 
-    private fun parseRoutingMode(value: String): RoutingMode = when (value.lowercase()) {
-        "split" -> RoutingMode.SPLIT
-        else -> RoutingMode.FULL
-    }
 }

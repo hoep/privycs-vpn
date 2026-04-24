@@ -70,6 +70,21 @@ class PrivycsVpnService : VpnService() {
         goBackend = GoBackend(this)
         Log.d(TAG, "VPN service created")
 
+        // If the service is being created (or recreated via
+        // START_STICKY) while the process-global KillSwitchManager
+        // is already in SINKHOLE state, establish the block-all
+        // fd synchronously RIGHT NOW - before onStartCommand gets
+        // to run its null-intent handleAlwaysOnReconnect path.
+        // Without this, there's a race window where the plugin
+        // reconnect starts before the state.collect coroutine
+        // below (which dispatches async on Main) has had a chance
+        // to fire enterSinkholeMode, so for several hundred ms
+        // traffic could flow without the sinkhole fd in place.
+        if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
+            Log.i(TAG, "onCreate: state=SINKHOLE at service start → establishing sinkhole synchronously")
+            enterSinkholeMode()
+        }
+
         // Observe Kill Switch state transitions. When the manager
         // flips to SINKHOLE (after an unexpected tunnel drop while
         // armed), stand up the block-all tun fd. When it leaves
@@ -97,16 +112,37 @@ class PrivycsVpnService : VpnService() {
         scope.launch {
             while (isActive) {
                 delay(3000)
-                if (com.privycs.vpn.util.KillSwitchManager.state.value
-                    == com.privycs.vpn.util.KillSwitchManager.State.ARMED
-                ) {
-                    val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-                    if (!hasAnyNonVpnNetwork(cm)) {
-                        Log.i(TAG, "Kill switch poll: no non-VPN network while armed → engageSinkhole")
-                        com.privycs.vpn.util.KillSwitchManager.engageSinkhole(
-                            "poll: no non-VPN network",
-                        )
+                val state = com.privycs.vpn.util.KillSwitchManager.state.value
+                when (state) {
+                    com.privycs.vpn.util.KillSwitchManager.State.ARMED -> {
+                        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                        if (!hasAnyNonVpnNetwork(cm)) {
+                            Log.i(TAG, "Kill switch poll: no non-VPN network while armed → engageSinkhole")
+                            com.privycs.vpn.util.KillSwitchManager.engageSinkhole(
+                                "poll: no non-VPN network",
+                            )
+                        }
                     }
+                    com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE -> {
+                        // Watchdog: state flow says we must be
+                        // blocking, but the fd is gone. That can
+                        // happen if the VpnService was recreated
+                        // by START_STICKY (fresh instance, fd ref
+                        // lost), or if the fd got closed by a
+                        // plugin teardown path we don't control.
+                        // Re-establishing closes the leak window
+                        // within one poll cycle (≤3s) even when
+                        // the primary state.collect observer
+                        // didn't fire - e.g. because the state
+                        // value was already SINKHOLE when this
+                        // service instance started up, so there's
+                        // no "transition" event for the collector.
+                        if (sinkholeTunFd == null) {
+                            Log.w(TAG, "Kill switch poll: state=SINKHOLE but fd=null → re-establishing")
+                            enterSinkholeMode()
+                        }
+                    }
+                    else -> { /* IDLE: nothing to do */ }
                 }
             }
         }
@@ -163,13 +199,25 @@ class PrivycsVpnService : VpnService() {
             override fun onAvailable(network: android.net.Network) {
                 super.onAvailable(network)
                 Log.d(TAG, "Kill switch onAvailable fired for network=$network")
-                // No direct action needed: if the sinkhole is
-                // active and a new non-VPN network appears, we
-                // STAY in sinkhole mode until the user (or the
-                // Retry Connect notification action) initiates a
-                // fresh connect. Traffic stays blocked until a
-                // real tunnel replaces the sinkhole fd, which is
-                // the whole point of the Kill Switch.
+                // When the sinkhole is active and a fresh non-VPN
+                // network appears (airplane mode off, WiFi/Mobile
+                // reconnect), the kernel reshuffles its default-
+                // route table around the newly-available link.
+                // Regression observed in v0.9.9.5: after a full
+                // WiFi drop + restore the VPN's "block-all"
+                // routes lost authority against the just-added
+                // direct-route entry, so traffic started flowing
+                // through the new default link even though the
+                // sinkhole fd was still open and the Kill Switch
+                // UI still showed "Active". Closing and re-
+                // establishing the sinkhole fd here forces
+                // VpnService to re-insert its 0.0.0.0/0 + ::/0
+                // routes with fresh precedence, which reasserts
+                // the block against the newly-available network.
+                if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
+                    Log.i(TAG, "Kill switch onAvailable: refreshing sinkhole fd to re-assert routes over new network")
+                    refreshSinkhole()
+                }
             }
         }
         killSwitchNetworkCallback = callback
@@ -237,6 +285,19 @@ class PrivycsVpnService : VpnService() {
         } finally {
             sinkholeTunFd = null
         }
+    }
+
+    /**
+     * Tear down + re-establish the sinkhole tun fd in one step.
+     * Used when the kernel route table may have shifted under us
+     * (e.g. a non-VPN network came back after airplane mode) and
+     * the existing fd's routes could have lost precedence. The
+     * close-then-establish pair forces VpnService to re-insert
+     * its routes at VPN priority against the current route table.
+     */
+    private fun refreshSinkhole() {
+        exitSinkholeMode()
+        enterSinkholeMode()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -410,12 +471,77 @@ class PrivycsVpnService : VpnService() {
         val tunnel = WireGuardTunnel(backend)
         wireGuardTunnel = tunnel
 
-        tunnel.connect(configContent, "privycs0")
+        // Per-App VPN: the WireGuard tunnel library owns its own
+        // VpnService.Builder inside GoBackend, so we can't attach
+        // addAllowedApplication / addDisallowedApplication externally
+        // like we do for IPSec. But the Config parser reads
+        // IncludedApplications / ExcludedApplications lines in the
+        // [Interface] section and forwards them into the Builder,
+        // so injecting these lines into the config text before
+        // parsing is the supported path. This closes the v0.9.8.0
+        // gap where Per-App VPN selections had no effect on
+        // WireGuard (the most-used protocol).
+        val patchedConfig = patchWireGuardPerAppVpn(configContent)
+        tunnel.connect(patchedConfig, "privycs0")
 
         connectStartTime = System.currentTimeMillis()
         updateNotification("Connected to $currentConnectionName")
         sendWidgetUpdate(connected = true)
         startStatusPolling()
+    }
+
+    /**
+     * Inject ExcludedApplications / IncludedApplications into the
+     * [Interface] section of a WireGuard config based on the
+     * "split_tunnel" SharedPreferences. In INCLUDE mode we also
+     * append our own package name so the service can reach the
+     * VPN server (otherwise the handshake traffic itself would be
+     * filtered out and the tunnel would never establish).
+     *
+     * Returns the config unchanged if no apps are selected or the
+     * [Interface] header cannot be located.
+     */
+    private fun patchWireGuardPerAppVpn(configContent: String): String {
+        val prefs = getSharedPreferences("split_tunnel", Context.MODE_PRIVATE)
+        val mode = prefs.getString("mode", "exclude") ?: "exclude"
+        val packages = prefs.getStringSet("packages", emptySet()) ?: emptySet()
+        if (packages.isEmpty()) {
+            Log.d(TAG, "Per-App VPN (WG): no apps configured, config unchanged")
+            return configContent
+        }
+
+        val finalPackages = if (mode == "include") {
+            // Critical: our own package MUST be in the allow-list or
+            // the WG handshake itself gets blocked and the tunnel
+            // never comes up.
+            packages + packageName
+        } else {
+            packages
+        }
+        val key = if (mode == "include") "IncludedApplications" else "ExcludedApplications"
+        val value = finalPackages.joinToString(", ")
+        val injected = "$key = $value"
+
+        val lines = configContent.lines().toMutableList()
+        var interfaceIdx = -1
+        var insertIdx = -1
+        for (i in lines.indices) {
+            val trimmed = lines[i].trim()
+            if (trimmed.equals("[Interface]", ignoreCase = true)) {
+                interfaceIdx = i
+            } else if (interfaceIdx >= 0 && trimmed.startsWith("[")) {
+                insertIdx = i
+                break
+            }
+        }
+        if (interfaceIdx < 0) {
+            Log.w(TAG, "Per-App VPN (WG): [Interface] section not found, config unchanged")
+            return configContent
+        }
+        val at = if (insertIdx > 0) insertIdx else lines.size
+        lines.add(at, injected)
+        Log.i(TAG, "Per-App VPN (WG): mode=$mode, ${finalPackages.size} packages injected")
+        return lines.joinToString("\n")
     }
 
     private suspend fun connectOpenVpn(configContent: String) {
@@ -600,16 +726,15 @@ class PrivycsVpnService : VpnService() {
             }
 
             val connRepo = PrivycsApp.instance.connectionRepository
-            // NOTE: drop the settings.alwaysOn check. Android already
-            // wakes this VpnService with a null intent only when its
-            // system-level always-on VPN toggle is ON (Settings ->
-            // Network & Internet -> VPN -> Privycs -> Always-on VPN) or
-            // when the foreground service gets restarted by the system
-            // after a crash. In either case, "we have an active
-            // connection" is the only precondition we actually care about
-            // - the old `&& settings.alwaysOn` branch required the user
-            // to ALSO flip a redundant app-level toggle which confused
-            // everyone who configured always-on via the system sheet.
+            // Android wakes this VpnService with a null intent only
+            // when its system-level Always-On VPN toggle is ON
+            // (Settings -> Network & Internet -> VPN -> Privycs ->
+            // Always-on VPN) or when the foreground service gets
+            // restarted by the system after a crash. In either case,
+            // "we have an active connection" is the only precondition
+            // we care about - the former app-level alwaysOn toggle
+            // was removed in v0.9.9.6 (Connect-on-Demand covers the
+            // same need with finer-grained rule evaluation).
             val activeConn = connRepo.getActive()
             if (activeConn == null) {
                 Log.d(TAG, "No active connection to restore, stopping")
@@ -782,56 +907,6 @@ class PrivycsVpnService : VpnService() {
         val notification = buildNotification(effectiveText, effectiveSinkhole)
         val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(PrivycsApp.NOTIFICATION_ID_VPN, notification)
-    }
-
-    /**
-     * Read split tunnel preferences and apply to VpnService.Builder.
-     * Call this before establishing the tunnel to configure per-app VPN.
-     */
-    fun applySplitTunnelSettings(builder: android.net.VpnService.Builder) {
-        try {
-            val prefs = getSharedPreferences("split_tunnel", Context.MODE_PRIVATE)
-            val mode = prefs.getString("mode", "exclude") ?: "exclude"
-            val packages = prefs.getStringSet("packages", emptySet()) ?: emptySet()
-
-            if (packages.isEmpty()) {
-                Log.d(TAG, "Split tunnel: no apps configured, using default (all apps through VPN)")
-                return
-            }
-
-            when (mode) {
-                "exclude" -> {
-                    for (pkg in packages) {
-                        try {
-                            builder.addDisallowedApplication(pkg)
-                            Log.d(TAG, "Split tunnel: excluding $pkg")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Split tunnel: cannot exclude $pkg: ${e.message}")
-                        }
-                    }
-                }
-                "include" -> {
-                    for (pkg in packages) {
-                        try {
-                            builder.addAllowedApplication(pkg)
-                            Log.d(TAG, "Split tunnel: including $pkg")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Split tunnel: cannot include $pkg: ${e.message}")
-                        }
-                    }
-                    // Always include ourselves
-                    try {
-                        builder.addAllowedApplication(packageName)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Split tunnel: cannot include self: ${e.message}")
-                    }
-                }
-            }
-
-            Log.d(TAG, "Split tunnel: mode=$mode, apps=${packages.size}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to apply split tunnel settings", e)
-        }
     }
 
     /**

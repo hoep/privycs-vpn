@@ -609,11 +609,18 @@ class OpenVpnTunnel(private val context: Context) {
             return
         }
 
-        profile.mAllowedAppsVpn = HashSet(packages)
+        // Include mode MUST contain our own package or the VPN
+        // daemon's handshake traffic gets filtered out too and the
+        // tunnel never establishes ("connected NICHT" with Include
+        // + only-Elba was exactly this bug). Exclude mode does not
+        // need this - a disallowed list cannot accidentally lock
+        // the service out.
+        val finalPackages = if (mode == "include") packages + context.packageName else packages
+        profile.mAllowedAppsVpn = HashSet(finalPackages)
         profile.mAllowedAppsVpnAreDisallowed = (mode == "exclude")
         PrivycsLogger.i(
             TAG,
-            "Split tunnel: mode=$mode apps=${packages.size} " +
+            "Split tunnel: mode=$mode apps=${finalPackages.size} " +
                 "(disallowed=${profile.mAllowedAppsVpnAreDisallowed})"
         )
     }

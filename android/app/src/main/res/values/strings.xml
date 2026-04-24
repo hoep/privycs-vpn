@@ -27,6 +27,11 @@
     <string name="widget_toast_protocol_already_active">%1$s is already active</string>
     <string name="widget_toast_protocol_switching">Switching to %1$s…</string>
     <string name="widget_toast_protocol_switch_failed">Protocol switch failed</string>
+    <string name="widget_label_download">Download</string>
+    <string name="widget_label_upload">Upload</string>
+    <string name="widget_label_vpn_ip">VPN IP</string>
+    <string name="widget_label_endpoint">Endpoint</string>
+    <string name="widget_status_kill_switch_active">Kill Switch Active</string>
     <string name="vpn_tile_label">Privycs VPN</string>
 
     <!--

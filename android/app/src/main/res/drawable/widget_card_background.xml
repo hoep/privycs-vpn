@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Subtle rounded card for widget traffic / VPN-IP / endpoint rows.
+    Mirrors the visual weight of Material 3 surfaceVariant at ~40%
+    alpha against the widget background, so the cards read as
+    grouped clusters without competing with the big circle.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="8dp" />
+    <solid android:color="@color/widget_surface_variant" />
+</shape>
