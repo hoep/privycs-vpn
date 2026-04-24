@@ -30,6 +30,7 @@ class PrivycsVpnService : VpnService() {
 
         const val ACTION_CONNECT = "com.privycs.vpn.CONNECT"
         const val ACTION_DISCONNECT = "com.privycs.vpn.DISCONNECT"
+        const val ACTION_KILL_SWITCH_RETRY = "com.privycs.vpn.KILL_SWITCH_RETRY"
 
         const val EXTRA_CONNECTION_ID = "connection_id"
         const val EXTRA_PROTOCOL = "protocol"
@@ -49,10 +50,74 @@ class PrivycsVpnService : VpnService() {
     private var currentProtocol: VpnProtocol? = null
     private var connectStartTime: Long = 0L
 
+    // Kill-Switch sinkhole tun fd. When non-null, a block-all tunnel
+    // is established via VpnService.Builder and all traffic is
+    // dropped at the tun interface. Cleared when the user toggles
+    // Kill Switch off or a real tunnel replaces it.
+    private var sinkholeTunFd: android.os.ParcelFileDescriptor? = null
+
     override fun onCreate() {
         super.onCreate()
         goBackend = GoBackend(this)
         Log.d(TAG, "VPN service created")
+
+        // Observe Kill Switch state transitions. When the manager
+        // flips to SINKHOLE (after an unexpected tunnel drop while
+        // armed), stand up the block-all tun fd. When it leaves
+        // SINKHOLE - either because the user disarmed or a new
+        // tunnel is replacing us - tear the sinkhole down.
+        scope.launch {
+            com.privycs.vpn.util.KillSwitchManager.state.collect { state ->
+                when (state) {
+                    com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE -> enterSinkholeMode()
+                    else -> exitSinkholeMode()
+                }
+            }
+        }
+    }
+
+    /**
+     * Stand up a VpnService.Builder tun fd that captures ALL traffic
+     * and never reads/writes it, effectively dropping every packet.
+     * addDisallowedApplication(ourPackage) is critical - without it,
+     * we would block ourselves from making the "Retry Connect"
+     * outgoing request.
+     */
+    private fun enterSinkholeMode() {
+        if (sinkholeTunFd != null) return  // already active
+        try {
+            Log.i(TAG, "enterSinkholeMode: establishing block-all tunnel")
+            val builder = Builder()
+                .setSession("Privycs VPN (Kill Switch)")
+                .addAddress("10.255.255.2", 32)
+                .addRoute("0.0.0.0", 0)
+                .addRoute("::", 0)
+                .addDisallowedApplication(packageName)
+            sinkholeTunFd = builder.establish()
+            if (sinkholeTunFd == null) {
+                Log.w(TAG, "enterSinkholeMode: establish returned null (prepare not granted?)")
+            } else {
+                updateNotification(
+                    "Kill Switch active — traffic blocked",
+                    sinkholeMode = true,
+                )
+                sendWidgetUpdate(connected = false)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "enterSinkholeMode failed", e)
+        }
+    }
+
+    private fun exitSinkholeMode() {
+        val fd = sinkholeTunFd ?: return
+        try {
+            Log.i(TAG, "exitSinkholeMode: closing block-all tunnel")
+            fd.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "exitSinkholeMode: fd close failed", e)
+        } finally {
+            sinkholeTunFd = null
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -73,6 +138,25 @@ class PrivycsVpnService : VpnService() {
 
             ACTION_DISCONNECT -> {
                 handleDisconnect()
+            }
+
+            ACTION_KILL_SWITCH_RETRY -> {
+                // Notification "Retry Connect" tap. Fire a fresh
+                // USER-source connect at the active connection so
+                // the coordinator's gate accepts it and the sinkhole
+                // is replaced by a real tunnel on success.
+                scope.launch {
+                    val active = PrivycsApp.instance.connectionRepository.getActive()
+                    if (active == null) {
+                        Log.w(TAG, "Kill Switch retry: no active connection to reconnect to")
+                        return@launch
+                    }
+                    com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                        this@PrivycsVpnService,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                        active,
+                    )
+                }
             }
 
             else -> {
@@ -501,38 +585,63 @@ class PrivycsVpnService : VpnService() {
         }
     }
 
-    private fun buildNotification(text: String): Notification {
+    private fun buildNotification(text: String, sinkholeMode: Boolean = false): Notification {
         val openIntent = Intent(this, MainActivity::class.java)
         val pendingOpen = PendingIntent.getActivity(
             this, 0, openIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val disconnectIntent = Intent(this, PrivycsVpnService::class.java).apply {
-            action = ACTION_DISCONNECT
-        }
-        val pendingDisconnect = PendingIntent.getService(
-            this, 1, disconnectIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        return NotificationCompat.Builder(this, PrivycsApp.NOTIFICATION_CHANNEL_VPN)
-            .setContentTitle(getString(R.string.vpn_notification_title))
+        val builder = NotificationCompat.Builder(this, PrivycsApp.NOTIFICATION_CHANNEL_VPN)
+            .setContentTitle(
+                if (sinkholeMode) "Privycs VPN — Kill Switch Active"
+                else getString(R.string.vpn_notification_title)
+            )
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pendingOpen)
-            .addAction(
+            .setOngoing(true)
+            .setSilent(true)
+
+        if (sinkholeMode) {
+            // Sinkhole mode: offer a Retry Connect action that
+            // attempts a fresh connect via the coordinator. The
+            // normal Disconnect action is deliberately omitted -
+            // the user must open the app to disarm the Kill Switch
+            // (matches the user-specified UX: "nur App-öffnen +
+            // manuelles Abschalten vom Kill-Switch-Toggle").
+            val retryIntent = Intent(this, PrivycsVpnService::class.java).apply {
+                action = ACTION_KILL_SWITCH_RETRY
+            }
+            val pendingRetry = PendingIntent.getService(
+                this, 2, retryIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(
+                android.R.drawable.ic_menu_rotate,
+                "Retry Connect",
+                pendingRetry,
+            )
+        } else {
+            val disconnectIntent = Intent(this, PrivycsVpnService::class.java).apply {
+                action = ACTION_DISCONNECT
+            }
+            val pendingDisconnect = PendingIntent.getService(
+                this, 1, disconnectIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 getString(R.string.action_disconnect),
                 pendingDisconnect
             )
-            .setOngoing(true)
-            .setSilent(true)
-            .build()
+        }
+
+        return builder.build()
     }
 
-    private fun updateNotification(text: String) {
-        val notification = buildNotification(text)
+    private fun updateNotification(text: String, sinkholeMode: Boolean = false) {
+        val notification = buildNotification(text, sinkholeMode)
         val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(PrivycsApp.NOTIFICATION_ID_VPN, notification)
     }

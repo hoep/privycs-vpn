@@ -355,9 +355,15 @@ fun SettingsScreen(
 
             // -- Connection --
             SettingsSection(title = "CONNECTION") {
+                val alwaysOnActive by com.privycs.vpn.util.AlwaysOnDetector.detected.collectAsState()
+                val killSwitchDescription = if (alwaysOnActive) {
+                    "Android Always-On VPN is active — system kill switch is in effect"
+                } else {
+                    "Block traffic if the VPN tunnel drops unexpectedly. Arms after first connect; requires app disarm to release."
+                }
                 SettingsToggle(
                     title = "Kill Switch",
-                    description = "Block traffic if VPN disconnects",
+                    description = killSwitchDescription,
                     checked = settings.killSwitchEnabled,
                     onCheckedChange = { scope.launch { settingsRepo.updateKillSwitch(it) } }
                 )

@@ -210,6 +210,18 @@ object ConnectCoordinator {
                 }
                 is State.Connecting, is State.Connected -> {
                     PrivycsLogger.i(TAG, "requestDisconnect($source): accepted -> Disconnecting")
+                    // Kill Switch: user-initiated disconnects disarm
+                    // the sinkhole trigger BEFORE the actual
+                    // disconnect fires. When VpnServiceManager later
+                    // observes the connected=false transition, the
+                    // killswitch state is already IDLE so no sinkhole
+                    // engages. Unexpected tunnel drops go through a
+                    // different path that never sees this disarm.
+                    if (source == IntentSource.USER ||
+                        source == IntentSource.WIDGET ||
+                        source == IntentSource.TILE) {
+                        KillSwitchManager.disarm()
+                    }
                     fireDisconnectIntent(context)
                     _state.value = State.Disconnecting(System.currentTimeMillis())
                     startDisconnectWatchdog()

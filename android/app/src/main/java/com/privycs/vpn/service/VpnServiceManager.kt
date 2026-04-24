@@ -264,9 +264,34 @@ class VpnServiceManager private constructor(private val context: Context) {
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markConnected(status.connectionId)
             }
+            // Kill Switch: arm after any successful connect. Setting
+            // check done here rather than in KillSwitchManager so the
+            // manager stays side-effect-free and the setting lookup
+            // happens lazily (it's a blocking DataStore read).
+            scope.launch {
+                val settings = com.privycs.vpn.PrivycsApp.instance
+                    .settingsRepository.getSettingsBlocking()
+                if (settings.killSwitchEnabled) {
+                    com.privycs.vpn.util.KillSwitchManager.arm()
+                }
+            }
         } else if (!status.connected && prev.connected) {
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
+            }
+            // Kill Switch: decide whether this is an "expected" or
+            // "unexpected" disconnect. User-initiated disconnects
+            // (ConnectCoordinator.requestDisconnect with USER/WIDGET/
+            // TILE source) already called KillSwitchManager.disarm()
+            // before we see the transition, so the state here is
+            // IDLE - nothing to do. If it's still ARMED when we
+            // reach this point, the tunnel dropped unexpectedly
+            // and we engage the sinkhole.
+            val alwaysOn = com.privycs.vpn.util.AlwaysOnDetector.detected.value
+            if (com.privycs.vpn.util.KillSwitchManager.isArmed() && !alwaysOn) {
+                com.privycs.vpn.util.KillSwitchManager.engageSinkhole(
+                    "tunnel drop while armed",
+                )
             }
         } else if (status.error != null) {
             // A connect attempt failed before reaching connected=true.

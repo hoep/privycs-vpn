@@ -105,6 +105,14 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[Keys.KILL_SWITCH] = enabled
         }
+        // If the user toggles Kill Switch off while the sinkhole is
+        // active, tear it down immediately. Without this the block-
+        // all tun fd would persist until the next connect/disconnect
+        // cycle and the user's "let me have my traffic back" intent
+        // would look broken.
+        if (!enabled) {
+            com.privycs.vpn.util.KillSwitchManager.disarm()
+        }
     }
 
     suspend fun updateAutoConnect(enabled: Boolean) {
