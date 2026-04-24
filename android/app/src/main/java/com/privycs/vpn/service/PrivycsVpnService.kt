@@ -56,6 +56,15 @@ class PrivycsVpnService : VpnService() {
     // Kill Switch off or a real tunnel replaces it.
     private var sinkholeTunFd: android.os.ParcelFileDescriptor? = null
 
+    // Kill-Switch network watcher. Android-level onLost() fires
+    // when the default non-VPN network goes away - e.g. airplane
+    // mode, WiFi + mobile both off, device loses signal. Most
+    // tunnel plugins take 30-90s to report the drop themselves
+    // (WireGuard handshake timeout, IPSec DPD, OpenVPN ping-
+    // restart), so relying on them alone leaves a long window
+    // where traffic could leak. This callback closes that gap.
+    private var killSwitchNetworkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+
     override fun onCreate() {
         super.onCreate()
         goBackend = GoBackend(this)
@@ -73,6 +82,70 @@ class PrivycsVpnService : VpnService() {
                     else -> exitSinkholeMode()
                 }
             }
+        }
+
+        registerKillSwitchNetworkWatcher()
+    }
+
+    /**
+     * Register a ConnectivityManager callback so we notice an
+     * unexpected tunnel drop the moment the underlying network
+     * disappears - not 30-90s later when the tunnel plugin finally
+     * gives up its own keepalive. Without this hook, airplane
+     * mode / WiFi-off scenarios leave the KillSwitchManager in
+     * ARMED state indefinitely and the sinkhole never engages,
+     * so traffic continues flowing once the non-VPN network
+     * comes back.
+     */
+    private fun registerKillSwitchNetworkWatcher() {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: android.net.Network) {
+                super.onLost(network)
+                scope.launch {
+                    // Grace period for WiFi-to-mobile handoffs:
+                    // during a handoff both the losing and gaining
+                    // network fire events in quick succession. We
+                    // only want to engage the sinkhole if NO
+                    // non-VPN network remains after the dust
+                    // settles.
+                    delay(1500)
+                    if (!com.privycs.vpn.util.KillSwitchManager.isArmed()) return@launch
+                    if (hasAnyNonVpnNetwork(cm)) return@launch
+                    Log.i(TAG, "Network watcher: all non-VPN networks lost while armed → engageSinkhole")
+                    com.privycs.vpn.util.KillSwitchManager.engageSinkhole(
+                        "default network lost",
+                    )
+                }
+            }
+
+            override fun onAvailable(network: android.net.Network) {
+                super.onAvailable(network)
+                // No direct action needed: if the sinkhole is
+                // active and a new non-VPN network appears, we
+                // STAY in sinkhole mode until the user (or the
+                // Retry Connect notification action) initiates a
+                // fresh connect. Traffic stays blocked until a
+                // real tunnel replaces the sinkhole fd, which is
+                // the whole point of the Kill Switch.
+            }
+        }
+        killSwitchNetworkCallback = callback
+        try {
+            cm.registerDefaultNetworkCallback(callback)
+            Log.d(TAG, "Kill switch network watcher registered")
+        } catch (e: Exception) {
+            Log.w(TAG, "Kill switch network watcher registration failed", e)
+            killSwitchNetworkCallback = null
+        }
+    }
+
+    @Suppress("DEPRECATION") // allNetworks: one-shot probe, NetworkCallback would need more state than it's worth
+    private fun hasAnyNonVpnNetwork(cm: android.net.ConnectivityManager): Boolean {
+        return cm.allNetworks.any { net ->
+            val caps = cm.getNetworkCapabilities(net) ?: return@any false
+            !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) &&
+                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
         }
     }
 
@@ -173,6 +246,15 @@ class PrivycsVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        killSwitchNetworkCallback?.let { cb ->
+            try {
+                (getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager)
+                    .unregisterNetworkCallback(cb)
+            } catch (e: Exception) {
+                Log.d(TAG, "Kill switch callback unregister failed (already gone?): ${e.message}")
+            }
+            killSwitchNetworkCallback = null
+        }
         scope.cancel()
         super.onDestroy()
         Log.d(TAG, "VPN service destroyed")
