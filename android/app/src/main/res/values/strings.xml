@@ -19,6 +19,14 @@
     <string name="widget_protocol_ipsec">IPSec</string>
     <string name="widget_sparkline_rx_description">Download speed chart</string>
     <string name="widget_sparkline_tx_description">Upload speed chart</string>
+    <string name="widget_endpoint_not_connected">Not connected</string>
+    <string name="widget_toast_no_active_connection">No active connection</string>
+    <string name="widget_toast_toggle_failed">Toggle failed</string>
+    <string name="widget_toast_unknown_protocol">Unknown protocol</string>
+    <string name="widget_toast_protocol_missing">%1$s not configured in this connection</string>
+    <string name="widget_toast_protocol_already_active">%1$s is already active</string>
+    <string name="widget_toast_protocol_switching">Switching to %1$s…</string>
+    <string name="widget_toast_protocol_switch_failed">Protocol switch failed</string>
     <string name="vpn_tile_label">Privycs VPN</string>
 
     <!--

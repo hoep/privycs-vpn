@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Solid oval used as the circular backdrop behind the big
+    connect/disconnect icon in the widget. Colour is replaced at
+    runtime via RemoteViews.setInt(..., "setColorFilter", ...):
+    widget_status_connected (accent) when connected,
+    widget_status_disconnected (grey) otherwise.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/widget_status_disconnected" />
+</shape>
