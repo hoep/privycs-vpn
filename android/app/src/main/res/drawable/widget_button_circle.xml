@@ -2,11 +2,19 @@
 <!--
     Solid oval used as the circular backdrop behind the big
     connect/disconnect icon in the widget. Colour is replaced at
-    runtime via RemoteViews.setInt(..., "setColorFilter", ...):
-    widget_status_connected (accent) when connected,
-    widget_status_disconnected (grey) otherwise.
+    runtime via RemoteViews.setInt(..., "setColorFilter", ...).
+
+    Why the <size>: Shape drawables are dimensionless by default,
+    so an ImageView using match_parent + scaleType=fitCenter has
+    no aspect hint and draws this shape stretched to the container
+    bounds - producing a wide ellipse when the ImageView is wider
+    than tall. Declaring an intrinsic square size gives fitCenter
+    a 1:1 aspect ratio to preserve, so the shape stays a circle.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
     <solid android:color="@color/widget_status_disconnected" />
+    <size
+        android:width="100dp"
+        android:height="100dp" />
 </shape>
