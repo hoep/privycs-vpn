@@ -455,6 +455,9 @@ class IpSecTunnel(private val context: Context) {
      */
     @Volatile private var loggedIface = ""
 
+    @Suppress("DEPRECATION")  // cm.allNetworks: fine for a one-shot
+    // lookup; the modern NetworkCallback path needs long-lived state
+    // that would be overkill for a byte-counter read.
     private fun readVpnInterfaceBytes(): Pair<Long, Long> {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)

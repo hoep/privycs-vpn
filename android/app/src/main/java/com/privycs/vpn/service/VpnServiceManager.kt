@@ -342,6 +342,9 @@ class VpnServiceManager private constructor(private val context: Context) {
      * - the user sees a VPN shield in the status bar either way, and
      * our connect() would collide with it either way.
      */
+    @Suppress("DEPRECATION")  // cm.allNetworks: fine for a one-shot
+    // probe; a NetworkCallback would need long-lived state for no
+    // benefit here (we just need a yes/no snapshot).
     private fun isSystemVpnActive(): Boolean {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager

@@ -21,7 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
@@ -119,7 +119,11 @@ fun AddConnectionScreen(
             val nameIndex = cursor?.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
             cursor?.moveToFirst()
             selectedFilename = if (nameIndex != null && nameIndex >= 0) {
-                cursor?.getString(nameIndex) ?: "unknown.conf"
+                // nameIndex != null implies cursor != null (nameIndex
+                // is derived from cursor?.getColumnIndex), so the
+                // Kotlin compiler smart-casts cursor here - safe call
+                // is redundant.
+                cursor.getString(nameIndex) ?: "unknown.conf"
             } else {
                 uri.lastPathSegment ?: "unknown.conf"
             }
@@ -165,7 +169,7 @@ fun AddConnectionScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {

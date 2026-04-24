@@ -5,8 +5,6 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -86,7 +84,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ConnectScreen(
     onNavigateToAdd: () -> Unit,
-    onNavigateToConnections: () -> Unit
+    @Suppress("UNUSED_PARAMETER") onNavigateToConnections: () -> Unit,
 ) {
     val context = LocalContext.current
     val vpnManager = remember { VpnServiceManager.getInstance(context) }
@@ -468,12 +466,6 @@ private fun ConnectButton(
 ) {
     val buttonSize = 140.dp
     val outerSize = 170.dp
-
-    val bgAlpha by animateFloatAsState(
-        targetValue = if (isConnected) 0.05f else 0f,
-        animationSpec = tween(300),
-        label = "bgAlpha"
-    )
 
     Box(
         modifier = Modifier.size(outerSize),
