@@ -96,22 +96,23 @@
                 android:contentDescription="@string/widget_description"
                 android:adjustViewBounds="true" />
 
+            <!-- Single icon that always reflects the active
+                 protocol (or the saved connection's protocol when
+                 disconnected). match_parent + fitCenter + padding
+                 makes the icon scale with the circle's size - at
+                 a ~60% ratio at typical 4x3 widget dimensions, so
+                 it reads at the same visual weight as the in-app
+                 ConnectScreen icon. Brand colours of the protocol
+                 drawables are preserved; the disconnected state
+                 is communicated by the grey circle background. -->
             <ImageView
-                android:id="@+id/widget_button_icon_idle"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:id="@+id/widget_button_icon"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
                 android:layout_gravity="center"
-                android:src="@drawable/ic_privycs_logo"
-                android:scaleType="fitCenter" />
-
-            <ImageView
-                android:id="@+id/widget_button_icon_active"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_gravity="center"
+                android:padding="14dp"
                 android:src="@drawable/ic_protocol_wireguard"
-                android:scaleType="fitCenter"
-                android:visibility="gone" />
+                android:scaleType="fitCenter" />
         </FrameLayout>
 
         <TextView

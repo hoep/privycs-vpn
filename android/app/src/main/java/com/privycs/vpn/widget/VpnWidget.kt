@@ -7,9 +7,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.core.content.ContextCompat
 import com.privycs.vpn.MainActivity
 import com.privycs.vpn.R
@@ -58,6 +62,12 @@ class VpnWidget : AppWidgetProvider() {
         const val EXTRA_TARGET_PROTOCOL = "target_protocol"
 
         private const val ALWAYS_ON_WIDGET_PAUSE_MINUTES = 15
+
+        // Application-lifetime scope for the widget's post-disconnect
+        // COD re-check coroutine. Lives beyond onReceive's return so
+        // the 400ms delay + reconnect call can complete even after the
+        // broadcast receiver has exited.
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
         // Sparkline bitmap logical resolution. ImageView scaleType
         // fitXY scales it to the actual on-screen size; render at a
@@ -190,40 +200,35 @@ class VpnWidget : AppWidgetProvider() {
                     AlwaysOnDetector.pauseFor(context, ALWAYS_ON_WIDGET_PAUSE_MINUTES)
                     Log.i(TAG, "Widget toggle with Always-On: pausing for $ALWAYS_ON_WIDGET_PAUSE_MINUTES min")
                 }
-                kotlinx.coroutines.runBlocking<Unit> {
-                    com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
-                        context,
-                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.WIDGET,
-                    )
 
-                    // Mirror the in-app Connect screen's disconnect
-                    // flow: if Connect-on-Demand is enabled and the
-                    // current network still matches the "VPN should
-                    // be up" rule, kick off a reconnect so the user
-                    // doesn't end up offline against their own COD
-                    // policy. Delay matches ConnectScreen (400ms)
-                    // so the service teardown has time to settle
-                    // before NetworkMonitor re-evaluates.
+                // Direct disconnect mirrors what ConnectScreen does -
+                // bypass ConnectCoordinator for the disconnect side so
+                // the service teardown is immediate. The follow-up
+                // reconnect is also a direct call to avoid the
+                // coordinator's "disconnect in progress" gate that
+                // was silently rejecting our ON_DEMAND reconnects
+                // from the widget in earlier versions.
+                manager.disconnect()
+
+                // Schedule COD re-evaluation on the app-level scope
+                // so it survives after onReceive returns. Without
+                // this, the broadcast receiver is torn down and the
+                // delayed reconnect never fires.
+                scope.launch {
                     try {
                         val settings = com.privycs.vpn.PrivycsApp.instance
                             .settingsRepository.getSettingsBlocking()
-                        if (!settings.connectOnDemand.enabled) return@runBlocking
-                        kotlinx.coroutines.delay(400)
+                        if (!settings.connectOnDemand.enabled) return@launch
+                        delay(400)
                         val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
                         nm.reevaluate()
                         val ns = nm.networkState.value
-                        if (!ns.shouldConnect || manager.isConnected) return@runBlocking
-                        val conn = com.privycs.vpn.PrivycsApp.instance
-                            .connectionRepository.getActive() ?: return@runBlocking
+                        if (!ns.shouldConnect || manager.isConnected) return@launch
                         Log.i(
                             TAG,
                             "On-demand reconnect after widget disconnect (${ns.ruleMatch})",
                         )
-                        com.privycs.vpn.util.ConnectCoordinator.requestConnect(
-                            context,
-                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
-                            conn,
-                        )
+                        manager.connect()
                     } catch (e: Exception) {
                         Log.w(TAG, "COD re-evaluate after widget disconnect failed", e)
                     }
@@ -334,35 +339,31 @@ class VpnWidget : AppWidgetProvider() {
         // shape is fully repainted with the tint colour).
         views.setInt(R.id.widget_button_bg, "setColorFilter", statusColor)
 
-        if (connected) {
-            // Show active protocol icon, hide idle logo.
-            val protocolIconRes = when (activeProtocol) {
-                VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
-                VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
-                VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
-                else -> R.drawable.ic_privycs_logo
-            }
-            views.setImageViewResource(R.id.widget_button_icon_active, protocolIconRes)
-            views.setViewVisibility(R.id.widget_button_icon_active, View.VISIBLE)
-            views.setViewVisibility(R.id.widget_button_icon_idle, View.GONE)
-
-            views.setTextViewText(
-                R.id.widget_button_label,
-                "${context.getString(R.string.widget_status_connected)} ${formatUptime(uptime)}".trim(),
-            )
-            views.setTextColor(R.id.widget_button_label, statusColor)
-        } else {
-            // Show greyed idle logo, hide protocol icon.
-            views.setInt(R.id.widget_button_icon_idle, "setColorFilter", statusColor)
-            views.setViewVisibility(R.id.widget_button_icon_idle, View.VISIBLE)
-            views.setViewVisibility(R.id.widget_button_icon_active, View.GONE)
-
-            views.setTextViewText(
-                R.id.widget_button_label,
-                context.getString(R.string.widget_status_disconnected),
-            )
-            views.setTextColor(R.id.widget_button_label, statusColor)
+        // Resolve the protocol to show in the button. When connected
+        // we trust the live VpnServiceManager status. When disconnected
+        // we fall back to the active connection's saved activeProtocol
+        // so the user still sees "WG" / "OVPN" / "IPSec" - the icon
+        // reflects what they'd connect to, not a generic shield.
+        val displayProtocol = activeProtocol
+            ?: com.privycs.vpn.PrivycsApp.instance.connectionRepository
+                .getActive()?.activeProtocol
+        val iconRes = when (displayProtocol) {
+            VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
+            VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
+            VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
+            null -> R.drawable.ic_privycs_logo // no connections at all
         }
+        views.setImageViewResource(R.id.widget_button_icon, iconRes)
+
+        views.setTextViewText(
+            R.id.widget_button_label,
+            if (connected) {
+                "${context.getString(R.string.widget_status_connected)} ${formatUptime(uptime)}".trim()
+            } else {
+                context.getString(R.string.widget_status_disconnected)
+            },
+        )
+        views.setTextColor(R.id.widget_button_label, statusColor)
 
         // --- Section 3: Protocol switcher ---
         setProtocolButtonState(views, R.id.widget_protocol_wg, activeProtocol == VpnProtocol.WIREGUARD)
