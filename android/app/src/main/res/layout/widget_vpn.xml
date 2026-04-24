@@ -1,29 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Privycs VPN home-screen widget - Connect-screen mirror, take 2.
+    Privycs VPN home-screen widget - Connect-screen mirror (v3).
 
-    Composition follows the app's ConnectScreen as a dominant anchor
-    layout rather than flat stacked sections:
+    Layout improvements over v0.9.6.0:
 
-    1. Header row: connection name + server endpoint (compact).
-    2. Big circular connect/disconnect button filling the remaining
-       vertical space via layout_weight=1. Contains a tinted oval
-       background plus two stacked ImageViews - one for the idle
-       (disconnected) Privycs logo, one for the active protocol
-       brand icon. Visibility is swapped at runtime so each icon
-       keeps its intended colour treatment (idle logo gets a grey
-       colorFilter, active protocol icon stays untinted to preserve
-       WG/OVPN/IPSec brand colours).
-    3. Protocol switcher row, active protocol's background swapped
-       to widget_accent at runtime.
-    4. Traffic row: download arrow + sparkline + value, followed by
-       upload arrow + sparkline + value in a single line.
+    - Circle scales with available vertical space instead of sitting
+      fixed at 68dp in a weight=1 container. The FrameLayout around
+      the circle image gets the weight, the ImageView inside uses
+      match_parent + scaleType=fitCenter, so the circle grows from
+      ~80dp at 4x3 widget size up to ~130dp at 4x4. Fixes the
+      "button lost in an empty sea" look.
 
-    Why @android:id/background on root: Android 12+ launcher applies
-    its system widget chrome (rounded corners, Material You tint) to
-    exactly this id; other ids get wrapped in a darker default
-    container under our background, producing the "double frame"
-    artifact seen prior to v0.9.3.10.
+    - Protocol switcher height 40dp (was 26). Bigger finger target
+      and more visible brand icons.
+
+    - Traffic row height 28dp with 22dp sparklines (was 22/16).
+      Sparklines are now actually legible when traffic is flowing.
+
+    - Padding 6dp (was 8) and 2dp section gaps (was 4) to spend the
+      saved pixels on content instead of whitespace.
+
+    Root id = @android:id/background stays critical for Android 12+
+    widget chrome (rounded corners, Material You tinting).
 -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -31,7 +29,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="8dp"
+    android:padding="6dp"
     android:background="@drawable/widget_background">
 
     <!-- Section 1: Header - connection name + server endpoint -->
@@ -63,48 +61,53 @@
             android:ellipsize="middle" />
     </LinearLayout>
 
-    <!-- Section 2: Big circular connect/disconnect button.
-         layout_weight=1 absorbs any remaining vertical space so the
-         widget has no dead pixels between sections. The FrameLayout
-         is the click target (entire 68dp circle area) so the
-         launcher cannot route mis-hits to the root background. -->
+    <!-- Section 2: Big circular connect button.
+         Outer vertical LinearLayout gets layout_weight=1 so this
+         whole section expands to fill remaining vertical space.
+         Inside, the FrameLayout containing the circle also has
+         weight=1, so the circle takes most of the section height.
+         The label sits wrap_content below as its own row, so the
+         circle never overlaps the status text. The circle ImageView
+         uses match_parent + scaleType=fitCenter, producing a
+         circle that scales with available space (roughly 70-130dp
+         depending on widget size). Click target is the outer
+         LinearLayout, covering the whole tap area. -->
     <LinearLayout
+        android:id="@+id/widget_button_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="2dp"
         android:orientation="vertical"
-        android:gravity="center">
+        android:gravity="center_horizontal">
 
         <FrameLayout
-            android:id="@+id/widget_button_container"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content">
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
 
-            <!-- Circle backdrop, tinted grey/accent at runtime -->
             <ImageView
                 android:id="@+id/widget_button_bg"
-                android:layout_width="68dp"
-                android:layout_height="68dp"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
                 android:src="@drawable/widget_button_circle"
+                android:scaleType="fitCenter"
                 android:contentDescription="@string/widget_description"
-                android:scaleType="fitXY" />
+                android:adjustViewBounds="true" />
 
-            <!-- Idle state (disconnected): generic Privycs logo,
-                 grey tinted at runtime via setColorFilter. -->
             <ImageView
                 android:id="@+id/widget_button_icon_idle"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_privycs_logo"
                 android:scaleType="fitCenter" />
 
-            <!-- Active state (connected): active protocol's brand
-                 icon, untinted to preserve its colours. -->
             <ImageView
                 android:id="@+id/widget_button_icon_active"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_protocol_wireguard"
                 android:scaleType="fitCenter"
@@ -115,7 +118,7 @@
             android:id="@+id/widget_button_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:text="@string/widget_status_disconnected"
             android:textSize="11sp"
             android:textStyle="bold"
@@ -123,21 +126,21 @@
             android:singleLine="true" />
     </LinearLayout>
 
-    <!-- Section 3: Protocol switcher -->
+    <!-- Section 3: Protocol switcher. 40dp gives finger-friendly
+         touch targets and lets the brand icons breathe. -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="40dp"
         android:orientation="horizontal"
-        android:weightSum="3"
-        android:layout_marginTop="4dp">
+        android:weightSum="3">
 
         <ImageView
             android:id="@+id/widget_protocol_wg"
             android:layout_width="0dp"
-            android:layout_height="26dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginEnd="3dp"
-            android:padding="5dp"
+            android:padding="8dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_protocol_wireguard"
             android:background="@drawable/widget_protocol_button_inactive"
@@ -146,10 +149,10 @@
         <ImageView
             android:id="@+id/widget_protocol_ovpn"
             android:layout_width="0dp"
-            android:layout_height="26dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginHorizontal="1dp"
-            android:padding="5dp"
+            android:padding="8dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_protocol_openvpn"
             android:background="@drawable/widget_protocol_button_inactive"
@@ -158,36 +161,38 @@
         <ImageView
             android:id="@+id/widget_protocol_ipsec"
             android:layout_width="0dp"
-            android:layout_height="26dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginStart="3dp"
-            android:padding="5dp"
+            android:padding="8dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_protocol_strongswan"
             android:background="@drawable/widget_protocol_button_inactive"
             android:contentDescription="@string/widget_protocol_ipsec" />
     </LinearLayout>
 
-    <!-- Section 4: Traffic - download + upload side by side -->
+    <!-- Section 4: Traffic - download + upload side by side. 28dp
+         row with 22dp sparklines (up from 22/16) so curves are
+         clearly readable. -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="28dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginTop="4dp">
+        android:layout_marginTop="3dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/widget_arrow_download"
-            android:textSize="12sp"
+            android:textSize="13sp"
             android:textStyle="bold"
             android:textColor="@color/widget_status_connected" />
 
         <ImageView
             android:id="@+id/widget_sparkline_rx"
-            android:layout_width="36dp"
-            android:layout_height="16dp"
+            android:layout_width="44dp"
+            android:layout_height="22dp"
             android:layout_marginHorizontal="3dp"
             android:scaleType="fitXY"
             android:contentDescription="@string/widget_sparkline_rx_description" />
@@ -198,7 +203,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="0 B/s"
-            android:textSize="10sp"
+            android:textSize="11sp"
             android:fontFamily="monospace"
             android:textColor="@color/widget_text_primary"
             android:singleLine="true"
@@ -208,15 +213,15 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/widget_arrow_upload"
-            android:textSize="12sp"
+            android:textSize="13sp"
             android:textStyle="bold"
             android:textColor="@color/widget_accent"
             android:layout_marginStart="4dp" />
 
         <ImageView
             android:id="@+id/widget_sparkline_tx"
-            android:layout_width="36dp"
-            android:layout_height="16dp"
+            android:layout_width="44dp"
+            android:layout_height="22dp"
             android:layout_marginHorizontal="3dp"
             android:scaleType="fitXY"
             android:contentDescription="@string/widget_sparkline_tx_description" />
@@ -227,7 +232,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="0 B/s"
-            android:textSize="10sp"
+            android:textSize="11sp"
             android:fontFamily="monospace"
             android:textColor="@color/widget_text_primary"
             android:singleLine="true"
