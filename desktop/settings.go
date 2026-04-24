@@ -40,16 +40,6 @@ type AppSettings struct {
 	LogLevel           string                  `json:"log_level"`    // debug, info, warn, error
 	GatewayURL         string                  `json:"gateway_url,omitempty"`
 	APIKey             string                  `json:"api_key,omitempty"`
-
-	// IPv6LANBypass is a list of IPv6 CIDR prefixes (e.g. the user's
-	// home-LAN /56) that should reach the local physical gateway
-	// directly instead of traversing the VPN tunnel. Required because
-	// OpenVPN's `route-ipv6 ... net_gateway` syntax doesn't exist and
-	// all three desktop OSes fail to install a link-local gateway
-	// without explicit interface scope — the Privycs app discovers the
-	// physical gateway post-connect and installs more-specific routes.
-	// Empty list = all IPv6 goes through the tunnel (full tunnel).
-	IPv6LANBypass []string `json:"ipv6_lan_bypass,omitempty"`
 }
 
 // LoadSettings reads settings from disk or returns defaults

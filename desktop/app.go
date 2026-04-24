@@ -445,31 +445,6 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	wailsRuntime.EventsEmit(appCtx, "vpn:connected", activeProto)
 	log.Printf("Connected via %s", protocol)
 
-	// IPv6 LAN bypass: now that the tunnel is actually up (Status has
-	// reported CONNECTED), install more-specific routes for each
-	// user-configured IPv6 LAN prefix through the physical default
-	// gateway. OpenVPN's server-pushed `route-ipv6 X fe80::Y` would
-	// have done this, but all three desktop OSes require explicit
-	// interface scope for link-local next-hops which the server can't
-	// provide. Prefer the privileged helper for the netsh / ip-route
-	// calls; fall back to direct exec if helper isn't installed (best-
-	// effort, will fail if user isn't admin/root).
-	if len(a.settings.IPv6LANBypass) > 0 {
-		go func(prefixes []string) {
-			client := NewHelperClient()
-			if client.IsHelperReachable() {
-				if _, err := client.SendCommand("ipv6_bypass_apply", map[string]string{
-					"prefixes": strings.Join(prefixes, ","),
-				}); err != nil {
-					log.Printf("IPv6 bypass via helper failed, trying direct: %v", err)
-					_ = ApplyIPv6LANBypass(prefixes)
-				}
-			} else {
-				_ = ApplyIPv6LANBypass(prefixes)
-			}
-		}(a.settings.IPv6LANBypass)
-	}
-
 	// Notify user — matches Android foreground notification behaviour
 	// (see PrivycsVpnService buildNotification). Desktop users had no
 	// feedback when the tunnel came up in the background via auto-connect.
@@ -506,22 +481,6 @@ func (a *App) disconnectInternal() error {
 	a.connectedAt = time.Time{}
 
 	log.Printf("Disconnecting %s...", a.activeProtocol)
-
-	// Tear down IPv6 LAN bypass BEFORE the tunnel goes down, so the
-	// more-specific routes we added don't outlive the session. Doing
-	// it after proto.Down() would leave the routes in the kernel
-	// pointing at a physical gateway that may have changed state
-	// (WiFi dropped, adapter reset, etc.) since we installed them.
-	if len(a.settings.IPv6LANBypass) > 0 {
-		client := NewHelperClient()
-		if client.IsHelperReachable() {
-			_, _ = client.SendCommand("ipv6_bypass_remove", map[string]string{
-				"prefixes": strings.Join(a.settings.IPv6LANBypass, ","),
-			})
-		} else {
-			_ = RemoveIPv6LANBypass(a.settings.IPv6LANBypass)
-		}
-	}
 
 	if err := proto.Down(a.ctx); err != nil {
 		log.Printf("Disconnect error (non-fatal): %v", err)

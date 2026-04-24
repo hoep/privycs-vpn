@@ -41,8 +41,6 @@ var allowedActions = map[string]bool{
 	"wg_install_config":     true,
 	"ipsec_configure":       true,
 	"remove_legacy_sudoers": true,
-	"ipv6_bypass_apply":     true,
-	"ipv6_bypass_remove":    true,
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.
@@ -253,46 +251,9 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdIPSecConfigure(cmd)
 	case "remove_legacy_sudoers":
 		return h.cmdRemoveLegacySudoers(cmd)
-	case "ipv6_bypass_apply":
-		return h.cmdIPv6BypassApply(cmd)
-	case "ipv6_bypass_remove":
-		return h.cmdIPv6BypassRemove(cmd)
 	default:
 		return HelperResponse{Success: false, Error: "unhandled action"}
 	}
-}
-
-// cmdIPv6BypassApply installs more-specific IPv6 routes for the
-// user-configured LAN prefixes through the physical default gateway.
-// Prefixes come in as a comma-separated CIDR list in Args["prefixes"].
-// Runs as the helper's elevated user (root / SYSTEM) so netsh / ip /
-// route calls succeed without extra privilege prompts. Matches the
-// Android VpnService.addDisallowedApplication pattern in spirit —
-// hole-punch specific destinations out of the VPN's catch-all.
-func (h *PrivilegedHelper) cmdIPv6BypassApply(cmd HelperCommand) HelperResponse {
-	raw := cmd.Args["prefixes"]
-	if raw == "" {
-		return HelperResponse{Success: true, Output: "no prefixes"}
-	}
-	prefixes := strings.Split(raw, ",")
-	if err := ApplyIPv6LANBypass(prefixes); err != nil {
-		return HelperResponse{Success: false, Error: err.Error()}
-	}
-	return HelperResponse{Success: true, Output: fmt.Sprintf("applied %d prefix(es)", len(prefixes))}
-}
-
-// cmdIPv6BypassRemove tears down routes previously installed by
-// cmdIPv6BypassApply. Safe to call even if apply never ran.
-func (h *PrivilegedHelper) cmdIPv6BypassRemove(cmd HelperCommand) HelperResponse {
-	raw := cmd.Args["prefixes"]
-	if raw == "" {
-		return HelperResponse{Success: true, Output: "no prefixes"}
-	}
-	prefixes := strings.Split(raw, ",")
-	if err := RemoveIPv6LANBypass(prefixes); err != nil {
-		return HelperResponse{Success: false, Error: err.Error()}
-	}
-	return HelperResponse{Success: true, Output: fmt.Sprintf("removed %d prefix(es)", len(prefixes))}
 }
 
 // cmdConnect starts a VPN tunnel.

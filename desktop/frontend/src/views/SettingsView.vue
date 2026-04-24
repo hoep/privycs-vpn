@@ -262,26 +262,6 @@
         </router-link>
       </div>
 
-      <!-- IPv6 LAN Bypass -->
-      <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">IPv6 LAN Bypass</h3>
-        <p class="text-[10px] text-gray-400 mb-2">
-          IPv6 prefixes that should reach your local network directly instead of going through the VPN.
-          One CIDR per line. Example: <code>2a03:c100:f604:8b00::/56</code>
-        </p>
-        <textarea
-          v-model="ipv6BypassText"
-          @blur="saveIPv6Bypass"
-          rows="3"
-          placeholder="::/0 (disabled)&#10;2a03:c100:f604:8b00::/56"
-          class="w-full bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-xs font-mono p-2 rounded border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-          spellcheck="false"
-        />
-        <p class="text-[10px] text-gray-500 mt-1">
-          Applied automatically after each successful connect. Needs the privileged helper for route installation.
-        </p>
-      </div>
-
       <!-- Backup & Restore -->
       <div class="card p-4">
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Backup &amp; Restore</h3>
@@ -517,25 +497,6 @@ async function doExport() {
 }
 
 // --- IPv6 LAN bypass textarea binding ---
-// Two-way sync between the settings.ipv6_lan_bypass string array and a
-// newline-separated textarea. Saved on blur so we don't roundtrip the
-// backend on every keystroke.
-const ipv6BypassText = ref('')
-
-function syncIPv6BypassFromSettings() {
-  const list = settings.value.ipv6_lan_bypass || []
-  ipv6BypassText.value = Array.isArray(list) ? list.join('\n') : ''
-}
-
-async function saveIPv6Bypass() {
-  const lines = ipv6BypassText.value
-    .split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(l => l && !l.startsWith('#'))
-  settings.value.ipv6_lan_bypass = lines
-  await saveSettingsImmediate()
-}
-
 async function doImport() {
   importError.value = ''
   importing.value = true
@@ -664,7 +625,6 @@ async function loadSettings() {
         startCodStatusPolling()
       }
     }
-    syncIPv6BypassFromSettings()
     applyTheme()
   } catch (e) {
     console.error('Failed to load settings:', e)

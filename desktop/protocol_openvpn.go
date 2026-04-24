@@ -402,6 +402,35 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 	return status
 }
 
+// parseBypassNetworksFromOvpn extracts `# PRIVYCS-BYPASS: <cidr>` lines
+// from the .ovpn file body. The Privycs gateway emits one such comment
+// per bypass network (both IPv4 and IPv6) and the client app installs
+// local routes for them after the tunnel comes up — OpenVPN itself has
+// no native IPv6-bypass push syntax, so clients drive it from these
+// comments. Unrecognised or malformed CIDRs are silently skipped.
+func parseBypassNetworksFromOvpn(content string) []string {
+	var bypass []string
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Comment marker is flexible: "# PRIVYCS-BYPASS:", "#PRIVYCS-BYPASS:"
+		// and case-insensitive match so the gateway emitter's exact
+		// whitespace doesn't have to be sacred.
+		if !strings.HasPrefix(strings.ToLower(trimmed), "# privycs-bypass:") &&
+			!strings.HasPrefix(strings.ToLower(trimmed), "#privycs-bypass:") {
+			continue
+		}
+		idx := strings.Index(trimmed, ":")
+		if idx < 0 {
+			continue
+		}
+		cidr := strings.TrimSpace(trimmed[idx+1:])
+		if cidr != "" {
+			bypass = append(bypass, cidr)
+		}
+	}
+	return bypass
+}
+
 func (o *OpenVPNProtocol) Configure(cfg []byte) error {
 	os.MkdirAll(filepath.Dir(o.configPath), 0700)
 
