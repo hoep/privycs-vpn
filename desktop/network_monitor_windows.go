@@ -4,7 +4,6 @@ package main
 
 import (
 	"log"
-	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
