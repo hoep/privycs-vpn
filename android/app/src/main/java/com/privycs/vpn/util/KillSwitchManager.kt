@@ -106,6 +106,29 @@ object KillSwitchManager {
     }
 
     /**
+     * Force sinkhole from ANY state (including IDLE). Used in two
+     * places where the user intent is clear even though the tunnel
+     * was never armed this session:
+     *
+     * - User enables Kill Switch while disconnected with a configured
+     *   connection present. Industry-standard "hardcore" kill switch
+     *   semantics: block immediately, unblock only when the user
+     *   either connects or disables KS.
+     *
+     * - User manually disconnects an active tunnel while Kill Switch
+     *   is enabled. Same industry-standard: the user enabled KS
+     *   specifically to prevent unprotected traffic; disconnecting
+     *   is another form of "tunnel down with KS on", so block.
+     */
+    fun forceSinkhole(reason: String = "") {
+        if (_state.value != State.SINKHOLE) {
+            val previous = _state.value
+            _state.value = State.SINKHOLE
+            Log.i(TAG, "sinkhole forced (was $previous): $reason")
+        }
+    }
+
+    /**
      * Leave the sinkhole state back to IDLE. Used when the user
      * toggles Kill Switch off while the sinkhole is running.
      */

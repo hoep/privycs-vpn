@@ -210,16 +210,24 @@ object ConnectCoordinator {
                 }
                 is State.Connecting, is State.Connected -> {
                     PrivycsLogger.i(TAG, "requestDisconnect($source): accepted -> Disconnecting")
-                    // Kill Switch: user-initiated disconnects disarm
-                    // the sinkhole trigger BEFORE the actual
-                    // disconnect fires. When VpnServiceManager later
-                    // observes the connected=false transition, the
-                    // killswitch state is already IDLE so no sinkhole
-                    // engages. Unexpected tunnel drops go through a
-                    // different path that never sees this disarm.
-                    if (source == IntentSource.USER ||
-                        source == IntentSource.WIDGET ||
-                        source == IntentSource.TILE) {
+                    // Kill Switch semantics on user-initiated disconnect:
+                    //
+                    // - If KS setting is ON: leave state ARMED so the
+                    //   subsequent connected=false transition in
+                    //   VpnServiceManager.updateStatus naturally engages
+                    //   the sinkhole. Industry-standard hardcore kill
+                    //   switch behaviour: manual disconnect does NOT
+                    //   grant unprotected internet access; user must
+                    //   also disable KS (or reconnect) to release.
+                    // - If KS setting is OFF: disarm as before so no
+                    //   sinkhole engages after the clean user disconnect.
+                    val killSwitchEnabled = com.privycs.vpn.PrivycsApp.instance
+                        .settingsRepository.getSettingsBlocking().killSwitchEnabled
+                    if (!killSwitchEnabled &&
+                        (source == IntentSource.USER ||
+                            source == IntentSource.WIDGET ||
+                            source == IntentSource.TILE)
+                    ) {
                         KillSwitchManager.disarm()
                     }
                     fireDisconnectIntent(context)

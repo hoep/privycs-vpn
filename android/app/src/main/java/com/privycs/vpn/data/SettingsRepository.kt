@@ -98,23 +98,40 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[Keys.KILL_SWITCH] = enabled
         }
-        // If the user toggles Kill Switch off while the sinkhole is
-        // active, tear it down immediately. Without this the block-
-        // all tun fd would persist until the next connect/disconnect
-        // cycle and the user's "let me have my traffic back" intent
-        // would look broken.
         if (!enabled) {
+            // Tear down the sinkhole immediately on disable. Without
+            // this the block-all tun fd would persist until the next
+            // connect/disconnect cycle.
             com.privycs.vpn.util.KillSwitchManager.disarm()
             return
         }
-        // Toggled ON while already connected: arm now. The
-        // connected-transition path in VpnServiceManager wouldn't
-        // fire in this case (status.connected isn't changing), and
-        // waiting for the next poll-tick defensive-arm is a
-        // 0-2s UX lag the user shouldn't have to see.
+        // Enabled: decide between arm, force-sinkhole, or ignore
+        // based on current tunnel + active-connection state.
         val manager = com.privycs.vpn.service.VpnServiceManager.getInstance(context)
-        if (manager.isConnected && !com.privycs.vpn.util.KillSwitchManager.isArmed()) {
-            com.privycs.vpn.util.KillSwitchManager.arm()
+        if (manager.isConnected) {
+            // Tunnel up: arm the safety net so an unexpected drop
+            // engages the sinkhole.
+            if (!com.privycs.vpn.util.KillSwitchManager.isArmed()) {
+                com.privycs.vpn.util.KillSwitchManager.arm()
+            }
+            return
+        }
+        // Tunnel down while user enables KS. Industry-standard "hardcore"
+        // kill switch: if there's a configured connection we should be
+        // protecting, block traffic immediately - otherwise the user's
+        // intent ("block unprotected traffic NOW") is ignored until they
+        // actually connect.
+        val hasActiveConnection = com.privycs.vpn.PrivycsApp.instance
+            .connectionRepository.getActive() != null
+        if (hasActiveConnection) {
+            com.privycs.vpn.util.KillSwitchManager.forceSinkhole(
+                "KS enabled while disconnected with active connection configured",
+            )
+        } else {
+            android.util.Log.d(
+                "SettingsRepository",
+                "Kill Switch enabled but no active connection: staying IDLE",
+            )
         }
     }
 

@@ -218,25 +218,19 @@ class PrivycsVpnService : VpnService() {
             override fun onAvailable(network: android.net.Network) {
                 super.onAvailable(network)
                 Log.d(TAG, "Kill switch onAvailable fired for network=$network")
-                // When the sinkhole is active and a fresh non-VPN
-                // network appears (airplane mode off, WiFi/Mobile
-                // reconnect), the kernel reshuffles its default-
-                // route table around the newly-available link.
-                // Regression observed in v0.9.9.5: after a full
-                // WiFi drop + restore the VPN's "block-all"
-                // routes lost authority against the just-added
-                // direct-route entry, so traffic started flowing
-                // through the new default link even though the
-                // sinkhole fd was still open and the Kill Switch
-                // UI still showed "Active". Closing and re-
-                // establishing the sinkhole fd here forces
-                // VpnService to re-insert its 0.0.0.0/0 + ::/0
-                // routes with fresh precedence, which reasserts
-                // the block against the newly-available network.
-                if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
-                    Log.i(TAG, "Kill switch onAvailable: refreshing sinkhole fd to re-assert routes over new network")
-                    refreshSinkhole()
-                }
+                // v0.9.10.2: DO NOT refresh the sinkhole fd on
+                // onAvailable. Closing the tun fd causes Android to
+                // destroy the VpnService; START_STICKY then recreates
+                // it, which re-registers this network callback, which
+                // fires onAvailable again for the already-available
+                // WiFi, which would trigger refreshSinkhole again -
+                // infinite service-respawn loop (200+ cycles in 8s
+                // observed on v0.9.10.1). The VpnService framework
+                // guarantees VPN-route precedence as long as the tun
+                // fd is alive, so no refresh is needed when new non-
+                // VPN networks appear. The sinkhole fd keeps
+                // blackholing traffic correctly regardless of
+                // underlying network changes.
             }
         }
         killSwitchNetworkCallback = callback
@@ -288,6 +282,14 @@ class PrivycsVpnService : VpnService() {
                     sinkholeMode = true,
                 )
                 sendWidgetUpdate(connected = false)
+                // Proactively push a disconnected status so the UI
+                // reflects sinkhole state IMMEDIATELY rather than
+                // waiting up to 2s for the next status-polling tick.
+                // updateStatus will be masked (sinkhole active) into
+                // a proper disconnected VpnStatus internally.
+                VpnServiceManager.getInstance(this).updateStatus(
+                    com.privycs.vpn.data.models.VpnStatus(),
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "enterSinkholeMode failed", e)
@@ -304,19 +306,6 @@ class PrivycsVpnService : VpnService() {
         } finally {
             sinkholeTunFd = null
         }
-    }
-
-    /**
-     * Tear down + re-establish the sinkhole tun fd in one step.
-     * Used when the kernel route table may have shifted under us
-     * (e.g. a non-VPN network came back after airplane mode) and
-     * the existing fd's routes could have lost precedence. The
-     * close-then-establish pair forces VpnService to re-insert
-     * its routes at VPN priority against the current route table.
-     */
-    private fun refreshSinkhole() {
-        exitSinkholeMode()
-        enterSinkholeMode()
     }
 
     /**
@@ -356,6 +345,40 @@ class PrivycsVpnService : VpnService() {
         sendWidgetUpdate(connected = false)
         updateNotification("Disconnected")
         Log.i(TAG, "Post-sinkhole teardown complete - plugin state cleared, UI reflects disconnected")
+
+        // Post-teardown: if Connect-on-Demand is enabled and its
+        // rules currently match, automatically reconnect. The user
+        // explicitly disabled the Kill Switch but their COD intent
+        // is still "keep me connected when the network matches".
+        // Using USER source bypasses pause-timers and the
+        // coordinator's strict rule for non-USER disconnect.
+        try {
+            val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
+            if (!settings.connectOnDemand.enabled) {
+                Log.d(TAG, "Post-sinkhole: COD disabled, not auto-reconnecting")
+                return
+            }
+            // Brief settle delay so the plugin teardown above has
+            // time to finish releasing native-side state before the
+            // reconnect tries to establish a new tun fd.
+            delay(500)
+            val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(this)
+            nm.reevaluate()
+            val ns = nm.networkState.value
+            if (!ns.shouldConnect) {
+                Log.d(TAG, "Post-sinkhole: COD rules do not match current network, not auto-reconnecting (${ns.ruleMatch})")
+                return
+            }
+            val active = PrivycsApp.instance.connectionRepository.getActive() ?: return
+            Log.i(TAG, "Post-sinkhole: COD rules match, auto-reconnecting to ${active.name}")
+            com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                this,
+                com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                active,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Post-sinkhole COD auto-reconnect failed: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
