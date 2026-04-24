@@ -10,7 +10,6 @@ Multi-protocol VPN client for Android and iOS that supports WireGuard, OpenVPN, 
 - **OpenVPN** -- Import .ovpn files with embedded certificates
 - **IPSec/IKEv2** -- Import .sswan (Android) or .mobileconfig (iOS) profiles
 - **Auto-Connect** -- Reconnect on WiFi change or app start
-- **Kill Switch** -- Block traffic when VPN disconnects (in-app toggle)
 - **Always-On VPN** -- In-app toggle, not buried in OS settings
 - **Per-App VPN** -- Exclude apps from the VPN tunnel (Android)
 - **Config Sync** -- Download configs from your server via API key
@@ -34,7 +33,6 @@ Multi-protocol VPN client for Android and iOS that supports WireGuard, OpenVPN, 
 | 1 VPN connection | Yes | Yes |
 | Unlimited connections | -- | Yes |
 | Auto-Connect | -- | Yes |
-| Kill Switch | -- | Yes |
 | Always-On VPN | -- | Yes |
 | Per-App VPN (Android) | -- | Yes |
 | Config Sync (API Key) | -- | Yes |
