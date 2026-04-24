@@ -173,6 +173,42 @@ class VpnWidget : AppWidgetProvider() {
                         context,
                         com.privycs.vpn.util.ConnectCoordinator.IntentSource.WIDGET,
                     )
+
+                    // Mirror the in-app Connect screen's disconnect
+                    // flow: if Connect-on-Demand is enabled and the
+                    // current network still matches the "VPN should
+                    // be up" rule, kick off a reconnect so the user
+                    // doesn't end up offline against their own COD
+                    // policy. Delay matches ConnectScreen (400ms)
+                    // so the service teardown has time to settle
+                    // before NetworkMonitor re-evaluates.
+                    try {
+                        val settings = com.privycs.vpn.PrivycsApp.instance
+                            .settingsRepository.getSettingsBlocking()
+                        if (settings.connectOnDemand.enabled) {
+                            kotlinx.coroutines.delay(400)
+                            val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
+                            nm.reevaluate()
+                            val ns = nm.networkState.value
+                            if (ns.shouldConnect && !manager.isConnected) {
+                                val conn = com.privycs.vpn.PrivycsApp.instance
+                                    .connectionRepository.getActive()
+                                if (conn != null) {
+                                    Log.i(
+                                        TAG,
+                                        "On-demand reconnect after widget disconnect (${ns.ruleMatch})",
+                                    )
+                                    com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                                        context,
+                                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
+                                        conn,
+                                    )
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "COD re-evaluate after widget disconnect failed", e)
+                    }
                 }
             } else {
                 val connection = com.privycs.vpn.PrivycsApp.instance.connectionRepository.getActive()
