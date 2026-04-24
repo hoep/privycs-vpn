@@ -58,6 +58,25 @@ class WireGuardTunnel(
         tunnelName = name
         config = parseConfig(configContent)
         Log.d(TAG, "Connecting tunnel: $tunnelName")
+        // Verify Per-App VPN made it through the parser. If PrivycsVpnService
+        // injected IncludedApplications / ExcludedApplications lines into the
+        // config text, toWgQuickString() on the parsed Interface will
+        // round-trip them back out. Using the library's own serializer
+        // avoids assumptions about internal field names across versions.
+        config?.let { c ->
+            try {
+                val rendered = c.toWgQuickString()
+                val perAppLines = rendered.lines()
+                    .filter { it.contains("Applications", ignoreCase = true) }
+                if (perAppLines.isEmpty()) {
+                    Log.i(TAG, "Parsed WG config has NO IncludedApplications / ExcludedApplications (Per-App VPN not applied at parser level)")
+                } else {
+                    Log.i(TAG, "Parsed WG config Per-App lines: $perAppLines")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "WG config round-trip log failed: ${e.message}")
+            }
+        }
         backend.setState(this@WireGuardTunnel, Tunnel.State.UP, config)
         Log.d(TAG, "Tunnel $tunnelName is UP")
     }

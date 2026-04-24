@@ -85,16 +85,35 @@ class PrivycsVpnService : VpnService() {
             enterSinkholeMode()
         }
 
-        // Observe Kill Switch state transitions. When the manager
-        // flips to SINKHOLE (after an unexpected tunnel drop while
-        // armed), stand up the block-all tun fd. When it leaves
-        // SINKHOLE - either because the user disarmed or a new
-        // tunnel is replacing us - tear the sinkhole down.
+        // Observe Kill Switch state transitions. We track the previous
+        // state so we can distinguish SINKHOLE->ARMED (a legitimate
+        // reconnect - the plugin's fresh establish() call already
+        // replaced our sinkhole fd, nothing to repair) from
+        // SINKHOLE->IDLE (user disarmed while sinkhole was active -
+        // the sinkhole fd was the only live tun and closing it leaves
+        // no tun at all; the plugin may still claim "connected" but
+        // the underlying fd is gone and traffic leaks direct. This is
+        // the zombie state reported as "tunnel shows connected after
+        // airplane-mode-recovery + KS-disable but whatsmyip reveals
+        // the local ISP IP"). On that transition we force a clean
+        // plugin teardown so the UI stops lying and the user can tap
+        // Connect for a fresh tunnel.
         scope.launch {
+            var previousKillSwitchState = com.privycs.vpn.util.KillSwitchManager.state.value
             com.privycs.vpn.util.KillSwitchManager.state.collect { state ->
+                val previous = previousKillSwitchState
+                previousKillSwitchState = state
                 when (state) {
                     com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE -> enterSinkholeMode()
-                    else -> exitSinkholeMode()
+                    else -> {
+                        exitSinkholeMode()
+                        if (previous == com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE &&
+                            state == com.privycs.vpn.util.KillSwitchManager.State.IDLE
+                        ) {
+                            Log.i(TAG, "KS state SINKHOLE->IDLE: tearing down stale plugin (zombie tunnel recovery)")
+                            scope.launch { forceTeardownAfterSinkhole() }
+                        }
+                    }
                 }
             }
         }
@@ -298,6 +317,45 @@ class PrivycsVpnService : VpnService() {
     private fun refreshSinkhole() {
         exitSinkholeMode()
         enterSinkholeMode()
+    }
+
+    /**
+     * Clean up stale plugin state after a SINKHOLE -> IDLE transition.
+     *
+     * Scenario: user toggles Kill Switch off while the sinkhole is
+     * active. Our exitSinkholeMode() closes the block-all fd, but the
+     * underlying tunnel plugin (WireGuard / OpenVPN / strongSwan)
+     * still has its pre-sinkhole "UP" state cached internally - and
+     * its tun fd was already replaced by our sinkhole when we engaged
+     * it, so closing the sinkhole leaves NO tun fd at all.
+     *
+     * Symptom: UI shows "connected", widget shows connected, but
+     * whatsmyip.com reveals the ISP IP because there's no tun to
+     * capture traffic. Only a manual disconnect -> reconnect repairs
+     * the state machine.
+     *
+     * Fix: force a clean plugin-side teardown so the status flow
+     * reflects reality ("Disconnected"). The user can then tap
+     * Connect to get a fresh tunnel. We deliberately do NOT
+     * auto-reconnect here - the user just explicitly disabled the
+     * Kill Switch, and surprising them with an automatic reconnect
+     * would be poor UX. Clear state > clever state.
+     */
+    private suspend fun forceTeardownAfterSinkhole() {
+        try { wireGuardTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "Post-sinkhole WG teardown: ${e.message}") }
+        wireGuardTunnel = null
+        try { openVpnTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "Post-sinkhole OpenVPN teardown: ${e.message}") }
+        openVpnTunnel = null
+        try { ipSecTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "Post-sinkhole IPSec teardown: ${e.message}") }
+        ipSecTunnel = null
+
+        val manager = VpnServiceManager.getInstance(this)
+        manager.updateStatus(com.privycs.vpn.data.models.VpnStatus())
+        com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
+        connectStartTime = 0L
+        sendWidgetUpdate(connected = false)
+        updateNotification("Disconnected")
+        Log.i(TAG, "Post-sinkhole teardown complete - plugin state cleared, UI reflects disconnected")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
