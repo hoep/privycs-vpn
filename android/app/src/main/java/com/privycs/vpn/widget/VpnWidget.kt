@@ -163,12 +163,34 @@ class VpnWidget : AppWidgetProvider() {
         Log.d(TAG, "Widget toggle tapped")
         try {
             val manager = VpnServiceManager.getInstance(context)
+
+            // If a manual pause is active, a widget tap is treated
+            // as "resume now": cancel the pause timer and fire a
+            // USER-source connect so ConnectCoordinator's gate lets
+            // it through (see Gate 3 there).
+            if (com.privycs.vpn.util.VpnPauseTimer.isPausedNow()) {
+                com.privycs.vpn.util.VpnPauseTimer.cancel()
+                val conn = com.privycs.vpn.PrivycsApp.instance.connectionRepository.getActive()
+                if (conn == null) {
+                    showToast(context, context.getString(R.string.widget_toast_no_active_connection))
+                    return
+                }
+                kotlinx.coroutines.runBlocking<Unit> {
+                    com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                        context,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                        conn,
+                    )
+                }
+                return
+            }
+
             if (manager.isConnected) {
                 if (AlwaysOnDetector.detected.value) {
                     AlwaysOnDetector.pauseFor(context, ALWAYS_ON_WIDGET_PAUSE_MINUTES)
                     Log.i(TAG, "Widget toggle with Always-On: pausing for $ALWAYS_ON_WIDGET_PAUSE_MINUTES min")
                 }
-                kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.runBlocking<Unit> {
                     com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
                         context,
                         com.privycs.vpn.util.ConnectCoordinator.IntentSource.WIDGET,
@@ -185,27 +207,23 @@ class VpnWidget : AppWidgetProvider() {
                     try {
                         val settings = com.privycs.vpn.PrivycsApp.instance
                             .settingsRepository.getSettingsBlocking()
-                        if (settings.connectOnDemand.enabled) {
-                            kotlinx.coroutines.delay(400)
-                            val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
-                            nm.reevaluate()
-                            val ns = nm.networkState.value
-                            if (ns.shouldConnect && !manager.isConnected) {
-                                val conn = com.privycs.vpn.PrivycsApp.instance
-                                    .connectionRepository.getActive()
-                                if (conn != null) {
-                                    Log.i(
-                                        TAG,
-                                        "On-demand reconnect after widget disconnect (${ns.ruleMatch})",
-                                    )
-                                    com.privycs.vpn.util.ConnectCoordinator.requestConnect(
-                                        context,
-                                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
-                                        conn,
-                                    )
-                                }
-                            }
-                        }
+                        if (!settings.connectOnDemand.enabled) return@runBlocking
+                        kotlinx.coroutines.delay(400)
+                        val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
+                        nm.reevaluate()
+                        val ns = nm.networkState.value
+                        if (!ns.shouldConnect || manager.isConnected) return@runBlocking
+                        val conn = com.privycs.vpn.PrivycsApp.instance
+                            .connectionRepository.getActive() ?: return@runBlocking
+                        Log.i(
+                            TAG,
+                            "On-demand reconnect after widget disconnect (${ns.ruleMatch})",
+                        )
+                        com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                            context,
+                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
+                            conn,
+                        )
                     } catch (e: Exception) {
                         Log.w(TAG, "COD re-evaluate after widget disconnect failed", e)
                     }

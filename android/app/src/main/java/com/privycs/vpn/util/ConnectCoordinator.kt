@@ -143,6 +143,16 @@ object ConnectCoordinator {
                 return@withLock Result.Gated("always-on pause active")
             }
 
+            // Gate 3: manual user-initiated pause (VpnPauseTimer).
+            // Same semantics as Gate 2 - user said "leave me alone
+            // for N minutes", so any non-USER reconnect attempt
+            // (NetworkMonitor, widget auto-retry, etc.) yields.
+            // A fresh USER tap cancels the pause and reconnects.
+            if (source != IntentSource.USER && VpnPauseTimer.isPausedNow()) {
+                PrivycsLogger.d(TAG, "requestConnect($source): gated by manual pause flag")
+                return@withLock Result.Gated("manual pause active")
+            }
+
             when (val s = _state.value) {
                 is State.Connected -> {
                     PrivycsLogger.d(TAG, "requestConnect($source): already connected")

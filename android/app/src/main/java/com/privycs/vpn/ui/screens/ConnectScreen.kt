@@ -70,9 +70,16 @@ import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.service.VpnServiceManager
 import com.privycs.vpn.ui.components.AlwaysOnDisconnectSheet
+import com.privycs.vpn.ui.components.ManualPauseSheet
 import com.privycs.vpn.ui.components.SpeedSparkline
 import com.privycs.vpn.util.AlwaysOnDetector
+import com.privycs.vpn.util.ConnectCoordinator
 import com.privycs.vpn.util.SpeedTracker
+import com.privycs.vpn.util.VpnPauseTimer
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.TextButton
+import kotlinx.coroutines.delay
 import com.privycs.vpn.ui.theme.IpSecBlue
 import com.privycs.vpn.ui.theme.OpenVpnOrange
 import com.privycs.vpn.ui.theme.PrivycsTeal
@@ -102,6 +109,28 @@ fun ConnectScreen(
     // or Open-System-Settings instead.
     val alwaysOnDetected by AlwaysOnDetector.detected.collectAsState()
     var showAlwaysOnSheet by remember { mutableStateOf(false) }
+    var showManualPauseSheet by remember { mutableStateOf(false) }
+
+    // Observe the manual-pause timer. When active, the Connect
+    // button label switches to "Paused — mm:ss" and a Resume-now
+    // link appears under it; [VpnPauseTimer] takes care of the
+    // auto-reconnect at expiry.
+    val pauseUntilMs by VpnPauseTimer.pauseUntilEpochMs.collectAsState()
+    var pauseNowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    val isManuallyPaused = pauseUntilMs > pauseNowMs
+    LaunchedEffect(pauseUntilMs) {
+        // Tick once per second while a pause is active so the
+        // countdown label animates smoothly. Loop exits as soon as
+        // pauseUntilMs drops to 0 (user resumed or expiry hit).
+        while (pauseUntilMs > System.currentTimeMillis()) {
+            pauseNowMs = System.currentTimeMillis()
+            delay(1000)
+        }
+        pauseNowMs = System.currentTimeMillis()
+    }
+    val pauseRemainingSec = if (isManuallyPaused) {
+        ((pauseUntilMs - pauseNowMs) / 1000L).toInt().coerceAtLeast(0)
+    } else 0
 
     val connectionRepo = remember { PrivycsApp.instance.connectionRepository }
     val registry by connectionRepo.registry.collectAsState()
@@ -179,6 +208,15 @@ fun ConnectScreen(
             isConnected = isConnected,
             isConnecting = isConnecting,
             activeProtocol = activeProtocolForIcon,
+            onLongClick = {
+                // Long-press on the toggle while connected opens the
+                // pause bottom sheet. When Always-On is active we
+                // already route the short tap there (different
+                // sheet), so suppress the long-press in that case.
+                if (isConnected && !alwaysOnDetected) {
+                    showManualPauseSheet = true
+                }
+            },
             onClick = {
                 val networkMonitor = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
                 if (isConnected && alwaysOnDetected) {
@@ -230,6 +268,38 @@ fun ConnectScreen(
         )
 
         Spacer(modifier = Modifier.height(12.dp))
+
+        // Manual-pause countdown + Resume link. Only shown while a
+        // user-initiated pause is active. VpnPauseTimer drives the
+        // auto-reconnect at expiry; the Resume link cancels the
+        // timer and issues an immediate USER-source connect.
+        if (isManuallyPaused) {
+            val mins = pauseRemainingSec / 60
+            val secs = pauseRemainingSec % 60
+            Text(
+                text = "Paused — ${String.format("%d:%02d", mins, secs)} remaining",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(
+                onClick = {
+                    VpnPauseTimer.cancel()
+                    val conn = connectionRepo.getActive()
+                    if (conn != null) {
+                        coroutineScope.launch {
+                            ConnectCoordinator.requestConnect(
+                                context,
+                                ConnectCoordinator.IntentSource.USER,
+                                conn,
+                            )
+                        }
+                    }
+                },
+            ) {
+                Text("Resume now")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         // Uptime
         if (isConnected && status.uptime > 0) {
@@ -401,6 +471,22 @@ fun ConnectScreen(
             },
         )
     }
+
+    // Manual-pause sheet (long-press on the Connect button when
+    // connected without Always-On). Three timed options + plain
+    // disconnect. Driven by VpnPauseTimer which handles the
+    // auto-reconnect at expiry via COD re-evaluation.
+    if (showManualPauseSheet) {
+        ManualPauseSheet(
+            onDismiss = { showManualPauseSheet = false },
+            onDisconnect = {
+                vpnManager.disconnect()
+            },
+            onPauseSelected = { minutes ->
+                VpnPauseTimer.pauseFor(context, minutes)
+            },
+        )
+    }
 }
 
 @Composable
@@ -457,12 +543,14 @@ private fun WelcomeView(onNavigateToAdd: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConnectButton(
     isConnected: Boolean,
     isConnecting: Boolean,
     activeProtocol: VpnProtocol?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
 ) {
     val buttonSize = 140.dp
     val outerSize = 170.dp
@@ -509,7 +597,11 @@ private fun ConnectButton(
                             .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
                     }
                 )
-                .clickable(enabled = !isConnecting) { onClick() },
+                .combinedClickable(
+                    enabled = !isConnecting,
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
