@@ -243,6 +243,32 @@ class VpnServiceManager private constructor(private val context: Context) {
      * polled connected=true the same way).
      */
     fun updateStatus(status: VpnStatus) {
+        // While the kill switch sinkhole is engaged, the real tunnel
+        // plugin (WireGuard, OpenVPN, strongSwan) will keep polling
+        // and reporting connected=true from its own state object -
+        // Android replaced its tun fd with the sinkhole's, but the
+        // plugin doesn't know that until it tries to write and
+        // gets EBADF. Rather than let those stale status pushes
+        // leak into the UI (widget shows "Connected", app label
+        // shows "Connected 0:42"), mask every push during
+        // sinkhole as a clean disconnected status. The sinkhole
+        // itself holds the block-all fd; the user sees the "Kill
+        // Switch active" notification and a disconnected UI.
+        if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
+            val masked = VpnStatus(
+                connected = false,
+                connectionName = status.connectionName,
+                connectionId = status.connectionId,
+                activeProtocol = status.activeProtocol,
+                uptime = 0L,
+                rxBytes = 0L,
+                txBytes = 0L,
+                error = "Kill switch active",
+            )
+            _status.value = masked
+            com.privycs.vpn.util.SpeedTracker.record(0L, 0L, connected = false)
+            return
+        }
         val prev = _status.value
         _status.value = status
         // Feed the sparkline tracker so the upload/download cards have

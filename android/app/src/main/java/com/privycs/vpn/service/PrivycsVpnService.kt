@@ -769,7 +769,17 @@ class PrivycsVpnService : VpnService() {
     }
 
     private fun updateNotification(text: String, sinkholeMode: Boolean = false) {
-        val notification = buildNotification(text, sinkholeMode)
+        // While the sinkhole is active, EVERY notification update
+        // must stay on the "Kill Switch Active" template, regardless
+        // of what caller is pushing. Otherwise the status poll loop
+        // from the still-alive tunnel plugin (reporting
+        // "Connected to X") overwrites our sinkhole notification
+        // within 2 seconds of engaging it and the user never sees
+        // the kill-switch message.
+        val killSwitchActive = com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()
+        val effectiveText = if (killSwitchActive) "Kill Switch active — traffic blocked" else text
+        val effectiveSinkhole = sinkholeMode || killSwitchActive
+        val notification = buildNotification(effectiveText, effectiveSinkhole)
         val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(PrivycsApp.NOTIFICATION_ID_VPN, notification)
     }
