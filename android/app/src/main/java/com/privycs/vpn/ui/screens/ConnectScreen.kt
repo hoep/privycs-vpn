@@ -75,7 +75,9 @@ import com.privycs.vpn.ui.components.SpeedSparkline
 import com.privycs.vpn.util.AlwaysOnDetector
 import com.privycs.vpn.util.ConnectCoordinator
 import com.privycs.vpn.util.SpeedTracker
+import com.privycs.vpn.util.KillSwitchManager
 import com.privycs.vpn.util.VpnPauseTimer
+import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.material3.TextButton
@@ -108,6 +110,8 @@ fun ConnectScreen(
     // ~1 s). We then route the tap into a bottom sheet offering Pause
     // or Open-System-Settings instead.
     val alwaysOnDetected by AlwaysOnDetector.detected.collectAsState()
+    val killSwitchState by KillSwitchManager.state.collectAsState()
+    val isSinkholeActive = killSwitchState == KillSwitchManager.State.SINKHOLE
     var showAlwaysOnSheet by remember { mutableStateOf(false) }
     var showManualPauseSheet by remember { mutableStateOf(false) }
 
@@ -207,6 +211,7 @@ fun ConnectScreen(
         ConnectButton(
             isConnected = isConnected,
             isConnecting = isConnecting,
+            isSinkholeActive = isSinkholeActive,
             activeProtocol = activeProtocolForIcon,
             onLongClick = {
                 // Long-press on the toggle while connected opens the
@@ -548,6 +553,7 @@ private fun WelcomeView(onNavigateToAdd: () -> Unit) {
 private fun ConnectButton(
     isConnected: Boolean,
     isConnecting: Boolean,
+    isSinkholeActive: Boolean = false,
     activeProtocol: VpnProtocol?,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
@@ -555,19 +561,36 @@ private fun ConnectButton(
     val buttonSize = 140.dp
     val outerSize = 170.dp
 
+    // Danger palette for the kill-switch sinkhole state. Tailwind
+    // red-600 / red-700 - high-contrast warning that reads
+    // unambiguously as "traffic is being blocked, this is not a
+    // normal connected state". Takes precedence over isConnected
+    // in every color choice below because a sinkhole can only be
+    // engaged AFTER a successful connect.
+    val dangerRed = Color(0xFFDC2626)
+    val dangerRedDark = Color(0xFFB91C1C)
+
+    val showGlowRing = isConnected || isSinkholeActive
+    val glowRingColor = when {
+        isSinkholeActive -> dangerRed.copy(alpha = 0.5f)
+        isConnected -> PrivycsTeal.copy(alpha = 0.3f)
+        else -> Color.Transparent
+    }
+    val hasSolidFill = isConnected || isSinkholeActive
+
     Box(
         modifier = Modifier.size(outerSize),
         contentAlignment = Alignment.Center
     ) {
-        // Outer glow ring when connected
-        if (isConnected) {
+        // Outer glow ring when connected or kill-switch-active
+        if (showGlowRing) {
             Box(
                 modifier = Modifier
                     .size(outerSize)
                     .clip(CircleShape)
                     .border(
                         width = 2.dp,
-                        color = PrivycsTeal.copy(alpha = 0.3f),
+                        color = glowRingColor,
                         shape = CircleShape
                     )
             )
@@ -578,21 +601,33 @@ private fun ConnectButton(
             modifier = Modifier
                 .size(buttonSize)
                 .shadow(
-                    elevation = if (isConnected) 12.dp else 4.dp,
+                    elevation = if (hasSolidFill) 12.dp else 4.dp,
                     shape = CircleShape,
-                    ambientColor = if (isConnected) PrivycsTeal.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.1f),
-                    spotColor = if (isConnected) PrivycsTeal.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.15f)
+                    ambientColor = when {
+                        isSinkholeActive -> dangerRed.copy(alpha = 0.25f)
+                        isConnected -> PrivycsTeal.copy(alpha = 0.25f)
+                        else -> Color.Black.copy(alpha = 0.1f)
+                    },
+                    spotColor = when {
+                        isSinkholeActive -> dangerRed.copy(alpha = 0.4f)
+                        isConnected -> PrivycsTeal.copy(alpha = 0.4f)
+                        else -> Color.Black.copy(alpha = 0.15f)
+                    }
                 )
                 .clip(CircleShape)
                 .then(
-                    if (isConnected) {
-                        Modifier.background(
+                    when {
+                        isSinkholeActive -> Modifier.background(
+                            Brush.linearGradient(
+                                colors = listOf(dangerRed, dangerRedDark)
+                            )
+                        )
+                        isConnected -> Modifier.background(
                             Brush.linearGradient(
                                 colors = listOf(PrivycsTeal, PrivycsTealDark)
                             )
                         )
-                    } else {
-                        Modifier
+                        else -> Modifier
                             .background(MaterialTheme.colorScheme.surface)
                             .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
                     }
@@ -610,6 +645,17 @@ private fun ConnectButton(
                         modifier = Modifier.size(32.dp),
                         color = if (isConnected) Color.White else MaterialTheme.colorScheme.primary,
                         strokeWidth = 3.dp
+                    )
+                } else if (isSinkholeActive) {
+                    // Kill-switch sinkhole: shield-with-x icon on the
+                    // danger-red button communicates "protection by
+                    // blocking" at a glance, without the user needing
+                    // to read the status text.
+                    Icon(
+                        imageVector = Icons.Filled.GppBad,
+                        contentDescription = "Kill Switch Active",
+                        modifier = Modifier.size(56.dp),
+                        tint = Color.White,
                     )
                 } else {
                     // Show the active protocol's brand icon inside the
