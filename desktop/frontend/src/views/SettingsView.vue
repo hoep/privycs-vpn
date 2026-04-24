@@ -81,6 +81,7 @@
                 <input
                   v-model="ssidListText"
                   @blur="parseAndSaveSSIDs"
+                  @keyup.enter="parseAndSaveSSIDs"
                   type="text"
                   placeholder="HomeWiFi, OfficeNet, CafeSpot"
                   class="input text-xs"

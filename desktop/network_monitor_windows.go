@@ -53,7 +53,12 @@ func startPlatformWatcher(callback func()) (stopFn func(), err error) {
 // getCurrentSSIDPlatform returns the current WiFi SSID on Windows
 // by parsing the output of netsh wlan show interfaces.
 func getCurrentSSIDPlatform() string {
-	out, err := exec.Command("netsh", "wlan", "show", "interfaces").Output()
+	// execHidden wraps exec.Command with CREATE_NO_WINDOW so the
+	// netsh console window doesn't flash every time the On-Demand
+	// poll loop ticks (roughly every 2s) - otherwise the user sees
+	// a cmd window pop up and immediately close repeatedly as long
+	// as On-Demand is on.
+	out, err := execHidden("netsh", "wlan", "show", "interfaces").Output()
 	if err != nil {
 		return ""
 	}
@@ -77,7 +82,7 @@ func getNetworkTypePlatform() string {
 		return "wifi"
 	}
 
-	out, err := exec.Command("ipconfig").Output()
+	out, err := execHidden("ipconfig").Output()
 	if err != nil {
 		return "none"
 	}
