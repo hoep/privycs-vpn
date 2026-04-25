@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -37,7 +35,10 @@ func platformDataDir() string {
 	return "/var/lib/privycs-vpn"
 }
 
-const linuxSinkholeChain = "PRIVYCS_SINKHOLE"
+// Chain name "PRIVYCS_SINKHOLE" is now defined in the helper
+// (see sinkholeLinuxEngage in privileged_helper.go) - the unprivileged
+// driver does not need to know it any more, the helper IPC carries
+// only the action name.
 
 type linuxSinkhole struct{}
 
@@ -111,32 +112,4 @@ func (s *linuxSinkhole) RecoverFromCrash(ctx context.Context) error {
 	}
 	log.Println("Sinkhole(linux): leftover snapshot detected - recovering as Release")
 	return s.Release(ctx)
-}
-
-// cleanupChain removes our jump from OUTPUT, flushes our chain, and
-// deletes our chain. Safe to call when nothing is set up yet
-// (failures are expected and ignored - this is best-effort cleanup).
-func (s *linuxSinkhole) cleanupChain(ctx context.Context) {
-	// Remove the jump first so traffic resumes ASAP. Order matters:
-	// once the jump is gone, the user's network is restored even if
-	// the chain flush+delete fail.
-	_ = runIptables(ctx, "iptables", "-D", "OUTPUT", "-j", linuxSinkholeChain)
-	_ = runIptables(ctx, "iptables", "-F", linuxSinkholeChain)
-	_ = runIptables(ctx, "iptables", "-X", linuxSinkholeChain)
-}
-
-// runIptables wraps the iptables CLI. Linux desktop builds have not
-// historically used a native netlink binding; sticking with the CLI
-// keeps cross-distro compatibility (Ubuntu, Fedora, Arch, etc.) and
-// avoids C bindings.
-func runIptables(ctx context.Context, args ...string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("runIptables: no args")
-	}
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %w (output=%q)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }

@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -34,7 +32,10 @@ func platformDataDir() string {
 	return "/var/lib/privycs-vpn"
 }
 
-const darwinSinkholeAnchor = "com.privycs/sinkhole"
+// Anchor name "com.privycs/sinkhole" is now defined in the helper
+// (see sinkholeMacOSEngage in privileged_helper.go) - the unprivileged
+// driver does not need to know it any more, the helper IPC carries
+// only the action name.
 
 type darwinSinkhole struct{}
 

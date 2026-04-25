@@ -153,14 +153,8 @@ func (s *windowsSinkhole) captureSnapshot() (*SinkholeSnapshot, error) {
 	return &SinkholeSnapshot{}, nil
 }
 
-// bestEffortCleanup runs when the snapshot is missing or corrupt.
-// Removes any rule whose name starts with our prefix - errs on the
-// side of removing too much over leaving stale block rules around.
-func (s *windowsSinkhole) bestEffortCleanup() {
-	_, err := execHidden("powershell", "-NoProfile", "-NonInteractive", "-Command",
-		`Remove-NetFirewallRule -DisplayName 'Privycs-Sinkhole-*' -ErrorAction SilentlyContinue`,
-	).CombinedOutput()
-	if err != nil {
-		log.Printf("Sinkhole(windows): best-effort cleanup warning: %v", err)
-	}
-}
+// (Removed: bestEffortCleanup. Best-effort cleanup is now the helper's
+// responsibility - the helper's sinkhole_release handler does the
+// prefix-based netsh delete that this method used to do, with the
+// added benefit of running as SYSTEM so it actually has the privilege
+// to delete firewall rules.)
