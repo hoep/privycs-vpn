@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -66,11 +65,10 @@ func NewWindowsSinkhole() Sinkhole {
 func NewPlatformSinkhole() Sinkhole { return NewWindowsSinkhole() }
 
 func (s *windowsSinkhole) Engage(ctx context.Context) error {
-	log.Println("Sinkhole(windows): engaging")
+	log.Println("Sinkhole(windows): engaging via privileged helper")
 
-	// 1. Snapshot pre-engage state. Done BEFORE any change so that
-	// even if the OS rejects a rule in step 2, the snapshot already
-	// captures original DNS / route metric and Release can restore.
+	// Snapshot first - if helper IPC fails AND somehow leaves partial
+	// rules, the snapshot lets RecoverFromCrash clean up next start.
 	snap, err := s.captureSnapshot()
 	if err != nil {
 		return fmt.Errorf("snapshot capture: %w", err)
@@ -85,136 +83,50 @@ func (s *windowsSinkhole) Engage(ctx context.Context) error {
 		return fmt.Errorf("snapshot save: %w", err)
 	}
 
-	// 2. Defensive cleanup: remove any leftover Privycs-Sinkhole-*
-	// rules from a prior crashed run. Without this, our New-
-	// NetFirewallRule below would fail on duplicate-name and the
-	// rollback branch would be unable to distinguish "added by us"
-	// from "leftover from previous us".
-	_, _ = execHidden("powershell", "-NoProfile", "-NonInteractive", "-Command",
-		`Remove-NetFirewallRule -DisplayName 'Privycs-Sinkhole-*' -ErrorAction SilentlyContinue`,
-	).CombinedOutput()
-
-	// 3. Atomic apply: PowerShell try/catch with rollback. If ANY
-	// New-NetFirewallRule throws, the catch branch removes every
-	// rule it managed to add and rethrows. Caller sees an error and
-	// the system is in the pre-step-2 state.
-	psScript := `
-$ErrorActionPreference = 'Stop'
-$added = @()
-try {
-    New-NetFirewallRule -DisplayName 'Privycs-Sinkhole-AllowLoopback' `+"`"+`
-        -Direction Outbound -Action Allow -RemoteAddress 127.0.0.0/8 `+"`"+`
-        -Profile Any -Enabled True | Out-Null
-    $added += 'Privycs-Sinkhole-AllowLoopback'
-
-    New-NetFirewallRule -DisplayName 'Privycs-Sinkhole-BlockOutbound' `+"`"+`
-        -Direction Outbound -Action Block -Profile Any -Enabled True | Out-Null
-    $added += 'Privycs-Sinkhole-BlockOutbound'
-
-    New-NetFirewallRule -DisplayName 'Privycs-Sinkhole-BlockInbound' `+"`"+`
-        -Direction Inbound -Action Block -Profile Any -Enabled True | Out-Null
-    $added += 'Privycs-Sinkhole-BlockInbound'
-} catch {
-    $errMsg = $_.Exception.Message
-    foreach ($name in $added) {
-        Remove-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
-    }
-    Write-Error "Sinkhole engage rolled back: $errMsg"
-    exit 1
-}
-exit 0
-`
-	out, err := execHidden("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript).CombinedOutput()
-	if err != nil {
-		// PowerShell already rolled back. Delete the snapshot too -
-		// no state was actually committed, so leaving a snapshot
-		// would mislead RecoverFromCrash on next start.
+	// Route through privileged helper - the unprivileged Wails app
+	// process gets "Zugriff verweigert" calling netsh advfirewall
+	// add rule directly. The helper runs as SYSTEM and has the
+	// privileges. The helper's sinkhole_engage handler is itself
+	// transactional with rollback.
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
 		_ = DeleteSnapshot()
-		return fmt.Errorf("engage script failed: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("helper not reachable - cannot engage sinkhole")
+	}
+	resp, err := client.SendCommand("sinkhole_engage", nil)
+	if err != nil {
+		_ = DeleteSnapshot()
+		return fmt.Errorf("helper IPC failed: %w", err)
+	}
+	if !resp.Success {
+		_ = DeleteSnapshot()
+		return fmt.Errorf("helper engage failed: %s", resp.Error)
 	}
 
-	log.Println("Sinkhole(windows): engaged successfully (3 rules applied atomically)")
+	log.Println("Sinkhole(windows): engaged successfully via helper")
 	return nil
 }
 
 func (s *windowsSinkhole) Release(ctx context.Context) error {
-	log.Println("Sinkhole(windows): releasing")
+	log.Println("Sinkhole(windows): releasing via privileged helper")
 
-	// Load the snapshot to know what to undo. If missing, fall back
-	// to best-effort cleanup based on the rule-name prefix.
-	snap, err := LoadSnapshot()
-	if err != nil && os.IsNotExist(err) {
-		log.Println("Sinkhole(windows): no snapshot - best-effort cleanup")
-		s.bestEffortCleanup()
-		return nil
-	}
-	if err != nil {
-		log.Printf("Sinkhole(windows): snapshot load failed (corrupt?): %v - best-effort cleanup", err)
-		s.bestEffortCleanup()
-		_ = DeleteSnapshot()
-		return nil
-	}
-
-	// 1. Remove every rule the snapshot recorded as added. Use
-	// SilentlyContinue per rule so a missing one (e.g. removed by
-	// the user via Group Policy) doesn't abort the rest.
-	rulesToRemove := snap.FirewallRulesAdded
-	if len(rulesToRemove) == 0 {
-		// Old snapshot from a future schema version with no rule
-		// list? Fall back to prefix-based cleanup.
-		rulesToRemove = windowsSinkholeRules
-	}
-	psParts := []string{`$ErrorActionPreference = 'Continue'`}
-	for _, name := range rulesToRemove {
-		// Hard-coded names from our own rule list, not user input.
-		// PowerShell quoting is straightforward: single-quote the
-		// literal name.
-		psParts = append(psParts,
-			fmt.Sprintf("Remove-NetFirewallRule -DisplayName '%s' -ErrorAction SilentlyContinue",
-				escapePowerShellString(name)),
-		)
-	}
-	psScript := strings.Join(psParts, "; ")
-	out, err := execHidden("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript).CombinedOutput()
-	if err != nil {
-		// Best-effort: log and continue. We MUST attempt the rest of
-		// the restore even if a partial PowerShell run had warnings.
-		log.Printf("Sinkhole(windows): rule removal had warnings: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-
-	// 2. Restore DNS if we modified it. (This implementation does
-	// not currently override DNS, so DNSPerInterface is empty and
-	// the loop is a no-op. The hook is in place for Phase 4 when
-	// DNS-redirect features may use it.)
-	for ifName, servers := range snap.DNSPerInterface {
-		if len(servers) == 0 {
-			continue
+	// Always attempt helper-based release first - it's the path that
+	// works (SYSTEM privileges). Best-effort: log warnings but always
+	// continue to the snapshot cleanup so we don't leak files.
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		if resp, err := client.SendCommand("sinkhole_release", nil); err != nil {
+			log.Printf("Sinkhole(windows): helper IPC release failed: %v", err)
+		} else if !resp.Success {
+			log.Printf("Sinkhole(windows): helper release reported failure: %s", resp.Error)
 		}
-		// Use Set-DnsClientServerAddress to restore the saved
-		// servers. -ResetServerAddresses without args returns
-		// interface to DHCP / automatic.
-		var psSet string
-		if servers[0] == "AUTO" {
-			psSet = fmt.Sprintf(
-				"Set-DnsClientServerAddress -InterfaceAlias '%s' -ResetServerAddresses -ErrorAction SilentlyContinue",
-				escapePowerShellString(ifName),
-			)
-		} else {
-			quoted := make([]string, 0, len(servers))
-			for _, srv := range servers {
-				quoted = append(quoted, "'"+escapePowerShellString(srv)+"'")
-			}
-			psSet = fmt.Sprintf(
-				"Set-DnsClientServerAddress -InterfaceAlias '%s' -ServerAddresses (%s) -ErrorAction SilentlyContinue",
-				escapePowerShellString(ifName), strings.Join(quoted, ","),
-			)
-		}
-		_, _ = execHidden("powershell", "-NoProfile", "-NonInteractive", "-Command", psSet).CombinedOutput()
+	} else {
+		log.Println("Sinkhole(windows): helper unreachable - cannot remove firewall rules from unprivileged process")
 	}
 
-	// 3. Delete the snapshot LAST so a crash between rule-removal
-	// and snapshot-deletion still leaves a recoverable state on the
-	// next startup (RecoverFromCrash will rerun us).
+	// Always clean the snapshot file. Even if the firewall release
+	// failed, leaving the snapshot would cause RecoverFromCrash to
+	// retry on the next start - which is fine but log it.
 	if err := DeleteSnapshot(); err != nil {
 		log.Printf("Sinkhole(windows): snapshot delete failed (will retry next start): %v", err)
 	}

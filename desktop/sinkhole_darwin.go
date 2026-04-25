@@ -47,7 +47,7 @@ func NewDarwinSinkhole() Sinkhole {
 func NewPlatformSinkhole() Sinkhole { return NewDarwinSinkhole() }
 
 func (s *darwinSinkhole) Engage(ctx context.Context) error {
-	log.Println("Sinkhole(darwin): engaging")
+	log.Println("Sinkhole(darwin): engaging via privileged helper")
 
 	snap := &SinkholeSnapshot{
 		Version:   1,
@@ -59,64 +59,43 @@ func (s *darwinSinkhole) Engage(ctx context.Context) error {
 		return fmt.Errorf("snapshot save: %w", err)
 	}
 
-	// Make sure pf is enabled. -E increments the enable reference
-	// count; -X decrements. Multiple processes can enable pf without
-	// stepping on each other; we balance the reference count in
-	// Release.
-	if out, err := exec.CommandContext(ctx, "pfctl", "-E").CombinedOutput(); err != nil {
-		// pfctl -E exits 0 with status output to stderr. Some
-		// versions return non-zero with a "pf enabled" message;
-		// treat as success if the output indicates pf is up.
-		if !strings.Contains(string(out), "pf enabled") &&
-			!strings.Contains(string(out), "Token") {
-			_ = DeleteSnapshot()
-			return fmt.Errorf("pfctl -E: %w (out=%s)", err, strings.TrimSpace(string(out)))
-		}
-	}
-
-	// Atomic anchor load. The ruleset blocks all outbound except
-	// loopback, mirroring the intent of the Windows + Linux paths.
-	rules := strings.Join([]string{
-		"set skip on lo0",
-		"block out all",
-		"block in all",
-	}, "\n") + "\n"
-
-	cmd := exec.CommandContext(ctx, "pfctl", "-a", darwinSinkholeAnchor, "-f", "-")
-	cmd.Stdin = strings.NewReader(rules)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		// Anchor may have partial state if the load was interrupted;
-		// flush as part of rollback.
-		_ = exec.CommandContext(ctx, "pfctl", "-a", darwinSinkholeAnchor, "-F", "all").Run()
+	// pfctl requires root. Helper runs as root via LaunchDaemon.
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
 		_ = DeleteSnapshot()
-		return fmt.Errorf("pfctl anchor load: %w (out=%s)", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("helper not reachable - cannot engage sinkhole")
+	}
+	resp, err := client.SendCommand("sinkhole_engage", nil)
+	if err != nil {
+		_ = DeleteSnapshot()
+		return fmt.Errorf("helper IPC failed: %w", err)
+	}
+	if !resp.Success {
+		_ = DeleteSnapshot()
+		return fmt.Errorf("helper engage failed: %s", resp.Error)
 	}
 
-	log.Println("Sinkhole(darwin): engaged successfully")
+	log.Println("Sinkhole(darwin): engaged successfully via helper")
 	return nil
 }
 
 func (s *darwinSinkhole) Release(ctx context.Context) error {
-	log.Println("Sinkhole(darwin): releasing")
+	log.Println("Sinkhole(darwin): releasing via privileged helper")
 
-	// Flush the anchor (atomic). Any rule we put there is gone after
-	// this returns successfully.
-	if out, err := exec.CommandContext(ctx, "pfctl", "-a", darwinSinkholeAnchor, "-F", "all").CombinedOutput(); err != nil {
-		log.Printf("Sinkhole(darwin): anchor flush (non-fatal): %v: %s", err, strings.TrimSpace(string(out)))
-	}
-
-	// Balance the -E from Engage. Failures here are non-fatal; pf
-	// staying enabled is harmless because there are no rules in our
-	// anchor anymore.
-	if out, err := exec.CommandContext(ctx, "pfctl", "-X").CombinedOutput(); err != nil {
-		log.Printf("Sinkhole(darwin): pfctl -X (non-fatal): %v: %s", err, strings.TrimSpace(string(out)))
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		if resp, err := client.SendCommand("sinkhole_release", nil); err != nil {
+			log.Printf("Sinkhole(darwin): helper IPC release failed: %v", err)
+		} else if !resp.Success {
+			log.Printf("Sinkhole(darwin): helper release reported failure: %s", resp.Error)
+		}
+	} else {
+		log.Println("Sinkhole(darwin): helper unreachable - cannot flush pf anchor from unprivileged process")
 	}
 
 	if err := DeleteSnapshot(); err != nil {
 		log.Printf("Sinkhole(darwin): snapshot delete (non-fatal): %v", err)
 	}
-
 	log.Println("Sinkhole(darwin): released")
 	return nil
 }

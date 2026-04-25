@@ -37,6 +37,8 @@ var allowedActions = map[string]bool{
 	"disconnect":            true,
 	"killswitch_enable":     true,
 	"killswitch_disable":    true,
+	"sinkhole_engage":       true, // new system: Privycs-Sinkhole-* rules
+	"sinkhole_release":      true, // new system: Privycs-Sinkhole-* cleanup
 	"status":                true,
 	"wg_install_config":     true,
 	"ipsec_configure":       true,
@@ -243,6 +245,10 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdKillSwitchEnable(cmd)
 	case "killswitch_disable":
 		return h.cmdKillSwitchDisable(cmd)
+	case "sinkhole_engage":
+		return h.cmdSinkholeEngage(cmd)
+	case "sinkhole_release":
+		return h.cmdSinkholeRelease(cmd)
 	case "status":
 		return h.cmdStatus(cmd)
 	case "wg_install_config":
@@ -905,6 +911,144 @@ func (h *PrivilegedHelper) killSwitchWindowsDisable() HelperResponse {
 		exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+name).Run()
 	}
 	return HelperResponse{Success: true, Output: "windows kill switch disabled"}
+}
+
+// cmdSinkholeEngage applies the new sinkhole's Privycs-Sinkhole-* rules.
+// Runs as SYSTEM via the helper service so PowerShell New-NetFirewall
+// Rule has the privileges it needs (the unprivileged Wails app process
+// hits "Zugriff verweigert" when calling these cmdlets directly).
+//
+// Uses netsh (same as legacy killswitch_enable) instead of PowerShell
+// New-NetFirewallRule because netsh is already proven in this code path
+// and avoids the PowerShell startup latency overhead.
+func (h *PrivilegedHelper) cmdSinkholeEngage(cmd HelperCommand) HelperResponse {
+	switch runtime.GOOS {
+	case "windows":
+		return h.sinkholeWindowsEngage()
+	case "linux":
+		return h.sinkholeLinuxEngage()
+	case "darwin":
+		return h.sinkholeMacOSEngage()
+	}
+	return HelperResponse{Success: false, Error: "unsupported platform"}
+}
+
+// cmdSinkholeRelease removes Privycs-Sinkhole-* rules.
+func (h *PrivilegedHelper) cmdSinkholeRelease(cmd HelperCommand) HelperResponse {
+	switch runtime.GOOS {
+	case "windows":
+		return h.sinkholeWindowsRelease()
+	case "linux":
+		return h.sinkholeLinuxRelease()
+	case "darwin":
+		return h.sinkholeMacOSRelease()
+	}
+	return HelperResponse{Success: false, Error: "unsupported platform"}
+}
+
+// Windows: Privycs-Sinkhole-* rules via netsh. Three rules: allow
+// loopback, block all outbound, block all inbound. All-or-nothing
+// semantics: on any single failure, rollback by removing whatever
+// was added.
+func (h *PrivilegedHelper) sinkholeWindowsEngage() HelperResponse {
+	// Defensive cleanup: remove any leftover Privycs-Sinkhole-* rules
+	// from a prior crashed run before adding fresh ones.
+	h.sinkholeWindowsRelease()
+
+	commands := [][]string{
+		{"netsh", "advfirewall", "firewall", "add", "rule",
+			"name=Privycs-Sinkhole-AllowLoopback", "dir=out", "action=allow", "remoteip=127.0.0.0/8"},
+		{"netsh", "advfirewall", "firewall", "add", "rule",
+			"name=Privycs-Sinkhole-BlockOutbound", "dir=out", "action=block"},
+		{"netsh", "advfirewall", "firewall", "add", "rule",
+			"name=Privycs-Sinkhole-BlockInbound", "dir=in", "action=block"},
+	}
+	added := []string{}
+	for _, args := range commands {
+		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+		if err != nil {
+			// Rollback added rules
+			for _, name := range added {
+				exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+name).Run()
+			}
+			return HelperResponse{
+				Success: false,
+				Error:   fmt.Sprintf("sinkhole engage failed at %s: %s", args[len(args)-3], strings.TrimSpace(string(out))),
+			}
+		}
+		// Extract name=... from args for rollback list
+		for _, a := range args {
+			if strings.HasPrefix(a, "name=") {
+				added = append(added, strings.TrimPrefix(a, "name="))
+				break
+			}
+		}
+	}
+	return HelperResponse{Success: true, Output: "sinkhole engaged (windows)"}
+}
+
+func (h *PrivilegedHelper) sinkholeWindowsRelease() HelperResponse {
+	rules := []string{
+		"Privycs-Sinkhole-AllowLoopback",
+		"Privycs-Sinkhole-BlockOutbound",
+		"Privycs-Sinkhole-BlockInbound",
+	}
+	for _, name := range rules {
+		exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+name).Run()
+	}
+	return HelperResponse{Success: true, Output: "sinkhole released (windows)"}
+}
+
+// Linux: PRIVYCS_SINKHOLE chain. Same logic as sinkhole_linux.go but
+// running with root privileges via the helper.
+func (h *PrivilegedHelper) sinkholeLinuxEngage() HelperResponse {
+	// Defensive cleanup
+	h.sinkholeLinuxRelease()
+	steps := [][]string{
+		{"iptables", "-N", "PRIVYCS_SINKHOLE"},
+		{"iptables", "-A", "PRIVYCS_SINKHOLE", "-o", "lo", "-j", "RETURN"},
+		{"iptables", "-A", "PRIVYCS_SINKHOLE", "-j", "DROP"},
+		{"iptables", "-I", "OUTPUT", "1", "-j", "PRIVYCS_SINKHOLE"},
+	}
+	for _, step := range steps {
+		if out, err := exec.Command(step[0], step[1:]...).CombinedOutput(); err != nil {
+			h.sinkholeLinuxRelease()
+			return HelperResponse{
+				Success: false,
+				Error:   fmt.Sprintf("sinkhole engage failed: %s: %s", strings.Join(step, " "), strings.TrimSpace(string(out))),
+			}
+		}
+	}
+	return HelperResponse{Success: true, Output: "sinkhole engaged (linux)"}
+}
+
+func (h *PrivilegedHelper) sinkholeLinuxRelease() HelperResponse {
+	exec.Command("iptables", "-D", "OUTPUT", "-j", "PRIVYCS_SINKHOLE").Run()
+	exec.Command("iptables", "-F", "PRIVYCS_SINKHOLE").Run()
+	exec.Command("iptables", "-X", "PRIVYCS_SINKHOLE").Run()
+	return HelperResponse{Success: true, Output: "sinkhole released (linux)"}
+}
+
+// macOS: pf anchor com.privycs/sinkhole.
+func (h *PrivilegedHelper) sinkholeMacOSEngage() HelperResponse {
+	rules := "set skip on lo0\nblock out all\nblock in all\n"
+	cmd := exec.Command("pfctl", "-a", "com.privycs/sinkhole", "-f", "-")
+	cmd.Stdin = strings.NewReader(rules)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		exec.Command("pfctl", "-a", "com.privycs/sinkhole", "-F", "all").Run()
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("pfctl anchor load: %s", strings.TrimSpace(string(out))),
+		}
+	}
+	exec.Command("pfctl", "-E").Run()
+	return HelperResponse{Success: true, Output: "sinkhole engaged (darwin)"}
+}
+
+func (h *PrivilegedHelper) sinkholeMacOSRelease() HelperResponse {
+	exec.Command("pfctl", "-a", "com.privycs/sinkhole", "-F", "all").Run()
+	exec.Command("pfctl", "-X").Run()
+	return HelperResponse{Success: true, Output: "sinkhole released (darwin)"}
 }
 
 // copyConfigFile copies a file using OS-level commands (helper runs as root).

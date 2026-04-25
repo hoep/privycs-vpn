@@ -886,27 +886,44 @@ func (a *App) GetSettings() *AppSettings {
 	return a.settings
 }
 
-// UpdateSettings saves updated settings
+// UpdateSettings saves updated settings.
+//
+// Side-effects (KS apply, autostart write) are gated on actual value
+// CHANGE rather than firing every call. The Vue UI was observed
+// calling this method ~14 times in 8 seconds while the user was
+// editing an on-demand network entry, and each call previously fired
+// SetAutostart which spawns a registry-write subprocess on Windows -
+// the spawn loop produced visible console-window flashing on the
+// user's screen.
 func (a *App) UpdateSettings(settings *AppSettings) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	prevAutostart := a.settings != nil && a.settings.AutostartEnabled
+	prevKS := a.settings != nil && a.settings.KillSwitchEnabled
+
 	a.settings = settings
 	SaveSettings(settings)
 
-	// Apply kill switch setting via the new state machine.
-	//
-	// IMPORTANT: this is the user-toggle path. When KS goes from enabled
-	// to disabled, ksManager.Disarm() transitions to IDLE which causes
-	// the sinkhole controller to call Release() - removing all
-	// Privycs-Sinkhole-* firewall rules and restoring network. If
-	// Release() fails for any reason, the EMERGENCY_RECOVERY.md
-	// PowerShell commands are the documented manual fallback.
-	a.applyKillSwitchSetting(settings.KillSwitchEnabled)
+	// Apply kill switch setting via the new state machine, but only
+	// when it actually changed - applyKillSwitchSetting calls
+	// ksManager.Arm/Disarm/ForceSinkhole which fire transitions and
+	// trigger the SinkholeController. Calling them on every settings
+	// touch (even with the same value) generates extra log noise and
+	// pointless transition events.
+	if settings.KillSwitchEnabled != prevKS {
+		a.applyKillSwitchSetting(settings.KillSwitchEnabled)
+	}
 
-	// Apply autostart setting
-	if err := SetAutostart(settings.AutostartEnabled); err != nil {
-		log.Printf("Failed to set autostart: %v", err)
+	// Apply autostart setting ONLY if it actually changed. SetAutostart
+	// spawns a registry-write subprocess on Windows; calling it on
+	// every UpdateSettings (which the UI hits repeatedly while the
+	// user is e.g. editing an on-demand network entry) produced a
+	// visible console-window flash storm.
+	if settings.AutostartEnabled != prevAutostart {
+		if err := SetAutostart(settings.AutostartEnabled); err != nil {
+			log.Printf("Failed to set autostart: %v", err)
+		}
 	}
 
 	wailsRuntime.EventsEmit(a.ctx, "vpn:settings_changed", settings)

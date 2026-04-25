@@ -50,51 +50,54 @@ func NewLinuxSinkhole() Sinkhole {
 func NewPlatformSinkhole() Sinkhole { return NewLinuxSinkhole() }
 
 func (s *linuxSinkhole) Engage(ctx context.Context) error {
-	log.Println("Sinkhole(linux): engaging")
+	log.Println("Sinkhole(linux): engaging via privileged helper")
 
 	snap := &SinkholeSnapshot{
 		Version:   1,
 		EngagedAt: time.Now(),
 		Platform:  runtime.GOOS,
 		Reason:    "kill switch sinkhole engaged",
-		// On Linux we identify our state by the dedicated chain, not
-		// by individual rule names. FirewallRulesAdded stays empty.
 	}
 	if err := SaveSnapshot(snap); err != nil {
 		return fmt.Errorf("snapshot save: %w", err)
 	}
 
-	// Defensive cleanup of any leftover state from a prior crash
-	// before we add fresh rules. Idempotent: failures here are
-	// expected on the first ever engage (chain doesn't exist yet).
-	s.cleanupChain(ctx)
-
-	// Sequence: create chain, fill chain with DROP, then jump to
-	// chain from OUTPUT. Each step is reversible by cleanupChain
-	// if a later step fails.
-	steps := [][]string{
-		{"iptables", "-N", linuxSinkholeChain},
-		{"iptables", "-A", linuxSinkholeChain, "-o", "lo", "-j", "RETURN"},
-		{"iptables", "-A", linuxSinkholeChain, "-j", "DROP"},
-		{"iptables", "-I", "OUTPUT", "1", "-j", linuxSinkholeChain},
+	// Route through privileged helper - iptables requires root and
+	// the Wails app runs as the user. The helper's sinkhole_engage
+	// handler does the iptables chain setup with rollback on failure.
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		_ = DeleteSnapshot()
+		return fmt.Errorf("helper not reachable - cannot engage sinkhole")
 	}
-	for i, step := range steps {
-		if err := runIptables(ctx, step...); err != nil {
-			// Rollback: remove anything we added so far.
-			log.Printf("Sinkhole(linux): step %d failed (%v) - rolling back", i, err)
-			s.cleanupChain(ctx)
-			_ = DeleteSnapshot()
-			return fmt.Errorf("engage step %d (%v): %w", i, step, err)
-		}
+	resp, err := client.SendCommand("sinkhole_engage", nil)
+	if err != nil {
+		_ = DeleteSnapshot()
+		return fmt.Errorf("helper IPC failed: %w", err)
+	}
+	if !resp.Success {
+		_ = DeleteSnapshot()
+		return fmt.Errorf("helper engage failed: %s", resp.Error)
 	}
 
-	log.Println("Sinkhole(linux): engaged successfully")
+	log.Println("Sinkhole(linux): engaged successfully via helper")
 	return nil
 }
 
 func (s *linuxSinkhole) Release(ctx context.Context) error {
-	log.Println("Sinkhole(linux): releasing")
-	s.cleanupChain(ctx)
+	log.Println("Sinkhole(linux): releasing via privileged helper")
+
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		if resp, err := client.SendCommand("sinkhole_release", nil); err != nil {
+			log.Printf("Sinkhole(linux): helper IPC release failed: %v", err)
+		} else if !resp.Success {
+			log.Printf("Sinkhole(linux): helper release reported failure: %s", resp.Error)
+		}
+	} else {
+		log.Println("Sinkhole(linux): helper unreachable - cannot remove iptables rules from unprivileged process")
+	}
+
 	if err := DeleteSnapshot(); err != nil {
 		log.Printf("Sinkhole(linux): snapshot delete (non-fatal): %v", err)
 	}
