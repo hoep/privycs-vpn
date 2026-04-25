@@ -108,11 +108,29 @@ class PrivycsVpnService : VpnService() {
                     com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE -> enterSinkholeMode()
                     else -> {
                         exitSinkholeMode()
-                        if (previous == com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE &&
-                            state == com.privycs.vpn.util.KillSwitchManager.State.IDLE
-                        ) {
-                            Log.i(TAG, "KS state SINKHOLE->IDLE: tearing down stale plugin (zombie tunnel recovery)")
-                            scope.launch { forceTeardownAfterSinkhole() }
+                        if (previous == com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE) {
+                            when (state) {
+                                com.privycs.vpn.util.KillSwitchManager.State.IDLE -> {
+                                    Log.i(TAG, "KS state SINKHOLE->IDLE: tearing down stale plugin (zombie tunnel recovery)")
+                                    scope.launch { forceTeardownAfterSinkhole() }
+                                }
+                                com.privycs.vpn.util.KillSwitchManager.State.ARMED -> {
+                                    // Reconnect succeeded out of sinkhole.
+                                    // The notification was last set with
+                                    // sinkholeMode=true (or via
+                                    // updateNotification while
+                                    // isSinkholeActive() returned true,
+                                    // which forced the danger styling).
+                                    // Force a refresh now that state is
+                                    // ARMED so the user sees the
+                                    // connected status, not stale "Kill
+                                    // Switch active" text.
+                                    val name = currentConnectionName.takeIf { it.isNotBlank() } ?: "VPN"
+                                    Log.i(TAG, "KS state SINKHOLE->ARMED: refreshing notification to connected")
+                                    updateNotification("Connected to $name")
+                                }
+                                else -> { /* unreachable - SINKHOLE handled above */ }
+                            }
                         }
                     }
                 }
@@ -802,10 +820,23 @@ class PrivycsVpnService : VpnService() {
             }
 
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
-            // Capture wasConnected BEFORE updating status so we can
-            // distinguish "user disconnected a working tunnel" from
-            // "user tapped disconnect on already-failed connect attempt".
-            val wasConnected = manager.status.value.connected
+            // Capture KS state BEFORE clearing manager status. We
+            // cannot rely on `manager.status.value.connected` here
+            // because VpnServiceManager.disconnect() already wipes
+            // _status to VpnStatus() optimistically (line 168) BEFORE
+            // ACTION_DISCONNECT reaches this service - by the time we
+            // read it here, status.connected is already false even if
+            // the tunnel was running.
+            //
+            // KillSwitchManager.isArmed() is the authoritative truth:
+            // it returns true iff state is ARMED or SINKHOLE, and
+            // arm() only fires after a status push with connected=true,
+            // so an ARMED state is a reliable proxy for "this session
+            // had a working tunnel". User-initiated disconnects with
+            // KS enabled leave state ARMED (ConnectCoordinator skips
+            // disarm when KS is on), so we see ARMED here exactly in
+            // the case we want to engage the sinkhole.
+            val ksWasArmed = com.privycs.vpn.util.KillSwitchManager.isArmed()
             manager.updateStatus(VpnStatus())
 
             // Explicit lifecycle signal to the coordinator that the
@@ -833,10 +864,10 @@ class PrivycsVpnService : VpnService() {
                 val ksEnabled = PrivycsApp.instance.settingsRepository
                     .getSettingsBlocking().killSwitchEnabled
                 val alwaysOn = com.privycs.vpn.util.AlwaysOnDetector.detected.value
-                if (ksEnabled && wasConnected && !alwaysOn) {
-                    Log.i(TAG, "handleDisconnect: KS enabled + was connected → forceSinkhole")
+                if (ksEnabled && ksWasArmed && !alwaysOn) {
+                    Log.i(TAG, "handleDisconnect: KS enabled + KS was armed → forceSinkhole")
                     com.privycs.vpn.util.KillSwitchManager.forceSinkhole(
-                        "manual disconnect with KS enabled",
+                        "manual disconnect with KS armed",
                     )
                 }
             } catch (e: Exception) {

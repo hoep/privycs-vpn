@@ -306,8 +306,21 @@ class VpnServiceManager private constructor(private val context: Context) {
             scope.launch {
                 val settings = com.privycs.vpn.PrivycsApp.instance
                     .settingsRepository.getSettingsBlocking()
+                // Gate: arm() iff state is NOT already ARMED.
+                // The previous gate was `!isArmed()` which returns false
+                // for both ARMED and SINKHOLE states - which meant after
+                // a successful reconnect out of the sinkhole the arm()
+                // call was skipped, leaving state stuck in SINKHOLE
+                // forever. UI continued to show the red shield "Kill
+                // Switch active" even though the real tunnel was up,
+                // because ConnectScreen reads
+                // `state == SINKHOLE` to render the danger palette.
+                // arm() is internally idempotent on ARMED (no-op) and
+                // explicitly handles SINKHOLE -> ARMED, so any state
+                // != ARMED is a safe trigger.
                 if (settings.killSwitchEnabled &&
-                    !com.privycs.vpn.util.KillSwitchManager.isArmed()
+                    com.privycs.vpn.util.KillSwitchManager.state.value !=
+                    com.privycs.vpn.util.KillSwitchManager.State.ARMED
                 ) {
                     com.privycs.vpn.util.KillSwitchManager.arm()
                 }
