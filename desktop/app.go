@@ -282,10 +282,28 @@ func (a *App) Status() *StatusResponse {
 	}
 	a.mu.RUnlock()
 
-	// 2. Query protocol status WITHOUT holding the lock (slow on Windows)
+	// 2. Query protocol status WITHOUT holding the lock (slow on Windows).
+	//
+	// CRITICAL: skip the proto.Status() call entirely when the app is
+	// not in the connected state. There is nothing meaningful to query
+	// (no tunnel, no traffic, no server) and on Windows every protocol
+	// implements Status() by spawning an external process:
+	//   - IPSec: powershell.exe Get-VpnConnection (~300-500ms, allocates
+	//     handles + briefly creates conhost child)
+	//   - OpenVPN: tasklist.exe
+	//   - WireGuard: sc.exe query
+	// statusEmitter polls every 2s, so disconnected idle was spawning a
+	// PowerShell child every 2s for the user's active session. Over
+	// hours this leaks handles; on multiple Windows test machines this
+	// has been correlated with system instability (handle-table
+	// pressure on npfs.sys) and BSOD when combined with Wintun/WFP
+	// activity. The simplest, safest mitigation is to not poll when
+	// there is nothing to poll.
 	var protoStatus ProtocolStatus
-	if proto, ok := a.protocols[activeProtocol]; ok {
-		protoStatus = proto.Status()
+	if connected {
+		if proto, ok := a.protocols[activeProtocol]; ok {
+			protoStatus = proto.Status()
+		}
 	}
 
 	// No auto-detection here. a.connected is managed exclusively by:

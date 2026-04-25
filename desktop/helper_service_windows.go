@@ -46,6 +46,31 @@ func (s *privycsVPNService) Execute(args []string, r <-chan svc.ChangeRequest, c
 	changes <- svc.Status{State: svc.Running, Accepts: accepts}
 	log.Println("Helper reported Running to SCM")
 
+	// Migration cleanup for existing installs: prior installer versions
+	// configured the SCM service with `failure ... actions=
+	// restart/5000/restart/5000/restart/5000`, which on every helper
+	// crash auto-respawned the service three times within 60s. Any
+	// crash that left partial WFP/firewall state would then have its
+	// state collide with the next attempt's setup, leaking handles
+	// in wf.dll / npfs.sys and correlating with BSOD on user
+	// machines. The new installer no longer sets this, but existing
+	// installs already have the old failure config baked in — clear
+	// it once at runtime here. Safe to call repeatedly; safe to fail
+	// (e.g. permission denied on locked-down systems): we just log.
+	go func() {
+		// Wait so this can never delay the SCM Running handshake.
+		time.Sleep(2 * time.Second)
+		out, err := execHidden(
+			"sc.exe", "failure", "PrivycsVPNHelper",
+			"reset=", "0", "actions=", "",
+		).CombinedOutput()
+		if err != nil {
+			log.Printf("SCM failure-action cleanup failed (non-fatal): %v: %s", err, out)
+		} else {
+			log.Println("SCM auto-restart cleared for PrivycsVPNHelper (migration ok)")
+		}
+	}()
+
 	for {
 		select {
 		case c := <-r:

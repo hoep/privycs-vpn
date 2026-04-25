@@ -106,7 +106,15 @@ Section
     nsExec::Exec 'cmd.exe /C sc.exe delete PrivycsVPNHelper > nul 2>&1'
     nsExec::ExecToLog 'sc.exe create PrivycsVPNHelper binPath= "\"$INSTDIR\${PRODUCT_EXECUTABLE}\" --helper" start= auto DisplayName= "Privycs VPN Helper" obj= LocalSystem'
     nsExec::ExecToLog 'sc.exe description PrivycsVPNHelper "Runs privileged VPN operations on behalf of the Privycs VPN desktop client so users do not get UAC prompts on every connect."'
-    nsExec::ExecToLog 'sc.exe failure PrivycsVPNHelper reset= 60 actions= restart/5000/restart/5000/restart/5000'
+    # SCM auto-restart DISABLED: prior config (restart 3x within 60s) turned
+    # any single helper crash into a respawn storm — partial WFP filter state
+    # from one crash overlapped with the next attempt's setup, eating handles
+    # in npfs.sys / wf.dll, correlated with system instability and BSOD on
+    # user test machines. If the helper crashes now it stays stopped; the
+    # main app surfaces this via GetHelperStatus() so the user can manually
+    # restart from a clean state, or reinstall, rather than the OS amplifying
+    # one bug into a kernel-pressure cascade.
+    nsExec::ExecToLog 'sc.exe failure PrivycsVPNHelper reset= 0 actions= ""'
     nsExec::ExecToLog 'sc.exe start PrivycsVPNHelper'
 
     !insertmacro wails.writeUninstaller
