@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -17,6 +18,21 @@ var (
 
 // startPlatformWatcher uses the Win32 NotifyAddrChange API to receive
 // immediate notification when any network adapter address changes.
+//
+// CRITICAL: pass NULL for the LPOVERLAPPED parameter. With a non-NULL
+// overlapped struct AND no event handle wired into overlapped.HEvent,
+// NotifyAddrChange returns ERROR_IO_PENDING (997) immediately; the
+// previous implementation treated 997 as just a logged "error" and
+// fell straight back into the for-loop, hot-spinning at 100% CPU and
+// allocating a fresh handle + overlapped struct each iteration. Real-
+// world impact: 9 GB log file in minutes, handle exhaustion in
+// npfs.sys, system-wide instability and connect-time crashes once
+// the kernel handle table thinned out.
+//
+// The synchronous form (overlapped == NULL) blocks the goroutine
+// inside the system call until an actual address-change event
+// occurs; the kernel wakes us, we fire the callback, and we loop
+// back into the next blocking call. Zero CPU between events.
 func startPlatformWatcher(callback func()) (stopFn func(), err error) {
 	stopCh := make(chan struct{})
 	var once sync.Once
@@ -24,10 +40,9 @@ func startPlatformWatcher(callback func()) (stopFn func(), err error) {
 	go func() {
 		for {
 			var handle syscall.Handle
-			var overlapped syscall.Overlapped
-			ret, _, callErr := procNotifyAddrChange.Call(
+			ret, _, _ := procNotifyAddrChange.Call(
 				uintptr(unsafe.Pointer(&handle)),
-				uintptr(unsafe.Pointer(&overlapped)),
+				0, // NULL overlapped -> synchronous, blocks until change
 			)
 
 			select {
@@ -37,10 +52,20 @@ func startPlatformWatcher(callback func()) (stopFn func(), err error) {
 			}
 
 			if ret == 0 {
-				log.Println("Network monitor: NotifyAddrChange triggered")
+				log.Println("Network monitor: address change detected")
 				callback()
 			} else {
-				log.Printf("Network monitor: NotifyAddrChange returned %d (%v)", ret, callErr)
+				// Synchronous mode should only return NO_ERROR (0) on
+				// success or a real error code. If a real error happens
+				// (e.g. kernel API change on a future Windows build),
+				// throttle to avoid the log-spam pattern that this
+				// fix was created to eliminate.
+				log.Printf("Network monitor: unexpected return %d - throttling for 5s", ret)
+				select {
+				case <-stopCh:
+					return
+				case <-time.After(5 * time.Second):
+				}
 			}
 		}
 	}()

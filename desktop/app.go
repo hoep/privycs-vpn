@@ -64,6 +64,17 @@ func (a *App) startup(ctx context.Context) {
 	// Set up file logging — write to file always, stderr if available.
 	// Store handle for proper cleanup in shutdown() to prevent file handle leaks.
 	logPath := filepath.Join(appDataDir(), "privycs-vpn.log")
+	// Rotate-on-startup safety net: if the existing log is huge (e.g.
+	// from a runaway loop in a prior version - a user reported a 9 GB
+	// privycs-vpn.log produced in minutes by the network-monitor
+	// spin-loop bug), rename to .old (replacing any prior .old) and
+	// start fresh. Single-depth rotation is enough to give the user
+	// the prior session's tail without ever ballooning the disk.
+	if info, statErr := os.Stat(logPath); statErr == nil && info.Size() > 10*1024*1024 {
+		oldPath := logPath + ".old"
+		_ = os.Remove(oldPath)
+		_ = os.Rename(logPath, oldPath)
+	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err == nil {
 		a.logFile = logFile

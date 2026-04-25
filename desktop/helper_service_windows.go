@@ -112,6 +112,14 @@ func runHelperEntrypoint() {
 	}
 	logPath := filepath.Join(programData, "PrivycsVPN", "helper.log")
 	os.MkdirAll(filepath.Dir(logPath), 0755)
+	// Rotate-on-startup if the existing log is huge. Same rationale as
+	// app.go: prior versions of the network monitor goroutine spin-
+	// looped on ERROR_IO_PENDING and produced multi-GB log files.
+	if info, statErr := os.Stat(logPath); statErr == nil && info.Size() > 10*1024*1024 {
+		oldPath := logPath + ".old"
+		_ = os.Remove(oldPath)
+		_ = os.Rename(logPath, oldPath)
+	}
 	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
 		log.SetOutput(f)
 		// NOTE: don't Close() f — the service runs for the lifetime of the process.
