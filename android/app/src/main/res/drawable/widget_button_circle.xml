@@ -1,20 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Solid oval used as the circular backdrop behind the big
-    connect/disconnect icon in the widget. Colour is replaced at
-    runtime via RemoteViews.setInt(..., "setColorFilter", ...).
+    Big circular status button with outer halo ring (matches the
+    Connect-screen ConnectButton's glow ring).
 
-    Why the <size>: Shape drawables are dimensionless by default,
-    so an ImageView using match_parent + scaleType=fitCenter has
-    no aspect hint and draws this shape stretched to the container
-    bounds - producing a wide ellipse when the ImageView is wider
-    than tall. Declaring an intrinsic square size gives fitCenter
-    a 1:1 aspect ratio to preserve, so the shape stays a circle.
+    Two layered ovals:
+      - Outer: full size, solid color at 0x33 alpha (~20%) -> renders
+        as a soft halo around the inner solid disk.
+      - Inner: inset by 8dp on every side, solid color at full alpha.
+
+    Both layers are tinted at runtime via
+    RemoteViews.setInt(..., "setColorFilter", ...). The colorFilter
+    PorterDuff.Mode is SRC_IN (the default for setColorFilter without
+    a mode argument), which keeps each layer's source alpha while
+    replacing the RGB with the tint colour - so the halo stays
+    proportionally lighter than the inner disk after tinting.
 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <solid android:color="@color/widget_status_disconnected" />
-    <size
-        android:width="100dp"
-        android:height="100dp" />
-</shape>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Outer halo: 0x33 alpha so SRC_IN tinting yields a soft ring -->
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#33FFFFFF" />
+            <size
+                android:width="100dp"
+                android:height="100dp" />
+        </shape>
+    </item>
+
+    <!-- Inner solid disk: full alpha, inset to leave halo visible -->
+    <item
+        android:left="8dp"
+        android:top="8dp"
+        android:right="8dp"
+        android:bottom="8dp">
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFFFF" />
+            <size
+                android:width="84dp"
+                android:height="84dp" />
+        </shape>
+    </item>
+
+</layer-list>

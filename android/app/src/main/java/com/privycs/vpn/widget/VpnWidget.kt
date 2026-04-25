@@ -389,9 +389,33 @@ class VpnWidget : AppWidgetProvider() {
         )
 
         // --- Section 4: Protocol pills ---
-        setProtocolButtonState(views, R.id.widget_protocol_wg, activeProtocol == VpnProtocol.WIREGUARD)
-        setProtocolButtonState(views, R.id.widget_protocol_ipsec, activeProtocol == VpnProtocol.IPSEC)
-        setProtocolButtonState(views, R.id.widget_protocol_ovpn, activeProtocol == VpnProtocol.OPENVPN)
+        setProtocolPillState(
+            context, views, VpnProtocol.WIREGUARD,
+            R.id.widget_protocol_wg, R.id.widget_protocol_wg_icon,
+            R.id.widget_protocol_wg_label, activeProtocol == VpnProtocol.WIREGUARD,
+        )
+        setProtocolPillState(
+            context, views, VpnProtocol.IPSEC,
+            R.id.widget_protocol_ipsec, R.id.widget_protocol_ipsec_icon,
+            R.id.widget_protocol_ipsec_label, activeProtocol == VpnProtocol.IPSEC,
+        )
+        setProtocolPillState(
+            context, views, VpnProtocol.OPENVPN,
+            R.id.widget_protocol_ovpn, R.id.widget_protocol_ovpn_icon,
+            R.id.widget_protocol_ovpn_label, activeProtocol == VpnProtocol.OPENVPN,
+        )
+
+        // --- Section 4b: Status label inside the circle (matches the
+        // ConnectScreen ConnectButton's "Connected" / "Disconnected"
+        // text below the icon). ---
+        views.setTextViewText(
+            R.id.widget_button_label,
+            when {
+                killSwitchSinkhole -> context.getString(R.string.widget_status_kill_switch_active)
+                connected -> context.getString(R.string.widget_status_connected)
+                else -> context.getString(R.string.widget_status_disconnected)
+            },
+        )
 
         // --- Section 5: Endpoint (centered below pills) ---
         views.setTextViewText(
@@ -485,14 +509,54 @@ class VpnWidget : AppWidgetProvider() {
         appWidgetManager.updateAppWidget(appWidgetId, views)
     }
 
-    private fun setProtocolButtonState(
+    /**
+     * Match the Connect-screen ProtocolBadges visual: when active,
+     * the pill takes a per-protocol brand-colour fill at low alpha
+     * (0x33 / ~20%) plus a 1dp stroke at slightly higher alpha
+     * (0x4D / ~30%), and the icon + label are tinted to the full-
+     * strength brand colour. When inactive, the neutral grey
+     * inactive drawable is used and the icon/label render in the
+     * default secondary text colour.
+     *
+     * Per-protocol active drawables are needed because RemoteViews
+     * cannot apply a colorFilter to a shape drawable's solid/stroke
+     * channels independently - we need three separate fully-baked
+     * drawables.
+     */
+    private fun setProtocolPillState(
+        context: Context,
         views: RemoteViews,
-        viewId: Int,
+        protocol: VpnProtocol,
+        pillId: Int,
+        iconId: Int,
+        labelId: Int,
         active: Boolean,
     ) {
-        val bg = if (active) R.drawable.widget_protocol_button_active
-        else R.drawable.widget_protocol_button_inactive
-        views.setInt(viewId, "setBackgroundResource", bg)
+        val bg = if (active) {
+            when (protocol) {
+                VpnProtocol.WIREGUARD -> R.drawable.widget_protocol_button_active_wg
+                VpnProtocol.IPSEC -> R.drawable.widget_protocol_button_active_ipsec
+                VpnProtocol.OPENVPN -> R.drawable.widget_protocol_button_active_ovpn
+            }
+        } else {
+            R.drawable.widget_protocol_button_inactive
+        }
+        views.setInt(pillId, "setBackgroundResource", bg)
+
+        // Brand colours - mirrors WireGuardRed / IpSecBlue /
+        // OpenVpnOrange in ui/theme/Theme.kt. Hardcoded here rather
+        // than loaded from colors.xml because they're already
+        // fixed-string brand identifiers - no theme-aware swap.
+        val brand = when (protocol) {
+            VpnProtocol.WIREGUARD -> 0xFF88171A.toInt()
+            VpnProtocol.IPSEC -> 0xFF2563EB.toInt()
+            VpnProtocol.OPENVPN -> 0xFFEA7E20.toInt()
+        }
+        val inactiveTint = ContextCompat.getColor(context, R.color.widget_text_secondary)
+
+        val tint = if (active) brand else inactiveTint
+        views.setInt(iconId, "setColorFilter", tint)
+        views.setTextColor(labelId, tint)
     }
 
     private fun protocolSwitchPendingIntent(

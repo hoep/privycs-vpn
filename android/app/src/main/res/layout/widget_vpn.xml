@@ -64,14 +64,35 @@
                 android:contentDescription="@string/widget_description"
                 android:adjustViewBounds="true" />
 
-            <ImageView
-                android:id="@+id/widget_button_icon"
+            <!-- Icon + label stacked vertically inside the circle, matching
+                 the ConnectScreen ConnectButton composition (snake/protocol
+                 icon on top, status label "Connected" / "Disconnected" /
+                 "Kill Switch" beneath, both white on the tinted disk). -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_gravity="center"
-                android:padding="14dp"
-                android:src="@drawable/ic_protocol_wireguard"
-                android:scaleType="fitCenter" />
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="18dp">
+
+                <ImageView
+                    android:id="@+id/widget_button_icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:src="@drawable/ic_protocol_wireguard"
+                    android:scaleType="fitCenter" />
+
+                <TextView
+                    android:id="@+id/widget_button_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/widget_status_disconnected"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFFFF"
+                    android:singleLine="true" />
+            </LinearLayout>
         </FrameLayout>
     </LinearLayout>
 
@@ -138,6 +159,7 @@
             android:background="@drawable/widget_protocol_button_inactive">
 
             <ImageView
+                android:id="@+id/widget_protocol_wg_icon"
                 android:layout_width="14dp"
                 android:layout_height="14dp"
                 android:src="@drawable/ic_protocol_wireguard"
@@ -166,6 +188,7 @@
             android:background="@drawable/widget_protocol_button_inactive">
 
             <ImageView
+                android:id="@+id/widget_protocol_ipsec_icon"
                 android:layout_width="14dp"
                 android:layout_height="14dp"
                 android:src="@drawable/ic_protocol_strongswan"
@@ -194,6 +217,7 @@
             android:background="@drawable/widget_protocol_button_inactive">
 
             <ImageView
+                android:id="@+id/widget_protocol_ovpn_icon"
                 android:layout_width="14dp"
                 android:layout_height="14dp"
                 android:src="@drawable/ic_protocol_openvpn"
