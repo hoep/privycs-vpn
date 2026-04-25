@@ -31,6 +31,7 @@ class PrivycsVpnService : VpnService() {
         const val ACTION_CONNECT = "com.privycs.vpn.CONNECT"
         const val ACTION_DISCONNECT = "com.privycs.vpn.DISCONNECT"
         const val ACTION_KILL_SWITCH_RETRY = "com.privycs.vpn.KILL_SWITCH_RETRY"
+        const val ACTION_ENGAGE_SINKHOLE = "com.privycs.vpn.ENGAGE_SINKHOLE"
 
         const val EXTRA_CONNECTION_ID = "connection_id"
         const val EXTRA_PROTOCOL = "protocol"
@@ -420,6 +421,33 @@ class PrivycsVpnService : VpnService() {
                 }
             }
 
+            ACTION_ENGAGE_SINKHOLE -> {
+                // SettingsRepository starts us via this action when
+                // the user enables Kill Switch while no service is
+                // running and there's a configured connection. We
+                // need a live VpnService instance to actually hold
+                // the block-all tun fd — otherwise KillSwitchManager
+                // _state says SINKHOLE but no fd exists and traffic
+                // flows direct (the "UI lies, internet still works"
+                // bug observed in v0.9.10.2).
+                startForeground(
+                    PrivycsApp.NOTIFICATION_ID_VPN,
+                    buildNotification("Kill Switch active — traffic blocked", sinkholeMode = true),
+                )
+                // onCreate already called enterSinkholeMode if state
+                // was SINKHOLE at startup; this is idempotent
+                // (early-returns when sinkholeTunFd != null). Belt
+                // and braces in case the state flow racing with
+                // onCreate left us in a weird intermediate state.
+                if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
+                    enterSinkholeMode()
+                } else {
+                    Log.w(TAG, "ACTION_ENGAGE_SINKHOLE but state=${com.privycs.vpn.util.KillSwitchManager.state.value}; stopping")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
+
             else -> {
                 // Always-on VPN restart: try to reconnect with last active connection
                 startForeground(
@@ -752,6 +780,27 @@ class PrivycsVpnService : VpnService() {
 
             connectStartTime = 0L
             sendWidgetUpdate(connected = false)
+
+            // Critical: if Kill Switch is enabled, the manager.updateStatus
+            // call above just engaged the sinkhole (via the connected->
+            // disconnected transition path in VpnServiceManager.updateStatus
+            // when state was ARMED). The sinkhole tun fd is now alive and
+            // blocking traffic. If we go on to call stopSelf, Android will
+            // destroy this VpnService, which will close the sinkhole fd,
+            // which means traffic flows direct - completely defeating the
+            // user's Kill Switch intent. Stay alive in sinkhole mode and
+            // let the user release it via the toggle or a successful
+            // reconnect. Brief delay lets the state-flow propagation
+            // settle before we check.
+            delay(150)
+            if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
+                Log.i(TAG, "handleDisconnect: Kill Switch sinkhole engaged - keeping service alive in block-all mode")
+                updateNotification(
+                    "Kill Switch active — traffic blocked",
+                    sinkholeMode = true,
+                )
+                return@launch
+            }
 
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()

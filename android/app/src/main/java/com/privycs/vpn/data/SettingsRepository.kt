@@ -127,6 +127,30 @@ class SettingsRepository(private val context: Context) {
             com.privycs.vpn.util.KillSwitchManager.forceSinkhole(
                 "KS enabled while disconnected with active connection configured",
             )
+            // Setting state=SINKHOLE alone is not enough - we also need
+            // a live VpnService instance to actually hold the block-all
+            // tun fd. If the service was destroyed by a prior manual
+            // disconnect (handleDisconnect calls stopSelf), the
+            // KillSwitchManager state-flow observer that establishes the
+            // sinkhole is gone too. Fire an explicit start with
+            // ACTION_ENGAGE_SINKHOLE so the service comes back up,
+            // sees state=SINKHOLE in onCreate, and calls
+            // enterSinkholeMode synchronously. Without this, the UI
+            // shows "Kill Switch Active" but no traffic is actually
+            // blocked - the bug observed when user manually disconnects
+            // then enables KS.
+            try {
+                val intent = android.content.Intent(
+                    context,
+                    com.privycs.vpn.service.PrivycsVpnService::class.java,
+                ).setAction(com.privycs.vpn.service.PrivycsVpnService.ACTION_ENGAGE_SINKHOLE)
+                androidx.core.content.ContextCompat.startForegroundService(context, intent)
+            } catch (e: Exception) {
+                android.util.Log.w(
+                    "SettingsRepository",
+                    "Failed to start VpnService for sinkhole: ${e.message}",
+                )
+            }
         } else {
             android.util.Log.d(
                 "SettingsRepository",
