@@ -124,9 +124,27 @@ func (nm *NetworkMonitor) run() {
 		return
 	}
 
-	// Start native OS event watcher
+	// Start native OS event watcher.
+	//
+	// Each platform event triggers TWO checkAndAct calls: one
+	// immediate, one 2s later. The follow-up catches transient
+	// states that were not yet visible at event-time:
+	//
+	//   - WLAN association in progress when NotifyAddrChange fired
+	//     (IP is up but SSID slot in netsh output is still empty).
+	//   - DHCP renewal racing with default-route update.
+	//   - Network type detection that depends on multiple
+	//     interfaces stabilising.
+	//
+	// 2s is empirically enough on Windows for SSID to populate
+	// after IP-acquired; on Linux/macOS the platform events tend to
+	// be more synchronous so the follow-up is just a no-op.
 	stopWatcher, err := startPlatformWatcher(func() {
 		nm.checkAndAct()
+		go func() {
+			time.Sleep(2 * time.Second)
+			nm.checkAndAct()
+		}()
 	})
 	if err != nil {
 		log.Printf("Network monitor: platform watcher failed (%v), using poll-only mode", err)
@@ -174,6 +192,15 @@ func (nm *NetworkMonitor) checkAndAct() {
 
 	connected := nm.isConnected()
 
+	// Diagnostic log: every checkAndAct emits one line summarising
+	// what was detected and what action (if any) followed. Helps the
+	// user explain "I joined a matching WiFi, why did nothing
+	// happen?" - the log shows whether type/ssid were detected
+	// correctly, whether match=true, and whether the action fired.
+	log.Printf("Network monitor: type=%s ssid=%q match=%v connected=%v trigger=%s ssid_mode=%s",
+		state.NetworkType, state.SSID, match, connected,
+		settings.Trigger, settings.SSIDMode)
+
 	// Simple match-based actions. Connect when rules match and VPN
 	// is down; disconnect when rules do not match and VPN is up.
 	//
@@ -186,10 +213,10 @@ func (nm *NetworkMonitor) checkAndAct() {
 	// was already up at app start with no-longer-matching rules
 	// stayed up indefinitely, contradicting user expectation.
 	if match && !connected {
-		log.Printf("Network monitor: rules match (type=%s, ssid=%s), triggering connect", state.NetworkType, state.SSID)
+		log.Printf("Network monitor: triggering connect")
 		nm.connectFn()
 	} else if !match && connected && nm.disconnectFn != nil {
-		log.Printf("Network monitor: rules do not match (type=%s, ssid=%s), triggering disconnect", state.NetworkType, state.SSID)
+		log.Printf("Network monitor: triggering disconnect")
 		nm.disconnectFn()
 	}
 }

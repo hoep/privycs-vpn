@@ -210,27 +210,70 @@ func startWlanWatcher(stopCh <-chan struct{}, callback func()) (cleanup func(), 
 
 // getCurrentSSIDPlatform returns the current WiFi SSID on Windows
 // by parsing the output of netsh wlan show interfaces.
+//
+// Race-aware retry: when this function is called from a platform
+// watcher callback (NotifyAddrChange, WLAN ACM event), the OS may
+// not yet have populated the SSID field even though the WLAN
+// adapter is associated. Symptom: user joins WiFi while on
+// Ethernet, our event-driven checkAndAct fires immediately, netsh
+// returns "" for SSID, we conclude state="ethernet", COD trigger
+// "wifi_mobile" mismatches, no auto-connect. By the time the OS
+// finishes populating SSID a few hundred ms later, no event re-
+// fires until the 60s safety poll. To close that gap we retry up
+// to 3 times with a 500ms backoff if the netsh output indicates a
+// WLAN adapter exists but the SSID slot is empty.
 func getCurrentSSIDPlatform() string {
+	for attempt := 0; attempt < 3; attempt++ {
+		ssid, hasAdapter := readNetshSSID()
+		if ssid != "" {
+			return ssid
+		}
+		if !hasAdapter {
+			// No WLAN adapter at all - retrying will not change
+			// anything. Return immediately.
+			return ""
+		}
+		// Adapter present but SSID empty: likely mid-association.
+		// Wait a bit and try again. Skip the wait on the last
+		// attempt so the function returns within ~1s in the worst
+		// case.
+		if attempt < 2 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	return ""
+}
+
+// readNetshSSID parses one shot of netsh wlan show interfaces.
+// Returns (ssid, hasAdapter). hasAdapter is true if the output
+// contains anything that looks like a WLAN adapter description (a
+// non-error response with at least one SSID-or-BSSID-or-State line),
+// false if the WLAN service is unavailable or there are no adapters.
+func readNetshSSID() (ssid string, hasAdapter bool) {
 	// execHidden wraps exec.Command with CREATE_NO_WINDOW so the
-	// netsh console window doesn't flash every time the On-Demand
-	// poll loop ticks (roughly every 2s) - otherwise the user sees
-	// a cmd window pop up and immediately close repeatedly as long
-	// as On-Demand is on.
+	// netsh console window doesn't flash.
 	out, err := execHidden("netsh", "wlan", "show", "interfaces").Output()
 	if err != nil {
-		return ""
+		return "", false
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	text := string(out)
+	// Heuristic: any non-empty non-error netsh output that mentions
+	// a state field implies a WLAN adapter is present. Locale-
+	// independent enough: "State" / "Status" both contain "tat".
+	hasAdapter = len(strings.TrimSpace(text)) > 0 &&
+		(strings.Contains(text, "SSID") || strings.Contains(text, "BSSID") ||
+			strings.Contains(text, "tat"))
+	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		// Match "SSID" but not "BSSID"
 		if strings.HasPrefix(line, "SSID") && !strings.HasPrefix(line, "BSSID") {
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1])
+				return strings.TrimSpace(parts[1]), true
 			}
 		}
 	}
-	return ""
+	return "", hasAdapter
 }
 
 // getNetworkTypePlatform returns "wifi", "ethernet", or "none" on Windows.
