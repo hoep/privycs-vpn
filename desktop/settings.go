@@ -59,10 +59,22 @@ func LoadSettings() *AppSettings {
 	if settings.AutoConnectOnStart && !settings.ConnectOnDemand.Enabled {
 		settings.ConnectOnDemand = ConnectOnDemandSettings{
 			Enabled:  true,
-			Trigger:  "wifi_mobile",
+			Trigger:  "any",
 			SSIDMode: "all",
 		}
 		// Persist the migration
+		SaveSettings(&settings)
+	}
+
+	// Migrate stale trigger="wifi_mobile" to "any" for desktop users:
+	// the old default never matched on wired/Ethernet machines (the
+	// most common desktop case) so users who simply enabled COD on a
+	// wired machine got silent no-ops. "any" is now the default.
+	// Only applied if the user has not customized the trigger to one
+	// of the explicit values that signal intent (wifi-only or
+	// mobile-only).
+	if settings.ConnectOnDemand.Trigger == "wifi_mobile" {
+		settings.ConnectOnDemand.Trigger = "any"
 		SaveSettings(&settings)
 	}
 

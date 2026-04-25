@@ -187,7 +187,12 @@ func evaluateRules(settings *ConnectOnDemandSettings, state *NetworkState) bool 
 		return false
 	}
 
-	// Check trigger type match
+	// Check trigger type match.
+	//
+	// "any" is the desktop-relevant addition - on a wired desktop the
+	// user is on Ethernet, not WiFi or Mobile, so "wifi_mobile" never
+	// matches and COD never fires. "any" matches as long as any
+	// non-loopback connectivity is present.
 	triggerMatch := false
 	switch settings.Trigger {
 	case "wifi":
@@ -196,9 +201,13 @@ func evaluateRules(settings *ConnectOnDemandSettings, state *NetworkState) bool 
 		triggerMatch = state.NetworkType == "mobile"
 	case "wifi_mobile":
 		triggerMatch = state.NetworkType == "wifi" || state.NetworkType == "mobile"
+	case "any":
+		triggerMatch = state.NetworkType != "none"
 	default:
-		// Unknown trigger, default to wifi_mobile behavior
-		triggerMatch = state.NetworkType == "wifi" || state.NetworkType == "mobile"
+		// Unknown trigger - safest default is "any" so users do not
+		// silently lose COD on settings.json upgrades that introduce
+		// new trigger names.
+		triggerMatch = state.NetworkType != "none"
 	}
 
 	if !triggerMatch {

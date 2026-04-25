@@ -4,6 +4,7 @@ package main
 
 import (
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"syscall"
@@ -100,18 +101,62 @@ func getCurrentSSIDPlatform() string {
 }
 
 // getNetworkTypePlatform returns "wifi", "ethernet", or "none" on Windows.
+//
+// CRITICAL: do NOT parse ipconfig output for "Default Gateway" string.
+// That string is localized - on a German Windows install ipconfig
+// emits "Standardgateway" instead, which would always miss and the
+// function would always return "none" for Ethernet-connected German
+// users (the user reported exactly this symptom: UI shows "No
+// network" while ping 8.8.8.8 succeeds because they were on a wired
+// connection on a German Windows). Use net.Interfaces() instead -
+// the kernel-level interface enumeration is locale-independent.
 func getNetworkTypePlatform() string {
 	ssid := getCurrentSSIDPlatform()
 	if ssid != "" {
 		return "wifi"
 	}
-
-	out, err := execHidden("ipconfig").Output()
-	if err != nil {
-		return "none"
-	}
-	if strings.Contains(string(out), "Default Gateway") {
+	if hasActiveNonLoopbackIPv4() {
 		return "ethernet"
 	}
 	return "none"
+}
+
+// hasActiveNonLoopbackIPv4 reports whether any UP non-loopback
+// interface has at least one global IPv4 address. Used to detect
+// "I have ethernet/wired connectivity" without parsing localized
+// command output.
+func hasActiveNonLoopbackIPv4() bool {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipnet.IP.To4()
+			if ip == nil {
+				continue
+			}
+			// Skip APIPA / link-local (169.254.x.x) - those mean DHCP
+			// failed, not "we have connectivity".
+			if ip.IsLinkLocalUnicast() {
+				continue
+			}
+			return true
+		}
+	}
+	return false
 }

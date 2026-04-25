@@ -53,11 +53,12 @@
               <div class="flex items-center justify-between">
                 <span class="text-xs text-gray-600 dark:text-gray-400">When connected to</span>
                 <AppSelect
-                  :model-value="connectOnDemand.trigger || 'wifi_mobile'"
+                  :model-value="connectOnDemand.trigger || 'any'"
                   @update:model-value="connectOnDemand.trigger = $event; saveOnDemandSettings()"
                   :options="[
-                    { value: 'wifi', label: 'WiFi' },
-                    { value: 'mobile', label: 'Mobile' },
+                    { value: 'any', label: 'Any network' },
+                    { value: 'wifi', label: 'WiFi only' },
+                    { value: 'mobile', label: 'Mobile only' },
                     { value: 'wifi_mobile', label: 'WiFi & Mobile' },
                   ]"
                 />
@@ -566,7 +567,7 @@ const settings = ref<any>({
   api_key: '',
   connect_on_demand: {
     enabled: false,
-    trigger: 'wifi_mobile',
+    trigger: 'any',
     ssid_mode: 'all',
     ssid_list: [],
   },
@@ -575,7 +576,7 @@ const settings = ref<any>({
 // Connect on Demand state
 const connectOnDemand = ref<any>({
   enabled: false,
-  trigger: 'wifi_mobile',
+  trigger: 'any',
   ssid_mode: 'all',
   ssid_list: [],
 })
