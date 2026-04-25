@@ -502,6 +502,40 @@ class PrivycsVpnService : VpnService() {
 
         scope.launch {
             try {
+                // GUARD: refuse connect attempts when there is no
+                // underlying non-VPN network at all. Without this guard
+                // the WG handshake hangs forever (no UDP reply possible),
+                // the ConnectCoordinator stays stuck in Connecting state,
+                // and when the user later disabled the Kill Switch the
+                // tunnel could not establish - traffic would flow direct
+                // (= VPN LEAK) until the 90s watchdog released the
+                // Connecting state. Connect attempts with no network are
+                // pointless regardless of KS state, so refuse universally.
+                //
+                // Reset the coordinator to Idle so the next attempt
+                // (after network returns) can run cleanly. Update the
+                // notification to either "Kill Switch active" or just
+                // "No network" depending on KS state.
+                run {
+                    val cm = getSystemService(CONNECTIVITY_SERVICE)
+                        as android.net.ConnectivityManager
+                    if (!hasAnyNonVpnNetwork(cm)) {
+                        val sinkhole = com.privycs.vpn.util.KillSwitchManager
+                            .isSinkholeActive()
+                        Log.w(TAG, "handleConnect refused: no underlying non-VPN network (sinkhole=$sinkhole)")
+                        com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
+                        if (sinkhole) {
+                            updateNotification(
+                                "Kill Switch active — no network to connect on",
+                                sinkholeMode = true,
+                            )
+                        } else {
+                            updateNotification("Cannot connect — no network available")
+                        }
+                        return@launch
+                    }
+                }
+
                 // CRITICAL: tear down ANY previous protocol tunnel before
                 // starting a new one. Android VpnService allows only one
                 // active TUN per user; if a previous tunnel's native-side
@@ -768,6 +802,10 @@ class PrivycsVpnService : VpnService() {
             }
 
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
+            // Capture wasConnected BEFORE updating status so we can
+            // distinguish "user disconnected a working tunnel" from
+            // "user tapped disconnect on already-failed connect attempt".
+            val wasConnected = manager.status.value.connected
             manager.updateStatus(VpnStatus())
 
             // Explicit lifecycle signal to the coordinator that the
@@ -781,17 +819,37 @@ class PrivycsVpnService : VpnService() {
             connectStartTime = 0L
             sendWidgetUpdate(connected = false)
 
+            // Industry-standard hardcore Kill Switch: if KS is enabled
+            // AND we just disconnected from a working tunnel AND the
+            // OS-level Always-On VPN is NOT taking over, force the
+            // sinkhole so traffic stays blocked. The natural state-flow
+            // path (engageSinkhole via updateStatus's connected->
+            // disconnected transition) is racy on some Android versions
+            // and was observed not engaging in user testing. Explicit
+            // forceSinkhole here closes that race - the state-flow
+            // observer then establishes the sinkhole tun fd before we
+            // even get to the delay() check below.
+            try {
+                val ksEnabled = PrivycsApp.instance.settingsRepository
+                    .getSettingsBlocking().killSwitchEnabled
+                val alwaysOn = com.privycs.vpn.util.AlwaysOnDetector.detected.value
+                if (ksEnabled && wasConnected && !alwaysOn) {
+                    Log.i(TAG, "handleDisconnect: KS enabled + was connected → forceSinkhole")
+                    com.privycs.vpn.util.KillSwitchManager.forceSinkhole(
+                        "manual disconnect with KS enabled",
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "handleDisconnect: KS sinkhole engage failed: ${e.message}")
+            }
+
             // Critical: if Kill Switch is enabled, the manager.updateStatus
-            // call above just engaged the sinkhole (via the connected->
-            // disconnected transition path in VpnServiceManager.updateStatus
-            // when state was ARMED). The sinkhole tun fd is now alive and
-            // blocking traffic. If we go on to call stopSelf, Android will
-            // destroy this VpnService, which will close the sinkhole fd,
-            // which means traffic flows direct - completely defeating the
-            // user's Kill Switch intent. Stay alive in sinkhole mode and
-            // let the user release it via the toggle or a successful
-            // reconnect. Brief delay lets the state-flow propagation
-            // settle before we check.
+            // call above (or our explicit forceSinkhole) just engaged the
+            // sinkhole. The sinkhole tun fd is now alive and blocking
+            // traffic. If we go on to call stopSelf, Android will destroy
+            // this VpnService, which will close the sinkhole fd, which
+            // means traffic flows direct - completely defeating the user's
+            // Kill Switch intent. Stay alive in sinkhole mode.
             delay(150)
             if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
                 Log.i(TAG, "handleDisconnect: Kill Switch sinkhole engaged - keeping service alive in block-all mode")
