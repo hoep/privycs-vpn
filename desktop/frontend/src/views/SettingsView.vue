@@ -78,15 +78,47 @@
                 <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">
                   {{ connectOnDemand.ssid_mode === 'only' ? 'Connect only on' : 'Do not connect on' }}
                 </label>
-                <input
-                  v-model="ssidListText"
-                  @blur="parseAndSaveSSIDs"
-                  @keyup.enter="parseAndSaveSSIDs"
-                  type="text"
-                  placeholder="HomeWiFi, OfficeNet, CafeSpot"
-                  class="input text-xs"
-                />
-                <p class="text-[10px] text-gray-400 mt-0.5">Comma-separated SSID names</p>
+                <div class="flex gap-1.5">
+                  <input
+                    v-model="newSSID"
+                    @keyup.enter="addSSID"
+                    type="text"
+                    placeholder="Type SSID and press Enter (or Add)"
+                    class="input text-xs flex-1"
+                  />
+                  <button
+                    @click="addSSID"
+                    type="button"
+                    class="btn-secondary px-2 py-1 text-xs whitespace-nowrap"
+                    :disabled="!newSSID.trim()"
+                  >
+                    Add
+                  </button>
+                </div>
+                <div
+                  v-if="connectOnDemand.ssid_list && connectOnDemand.ssid_list.length > 0"
+                  class="flex flex-wrap gap-1.5 mt-2"
+                >
+                  <span
+                    v-for="ssid in connectOnDemand.ssid_list"
+                    :key="ssid"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-full"
+                  >
+                    {{ ssid }}
+                    <button
+                      @click="removeSSID(ssid)"
+                      type="button"
+                      class="hover:text-red-500 ml-0.5 text-base leading-none"
+                      :title="`Remove ${ssid}`"
+                    >&times;</button>
+                  </span>
+                </div>
+                <p
+                  v-else
+                  class="text-[10px] text-gray-400 mt-1"
+                >
+                  No SSIDs added yet. {{ connectOnDemand.ssid_mode === 'only' ? 'Connect-on-Demand will not trigger until you add at least one.' : 'Connect-on-Demand will trigger on every WiFi.' }}
+                </p>
               </div>
               <!-- Live status indicator -->
               <div v-if="codStatus" class="flex items-center gap-1.5 pt-1">
@@ -547,7 +579,8 @@ const connectOnDemand = ref<any>({
   ssid_mode: 'all',
   ssid_list: [],
 })
-const ssidListText = ref('')
+const ssidListText = ref('') // legacy - kept for backward compat in loadSettings
+const newSSID = ref('')
 const codStatus = ref<any>(null)
 let codStatusInterval: ReturnType<typeof setInterval> | null = null
 
@@ -569,12 +602,47 @@ function saveOnDemandSettings() {
   saveSettings()
 }
 
+// Add a single SSID via the chip-input pattern (Android-style):
+// user types one network name, presses Enter (or clicks Add), it
+// appears as a removable chip below. Duplicates are silently
+// ignored. Empty input is a no-op so accidental Enter keystrokes
+// while the field is empty don't add blank entries.
+function addSSID() {
+  const trimmed = newSSID.value.trim()
+  if (!trimmed) return
+  if (!connectOnDemand.value.ssid_list) {
+    connectOnDemand.value.ssid_list = []
+  }
+  if (connectOnDemand.value.ssid_list.includes(trimmed)) {
+    // Already present - just clear input so the user knows nothing
+    // new happened.
+    newSSID.value = ''
+    return
+  }
+  connectOnDemand.value.ssid_list = [...connectOnDemand.value.ssid_list, trimmed]
+  newSSID.value = '' // clear input ready for the next entry
+  saveOnDemandSettings()
+}
+
+// Remove an SSID chip when the user clicks the chip's X.
+function removeSSID(ssid: string) {
+  if (!connectOnDemand.value.ssid_list) return
+  connectOnDemand.value.ssid_list = connectOnDemand.value.ssid_list.filter(
+    (s: string) => s !== ssid,
+  )
+  saveOnDemandSettings()
+}
+
+// Legacy comma-separated parser. Kept ONLY because loadSettings()
+// previously populated `ssidListText` for the old textarea. With the
+// chip-based UI we read from connectOnDemand.value.ssid_list directly,
+// so this function is no longer wired in the template - retained as
+// a no-op stub to avoid breaking any external bindings until we
+// fully retire it.
 function parseAndSaveSSIDs() {
   const text = ssidListText.value.trim()
   if (text) {
     connectOnDemand.value.ssid_list = text.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
-  } else {
-    connectOnDemand.value.ssid_list = []
   }
   saveOnDemandSettings()
 }
