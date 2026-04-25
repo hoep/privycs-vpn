@@ -550,18 +550,36 @@ func (a *App) disconnectInternal() error {
 		return nil
 	}
 
-	// Block auto-detection while disconnecting
+	// Block auto-detection while disconnecting. Do NOT set
+	// a.connected=false yet - that depends on proto.Down succeeding.
+	// If Down returns an error (helper unreachable on Windows etc.)
+	// the tunnel is still running at the OS level and the UI must
+	// keep showing connected, otherwise the user thinks they're
+	// off-VPN while their traffic is actually still being routed
+	// through the tunnel - the bug pattern reported as "tunnel was
+	// active without UI showing it".
 	a.disconnecting = true
-	a.connected = false
 	a.connectedAt = time.Time{}
 
 	log.Printf("Disconnecting %s...", a.activeProtocol)
 
-	if err := proto.Down(a.ctx); err != nil {
-		log.Printf("Disconnect error (non-fatal): %v", err)
+	downErr := proto.Down(a.ctx)
+	a.disconnecting = false
+
+	if downErr != nil {
+		log.Printf("Disconnect error: %v", downErr)
+		// Surface to the user so they can act (e.g. restart helper).
+		// Keep a.connected=true because the OS-level tunnel is in
+		// fact still up.
+		wailsRuntime.EventsEmit(a.ctx, "vpn:error", downErr.Error())
+		Notify("VPN disconnect failed",
+			fmt.Sprintf("%s tunnel could not be torn down: %s",
+				strings.ToUpper(a.activeProtocol), downErr.Error()),
+			NotifyError)
+		return downErr
 	}
 
-	a.disconnecting = false
+	a.connected = false
 
 	// Hardcore Kill Switch semantics: a user-initiated disconnect with KS
 	// enabled engages the sinkhole. Traffic stays blocked until the user

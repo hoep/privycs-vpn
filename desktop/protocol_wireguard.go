@@ -417,6 +417,32 @@ func (w *WireGuardProtocol) downWindows(ctx context.Context) error {
 		return fmt.Errorf("wireguard.exe not found")
 	}
 
+	// Pre-check: is a WireGuard tunnel actually running RIGHT NOW?
+	// sc query is admin-free and returns immediately. We only run
+	// the disconnect dance when there is a service in RUNNING state.
+	// The two cases this skips:
+	//
+	//   - Service does not exist (sc returns 1060): nothing to do.
+	//   - Service exists but is STOPPED / START_PENDING / STOP_PENDING:
+	//     no live tunnel; an orphan service is left alone and gets
+	//     cleaned up on the next genuine connect (which calls
+	//     uninstalltunnelservice as part of its prep).
+	//
+	// Without this check, the UAC fallback below was firing every
+	// time the user clicked Tray Quit while the in-memory
+	// a.connected flag was stale (e.g. user manually stopped the
+	// privileged helper service, the tunnel had since died, but the
+	// app still thought it was connected). User reported exactly
+	// this: "Quit asks for UAC even though no tunnel is active".
+	svcName := "WireGuardTunnel$" + w.ifaceName
+	out, _ := execHidden("sc", "query", svcName).CombinedOutput()
+	if !strings.Contains(string(out), "RUNNING") {
+		log.Printf("WireGuard down: %s not running (state=%q), skipping disconnect",
+			svcName, strings.TrimSpace(string(out)))
+		w.connectedAt = time.Time{}
+		return nil
+	}
+
 	client := NewHelperClient()
 	if client.IsHelperReachable() {
 		log.Printf("Stopping WireGuard tunnel %s via privileged helper", w.ifaceName)
@@ -433,22 +459,26 @@ func (w *WireGuardProtocol) downWindows(ctx context.Context) error {
 		return nil
 	}
 
-	// Fallback: UAC-elevated uninstalltunnelservice.
-	wgExe := findWireGuardExe()
-	psScript := fmt.Sprintf(
-		`Start-Process -FilePath '%s' -ArgumentList '/uninstalltunnelservice',('%s') -Verb RunAs -Wait -WindowStyle Hidden`,
-		wgExe, w.ifaceName,
-	)
-	execHiddenContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", psScript).Run()
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		out, _ := execHidden("sc", "query", "WireGuardTunnel$"+w.ifaceName).CombinedOutput()
-		if !strings.Contains(string(out), "RUNNING") {
-			break
-		}
-	}
-	w.connectedAt = time.Time{}
-	return nil
+	// Helper unreachable AND service is running. Previously this fell
+	// through to a `Start-Process -Verb RunAs` UAC prompt to invoke
+	// wireguard.exe /uninstalltunnelservice directly. The UAC prompt
+	// has been removed because:
+	//
+	//   1. It fired during Tray-Quit when the user just wanted to
+	//      shut the app down - asking for admin rights at exit is
+	//      hostile UX.
+	//   2. The helper service is the supported privileged path; if
+	//      it is unreachable something has gone wrong with the
+	//      installation and the user should restart / reinstall the
+	//      helper rather than be repeatedly prompted.
+	//
+	// Returns an explicit error so the caller (app.go Disconnect /
+	// Quit handler) can decide whether to keep the in-memory
+	// a.connected flag set (UI stays in sync with reality - tunnel
+	// is in fact still up) or proceed regardless (Quit ignores the
+	// error and exits).
+	log.Printf("WireGuard down: helper unreachable; orphan service %s left in place (use EMERGENCY_RECOVERY.md for manual cleanup)", svcName)
+	return fmt.Errorf("WireGuard helper unreachable; tunnel %s is still running. Restart the Privycs Helper service or reinstall to recover", svcName)
 }
 
 // waitForWGService polls for the WireGuardTunnel$<iface> Windows service to
