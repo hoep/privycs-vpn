@@ -520,6 +520,20 @@ class PrivycsVpnService : VpnService() {
 
         scope.launch {
             try {
+                // GUARD 0: hardcore Kill Switch lock. ConnectCoordinator
+                // also gates this in requestConnect/markAlwaysOnConnecting,
+                // but a stale ACTION_CONNECT intent could already be in
+                // flight from before the sinkhole engaged - or some
+                // future caller could bypass the coordinator. Refuse
+                // unconditionally so the sinkhole tun fd stays in place
+                // and the only release path remains the user toggling
+                // KS off in Settings.
+                if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
+                    Log.w(TAG, "handleConnect refused: sinkhole active - manual KS toggle off required")
+                    com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
+                    return@launch
+                }
+
                 // GUARD: refuse connect attempts when there is no
                 // underlying non-VPN network at all. Without this guard
                 // the WG handshake hangs forever (no UDP reply possible),

@@ -223,49 +223,66 @@ fun ConnectScreen(
                 }
             },
             onClick = {
-                val networkMonitor = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
-                if (isConnected && alwaysOnDetected) {
-                    // Always-On gate: plain disconnect is neutered by the
-                    // OS auto-respawn when Always-On is active, so route
-                    // through the pause/settings bottom sheet instead of
-                    // firing a disconnect the OS will immediately undo.
-                    showAlwaysOnSheet = true
-                } else if (isConnected) {
-                    // User explicitly-disconnected but on-demand is in
-                    // charge: if the current network still satisfies the
-                    // rules, bring the tunnel back up immediately.
-                    // Direct orchestration here (rather than relying on
-                    // NetworkMonitor's VpnStatus.collect chain) so that
-                    // users who tap Disconnect while the rule banner
-                    // reads "VPN will connect" see the tunnel re-enter
-                    // within roughly one second, every time.
-                    vpnManager.disconnect()
-                    coroutineScope.launch {
-                        val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
-                        if (!settings.connectOnDemand.enabled) return@launch
-                        // Give the disconnect a moment to propagate
-                        // (service stopSelf + scope.cancel + status=empty).
-                        kotlinx.coroutines.delay(400)
-                        networkMonitor.reevaluate()
-                        val ns = networkMonitor.networkState.value
-                        if (ns.shouldConnect && !vpnManager.isConnected) {
-                            com.privycs.vpn.util.PrivycsLogger.i(
-                                "ConnectScreen",
-                                "On-demand reconnect after manual disconnect (${ns.ruleMatch})"
-                            )
-                            vpnManager.connect()
-                        }
-                    }
+                // Hardcore Kill Switch lock: when the sinkhole is engaged
+                // the only valid release is the user toggling KS off in
+                // Settings. Tapping the connect button (which renders as
+                // the kill-switch shield icon in this state) does NOT
+                // trigger a connect attempt - no spinner, no service
+                // intent, no state change. We surface a one-line toast
+                // so the user understands the lock instead of just
+                // seeing a non-responsive button.
+                if (isSinkholeActive) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Kill Switch is active. Toggle Kill Switch off in Settings to release.",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
                 } else {
-                    val prepareIntent = vpnManager.prepareVpn()
-                    if (prepareIntent != null) {
-                        vpnPermissionLauncher.launch(prepareIntent)
+                    val networkMonitor = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
+                    if (isConnected && alwaysOnDetected) {
+                        // Always-On gate: plain disconnect is neutered by
+                        // the OS auto-respawn when Always-On is active, so
+                        // route through the pause/settings bottom sheet
+                        // instead of firing a disconnect the OS will
+                        // immediately undo.
+                        showAlwaysOnSheet = true
+                    } else if (isConnected) {
+                        // User explicitly-disconnected but on-demand is in
+                        // charge: if the current network still satisfies
+                        // the rules, bring the tunnel back up immediately.
+                        // Direct orchestration here (rather than relying
+                        // on NetworkMonitor's VpnStatus.collect chain) so
+                        // that users who tap Disconnect while the rule
+                        // banner reads "VPN will connect" see the tunnel
+                        // re-enter within roughly one second, every time.
+                        vpnManager.disconnect()
+                        coroutineScope.launch {
+                            val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
+                            if (!settings.connectOnDemand.enabled) return@launch
+                            // Give the disconnect a moment to propagate
+                            // (service stopSelf + scope.cancel + status=empty).
+                            kotlinx.coroutines.delay(400)
+                            networkMonitor.reevaluate()
+                            val ns = networkMonitor.networkState.value
+                            if (ns.shouldConnect && !vpnManager.isConnected) {
+                                com.privycs.vpn.util.PrivycsLogger.i(
+                                    "ConnectScreen",
+                                    "On-demand reconnect after manual disconnect (${ns.ruleMatch})"
+                                )
+                                vpnManager.connect()
+                            }
+                        }
                     } else {
-                        val conn = connectionRepo.getActive()
-                        if (conn != null && conn.needsKeyChainPrep()) {
-                            ipSecPrep(conn)
+                        val prepareIntent = vpnManager.prepareVpn()
+                        if (prepareIntent != null) {
+                            vpnPermissionLauncher.launch(prepareIntent)
                         } else {
-                            vpnManager.connect()
+                            val conn = connectionRepo.getActive()
+                            if (conn != null && conn.needsKeyChainPrep()) {
+                                ipSecPrep(conn)
+                            } else {
+                                vpnManager.connect()
+                            }
                         }
                     }
                 }

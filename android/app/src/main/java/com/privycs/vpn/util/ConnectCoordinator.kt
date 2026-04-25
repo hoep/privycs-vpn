@@ -125,6 +125,23 @@ object ConnectCoordinator {
         connection: VpnConnection,
     ): Result {
         return mutex.withLock {
+            // Gate 0: hardcore Kill Switch lock. When the sinkhole is
+            // engaged, the user has explicitly asked for an absolute
+            // traffic block until they themselves toggle KS off. NO
+            // connect intent is allowed to release the lock - not
+            // user taps, not COD on network change, not widget/tile,
+            // not boot-time auto-start, not Always-On respawn. The
+            // sinkhole release path is exactly one: SettingsRepository
+            // .updateKillSwitch(false) -> KillSwitchManager.disarm()
+            // -> state SINKHOLE -> IDLE. Once IDLE, isSinkholeActive
+            // returns false and this gate stops blocking; the
+            // post-sinkhole COD reconnect inside forceTeardownAfter
+            // Sinkhole then proceeds normally.
+            if (KillSwitchManager.isSinkholeActive()) {
+                PrivycsLogger.w(TAG, "requestConnect($source) refused: sinkhole active - manual KS toggle off required")
+                return@withLock Result.Gated("kill switch sinkhole active")
+            }
+
             // Gate 1: system-revoke cooldown. The OS just tore our
             // service down; give the teardown time to settle before
             // firing a new connect that would collide.
@@ -249,6 +266,17 @@ object ConnectCoordinator {
      */
     suspend fun markAlwaysOnConnecting(connection: VpnConnection): Boolean {
         return mutex.withLock {
+            // Hardcore Kill Switch lock applies to Always-On too.
+            // Always-On bypasses requestConnect (the service was
+            // respawned by the OS with a null intent and reaches
+            // handleAlwaysOnReconnect directly), so the gate has to
+            // be repeated here. Returning false makes
+            // handleAlwaysOnReconnect bail out cleanly and the
+            // sinkhole tun fd stays in place.
+            if (KillSwitchManager.isSinkholeActive()) {
+                PrivycsLogger.w(TAG, "markAlwaysOnConnecting refused: sinkhole active - manual KS toggle off required")
+                return@withLock false
+            }
             when (_state.value) {
                 is State.Idle -> {
                     PrivycsLogger.i(TAG, "markAlwaysOnConnecting: claiming slot")
