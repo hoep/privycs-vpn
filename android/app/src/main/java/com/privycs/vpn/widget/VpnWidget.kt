@@ -405,17 +405,26 @@ class VpnWidget : AppWidgetProvider() {
             R.id.widget_protocol_ovpn_label, activeProtocol == VpnProtocol.OPENVPN,
         )
 
-        // --- Section 4b: Status label inside the circle (matches the
-        // ConnectScreen ConnectButton's "Connected" / "Disconnected"
-        // text below the icon). ---
-        views.setTextViewText(
-            R.id.widget_button_label,
-            when {
-                killSwitchSinkhole -> context.getString(R.string.widget_status_kill_switch_active)
-                connected -> context.getString(R.string.widget_status_connected)
-                else -> context.getString(R.string.widget_status_disconnected)
-            },
-        )
+        // --- Section 4b: Status label inside the circle.
+        //
+        // The Connect-screen screenshot shows "Connected" inside the
+        // green disc as a white label beneath the icon. We mirror that
+        // ONLY in the connected state. In disconnected / sinkhole
+        // states the widget_uptime field directly below the circle
+        // already carries the same status text (grey / red), so
+        // duplicating it inside the disc would print "Kill Switch
+        // Active" twice on screen. Hide the inner label in those
+        // states; the icon expands into the freed space because of
+        // weight=1 on the icon ImageView.
+        if (connected && !killSwitchSinkhole) {
+            views.setViewVisibility(R.id.widget_button_label, android.view.View.VISIBLE)
+            views.setTextViewText(
+                R.id.widget_button_label,
+                context.getString(R.string.widget_status_connected),
+            )
+        } else {
+            views.setViewVisibility(R.id.widget_button_label, android.view.View.GONE)
+        }
 
         // --- Section 5: Endpoint (centered below pills) ---
         views.setTextViewText(
