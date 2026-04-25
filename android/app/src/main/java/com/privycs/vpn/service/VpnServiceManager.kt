@@ -237,55 +237,93 @@ class VpnServiceManager private constructor(private val context: Context) {
 
     /**
      * Switch the ACTIVE CONNECTION (different VpnConnection entry,
-     * potentially different server/credentials/protocol set) and, if
-     * the tunnel is currently up, tear it down and reconnect to the
-     * newly-active connection.
+     * potentially different server/credentials/protocol set).
      *
-     * Mirrors the disconnect/wait/reconnect serialisation from
-     * switchProtocol so the same race that breaks IPSec -> WireGuard
-     * protocol transitions cannot break a connection switch either.
+     * Reconnect policy:
+     *  - Tunnel currently UP: tear it down, reconnect to the new
+     *    connection. Mirrors switchProtocol's disconnect/wait/
+     *    reconnect serialisation so the same races (charon
+     *    IKE_SA_DELETE, WG GoBackend goroutines, OVPN management
+     *    socket close) cannot collide a fresh tun fd into a still-
+     *    teardown-running native plugin.
+     *  - Tunnel DOWN but Connect-on-Demand wants a tunnel up on the
+     *    current network (settings.connectOnDemand.enabled AND
+     *    networkMonitor.networkState.shouldConnect): auto-connect
+     *    with the new connection. Without this branch the COD
+     *    auto-management would re-evaluate at next network event,
+     *    leaving an inconsistent gap where the user thought they
+     *    switched but the auto-state stayed unbound.
+     *  - Tunnel DOWN and COD inactive: only persist setActive. User
+     *    taps Connect when they want it.
      *
-     * Kill Switch interaction (the caller is expected to surface a
-     * toast warning before calling): if KS is armed, the disconnect
-     * triggers the hardcore-lock forceSinkhole path and the
-     * subsequent connect() is refused by ConnectCoordinator's
-     * sinkhole gate. The new connection's id is still persisted via
-     * setActive so that when the user later toggles KS off, the new
-     * connection is the one that comes back up.
+     * Returns true when a reconnect will be attempted (caller can
+     * surface a Kill Switch warning toast in that case), false when
+     * the call is purely a setActive. KS interaction unchanged: the
+     * sinkhole gate in ConnectCoordinator refuses every reconnect
+     * attempt while sinkhole is engaged; the new active id is still
+     * persisted so toggling KS off later resumes with the right
+     * connection.
      */
-    fun switchActiveConnection(connectionId: String) {
+    fun switchActiveConnection(connectionId: String): Boolean {
         val current = connectionRepo.activeId
-        if (current == connectionId) return
+        if (current == connectionId) return false
 
         val wasConnected = isConnected
         connectionRepo.setActive(connectionId)
         refreshStatus()
 
-        if (!wasConnected) return
-
-        scope.launch {
-            val intent = Intent(context, PrivycsVpnService::class.java).apply {
-                action = PrivycsVpnService.ACTION_DISCONNECT
-            }
-            try {
-                context.startService(intent)
-            } catch (e: Exception) {
-                PrivycsLogger.w(TAG, "switchActiveConnection: disconnect intent failed: ${e.message}")
-            }
-
-            try {
-                kotlinx.coroutines.withTimeout(4000) {
-                    _status.filter { !it.connected }.first()
+        if (wasConnected) {
+            scope.launch {
+                val intent = Intent(context, PrivycsVpnService::class.java).apply {
+                    action = PrivycsVpnService.ACTION_DISCONNECT
                 }
-            } catch (_: Exception) {
-                PrivycsLogger.w(TAG, "switchActiveConnection: disconnect wait timed out, connecting anyway")
+                try {
+                    context.startService(intent)
+                } catch (e: Exception) {
+                    PrivycsLogger.w(TAG, "switchActiveConnection: disconnect intent failed: ${e.message}")
+                }
+
+                try {
+                    kotlinx.coroutines.withTimeout(4000) {
+                        _status.filter { !it.connected }.first()
+                    }
+                } catch (_: Exception) {
+                    PrivycsLogger.w(TAG, "switchActiveConnection: disconnect wait timed out, connecting anyway")
+                }
+
+                // Native-side teardown grace - same rationale as switchProtocol.
+                kotlinx.coroutines.delay(1500)
+
+                connect(connectionId)
             }
+            return true
+        }
 
-            // Native-side teardown grace - same rationale as switchProtocol.
-            kotlinx.coroutines.delay(1500)
+        // Not currently connected. Honour Connect-on-Demand: if the
+        // user has COD enabled and the current network's rule says
+        // the tunnel should be up, switching connection should bring
+        // it up with the new connection rather than wait for the
+        // next network event.
+        val settings = com.privycs.vpn.PrivycsApp.instance
+            .settingsRepository.getSettingsBlocking()
+        if (!settings.connectOnDemand.enabled) return false
 
+        val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
+        nm.reevaluate()
+        val ns = nm.networkState.value
+        if (!ns.shouldConnect) return false
+
+        PrivycsLogger.i(
+            TAG,
+            "switchActiveConnection: COD rule matches (${ns.ruleMatch}) - reconnecting with new connection",
+        )
+        scope.launch {
+            // Brief delay so setActive's StateFlow update has propagated
+            // before connect() reads connectionRepo.activeId.
+            kotlinx.coroutines.delay(200)
             connect(connectionId)
         }
+        return true
     }
 
     /**

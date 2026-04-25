@@ -428,7 +428,11 @@ fun ConnectionsScreen(
                                 if (connection.id != registry.activeId) {
                                     val vpnManager = com.privycs.vpn.service.VpnServiceManager
                                         .getInstance(context)
-                                    if (vpnManager.isConnected &&
+                                    // Only warn about KS blocking when a
+                                    // reconnect will actually be attempted
+                                    // (tunnel was up, or COD wants one up).
+                                    val willReconnect = vpnManager.switchActiveConnection(connection.id)
+                                    if (willReconnect &&
                                         com.privycs.vpn.util.KillSwitchManager.isArmed()
                                     ) {
                                         android.widget.Toast.makeText(
@@ -437,7 +441,6 @@ fun ConnectionsScreen(
                                             android.widget.Toast.LENGTH_LONG,
                                         ).show()
                                     }
-                                    vpnManager.switchActiveConnection(connection.id)
                                 }
                                 onNavigateToConnect()
                             },

@@ -392,15 +392,16 @@ fun ConnectScreen(
                             onClick = {
                                 showConnectionPicker = false
                                 if (conn.id != registry.activeId) {
-                                    // Warn if KS is currently armed AND a tunnel
-                                    // is up: switchActiveConnection will tear
-                                    // the current tunnel down (forceSinkhole
-                                    // engages on disconnect-with-KS-armed),
-                                    // and the subsequent reconnect to the new
-                                    // connection will be refused by the
-                                    // hardcore-lock sinkhole gate. The user
-                                    // must toggle KS off to allow the switch.
-                                    if (vpnManager.isConnected &&
+                                    // switchActiveConnection returns true iff
+                                    // a reconnect will actually be attempted
+                                    // (either because a tunnel was up, or
+                                    // because COD wants one up on this
+                                    // network). Only in that case can the
+                                    // hardcore-lock sinkhole block the
+                                    // reconnect, so the toast is gated on
+                                    // both the return value AND KS state.
+                                    val willReconnect = vpnManager.switchActiveConnection(conn.id)
+                                    if (willReconnect &&
                                         com.privycs.vpn.util.KillSwitchManager.isArmed()
                                     ) {
                                         android.widget.Toast.makeText(
@@ -409,7 +410,6 @@ fun ConnectScreen(
                                             android.widget.Toast.LENGTH_LONG,
                                         ).show()
                                     }
-                                    vpnManager.switchActiveConnection(conn.id)
                                 }
                             }
                         )
