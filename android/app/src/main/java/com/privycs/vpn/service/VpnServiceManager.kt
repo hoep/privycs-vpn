@@ -236,6 +236,59 @@ class VpnServiceManager private constructor(private val context: Context) {
     }
 
     /**
+     * Switch the ACTIVE CONNECTION (different VpnConnection entry,
+     * potentially different server/credentials/protocol set) and, if
+     * the tunnel is currently up, tear it down and reconnect to the
+     * newly-active connection.
+     *
+     * Mirrors the disconnect/wait/reconnect serialisation from
+     * switchProtocol so the same race that breaks IPSec -> WireGuard
+     * protocol transitions cannot break a connection switch either.
+     *
+     * Kill Switch interaction (the caller is expected to surface a
+     * toast warning before calling): if KS is armed, the disconnect
+     * triggers the hardcore-lock forceSinkhole path and the
+     * subsequent connect() is refused by ConnectCoordinator's
+     * sinkhole gate. The new connection's id is still persisted via
+     * setActive so that when the user later toggles KS off, the new
+     * connection is the one that comes back up.
+     */
+    fun switchActiveConnection(connectionId: String) {
+        val current = connectionRepo.activeId
+        if (current == connectionId) return
+
+        val wasConnected = isConnected
+        connectionRepo.setActive(connectionId)
+        refreshStatus()
+
+        if (!wasConnected) return
+
+        scope.launch {
+            val intent = Intent(context, PrivycsVpnService::class.java).apply {
+                action = PrivycsVpnService.ACTION_DISCONNECT
+            }
+            try {
+                context.startService(intent)
+            } catch (e: Exception) {
+                PrivycsLogger.w(TAG, "switchActiveConnection: disconnect intent failed: ${e.message}")
+            }
+
+            try {
+                kotlinx.coroutines.withTimeout(4000) {
+                    _status.filter { !it.connected }.first()
+                }
+            } catch (_: Exception) {
+                PrivycsLogger.w(TAG, "switchActiveConnection: disconnect wait timed out, connecting anyway")
+            }
+
+            // Native-side teardown grace - same rationale as switchProtocol.
+            kotlinx.coroutines.delay(1500)
+
+            connect(connectionId)
+        }
+    }
+
+    /**
      * Update status from VpnService (called via service binding or broadcast).
      * Once the tunnel reports either connected=true or an error, clear the
      * connecting spinner - otherwise ConnectScreen keeps showing

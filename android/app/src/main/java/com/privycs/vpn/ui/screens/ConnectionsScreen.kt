@@ -425,7 +425,20 @@ fun ConnectionsScreen(
                             connection = connection,
                             isActive = connection.id == registry.activeId,
                             onClick = {
-                                connectionRepo.setActive(connection.id)
+                                if (connection.id != registry.activeId) {
+                                    val vpnManager = com.privycs.vpn.service.VpnServiceManager
+                                        .getInstance(context)
+                                    if (vpnManager.isConnected &&
+                                        com.privycs.vpn.util.KillSwitchManager.isArmed()
+                                    ) {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Kill Switch active. This will block your reconnect!",
+                                            android.widget.Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                    vpnManager.switchActiveConnection(connection.id)
+                                }
                                 onNavigateToConnect()
                             },
                             onDelete = { deleteTarget = connection },

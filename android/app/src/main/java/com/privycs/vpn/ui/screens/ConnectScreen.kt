@@ -392,8 +392,24 @@ fun ConnectScreen(
                             onClick = {
                                 showConnectionPicker = false
                                 if (conn.id != registry.activeId) {
-                                    connectionRepo.setActive(conn.id)
-                                    vpnManager.refreshStatus()
+                                    // Warn if KS is currently armed AND a tunnel
+                                    // is up: switchActiveConnection will tear
+                                    // the current tunnel down (forceSinkhole
+                                    // engages on disconnect-with-KS-armed),
+                                    // and the subsequent reconnect to the new
+                                    // connection will be refused by the
+                                    // hardcore-lock sinkhole gate. The user
+                                    // must toggle KS off to allow the switch.
+                                    if (vpnManager.isConnected &&
+                                        com.privycs.vpn.util.KillSwitchManager.isArmed()
+                                    ) {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Kill Switch active. This will block your reconnect!",
+                                            android.widget.Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                    vpnManager.switchActiveConnection(conn.id)
                                 }
                             }
                         )
