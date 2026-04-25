@@ -23,6 +23,29 @@ func startPlatformWatcher(callback func()) (stopFn func(), err error) {
 	}
 
 	// Subscribe to NetworkManager state change signals.
+	//
+	// Two match rules together cover every event we care about:
+	//
+	//   1. NetworkManager.StateChanged - the global "we have/lost
+	//      connectivity" signal. Fires on overall connection-state
+	//      transitions.
+	//
+	//   2. PropertiesChanged with path_namespace = the NM root.
+	//      This wildcard catches EVERY property change on any
+	//      object under /org/freedesktop/NetworkManager/, which
+	//      includes:
+	//        - Device state changes (WiFi associate/disassociate,
+	//          Ethernet plug-in/-out)
+	//        - Device.Wireless ActiveAccessPoint changes (SSID
+	//          change / mesh-roam, the "Windows WLAN-roam" case)
+	//        - AccessPoint signal-strength changes (mostly noise
+	//          but cheap to re-evaluate)
+	//        - ActiveConnection / Settings changes
+	//
+	// The wildcard match is what makes Linux event-coverage feature-
+	// equivalent to Windows WlanRegisterNotification: SSID-roam
+	// without IP-change still fires because the wireless device's
+	// ActiveAccessPoint property updates and our rule catches it.
 	matchRules := []string{
 		"type='signal',interface='org.freedesktop.NetworkManager',member='StateChanged'",
 		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path_namespace='/org/freedesktop/NetworkManager'",

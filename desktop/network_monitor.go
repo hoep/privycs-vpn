@@ -92,11 +92,27 @@ func (nm *NetworkMonitor) CurrentState() NetworkState {
 	return nm.lastState
 }
 
-// UpdateSettings updates the rules without restarting the monitor
+// UpdateSettings updates the rules without restarting the monitor.
+// Does NOT trigger an immediate re-evaluation - caller should follow
+// with Reevaluate() if the settings change should take effect right
+// away (e.g. user-initiated trigger or SSID list change).
 func (nm *NetworkMonitor) UpdateSettings(settings *ConnectOnDemandSettings) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 	nm.settings = settings
+}
+
+// Reevaluate triggers an immediate rules check off the monitor's
+// own goroutines. Used after settings changes so the user sees
+// connect/disconnect actions take effect within ~1s instead of
+// waiting up to 60s for the next safety-poll tick.
+//
+// Why a separate method instead of folding it into UpdateSettings:
+// some callers (e.g. internal state-sync paths) want to push new
+// settings WITHOUT firing a re-eval. Keeping the two operations
+// separate lets the caller pick the right behaviour.
+func (nm *NetworkMonitor) Reevaluate() {
+	go nm.checkAndAct()
 }
 
 // run sets up the platform event watcher and the safety poll timer.
@@ -158,11 +174,22 @@ func (nm *NetworkMonitor) checkAndAct() {
 
 	connected := nm.isConnected()
 
+	// Simple match-based actions. Connect when rules match and VPN
+	// is down; disconnect when rules do not match and VPN is up.
+	//
+	// This intentionally treats COD-enabled as authoritative: if the
+	// user has COD on with restrictive rules, manual connects that
+	// fall outside those rules will be torn down. If the user wants
+	// manual control, they should either disable COD or set the
+	// trigger to "any". An earlier transition-based variant (only
+	// fire on edge prev->current) was tried but had a hole: VPN that
+	// was already up at app start with no-longer-matching rules
+	// stayed up indefinitely, contradicting user expectation.
 	if match && !connected {
 		log.Printf("Network monitor: rules match (type=%s, ssid=%s), triggering connect", state.NetworkType, state.SSID)
 		nm.connectFn()
 	} else if !match && connected && nm.disconnectFn != nil {
-		log.Printf("Network monitor: rules no longer match (type=%s, ssid=%s), triggering disconnect", state.NetworkType, state.SSID)
+		log.Printf("Network monitor: rules do not match (type=%s, ssid=%s), triggering disconnect", state.NetworkType, state.SSID)
 		nm.disconnectFn()
 	}
 }
@@ -189,16 +216,21 @@ func evaluateRules(settings *ConnectOnDemandSettings, state *NetworkState) bool 
 
 	// Check trigger type match.
 	//
-	// "any" is the desktop-relevant addition - on a wired desktop the
-	// user is on Ethernet, not WiFi or Mobile, so "wifi_mobile" never
-	// matches and COD never fires. "any" matches as long as any
-	// non-loopback connectivity is present.
+	// Desktop-relevant additions over the original wifi/mobile/
+	// wifi_mobile triple:
+	//   - "ethernet": only on wired connections (e.g. "VPN at the
+	//     office desk; not from my laptop on the go").
+	//   - "any": matches as long as any non-loopback connectivity is
+	//     present. Right default for desktop where the user does not
+	//     need to think about network class at all.
 	triggerMatch := false
 	switch settings.Trigger {
 	case "wifi":
 		triggerMatch = state.NetworkType == "wifi"
 	case "mobile":
 		triggerMatch = state.NetworkType == "mobile"
+	case "ethernet":
+		triggerMatch = state.NetworkType == "ethernet"
 	case "wifi_mobile":
 		triggerMatch = state.NetworkType == "wifi" || state.NetworkType == "mobile"
 	case "any":

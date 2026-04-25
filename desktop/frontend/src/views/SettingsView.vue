@@ -58,6 +58,7 @@
                   :options="[
                     { value: 'any', label: 'Any network' },
                     { value: 'wifi', label: 'WiFi only' },
+                    { value: 'ethernet', label: 'Ethernet only' },
                     { value: 'mobile', label: 'Mobile only' },
                     { value: 'wifi_mobile', label: 'WiFi & Mobile' },
                   ]"

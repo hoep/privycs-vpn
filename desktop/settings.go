@@ -66,17 +66,15 @@ func LoadSettings() *AppSettings {
 		SaveSettings(&settings)
 	}
 
-	// Migrate stale trigger="wifi_mobile" to "any" for desktop users:
-	// the old default never matched on wired/Ethernet machines (the
-	// most common desktop case) so users who simply enabled COD on a
-	// wired machine got silent no-ops. "any" is now the default.
-	// Only applied if the user has not customized the trigger to one
-	// of the explicit values that signal intent (wifi-only or
-	// mobile-only).
-	if settings.ConnectOnDemand.Trigger == "wifi_mobile" {
-		settings.ConnectOnDemand.Trigger = "any"
-		SaveSettings(&settings)
-	}
+	// (Removed: a one-shot trigger="wifi_mobile" -> "any" migration.
+	// The migration was correct for users stuck on the legacy default,
+	// but it also FIRED EVERY APP START - meaning a user who explicitly
+	// chose "wifi_mobile" via the UI got their choice silently
+	// reverted on next launch. Without a "migrated" flag in settings.
+	// json there is no way to distinguish "default-never-touched" from
+	// "explicit-via-UI", so we cannot safely auto-migrate. Fresh
+	// installs get "any" as the default via defaultSettings(); existing
+	// users who want "any" can pick it from the dropdown manually.)
 
 	return &settings
 }

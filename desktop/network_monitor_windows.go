@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -15,7 +16,28 @@ import (
 var (
 	iphlpapi             = syscall.NewLazyDLL("iphlpapi.dll")
 	procNotifyAddrChange = iphlpapi.NewProc("NotifyAddrChange")
+
+	wlanapi                     = syscall.NewLazyDLL("wlanapi.dll")
+	procWlanOpenHandle          = wlanapi.NewProc("WlanOpenHandle")
+	procWlanCloseHandle         = wlanapi.NewProc("WlanCloseHandle")
+	procWlanRegisterNotification = wlanapi.NewProc("WlanRegisterNotification")
 )
+
+// Windows WLAN_NOTIFICATION_SOURCE bit flags. We only care about
+// ACM (Auto Configuration Module) - that source emits the
+// connection / disconnection / SSID change events we want.
+const wlanNotificationSourceACM = 0x00000008
+
+// WLAN_NOTIFICATION_DATA layout per wlanapi.h. We do NOT need to
+// inspect the Code field - any ACM notification is a potential
+// trigger to re-evaluate rules. Fields kept for documentation.
+type wlanNotificationData struct {
+	NotificationSource uint32
+	NotificationCode   uint32
+	InterfaceGuid      [16]byte
+	DataSize           uint32
+	Data               unsafe.Pointer
+}
 
 // startPlatformWatcher uses the Win32 NotifyAddrChange API to receive
 // immediate notification when any network adapter address changes.
@@ -38,6 +60,9 @@ func startPlatformWatcher(callback func()) (stopFn func(), err error) {
 	stopCh := make(chan struct{})
 	var once sync.Once
 
+	// Source 1: NotifyAddrChange (kernel callback on IP / interface
+	// up-down). Catches Ethernet plug-in, DHCP renewal with new IP,
+	// most WiFi associate / disassociate events.
 	go func() {
 		for {
 			var handle syscall.Handle
@@ -71,8 +96,116 @@ func startPlatformWatcher(callback func()) (stopFn func(), err error) {
 		}
 	}()
 
-	log.Println("Network monitor: listening for Windows address change notifications")
-	return func() { once.Do(func() { close(stopCh) }) }, nil
+	// Source 2: WlanRegisterNotification (kernel callback on WLAN ACM
+	// events). Catches the SSID-roam-without-IP-change case that
+	// NotifyAddrChange misses - e.g. switching between two access
+	// points in the same enterprise mesh that hand out IPs from the
+	// same DHCP pool. ACM source emits connection_complete (10),
+	// disconnected (21), network_available (15), scan_complete (8)
+	// among others; we treat ANY ACM event as a re-evaluation
+	// trigger, so we do not need to filter by code.
+	wlanStop, wlanErr := startWlanWatcher(stopCh, callback)
+	if wlanErr != nil {
+		// Non-fatal: WLAN service may not be running on a server SKU
+		// or in a stripped-down Windows install. NotifyAddrChange
+		// remains active and handles Ethernet + most WiFi cases.
+		log.Printf("Network monitor: WLAN watcher unavailable (%v) - falling back to address-change only", wlanErr)
+	}
+
+	log.Println("Network monitor: listening for Windows address-change + WLAN notifications")
+	return func() {
+		once.Do(func() {
+			close(stopCh)
+			if wlanStop != nil {
+				wlanStop()
+			}
+		})
+	}, nil
+}
+
+// startWlanWatcher opens a wlanapi handle, registers a kernel
+// callback for ACM-source notifications, and returns a cleanup
+// function. The callback runs on a Windows-internal worker thread;
+// we bridge into our Go callback via syscall.NewCallback which
+// produces a pointer the kernel can invoke directly.
+//
+// On any error during open / register the function returns and the
+// rest of the network monitor keeps working with NotifyAddrChange
+// only - WLAN watching is a best-effort enhancement, not a hard
+// dependency.
+func startWlanWatcher(stopCh <-chan struct{}, callback func()) (cleanup func(), err error) {
+	var clientHandle uintptr
+	var negotiatedVersion uint32
+	// WLAN_API_VERSION_2_0 = 0x00000002 (Vista+; we target Win10+).
+	const wlanAPIVersion = 0x00000002
+
+	ret, _, _ := procWlanOpenHandle.Call(
+		uintptr(wlanAPIVersion),
+		0, // pReserved
+		uintptr(unsafe.Pointer(&negotiatedVersion)),
+		uintptr(unsafe.Pointer(&clientHandle)),
+	)
+	if ret != 0 {
+		return nil, fmt.Errorf("WlanOpenHandle returned %d", ret)
+	}
+
+	// Build the kernel-callable trampoline. The Win32 callback
+	// signature is:
+	//   VOID WINAPI WlanNotificationCallback(
+	//       PWLAN_NOTIFICATION_DATA pNotifData, PVOID pContext);
+	// syscall.NewCallback wraps a Go closure; the returned uintptr
+	// is suitable to pass to RegisterNotification. The Go callback
+	// itself does not need to inspect the notification details - any
+	// ACM event is a re-eval trigger.
+	cbPtr := syscall.NewCallback(func(notifData uintptr, context uintptr) uintptr {
+		// Recover from any panic so a bad callback cannot crash the
+		// WLAN service worker thread.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Network monitor: WLAN callback panic: %v", r)
+			}
+		}()
+		// Off-thread the work - the kernel callback should return
+		// fast and not run user logic synchronously.
+		go func() {
+			select {
+			case <-stopCh:
+				return
+			default:
+			}
+			log.Println("Network monitor: WLAN notification received")
+			callback()
+		}()
+		return 0
+	})
+
+	var prevSource uint32
+	ret, _, _ = procWlanRegisterNotification.Call(
+		clientHandle,
+		uintptr(wlanNotificationSourceACM),
+		1, // bIgnoreDuplicate = TRUE (suppress identical back-to-back)
+		cbPtr,
+		0, // pCallbackContext
+		0, // pReserved
+		uintptr(unsafe.Pointer(&prevSource)),
+	)
+	if ret != 0 {
+		procWlanCloseHandle.Call(clientHandle, 0)
+		return nil, fmt.Errorf("WlanRegisterNotification returned %d", ret)
+	}
+
+	cleanup = func() {
+		// Unregister by setting source mask to 0 + nil callback,
+		// then close the handle. Failures here are non-fatal -
+		// shutdown either way.
+		var prev uint32
+		procWlanRegisterNotification.Call(
+			clientHandle, 0, 0, 0, 0, 0,
+			uintptr(unsafe.Pointer(&prev)),
+		)
+		procWlanCloseHandle.Call(clientHandle, 0)
+	}
+	return cleanup, nil
 }
 
 // getCurrentSSIDPlatform returns the current WiFi SSID on Windows

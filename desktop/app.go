@@ -154,19 +154,19 @@ func (a *App) startup(ctx context.Context) {
 		a.startTray()
 	}()
 
-	// Auto-connect: prefer connect-on-demand if enabled, fall back to legacy
-	connectFn := func() {
-		a.Connect(a.activeProtocol)
-	}
-	isConnectedFn := func() bool {
-		a.mu.RLock()
-		defer a.mu.RUnlock()
-		return a.connected
-	}
-	if a.settings.ConnectOnDemand.Enabled && !a.connected {
-		a.autoConnect.StartWithOnDemand(&a.settings.ConnectOnDemand, connectFn, nil, isConnectedFn)
+	// Auto-connect: prefer connect-on-demand if enabled, fall back to legacy.
+	if a.settings.ConnectOnDemand.Enabled {
+		// COD owns the connect/disconnect lifecycle whenever enabled,
+		// regardless of whether a tunnel is already up at startup. The
+		// monitor's first evaluation will either confirm the connect
+		// is wanted (rules match) or tear it down (rules do not match).
+		a.startOnDemandMonitoring()
 	} else if a.settings.AutoConnectOnStart && !a.connected {
-		a.autoConnect.Start(connectFn, isConnectedFn)
+		a.autoConnect.Start(func() { a.Connect(a.activeProtocol) }, func() bool {
+			a.mu.RLock()
+			defer a.mu.RUnlock()
+			return a.connected
+		})
 	}
 
 	// MIGRATION: clean up legacy PrivycsKS-* rules from prior versions.
@@ -901,9 +901,49 @@ func (a *App) UpdateSettings(settings *AppSettings) error {
 
 	prevAutostart := a.settings != nil && a.settings.AutostartEnabled
 	prevKS := a.settings != nil && a.settings.KillSwitchEnabled
+	prevCOD := a.settings != nil && a.settings.ConnectOnDemand.Enabled
 
 	a.settings = settings
 	SaveSettings(settings)
+
+	// Connect-on-Demand transitions:
+	//
+	//   off -> on : start the network monitor; a tick later it will
+	//               connect or disconnect according to current rules.
+	//   on -> off : stop the monitor AND immediately disconnect any
+	//               active tunnel. The user toggling COD off is an
+	//               explicit "I do not want auto-management AND I do
+	//               not want VPN right now" intent (per user feedback).
+	//   on -> on  : push the new ConnectOnDemand pointer into the
+	//               monitor so settings changes (trigger, ssid_list)
+	//               take effect immediately rather than on next 60s
+	//               poll. Otherwise the monitor would still hold the
+	//               pointer to the OLD settings struct that
+	//               `a.settings = settings` just orphaned.
+	switch {
+	case !prevCOD && settings.ConnectOnDemand.Enabled:
+		a.startOnDemandMonitoring()
+	case prevCOD && !settings.ConnectOnDemand.Enabled:
+		a.autoConnect.Stop()
+		if a.connected {
+			// Detach disconnect from the locked UpdateSettings path -
+			// proto.Down can be slow and we hold a.mu here.
+			go func() {
+				if err := a.Disconnect(); err != nil {
+					log.Printf("UpdateSettings: COD-off triggered disconnect failed: %v", err)
+				}
+			}()
+		}
+	case prevCOD && settings.ConnectOnDemand.Enabled:
+		nm := a.autoConnect.NetworkMonitor()
+		nm.UpdateSettings(&a.settings.ConnectOnDemand)
+		// Force an immediate re-eval so the change takes effect
+		// within ~1s rather than up to 60s (the safety-poll
+		// interval). Common case: user just changed the trigger
+		// from "any" to "wifi_mobile" while on Ethernet - they
+		// expect the VPN to disconnect now, not in a minute.
+		nm.Reevaluate()
+	}
 
 	// Apply kill switch setting via the new state machine, but only
 	// when it actually changed - applyKillSwitchSetting calls
@@ -955,6 +995,38 @@ func (a *App) SetKillSwitch(enabled bool) error {
 	a.settings.KillSwitchEnabled = enabled
 	SaveSettings(a.settings)
 	return nil
+}
+
+// startOnDemandMonitoring builds the connect/disconnect/isConnected
+// closures that the network monitor needs and starts the monitor
+// against the current ConnectOnDemand settings.
+//
+// Used from:
+//   - startup() when COD is enabled at app launch.
+//   - UpdateSettings() when the user toggles COD from off to on.
+//
+// The monitor's first evaluation runs ~3s after Start to give the app
+// time to finish initialising; subsequent evaluations are driven by
+// platform network events plus a 60s safety poll.
+func (a *App) startOnDemandMonitoring() {
+	connectFn := func() {
+		a.Connect(a.activeProtocol)
+	}
+	disconnectFn := func() {
+		// Detach: proto.Down can take seconds (especially IPSec) and
+		// we do not want to stall the network-monitor goroutine.
+		go func() {
+			if err := a.Disconnect(); err != nil {
+				log.Printf("On-demand disconnect: %v", err)
+			}
+		}()
+	}
+	isConnectedFn := func() bool {
+		a.mu.RLock()
+		defer a.mu.RUnlock()
+		return a.connected
+	}
+	a.autoConnect.StartWithOnDemand(&a.settings.ConnectOnDemand, connectFn, disconnectFn, isConnectedFn)
 }
 
 // applyKillSwitchSetting drives the new state machine in response to
