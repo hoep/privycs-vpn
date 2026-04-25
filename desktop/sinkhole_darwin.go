@@ -43,6 +43,9 @@ func NewDarwinSinkhole() Sinkhole {
 	return &darwinSinkhole{}
 }
 
+// NewPlatformSinkhole is the build-tag-resolved factory app.go uses.
+func NewPlatformSinkhole() Sinkhole { return NewDarwinSinkhole() }
+
 func (s *darwinSinkhole) Engage(ctx context.Context) error {
 	log.Println("Sinkhole(darwin): engaging")
 

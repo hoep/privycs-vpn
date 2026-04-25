@@ -31,9 +31,11 @@ type App struct {
 	connections *ConnectionRegistry
 
 	// Features
-	killSwitch  *KillSwitch
-	autoConnect *AutoConnectManager
-	settings    *AppSettings
+	killSwitch         *KillSwitch         // legacy - kept ONLY for one-time PrivycsKS-* cleanup at startup/shutdown
+	ksManager          *KillSwitchManager  // new state machine (Phase 1)
+	sinkholeController *SinkholeController // new platform driver bridge (Phase 2/3)
+	autoConnect        *AutoConnectManager
+	settings           *AppSettings
 
 	// State
 	connected     bool
@@ -47,13 +49,16 @@ type App struct {
 
 // NewApp creates a new App instance
 func NewApp() *App {
+	ks := NewKillSwitchManager()
 	return &App{
-		protocols:   make(map[string]VPNProtocol),
-		connections: NewConnectionRegistry(),
-		killSwitch:  NewKillSwitch(),
-		autoConnect: NewAutoConnectManager(),
-		settings:    LoadSettings(),
-		stopStats:   make(chan struct{}),
+		protocols:          make(map[string]VPNProtocol),
+		connections:        NewConnectionRegistry(),
+		killSwitch:         NewKillSwitch(),
+		ksManager:          ks,
+		sinkholeController: NewSinkholeController(ks, NewPlatformSinkhole()),
+		autoConnect:        NewAutoConnectManager(),
+		settings:           LoadSettings(),
+		stopStats:          make(chan struct{}),
 	}
 }
 
@@ -164,11 +169,32 @@ func (a *App) startup(ctx context.Context) {
 		a.autoConnect.Start(connectFn, isConnectedFn)
 	}
 
-	// Restore kill switch state from settings
+	// MIGRATION: clean up legacy PrivycsKS-* rules from prior versions.
+	// The new sinkhole system uses Privycs-Sinkhole-* names so old rules
+	// would otherwise persist forever after upgrading. killSwitch.Disable
+	// is idempotent (delete-not-found is silently ignored).
+	a.killSwitch.Disable()
+
+	// Start the new sinkhole controller. It first runs RecoverFromCrash
+	// (cleans up any Privycs-Sinkhole-* leftovers from a previous crashed
+	// run via the snapshot file) then subscribes to ksManager and
+	// engages/releases the OS firewall on state transitions.
+	go a.sinkholeController.Run(a.ctx)
+
+	// Drive the new state machine according to settings.
 	if a.settings.KillSwitchEnabled {
-		a.killSwitch.Enable()
-		if a.connected {
-			a.killSwitch.Activate()
+		switch {
+		case a.connected:
+			// Tunnel up at startup (we restored a running session).
+			// Arm so an unexpected drop engages the sinkhole.
+			a.ksManager.Arm()
+		case a.connections.Active() != nil:
+			// KS on, no tunnel, but a configured connection exists.
+			// Hardcore semantics: traffic must be blocked NOW.
+			a.ksManager.ForceSinkhole("KS enabled at startup, no active tunnel")
+		default:
+			// KS on but no connections configured. Nothing to protect
+			// against; leave at IDLE until the user adds a connection.
 		}
 	}
 
@@ -190,6 +216,13 @@ func (a *App) shutdown(ctx context.Context) {
 	// Stop auto-connect / network monitor
 	a.autoConnect.Stop()
 
+	// CRITICAL ORDER: release the sinkhole BEFORE we tear down the tunnel
+	// or shut the app. If we exit while the sinkhole is engaged the user
+	// is locked out of the network until next launch (or until they run
+	// the emergency PowerShell cleanup - see EMERGENCY_RECOVERY.md). The
+	// controller's Stop() releases idempotently.
+	a.sinkholeController.Stop()
+
 	// Disconnect tunnel if still connected
 	if a.connected {
 		log.Println("Disconnecting tunnel on shutdown...")
@@ -200,7 +233,9 @@ func (a *App) shutdown(ctx context.Context) {
 		a.connected = false
 	}
 
-	// Disable kill switch
+	// Final safety net: legacy PrivycsKS-* cleanup AND a best-effort
+	// Privycs-Sinkhole-* cleanup in case the controller missed something.
+	// Both are idempotent, log warnings only on failure.
 	a.killSwitch.Disable()
 
 	// Wait for background goroutines (status emitter, tray) to exit.
@@ -329,7 +364,7 @@ func (a *App) Status() *StatusResponse {
 		Connected:           connected,
 		ActiveProtocol:      activeProtocol,
 		AvailableProtocols:  a.availableProtocols(),
-		KillSwitchEnabled:   a.killSwitch.IsEnabled(),
+		KillSwitchEnabled:   a.settings.KillSwitchEnabled,
 		AutoConnectEnabled:  a.autoConnect.IsRunning(),
 		ServerAddress:       protoStatus.ServerAddress,
 		LocalAddress:        protoStatus.LocalAddress,
@@ -389,10 +424,16 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		return a.statusLocked(), nil
 	}
 
-	// Activate kill switch if enabled
-	if a.killSwitch.IsEnabled() {
-		a.killSwitch.Activate()
-	}
+	// NOTE: pre-Phase-3 we activated the kill switch BEFORE Up() and
+	// rolled back on Up() failure. The new sinkhole system does NOT
+	// pre-block during connect attempts - if Up() succeeds the
+	// MarkConnected hook below transitions ksManager to ARMED; if Up()
+	// fails the firewall stays open and the user keeps their internet.
+	// Trade-off: a brief window where KS-armed-yet-disconnected user
+	// could leak DNS during a connect retry. Mitigation is the
+	// SINKHOLE state engaging on user-initiated disconnect (see the
+	// disconnect path), which is how the user enters the protected
+	// state in the first place after their initial successful connect.
 
 	log.Printf("Connecting via %s...", a.activeProtocol)
 	wailsRuntime.EventsEmit(a.ctx, "vpn:connecting", a.activeProtocol)
@@ -407,12 +448,10 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 
 	a.mu.Lock() // Re-acquire lock
 	if upErr != nil {
-		// CRITICAL: the kill switch was activated right before proto.Up().
-		// If Up() failed, the tunnel is DOWN but the firewall still blocks
-		// all non-VPN traffic — user is stranded with no network. Tear the
-		// kill switch back down unconditionally so traffic flows again.
-		// Without this, a failed connect bricks the user's internet.
-		a.killSwitch.Deactivate()
+		// New sinkhole model: we did NOT pre-activate, so there is
+		// nothing to roll back here - the firewall stayed open during
+		// the failed connect attempt. User retains internet
+		// automatically. Just surface the error.
 		wailsRuntime.EventsEmit(appCtx, "vpn:error", upErr.Error())
 		Notify("VPN connection failed",
 			fmt.Sprintf("%s tunnel could not be started: %s", activeProto, upErr.Error()),
@@ -448,14 +487,12 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	a.mu.Lock()
 
 	if !tunnelUp {
-		// Tunnel never actually came up. Clean up: kill the daemon, drop
-		// kill switch, surface the real error. Without this we'd leave the
-		// user in a half-broken state (daemon stuck in retry loop, kill
-		// switch blocking all traffic, UI optimistically happy).
+		// Tunnel never actually came up. Just kill the daemon. New
+		// sinkhole model: no firewall rollback needed because we did
+		// not pre-activate. User retains internet.
 		a.mu.Unlock()
 		_ = proto.Down(appCtx)
 		a.mu.Lock()
-		a.killSwitch.Deactivate()
 		errMsg := fmt.Sprintf("%s tunnel did not come up within %v — check logs", activeProto, connectTimeout)
 		wailsRuntime.EventsEmit(appCtx, "vpn:error", errMsg)
 		Notify("VPN connection timed out", errMsg, NotifyError)
@@ -464,6 +501,15 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 
 	a.connected = true
 	a.connectedAt = time.Now()
+
+	// Tunnel verified up: arm the kill switch state machine so an
+	// unexpected drop engages the sinkhole. Idempotent across all
+	// states (IDLE -> ARMED, SINKHOLE -> ARMED, ARMED no-op). Only
+	// triggered when the user has KS enabled in settings - if they
+	// have it off, ksManager stays at IDLE and never engages.
+	if a.settings.KillSwitchEnabled {
+		a.ksManager.Arm()
+	}
 
 	// Update connection last-used timestamp
 	if conn := a.connections.Active(); conn != nil {
@@ -517,8 +563,12 @@ func (a *App) disconnectInternal() error {
 
 	a.disconnecting = false
 
-	if a.killSwitch.IsEnabled() {
-		a.killSwitch.Deactivate()
+	// Hardcore Kill Switch semantics: a user-initiated disconnect with KS
+	// enabled engages the sinkhole. Traffic stays blocked until the user
+	// either reconnects (transitions SINKHOLE -> ARMED via Arm()) or
+	// toggles KS off (transitions SINKHOLE -> IDLE via Disarm()).
+	if a.settings.KillSwitchEnabled {
+		a.ksManager.ForceSinkhole("user-initiated disconnect with KS enabled")
 	}
 
 	wailsRuntime.EventsEmit(a.ctx, "vpn:disconnected", a.activeProtocol)
@@ -844,12 +894,15 @@ func (a *App) UpdateSettings(settings *AppSettings) error {
 	a.settings = settings
 	SaveSettings(settings)
 
-	// Apply kill switch setting
-	if settings.KillSwitchEnabled {
-		a.killSwitch.Enable()
-	} else {
-		a.killSwitch.Disable()
-	}
+	// Apply kill switch setting via the new state machine.
+	//
+	// IMPORTANT: this is the user-toggle path. When KS goes from enabled
+	// to disabled, ksManager.Disarm() transitions to IDLE which causes
+	// the sinkhole controller to call Release() - removing all
+	// Privycs-Sinkhole-* firewall rules and restoring network. If
+	// Release() fails for any reason, the EMERGENCY_RECOVERY.md
+	// PowerShell commands are the documented manual fallback.
+	a.applyKillSwitchSetting(settings.KillSwitchEnabled)
 
 	// Apply autostart setting
 	if err := SetAutostart(settings.AutostartEnabled); err != nil {
@@ -879,16 +932,42 @@ func (a *App) GetConnectOnDemandStatus() map[string]interface{} {
 	}
 }
 
-// SetKillSwitch toggles the kill switch
+// SetKillSwitch toggles the kill switch.
 func (a *App) SetKillSwitch(enabled bool) error {
-	if enabled {
-		a.killSwitch.Enable()
-	} else {
-		a.killSwitch.Disable()
-	}
+	a.applyKillSwitchSetting(enabled)
 	a.settings.KillSwitchEnabled = enabled
 	SaveSettings(a.settings)
 	return nil
+}
+
+// applyKillSwitchSetting drives the new state machine in response to
+// the user toggling KS. Used by both UpdateSettings and SetKillSwitch
+// so both paths apply identical semantics:
+//
+//   - Enabled with active tunnel -> Arm (state ARMED, no firewall change
+//     yet; an unexpected drop will EngageSinkhole automatically).
+//   - Enabled with no tunnel BUT a configured connection -> ForceSinkhole
+//     (state SINKHOLE, controller engages firewall NOW). Hardcore
+//     semantics: user said block, we block.
+//   - Enabled with no tunnel AND no configured connection -> nothing
+//     to protect against. Stay IDLE. (User should configure a
+//     connection before enabling KS.)
+//   - Disabled (any state) -> Disarm. Transitions to IDLE which the
+//     controller observes and Release()s. THIS IS THE NETWORK-RESTORE
+//     PATH the user explicitly demanded must always work.
+func (a *App) applyKillSwitchSetting(enabled bool) {
+	if !enabled {
+		a.ksManager.Disarm()
+		return
+	}
+	switch {
+	case a.connected:
+		a.ksManager.Arm()
+	case a.connections.Active() != nil:
+		a.ksManager.ForceSinkhole("user enabled KS while disconnected")
+	default:
+		// No connections configured - nothing to enforce.
+	}
 }
 
 // ============================================================================
@@ -1113,7 +1192,7 @@ func (a *App) statusLocked() *StatusResponse {
 		Connected:          a.connected,
 		ActiveProtocol:     a.activeProtocol,
 		AvailableProtocols: a.availableProtocols(),
-		KillSwitchEnabled:  a.killSwitch.IsEnabled(),
+		KillSwitchEnabled:  a.settings.KillSwitchEnabled,
 		AutoConnectEnabled: a.autoConnect.IsRunning(),
 	}
 	if proto, ok := a.protocols[a.activeProtocol]; ok {

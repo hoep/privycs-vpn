@@ -46,6 +46,9 @@ func NewLinuxSinkhole() Sinkhole {
 	return &linuxSinkhole{}
 }
 
+// NewPlatformSinkhole is the build-tag-resolved factory app.go uses.
+func NewPlatformSinkhole() Sinkhole { return NewLinuxSinkhole() }
+
 func (s *linuxSinkhole) Engage(ctx context.Context) error {
 	log.Println("Sinkhole(linux): engaging")
 

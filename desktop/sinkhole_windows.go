@@ -62,6 +62,9 @@ func NewWindowsSinkhole() Sinkhole {
 	return &windowsSinkhole{}
 }
 
+// NewPlatformSinkhole is the build-tag-resolved factory app.go uses.
+func NewPlatformSinkhole() Sinkhole { return NewWindowsSinkhole() }
+
 func (s *windowsSinkhole) Engage(ctx context.Context) error {
 	log.Println("Sinkhole(windows): engaging")
 
