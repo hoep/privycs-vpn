@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -922,8 +924,27 @@ func (a *App) preWarmActivePool() {
 		log.Printf("Pool: preWarm persist failed: %v", err)
 		return
 	}
-	log.Printf("Pool %s pre-warm: next member will be %s (%s)",
-		pool.Name, member.Name, member.Country)
+
+	// Pre-write the .conf file for the next slot to disk RIGHT NOW
+	// (60 s before rotation). The rotation tick then only has to do
+	// the OS-service install + handshake; the file write that used
+	// to live in the disconnect-then-write-then-up critical path is
+	// gone. For protocols other than WireGuard the path layout is
+	// different - we skip pre-write for OpenVPN/IPSec rather than
+	// risk writing to the wrong place.
+	if member.Config != nil && member.Config.Protocol == "wireguard" {
+		nextSlot := pool.NextSlot()
+		nextTunnel := "privycs-pool-" + shortID(pool.ID) + "-" + nextSlot
+		if err := a.preWriteWGConfig(nextTunnel, member.Config.ConfigContent); err != nil {
+			log.Printf("Pool: pre-write %s.conf failed: %v", nextTunnel, err)
+		} else {
+			log.Printf("Pool %s pre-warm: wrote %s.conf for next member %s",
+				pool.Name, nextTunnel, member.Name)
+		}
+	} else {
+		log.Printf("Pool %s pre-warm: next member will be %s (%s)",
+			pool.Name, member.Name, member.Country)
+	}
 
 	if a.ctx != nil {
 		wailsRuntime.EventsEmit(a.ctx, "pool:prewarm", map[string]interface{}{
@@ -933,6 +954,20 @@ func (a *App) preWarmActivePool() {
 			"country":             member.Country,
 		})
 	}
+}
+
+// preWriteWGConfig writes a WireGuard .conf to the same path
+// w.Configure would write to (<appDataDir>/<tunnelName>.conf),
+// without mutating the protocol handler's current state. Used by
+// preWarmActivePool to stage the next slot's config 60 s ahead so
+// the rotation tick does not have to do the file write in the
+// critical path.
+func (a *App) preWriteWGConfig(tunnelName, content string) error {
+	confPath := filepath.Join(appDataDir(), tunnelName+".conf")
+	if err := os.MkdirAll(filepath.Dir(confPath), 0o700); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+	return os.WriteFile(confPath, []byte(content), 0o600)
 }
 
 // PoolRotatorStatus exposes the rotator's view to the frontend's
