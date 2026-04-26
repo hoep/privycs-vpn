@@ -644,17 +644,28 @@ func readNetshSSID() (ssid string, hasAdapter bool) {
 
 // getNetworkTypePlatform returns "wifi", "ethernet", or "none" on Windows.
 //
-// CRITICAL: do NOT parse ipconfig output for "Default Gateway" string.
-// That string is localized - on a German Windows install ipconfig
-// emits "Standardgateway" instead, which would always miss and the
-// function would always return "none" for Ethernet-connected German
-// users (the user reported exactly this symptom: UI shows "No
-// network" while ping 8.8.8.8 succeeds because they were on a wired
-// connection on a German Windows). Use net.Interfaces() instead -
-// the kernel-level interface enumeration is locale-independent.
+// Detection order:
+//   1. Try SSID via getCurrentSSIDPlatform. If we get one, it is
+//      definitively WiFi.
+//   2. SSID empty: check WlanEnumInterfaces for any adapter in
+//      state=connected. This is NOT subject to the Location-
+//      permission GPO (only the SSID-data-returning calls are), so
+//      on enterprise machines where SSID detection is blocked we
+//      can still tell that the user IS on WiFi.
+//   3. Otherwise check for any non-loopback IPv4 interface →
+//      ethernet.
+//
+// Without step 2 the symptom on locked-down corporate Win11 machines
+// is "WiFi-joined while on Ethernet -> status stays ethernet, VPN
+// never connects". With step 2 the type is correctly "wifi" and
+// trigger-based rules (wifi / wifi_mobile / any) fire even when
+// SSID-list-based rules cannot.
 func getNetworkTypePlatform() string {
 	ssid := getCurrentSSIDPlatform()
 	if ssid != "" {
+		return "wifi"
+	}
+	if isAnyWLANAdapterConnected() {
 		return "wifi"
 	}
 	if hasActiveNonLoopbackIPv4() {
