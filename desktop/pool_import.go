@@ -503,17 +503,43 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 	// modes: nil-geo (no MMDB at all), DNS failure (host did not
 	// resolve), private/unrouted IP (resolved but MMDB has no
 	// country attribution).
+	//
+	// We also retain up to 3 sample tuples per category for the log
+	// so the user can read the actual host -> IP -> country chain
+	// when investigating "why is everything unknown". Private-vs-public
+	// is much faster to spot from the sample IPs than from the count.
 	var (
 		statMu       sync.Mutex
-		statResolved int // hostname -> public IP -> country code
-		statNoGeo    int // pi.geo == nil entirely
-		statDNSFail  int // hostname did not resolve
-		statNoMatch  int // resolved IP not in the MMDB (private / unrouted / new ranges)
+		statResolved int
+		statNoGeo    int
+		statDNSFail  int
+		statNoMatch  int
+		samplesNoMatch  []string
+		samplesDNSFail  []string
+		samplesResolved []string
 	)
-	bumpStat := func(s *int) {
+	bump := func(category int, sample string) {
 		statMu.Lock()
-		*s++
-		statMu.Unlock()
+		defer statMu.Unlock()
+		switch category {
+		case 0:
+			statResolved++
+			if len(samplesResolved) < 3 {
+				samplesResolved = append(samplesResolved, sample)
+			}
+		case 1:
+			statDNSFail++
+			if len(samplesDNSFail) < 3 {
+				samplesDNSFail = append(samplesDNSFail, sample)
+			}
+		case 2:
+			statNoMatch++
+			if len(samplesNoMatch) < 3 {
+				samplesNoMatch = append(samplesNoMatch, sample)
+			}
+		case 3:
+			statNoGeo++
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -524,14 +550,14 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 			for j := range jobs {
 				cc := ""
 				if pi.geo == nil {
-					bumpStat(&statNoGeo)
+					bump(3, j.host)
 				} else if ip := resolveHostToIP(j.host); ip == nil {
-					bumpStat(&statDNSFail)
+					bump(1, j.host)
 				} else if c, err := pi.geo.CountryCode(ip); err != nil || c == "" {
-					bumpStat(&statNoMatch)
+					bump(2, fmt.Sprintf("%s -> %s", j.host, ip))
 				} else {
 					cc = c
-					bumpStat(&statResolved)
+					bump(0, fmt.Sprintf("%s -> %s -> %s", j.host, ip, c))
 				}
 				results <- resolved{index: j.index, country: cc}
 			}
@@ -605,6 +631,19 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 	if resolveTotal > 0 {
 		log.Printf("Pool country resolution: %d resolved, %d DNS-fail, %d not-in-MMDB, %d no-MMDB-loaded",
 			statResolved, statDNSFail, statNoMatch, statNoGeo)
+		// Sample tuples - the user reading the log can spot at a
+		// glance whether their endpoints are private / public / IPv6 /
+		// hostname-only, which determines whether the unknown-country
+		// outcome is expected (private) or a bug (public-but-not-found).
+		if len(samplesResolved) > 0 {
+			log.Printf("  resolved samples:    %s", strings.Join(samplesResolved, " | "))
+		}
+		if len(samplesNoMatch) > 0 {
+			log.Printf("  not-in-MMDB samples: %s", strings.Join(samplesNoMatch, " | "))
+		}
+		if len(samplesDNSFail) > 0 {
+			log.Printf("  DNS-fail samples:    %s", strings.Join(samplesDNSFail, " | "))
+		}
 	}
 	return result, nil
 }
