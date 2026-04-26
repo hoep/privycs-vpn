@@ -123,18 +123,24 @@
       <!-- Uptime + Pause control -->
       <div v-if="isConnected && vpn.status?.uptime" class="mb-3 flex items-center gap-2">
         <span class="text-lg font-mono text-gray-900 dark:text-white">{{ vpn.status.uptime }}</span>
-        <!-- Pause dropdown. Click → quick-pick duration menu. Equivalent
-             of Android ConnectScreen long-press. Hidden while a pause
-             is already active (the Resume-now banner above replaces it). -->
+        <!-- Pause dropdown - explicit, prominent button so users can
+             find it. Equivalent of Android ConnectScreen long-press,
+             but desktop wants the affordance visible rather than
+             hidden behind a long-press gesture. Hidden while a pause
+             is active (the blue Resume-now banner above replaces it). -->
         <div class="relative" v-if="!isPaused">
           <button @click.stop="showPauseMenu = !showPauseMenu"
-            class="p-1 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
-            title="Pause VPN">
-            <PauseIcon class="w-4 h-4" />
+            class="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-blue-500/15 text-blue-600 dark:text-blue-300 ring-1 ring-blue-500/30 hover:bg-blue-500/25 hover:ring-blue-500/50 transition-colors"
+            :class="showPauseMenu ? 'bg-blue-500/25 ring-blue-500/50' : ''"
+            title="Pause VPN for a fixed duration">
+            <PauseIcon class="w-3.5 h-3.5" />
+            <span>Pause</span>
           </button>
           <div v-if="showPauseMenu"
                @click.stop
-               class="absolute right-0 top-full mt-1 w-32 card p-1 shadow-lg z-10 text-xs">
+               class="absolute right-0 top-full mt-1 w-36 card p-1 shadow-lg z-10 text-xs">
+            <button @click="applyPause(60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">1 minute</button>
+            <button @click="applyPause(3*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">3 minutes</button>
             <button @click="applyPause(5*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">5 minutes</button>
             <button @click="applyPause(15*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">15 minutes</button>
             <button @click="applyPause(60*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">1 hour</button>

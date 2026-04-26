@@ -26,8 +26,20 @@ type NetworkMonitor struct {
 	connectFn    func()
 	disconnectFn func()
 	isConnected  func() bool
+	isPaused     func() bool // optional - when set and returns true, monitor suppresses all actions
 	lastState    NetworkState
 	stopWatcher  func() // platform watcher teardown
+}
+
+// SetPauseCheck installs an optional callback the monitor consults
+// before firing any connect/disconnect action. If the callback
+// returns true the tick is treated as a no-op - this lets a user
+// pause the auto-management without having to stop the entire
+// monitor (which would lose the platform-watcher subscription).
+func (nm *NetworkMonitor) SetPauseCheck(fn func() bool) {
+	nm.mu.Lock()
+	nm.isPaused = fn
+	nm.mu.Unlock()
 }
 
 // NewNetworkMonitor creates a new network monitor instance
@@ -176,10 +188,24 @@ func (nm *NetworkMonitor) checkAndAct() {
 
 	nm.mu.Lock()
 	settings := nm.settings
+	pauseCheck := nm.isPaused
 	nm.lastState = state
 	nm.mu.Unlock()
 
 	if settings == nil {
+		return
+	}
+
+	// Pause guard: if a user-initiated pause is currently active,
+	// skip the entire match-evaluation + action step. The monitor
+	// stays subscribed to platform events so it resumes immediately
+	// when the pause expires (next event tick re-evaluates fresh).
+	// Without this, a COD trigger="any" rule would fire connect()
+	// on the next platform event, defeating the pause within
+	// seconds.
+	if pauseCheck != nil && pauseCheck() {
+		log.Printf("Network monitor: paused - skipping rule eval (type=%s ssid=%q)",
+			state.NetworkType, state.SSID)
 		return
 	}
 

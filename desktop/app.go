@@ -431,6 +431,20 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		return nil, fmt.Errorf("kill switch active — toggle Kill Switch off in Settings to release the sinkhole")
 	}
 
+	// Pause guard: refuse non-explicit connect attempts while a
+	// user-initiated pause is active. NetworkMonitor's pause check
+	// already filters COD-driven calls before they ever reach here,
+	// but this is the defense-in-depth: any other code path that
+	// calls Connect (status emitter, autostart, helper IPC) gets
+	// blocked too. The user's manual click via the UI toggleConnection
+	// path also goes through here; we deliberately block that to keep
+	// "Pause means pause" semantics. The user can hit "Resume now"
+	// in the pause banner to release the pause - that path calls
+	// CancelPause first, then a normal Connect succeeds.
+	if a.pauseManager != nil && a.pauseManager.IsPaused() {
+		return nil, fmt.Errorf("VPN paused — click Resume now in the pause banner to release")
+	}
+
 	// Switch protocol if specified
 	if protocol != "" && protocol != a.activeProtocol {
 		if _, ok := a.protocols[protocol]; !ok {
@@ -618,13 +632,24 @@ func (a *App) disconnectInternal() error {
 
 	a.connected = false
 
-	// Hardcore Kill Switch semantics: a user-initiated disconnect with KS
-	// enabled engages the sinkhole. Traffic stays blocked until the user
-	// either reconnects (transitions SINKHOLE -> ARMED via Arm()) or
-	// toggles KS off (transitions SINKHOLE -> IDLE via Disarm()).
-	if a.settings.KillSwitchEnabled {
-		a.ksManager.ForceSinkhole("user-initiated disconnect with KS enabled")
-	}
+	// SAFETY: do NOT engage the sinkhole on a user-initiated
+	// disconnect on desktop. The Android client does this as part of
+	// the "hardcore Kill Switch" semantic, but on Windows it has been
+	// reported to BSOD: the netsh advfirewall add-rule sequence races
+	// against the still-completing WireGuard NDIS teardown
+	// (wintun.sys cleanup), and the kernel-side state mismatch
+	// crashes the box. Mobile platforms have no NDIS layer so the
+	// race does not exist there.
+	//
+	// Sinkhole still engages automatically on UNEXPECTED tunnel
+	// drops via the network watcher path (network lost while armed),
+	// which runs at a different point in the lifecycle and is not
+	// racing tunnel teardown. That is the use case KS was designed
+	// for: protect against silent VPN failure. Explicit
+	// user-disconnects fall back to "user wants the network now".
+	// Users who specifically want disconnect-blocks-traffic can
+	// still toggle KS off-and-on after disconnecting which engages
+	// the sinkhole via SettingsRepository.applyKillSwitchSetting.
 
 	wailsRuntime.EventsEmit(a.ctx, "vpn:disconnected", a.activeProtocol)
 	log.Println("Disconnected")
@@ -1179,6 +1204,14 @@ func (a *App) startOnDemandMonitoring() {
 		return a.connected
 	}
 	a.autoConnect.StartWithOnDemand(&a.settings.ConnectOnDemand, connectFn, disconnectFn, isConnectedFn)
+	// Wire the pause guard so a user-initiated pause suppresses COD
+	// auto-reconnect attempts. Without this, trigger="any" would fire
+	// connect() within seconds of pausing because the very network
+	// event that made the user pause (settling on a wired desk?) is
+	// still sitting in the platform watcher's queue.
+	if nm := a.autoConnect.NetworkMonitor(); nm != nil && a.pauseManager != nil {
+		nm.SetPauseCheck(a.pauseManager.IsPaused)
+	}
 }
 
 // applyKillSwitchSetting drives the new state machine in response to
