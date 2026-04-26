@@ -1,4 +1,10 @@
 build/bin
 node_modules
 frontend/dist
+# Country.mmdb in geoip/ is a placeholder committed with the repo so
+# go:embed always compiles. CI's preBuildHook (scripts/fetch-geoip.sh)
+# overwrites it before `wails build` links - DO NOT gitignore the
+# placeholder itself. The fetch script also deposits a copy at
+# assets/geoip/ for the disk-fallback lookup path; that copy is large
+# (~6 MB) and stays out of source control.
 assets/geoip/Country.mmdb

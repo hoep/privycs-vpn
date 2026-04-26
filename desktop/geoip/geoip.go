@@ -8,6 +8,7 @@
 package geoip
 
 import (
+	_ "embed"
 	"fmt"
 	"net"
 	"os"
@@ -17,12 +18,20 @@ import (
 	"github.com/oschwald/geoip2-golang"
 )
 
-// DefaultDBFilename is the filename inside the assets/geoip directory
-// shipped with the binary. The MMDB itself is fetched from
-// https://github.com/sapics/ip-location-db (CC0/MIT) at build time -
-// we do not commit the binary database to the repo to keep cloning
-// cheap. See assets/geoip/README.md for the fetch script.
+// DefaultDBFilename is the filename of the MMDB that operators can
+// substitute via PRIVYCS_GEOIP_DB or place beside the executable.
 const DefaultDBFilename = "Country.mmdb"
+
+// embeddedDB is baked into the binary at build time via go:embed. The
+// repo commits a tiny placeholder file at geoip/Country.mmdb so the
+// build always succeeds; CI's preBuildHook overwrites it with the
+// real GeoLite2-Country MMDB before linking. If the placeholder is
+// what gets embedded (because someone built without running
+// scripts/fetch-geoip.sh), geoip2.FromBytes will return an error and
+// Default() falls through to the disk-lookup chain.
+//
+//go:embed Country.mmdb
+var embeddedDB []byte
 
 // Reader is a thin wrapper around the MMDB reader that exposes only the
 // operations Pool selection needs. Goroutine-safe (the underlying
@@ -47,6 +56,27 @@ var (
 // the user that Geo-Nearest will degrade to Random.
 func Default() (*Reader, error) {
 	defaultReaderOnce.Do(func() {
+		// Disk override wins - operators with custom MMDB or
+		// dev-mode users with a fresh fetch can point at it via
+		// PRIVYCS_GEOIP_DB.
+		if env := os.Getenv("PRIVYCS_GEOIP_DB"); env != "" {
+			defaultReader, defaultReaderErr = Open(env)
+			return
+		}
+
+		// Embedded happy path - the build had a real MMDB linked in.
+		if len(embeddedDB) > 256 {
+			r, err := geoip2.FromBytes(embeddedDB)
+			if err == nil {
+				defaultReader = &Reader{r: r}
+				return
+			}
+			// fall through to disk lookup; embedded blob may be the
+			// placeholder, in which case the parse error is expected.
+		}
+
+		// Disk fallback for dev environments where the binary is run
+		// from the repo with assets/ alongside.
 		path, err := defaultDBPath()
 		if err != nil {
 			defaultReaderErr = err

@@ -6,6 +6,11 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
+  "preBuildHooks": {
+    "linux/*":   "bash scripts/fetch-geoip.sh",
+    "darwin/*":  "bash scripts/fetch-geoip.sh",
+    "windows/*": "bash scripts/fetch-geoip.sh"
+  },
   "author": {
     "name": "Privycs",
     "email": "info@privycs.com"

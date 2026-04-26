@@ -5,7 +5,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ASSET_DIR="$SCRIPT_DIR/../assets/geoip"
+# The MMDB sits inside the geoip package directory so go:embed can
+# pull it into the production binary at build time. Local-dev or
+# air-gapped operators can override at runtime via PRIVYCS_GEOIP_DB.
+ASSET_DIR="$SCRIPT_DIR/../geoip"
 DB_PATH="$ASSET_DIR/Country.mmdb"
 SOURCE_URL="https://github.com/sapics/ip-location-db/raw/main/geolite2-country-mmdb/geolite2-country-ipv4.mmdb"
 
