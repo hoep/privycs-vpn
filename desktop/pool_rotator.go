@@ -119,9 +119,13 @@ func (r *PoolRotator) SetActivePool(p *Pool) {
 
 	r.scheduledRotation = time.Now().Add(time.Duration(r.intervalMin) * time.Minute)
 	r.idleBlockedSince = time.Time{}
-	if r.getTraffic != nil {
-		r.lastTrafficRx, r.lastTrafficTx = r.getTraffic()
-	}
+	// Same deadlock concern as ResetSchedule: if the caller holds
+	// App.mu (e.g. ActivatePool, called from the same goroutine that
+	// holds the write lock), invoking r.getTraffic re-enters
+	// App.mu via poolTrafficSnapshot and deadlocks. Set baseline to
+	// zero; the first tick that runs after this samples naturally.
+	r.lastTrafficRx = 0
+	r.lastTrafficTx = 0
 
 	log.Printf("PoolRotator: scheduled %s next rotation in %d min (idle-aware=%v, force-after=%d min)",
 		r.poolID, r.intervalMin, r.idleAware, r.forceAfterMin)
@@ -143,9 +147,15 @@ type RotatorStatus struct {
 // the user had just started a fresh rotation cycle. Called from
 // App.Connect when the VPN actually goes connected so the countdown
 // the user sees on screen begins exactly at connect-time, not at
-// pool-activate-time. Without this the schedule drifts: a user
-// activating a pool at 10:00 and only Connecting at 10:25 would see
-// "5 min remaining" on a 30-min cycle, which is confusing.
+// pool-activate-time.
+//
+// CRITICAL: must not call r.getTraffic from inside r.mu - the traffic
+// callback re-enters App.mu (which the Connect caller already holds
+// write-locked) and deadlocks the entire app. The first tick that
+// runs after this reset will sample traffic naturally; the lost
+// baseline only matters for the initial delta-detection one tick
+// later, which is harmless (rx/tx start at 0 anyway just after
+// connect).
 func (r *PoolRotator) ResetSchedule() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -154,9 +164,8 @@ func (r *PoolRotator) ResetSchedule() {
 	}
 	r.scheduledRotation = time.Now().Add(time.Duration(r.intervalMin) * time.Minute)
 	r.idleBlockedSince = time.Time{}
-	if r.getTraffic != nil {
-		r.lastTrafficRx, r.lastTrafficTx = r.getTraffic()
-	}
+	r.lastTrafficRx = 0
+	r.lastTrafficTx = 0
 }
 
 // Status returns the rotator's current state for UI consumption.
