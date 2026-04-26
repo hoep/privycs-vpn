@@ -452,6 +452,24 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 	jobs := make(chan job, resolveTotal)
 	results := make(chan resolved, resolveTotal)
 
+	// Diagnostic counters - surfaced at the end of import so the user
+	// sees WHY country resolution worked or didn't. Three failure
+	// modes: nil-geo (no MMDB at all), DNS failure (host did not
+	// resolve), private/unrouted IP (resolved but MMDB has no
+	// country attribution).
+	var (
+		statMu       sync.Mutex
+		statResolved int // hostname -> public IP -> country code
+		statNoGeo    int // pi.geo == nil entirely
+		statDNSFail  int // hostname did not resolve
+		statNoMatch  int // resolved IP not in the MMDB (private / unrouted / new ranges)
+	)
+	bumpStat := func(s *int) {
+		statMu.Lock()
+		*s++
+		statMu.Unlock()
+	}
+
 	var wg sync.WaitGroup
 	for w := 0; w < dnsLookupConcurrency; w++ {
 		wg.Add(1)
@@ -459,12 +477,15 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 			defer wg.Done()
 			for j := range jobs {
 				cc := ""
-				if pi.geo != nil {
-					if ip := resolveHostToIP(j.host); ip != nil {
-						if c, err := pi.geo.CountryCode(ip); err == nil {
-							cc = c
-						}
-					}
+				if pi.geo == nil {
+					bumpStat(&statNoGeo)
+				} else if ip := resolveHostToIP(j.host); ip == nil {
+					bumpStat(&statDNSFail)
+				} else if c, err := pi.geo.CountryCode(ip); err != nil || c == "" {
+					bumpStat(&statNoMatch)
+				} else {
+					cc = c
+					bumpStat(&statResolved)
 				}
 				results <- resolved{index: j.index, country: cc}
 			}
@@ -535,6 +556,10 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 
 	log.Printf("Pool import (uploads): %d imported, %d skipped from %d uploads",
 		len(result.Members), len(result.Skipped), len(uploads))
+	if resolveTotal > 0 {
+		log.Printf("Pool country resolution: %d resolved, %d DNS-fail, %d not-in-MMDB, %d no-MMDB-loaded",
+			statResolved, statDNSFail, statNoMatch, statNoGeo)
+	}
 	return result, nil
 }
 

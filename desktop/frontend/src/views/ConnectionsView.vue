@@ -74,6 +74,13 @@
             >
               <PencilIcon class="w-4 h-4" />
             </button>
+            <button
+              @click.stop="confirmDeletePool(p)"
+              class="p-1.5 text-gray-400 hover:text-red-400"
+              title="Delete pool"
+            >
+              <TrashIcon class="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>
@@ -284,6 +291,32 @@ function policyShort(p: string): string {
 async function usePool(id: string) {
   await poolStore.activate(id)
   router.push('/connection')
+}
+
+async function selectPool(p: any) {
+  // Re-clicking an already-active pool jumps to the Connect screen,
+  // mirroring selectConnection's "already selected → go to Connect"
+  // behaviour for singles.
+  if (p.is_active) {
+    router.push('/connection')
+    return
+  }
+  try {
+    await poolStore.activate(p.id)
+    await loadConnections()
+  } catch (e: any) {
+    actionError.value = e?.toString() || 'Failed to activate pool'
+  }
+}
+
+async function confirmDeletePool(p: any) {
+  if (!confirm(`Delete pool "${p.name}"? This cannot be undone.`)) return
+  try {
+    await poolStore.remove(p.id)
+    await loadConnections()
+  } catch (e: any) {
+    actionError.value = e?.toString() || 'Failed to delete pool'
+  }
 }
 const connections = ref<any[]>([])
 const showQrScanner = ref(false)
