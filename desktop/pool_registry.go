@@ -69,6 +69,22 @@ type Pool struct {
 	CountryOverride string       `json:"country_override,omitempty"` // "" = auto-detect
 	RestrictRegions []string     `json:"restrict_regions,omitempty"` // [] = no restriction
 	ActiveMemberID  string       `json:"active_member_id,omitempty"` // most recently picked
+	// ActiveSlot tracks which of two alternating tunnel-name slots
+	// is currently up ("A" or "B"). Each rotation flips to the
+	// opposite slot so the next member's config writes to a fresh
+	// .conf file and installs to a fresh OS service entry, avoiding
+	// the same-name-reuse race that caused tunnels to fail to come
+	// back up on rotation. "" means "no slot yet, start with A".
+	ActiveSlot string `json:"active_slot,omitempty"`
+}
+
+// NextSlot returns the slot to use for the NEXT connect (opposite of
+// the currently-active slot). Empty current → start with "A".
+func (p *Pool) NextSlot() string {
+	if p.ActiveSlot == "A" {
+		return "B"
+	}
+	return "A"
 }
 
 // MemberByID returns the member with the given ID, or nil.

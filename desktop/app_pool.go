@@ -382,14 +382,31 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 		return fmt.Errorf("protocol %s not registered", m.Config.Protocol)
 	}
 
-	// Stable per-pool tunnel name. Falls back to a fixed string if
-	// activePoolID is somehow empty so the call never produces an
-	// invalid name like "privycs-pool-".
+	// Alternating slot pattern: each connect uses the OPPOSITE slot
+	// of whatever's currently active. Per the user's suggestion -
+	// "du musst dir halt merken welcher conf welche ist". Reasons:
+	//
+	//   - The .conf file at the OS WireGuard config dir for slot A
+	//     stays untouched while slot B's tunnel is up. No race
+	//     between writing config and the service reading it.
+	//   - The service entry for slot A stays cleanly stopped (or
+	//     uninstalled) while slot B is up. Re-installing slot B's
+	//     fresh service is conflict-free; reusing the same name
+	//     after a Down sometimes hit "service already exists" race.
+	//   - Net effect: rotation just becomes "down current slot, up
+	//     opposite slot". Each step touches a different name on disk
+	//     and in the service registry.
 	suffix := shortID(a.activePoolID)
 	if suffix == "" {
 		suffix = "active"
 	}
-	tunnelName := "privycs-pool-" + suffix
+	slot := "A"
+	if a.pools != nil {
+		if pool := a.pools.Get(a.activePoolID); pool != nil {
+			slot = pool.NextSlot()
+		}
+	}
+	tunnelName := "privycs-pool-" + suffix + "-" + slot
 	setTunnelName(proto, tunnelName)
 
 	if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
@@ -403,6 +420,19 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 
 	if _, err := a.Connect(""); err != nil {
 		return err
+	}
+
+	// Persist the new slot AFTER successful connect. If Up failed
+	// the pool's ActiveSlot stays at the previous value so a retry
+	// targets the same slot (no orphan slot-flip from a half-failed
+	// connect).
+	if a.pools != nil {
+		if pool := a.pools.Get(a.activePoolID); pool != nil {
+			pool.ActiveSlot = slot
+			if err := a.pools.Update(pool); err != nil {
+				log.Printf("Pool: persist ActiveSlot=%s failed: %v", slot, err)
+			}
+		}
 	}
 	return nil
 }
