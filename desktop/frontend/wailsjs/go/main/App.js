@@ -14,6 +14,54 @@ export function GetConnectOnDemandStatus() {
   return window['go']['main']['App']['GetConnectOnDemandStatus']();
 }
 
+export function ClearLogs() {
+  return window['go']['main']['App']['ClearLogs']();
+}
+
+export function DownloadAndImportConfig(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['DownloadAndImportConfig'](arg1, arg2, arg3, arg4);
+}
+
+export function EnsurePrivilegedHelper() {
+  return window['go']['main']['App']['EnsurePrivilegedHelper']();
+}
+
+export function ExportBackup(arg1, arg2) {
+  return window['go']['main']['App']['ExportBackup'](arg1, arg2);
+}
+
+export function FetchMyConfig(arg1, arg2) {
+  return window['go']['main']['App']['FetchMyConfig'](arg1, arg2);
+}
+
+export function FetchMyProfile() {
+  return window['go']['main']['App']['FetchMyProfile']();
+}
+
+export function GetHelperStatus() {
+  return window['go']['main']['App']['GetHelperStatus']();
+}
+
+export function ImportBackup(arg1, arg2) {
+  return window['go']['main']['App']['ImportBackup'](arg1, arg2);
+}
+
+export function InstallPrivilegedHelper() {
+  return window['go']['main']['App']['InstallPrivilegedHelper']();
+}
+
+export function PickBackupOpenPath() {
+  return window['go']['main']['App']['PickBackupOpenPath']();
+}
+
+export function PickBackupSavePath() {
+  return window['go']['main']['App']['PickBackupSavePath']();
+}
+
+export function UninstallPrivilegedHelper() {
+  return window['go']['main']['App']['UninstallPrivilegedHelper']();
+}
+
 export function ListPools() {
   return window['go']['main']['App']['ListPools']();
 }

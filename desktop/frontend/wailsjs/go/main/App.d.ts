@@ -16,6 +16,30 @@ export function GetActiveConfigContent():Promise<string>;
 
 export function GetConnectOnDemandStatus():Promise<{[key: string]: any}>;
 
+export function ClearLogs():Promise<void>;
+
+export function DownloadAndImportConfig(arg1:string, arg2:number, arg3:string, arg4:string):Promise<void>;
+
+export function EnsurePrivilegedHelper():Promise<void>;
+
+export function ExportBackup(arg1:string, arg2:string):Promise<void>;
+
+export function FetchMyConfig(arg1:string, arg2:number):Promise<string>;
+
+export function FetchMyProfile():Promise<{[key: string]: any}>;
+
+export function GetHelperStatus():Promise<{[key: string]: any}>;
+
+export function ImportBackup(arg1:string, arg2:string):Promise<void>;
+
+export function InstallPrivilegedHelper():Promise<void>;
+
+export function PickBackupOpenPath():Promise<string>;
+
+export function PickBackupSavePath():Promise<string>;
+
+export function UninstallPrivilegedHelper():Promise<void>;
+
 export function ListPools():Promise<Array<{[key: string]: any}>>;
 
 export function GetPoolDetail(arg1:string):Promise<{[key: string]: any}>;
