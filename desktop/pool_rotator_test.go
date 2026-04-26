@@ -227,3 +227,75 @@ func TestRotator_StopIsIdempotent(t *testing.T) {
 	r.Stop()
 	r.Stop() // must not panic
 }
+
+// TestRotator_NoDeadlockWhenCallerHoldsSimulatedAppMutex is a
+// regression test for v0.9.11.17's CRITICAL deadlock: SetActivePool
+// and ResetSchedule were calling r.getTraffic from inside r.mu.Lock,
+// and r.getTraffic in production = App.poolTrafficSnapshot which
+// acquires App.mu.RLock. Both of those rotator methods are called
+// from goroutines that ALREADY hold App.mu.Lock (write):
+//
+//   - SetActivePool   <- App.ActivatePool       (holds App.mu.Lock)
+//   - ResetSchedule   <- App.Connect            (holds App.mu.Lock)
+//
+// Self-deadlock: the same goroutine waits on a write-locked mutex
+// it itself owns. App froze entirely - no status updates, no
+// disconnect, only restart recovered. User reported this as
+// "sowas DARF NICHT PASSIEREN".
+//
+// The test simulates the production setup with a parallel
+// sync.RWMutex standing in for App.mu, has the getTraffic callback
+// try to RLock that mutex, then calls SetActivePool + ResetSchedule
+// from a goroutine that holds the simulated lock in WRITE mode. If
+// either rotator method calls getTraffic synchronously while
+// holding r.mu, the goroutine deadlocks and the test times out
+// after 2 seconds. Without the deadlock both calls return in <1ms.
+func TestRotator_NoDeadlockWhenCallerHoldsSimulatedAppMutex(t *testing.T) {
+	var simAppMu sync.RWMutex
+
+	r := NewPoolRotator()
+	r.Start(
+		func(string) {},
+		func() (int64, int64) {
+			// Simulates App.poolTrafficSnapshot: acquires the
+			// App read lock briefly. If the rotator method that
+			// invoked us holds the App WRITE lock from the same
+			// goroutine, this is a self-deadlock.
+			simAppMu.RLock()
+			defer simAppMu.RUnlock()
+			return 0, 0
+		},
+		func() bool { return true },
+	)
+	defer r.Stop()
+
+	pool := &Pool{
+		ID:      "p1",
+		Policy:  PolicyRoundRobin,
+		Members: []*PoolMember{{ID: "m1", Active: true, Region: "Europe"}},
+		Rotation: PoolRotation{
+			IntervalMin: 5,
+			IdleAware:   true,
+		},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		simAppMu.Lock() // mirror App.ActivatePool / App.Connect
+		defer simAppMu.Unlock()
+
+		// Both methods used to call r.getTraffic inside r.mu, which
+		// would re-enter simAppMu.RLock from this same goroutine
+		// and deadlock.
+		r.SetActivePool(pool)
+		r.ResetSchedule()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// pass
+	case <-time.After(2 * time.Second):
+		t.Fatal("DEADLOCK: rotator method called getTraffic which re-entered the App lock held by the same goroutine. Either remove the getTraffic call from the lock-held method or release r.mu before calling it.")
+	}
+}
