@@ -725,6 +725,28 @@ func (a *App) PickAndConnectActivePool() error {
 
 	log.Printf("Pool %s policy=%s picked member %s (%s, %s)",
 		pool.Name, pool.Policy, member.Name, member.Country, member.Region)
+
+	// CRITICAL: tear down the existing tunnel before the new one
+	// comes up. Without this, a.Connect short-circuits on
+	// "tunnel already running" and the rotation is metadata-only -
+	// pool.ActiveMemberID updates, the UI shows the new member,
+	// but the wintun adapter still routes through the old member's
+	// exit. Whatsmyip continues to show the old country.
+	//
+	// The same disconnect-then-reconnect pattern lives in
+	// SwitchPoolMember (manual member-pick from the picker UI);
+	// PickAndConnectActivePool was the missing automatic-rotation
+	// counterpart.
+	a.mu.RLock()
+	wasConnected := a.connected
+	a.mu.RUnlock()
+	if wasConnected {
+		a.mu.Lock()
+		if err := a.disconnectInternal(); err != nil {
+			log.Printf("Pool: disconnect-before-rotate failed: %v", err)
+		}
+		a.mu.Unlock()
+	}
 	return a.connectToPoolMember(member)
 }
 
