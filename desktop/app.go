@@ -185,9 +185,17 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	// Wire pool rotator with the restored active pool, if any.
+	// Also backfill RestrictRegions for pools created before v0.9.11.13
+	// landed - any pool with an empty restriction list gets pinned
+	// to the user's home region so the next Connect does not pinball
+	// across continents. This runs in a goroutine so the SelfIP DoH
+	// probe (up to 3-8s on slow networks) does not block startup.
 	if a.activePoolID != "" && a.pools != nil && a.poolRotator != nil {
 		if p := a.pools.Get(a.activePoolID); p != nil {
 			a.poolRotator.SetActivePool(p)
+			if len(p.RestrictRegions) == 0 {
+				go a.autoRestrictRoundRobinToHomeRegion(p)
+			}
 		}
 	}
 

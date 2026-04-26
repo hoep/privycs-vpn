@@ -40,28 +40,52 @@
         </div>
       </div>
 
-      <!-- Pool indicator, visible when an active Pool drives the
-           connection. Shows current member, next-rotation countdown
-           (Round-Robin only), and the idle-blocked / force-rotate
-           states. The indicator card sits above the COD banner so
-           the user reads the policy chain top-down. -->
+      <!-- Pool indicator, always visible when a Pool is active. The
+           policy is shown explicitly so the user understands why a
+           specific server was chosen (Round-Robin rotates, Geo-Nearest
+           matches country, Random is random). Round-Robin gets a big
+           countdown to next rotation in its own visually-prominent
+           row so it can NEVER be missed. -->
       <div v-if="poolStore.activePoolId" class="w-full max-w-sm mb-3">
-        <div class="card px-3 py-2">
-          <div class="flex items-center justify-between mb-0.5">
-            <span class="text-[11px] font-semibold text-gray-700 dark:text-gray-200">
-              Pool · {{ activePoolName }}
-            </span>
+        <div class="card px-3 py-2.5">
+          <div class="flex items-center justify-between mb-1">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <RectangleStackIcon class="w-3.5 h-3.5 text-primary-400 flex-shrink-0" />
+              <span class="text-[11px] font-semibold text-gray-700 dark:text-gray-200 truncate">
+                {{ activePoolName }}
+              </span>
+              <span class="text-[9px] uppercase tracking-wide text-gray-500 dark:text-gray-400 flex-shrink-0">
+                · {{ activePoolPolicyShort }}
+              </span>
+            </div>
             <router-link
-              v-if="poolStore.activePoolId"
               :to="`/pool/${poolStore.activePoolId}`"
-              class="text-[10px] text-primary-400 hover:text-primary-300"
+              class="text-[10px] text-primary-400 hover:text-primary-300 flex-shrink-0"
             >Edit</router-link>
           </div>
-          <div v-if="activeMemberDisplay" class="text-[10px] text-gray-500 dark:text-gray-400 truncate">
-            Currently: {{ activeMemberDisplay }}
+
+          <div v-if="activeMemberDisplay" class="text-[10px] text-gray-600 dark:text-gray-300 truncate">
+            <span class="text-gray-400">Currently:</span> {{ activeMemberDisplay }}
           </div>
-          <div v-if="rotatorBannerLine" class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-            {{ rotatorBannerLine }}
+
+          <!-- Round-Robin countdown: prominent dedicated row. -->
+          <div
+            v-if="rotatorActive"
+            class="mt-1.5 flex items-center justify-between gap-2 px-2 py-1.5 rounded-md bg-primary-500/10 ring-1 ring-primary-500/20"
+          >
+            <div class="flex items-center gap-1.5 min-w-0">
+              <ArrowPathIcon class="w-3 h-3 text-primary-400 flex-shrink-0"
+                :class="{ 'animate-spin': rotatorIdleBlocked }" />
+              <span class="text-[10px] text-gray-700 dark:text-gray-300 truncate">
+                {{ rotatorPrimaryLabel }}
+              </span>
+            </div>
+            <span class="text-xs font-mono font-semibold text-primary-500 dark:text-primary-300 tabular-nums flex-shrink-0">
+              {{ rotatorCountdown }}
+            </span>
+          </div>
+          <div v-if="rotatorActive && rotatorAtLine" class="text-[9px] text-gray-500 mt-0.5 text-right">
+            {{ rotatorAtLine }}
           </div>
         </div>
       </div>
@@ -486,14 +510,11 @@ const activeMemberDisplay = computed(() => {
   return p.active_member_name
 })
 
-// Rotator banner: three states sourced from PoolRotatorStatus.
-// Only Round-Robin policy produces a non-empty banner - other policies
-// pick once per Connect with no rotation, so there is nothing to count.
-//
-// Format: "Next rotation in 4:32  (at 14:23)" - countdown for "how
-// long" plus absolute clock-time for "when". Helps the user plan
-// around mid-session reconnects ("I have 4 minutes to finish this
-// page load").
+// Pool indicator data. activePoolPolicyShort surfaces "Round-Robin",
+// "Geo-Nearest" or "Random" right next to the pool name so the user
+// always knows what's driving server selection. The countdown row
+// only appears for Round-Robin (the only policy with a rotation
+// timer). All other policies pick once per Connect.
 function formatClockTime(ns: number): string {
   if (!ns || ns <= 0) return ''
   const future = new Date(Date.now() + ns / 1_000_000)
@@ -502,15 +523,45 @@ function formatClockTime(ns: number): string {
   return `${hh}:${mm}`
 }
 
-const rotatorBannerLine = computed(() => {
+const activePoolPolicyShort = computed(() => {
+  const p = poolStore.pools.find((x) => x.id === poolStore.activePoolId)
+  switch (p?.policy) {
+    case 'geo-nearest':         return 'Geo-Nearest'
+    case 'random':              return 'Random'
+    case 'round-robin-region':  return 'Round-Robin'
+    default:                    return ''
+  }
+})
+
+const rotatorActive = computed(() => {
+  const r = poolStore.rotatorStatus
+  return !!(r && r.active)
+})
+
+const rotatorIdleBlocked = computed(() => {
+  const r = poolStore.rotatorStatus
+  return !!(r && r.active && r.idle_blocked)
+})
+
+const rotatorCountdown = computed(() => {
   const r = poolStore.rotatorStatus
   if (!r || !r.active) return ''
-  if (r.idle_blocked) {
-    const forceClock = formatClockTime(r.force_rotate_in || 0)
-    return `Rotation paused — active traffic. Force-rotate in ${formatDuration(r.force_rotate_in || 0)} (at ${forceClock})`
-  }
-  const clock = formatClockTime(r.next_rotation_in)
-  return `Next rotation in ${formatDuration(r.next_rotation_in)} (at ${clock})`
+  if (r.idle_blocked) return formatDuration(r.force_rotate_in || 0)
+  return formatDuration(r.next_rotation_in)
+})
+
+const rotatorPrimaryLabel = computed(() => {
+  const r = poolStore.rotatorStatus
+  if (!r || !r.active) return ''
+  if (r.idle_blocked) return 'Force-rotate in'
+  return 'Next server in'
+})
+
+const rotatorAtLine = computed(() => {
+  const r = poolStore.rotatorStatus
+  if (!r || !r.active) return ''
+  if (r.idle_blocked) return `at ${formatClockTime(r.force_rotate_in || 0)}`
+  return `at ${formatClockTime(r.next_rotation_in)}`
 })
 const showConnectionPicker = ref(false)
 const allConnections = ref<any[]>([])

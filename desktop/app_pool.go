@@ -287,6 +287,18 @@ func (a *App) ActivatePool(id string) error {
 	// keeps the saved data.
 	a.connections.SetActive("")
 
+	// Backfill RestrictRegions for older pools that were created
+	// before v0.9.11.13's auto-restrict landed. If the pool is
+	// Round-Robin AND has no restriction set, anchor it to the
+	// user's home region. Pools where the user explicitly cleared
+	// restrictions look identical to never-set ones from disk
+	// (both serialize as empty array) - this trade-off favours
+	// "user did not get pinballed across continents" over
+	// "user keeps their cleared empty list".
+	if len(p.RestrictRegions) == 0 {
+		a.autoRestrictRoundRobinToHomeRegion(p)
+	}
+
 	a.poolRotator.SetActivePool(p)
 	_ = a.pools.SetActiveID(id)
 	return nil
@@ -380,27 +392,34 @@ func shortID(id string) string {
 }
 
 // autoRestrictRoundRobinToHomeRegion sets RestrictRegions to the
-// user's home region on a freshly-created Round-Robin pool. Default
-// behaviour matches what most users expect: rotate through MY pool's
-// servers near where I am, not pinball through every continent.
+// user's home region on any pool that does not yet have an
+// explicit restriction. Restrict-to-home is the default for all
+// policies because:
 //
-// User-country comes from the SelfIP detector - same DoH-trace path
-// the user suggested with curl ipinfo.io, but using cloudflare-trace
-// / icanhazip / Mullvad as the well-known endpoints (no third-party
-// SaaS analytics, single GET, no auth, no cookies). Cached for 1h
-// and invalidated on network roam.
+//   - Round-Robin without restriction pinballs across continents
+//     (HK → IL → US for an AT user) which is rarely what's wanted
+//   - Random without restriction can pick any server globally,
+//     same problem
+//   - Geo-Nearest's tier-3 random fallback also benefits when
+//     "any" actually means "any in my region"
+//
+// Power users who explicitly want global rotation/picking clear
+// the home region in Coverage card → Restrict to region → uncheck
+// → Apply.
+//
+// User-country comes from the SelfIP detector via the DoH-trace
+// chain (cloudflare-trace, icanhazip, Mullvad) - same approach the
+// user suggested with curl ipinfo.io but using well-known
+// privacy-respecting endpoints, single GET, no analytics. Cached
+// for 1h, invalidated on network roam.
 //
 // Falls through silently if:
-//   - policy is not Round-Robin (Geo-Nearest already handles regional
-//     preference, Random has no region semantics)
-//   - SelfIP detection fails (no internet, captive portal, all
-//     fallback endpoints down)
+//   - SelfIP detection fails (no internet, captive portal)
 //   - resolved country maps to "Other" (private IP, unmapped range)
 //
-// User can clear the auto-restriction in Coverage card → Restrict to
-// region → uncheck their home region → Apply.
+// (Despite the legacy name, this function applies to all policies.)
 func (a *App) autoRestrictRoundRobinToHomeRegion(pool *Pool) {
-	if pool == nil || pool.Policy != PolicyRoundRobin || a.selfIPDetector == nil {
+	if pool == nil || a.selfIPDetector == nil {
 		return
 	}
 	userCountry := a.SelfIPCountry()
@@ -472,6 +491,21 @@ func (a *App) PickAndConnectActivePool() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		userCountry = a.selfIPDetector.CountryFor(ctx)
+	}
+
+	// Last-line backfill: if user has a known country and the pool
+	// still has no restriction (e.g. startup goroutine has not
+	// finished, or the user opted out and the system did not rerun),
+	// apply the home region NOW for this connect. Persists for next
+	// time so subsequent picks behave consistently.
+	if userCountry != "" && len(pool.RestrictRegions) == 0 {
+		homeRegion := geoip.Region(userCountry)
+		if homeRegion != "" && homeRegion != "Other" {
+			pool.RestrictRegions = []string{homeRegion}
+			if err := a.pools.Update(pool); err == nil {
+				log.Printf("Pool: just-in-time restrict to %s on connect", homeRegion)
+			}
+		}
 	}
 
 	member := PickMember(pool, userCountry, pool.ActiveMemberID)
