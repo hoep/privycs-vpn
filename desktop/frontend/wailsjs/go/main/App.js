@@ -6,6 +6,18 @@ export function ActivateConnection(arg1, arg2) {
   return window['go']['main']['App']['ActivateConnection'](arg1, arg2);
 }
 
+export function CancelPause() {
+  return window['go']['main']['App']['CancelPause']();
+}
+
+export function PauseFor(arg1) {
+  return window['go']['main']['App']['PauseFor'](arg1);
+}
+
+export function SwitchActiveConnection(arg1, arg2) {
+  return window['go']['main']['App']['SwitchActiveConnection'](arg1, arg2);
+}
+
 export function Connect(arg1) {
   return window['go']['main']['App']['Connect'](arg1);
 }

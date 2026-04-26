@@ -14,6 +14,32 @@
 
     <!-- Connection UI -->
     <template v-else>
+      <!-- Transient notice toast. Auto-clears after 4s. Used for
+           non-fatal user-feedback like "Kill Switch active. This will
+           block your reconnect!" without blocking the UI. -->
+      <transition name="fade">
+        <div v-if="notice" class="w-full max-w-sm mb-3">
+          <div class="card px-3 py-2 text-xs bg-yellow-500/10 border border-yellow-500/30 text-yellow-700 dark:text-yellow-300">
+            {{ notice }}
+          </div>
+        </div>
+      </transition>
+
+      <!-- Pause banner: visible while a user-initiated VPN pause is
+           active. Mirrors Android long-press pause - shows countdown
+           plus a Resume-now link. -->
+      <div v-if="isPaused" class="w-full max-w-sm mb-3">
+        <div class="card px-3 py-2 flex items-center justify-between gap-2 text-xs bg-blue-500/10 border border-blue-500/30">
+          <div class="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+            <PauseIcon class="w-4 h-4" />
+            <span>Paused — {{ pauseLabel }} remaining</span>
+          </div>
+          <button @click="resumeNow" class="text-blue-700 dark:text-blue-300 hover:underline font-medium">
+            Resume now
+          </button>
+        </div>
+      </div>
+
       <!-- Connect-on-Demand banner, visible whenever the feature is
            enabled so the user knows the tunnel state may change
            automatically based on network conditions. Matches Android
@@ -47,32 +73,36 @@
              button, icon fades in over 300ms. -->
       <div class="mt-4 mb-5 relative">
         <div class="w-40 h-40 rounded-full flex items-center justify-center relative"
-          :class="isConnected ? 'bg-primary-500/5' : 'bg-gray-100 dark:bg-gray-800/50'">
-          <!-- Glow ring, visible only once the tunnel is up. Behind the
-               button so it reads as a halo. -->
-          <div v-if="isConnected" class="absolute inset-[-12px] rounded-full connect-glow pointer-events-none"></div>
-          <!-- Outer pulse, subtle — same behaviour as before. -->
-          <div v-if="isConnected" class="absolute inset-0 rounded-full border-2 border-primary-500/30 pulse-ring pointer-events-none"></div>
-          <button @click="toggleConnection" :disabled="vpn.loading"
+          :class="isSinkhole ? 'bg-red-500/5' : (isConnected ? 'bg-primary-500/5' : 'bg-gray-100 dark:bg-gray-800/50')">
+          <!-- Glow ring, visible when the tunnel is up OR sinkhole is
+               engaged (red halo signals "blocked"). -->
+          <div v-if="isConnected || isSinkhole" class="absolute inset-[-12px] rounded-full pointer-events-none"
+               :class="isSinkhole ? 'sinkhole-glow' : 'connect-glow'"></div>
+          <!-- Outer pulse, subtle. -->
+          <div v-if="isConnected || isSinkhole" class="absolute inset-0 rounded-full border-2 pulse-ring pointer-events-none"
+               :class="isSinkhole ? 'border-red-500/40' : 'border-primary-500/30'"></div>
+          <button @click="toggleConnection" :disabled="vpn.loading && !isSinkhole"
             class="w-32 h-32 rounded-full flex flex-col items-center justify-center transition-all duration-300 focus:outline-none relative"
             :class="[
-              isConnected
-                ? 'bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40'
-                : 'bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500',
-              vpn.loading ? 'connect-pulse' : ''
+              isSinkhole
+                ? 'bg-gradient-to-br from-red-500 to-red-700 shadow-lg shadow-red-600/30 hover:shadow-red-600/50'
+                : (isConnected
+                  ? 'bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40'
+                  : 'bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'),
+              vpn.loading && !isSinkhole ? 'connect-pulse' : ''
             ]">
-            <!-- Connecting: large SVG progress ring. Looks more native
-                 than a spinning arrow icon and reads correctly in light
-                 theme too (the Android equivalent). -->
-            <svg v-if="vpn.loading" class="w-10 h-10 animate-spin" viewBox="0 0 48 48" fill="none" stroke-width="4">
+            <!-- Sinkhole: red shield-with-X to signal "blocked, manual
+                 intervention required". Wins over every other state. -->
+            <ShieldExclamationIcon v-if="isSinkhole" class="w-12 h-12 text-white" />
+            <!-- Connecting: large SVG progress ring. -->
+            <svg v-else-if="vpn.loading" class="w-10 h-10 animate-spin" viewBox="0 0 48 48" fill="none" stroke-width="4">
               <circle cx="24" cy="24" r="20" stroke="rgba(255,255,255,0.15)" />
               <path d="M 24 4 a 20 20 0 0 1 20 20" stroke="white" stroke-linecap="round" />
             </svg>
             <!-- Protocol logo (WireGuard/OpenVPN/IPSec brand icon) when a
                  protocol is active. When connected over a solid colored
                  background, tint the icon white so the brand-color doesn't
-                 clash with the button's gradient. Falls back to generic
-                 shield only when no protocol is configured yet. -->
+                 clash with the button's gradient. -->
             <ProtocolIcon
               v-else-if="vpn.status?.active_protocol"
               :protocol="vpn.status.active_protocol"
@@ -82,16 +112,35 @@
             />
             <ShieldCheckIcon v-else class="w-12 h-12 transition-all duration-300"
               :class="isConnected ? 'text-white' : 'text-gray-500'" />
-            <span class="text-[11px] font-semibold mt-1.5 transition-colors duration-300" :class="isConnected ? 'text-white/90' : 'text-gray-500 dark:text-gray-400'">
+            <span class="text-[11px] font-semibold mt-1.5 transition-colors duration-300"
+                  :class="isSinkhole ? 'text-white' : (isConnected ? 'text-white/90' : 'text-gray-500 dark:text-gray-400')">
               {{ connectionLabel }}
             </span>
           </button>
         </div>
       </div>
 
-      <!-- Uptime -->
-      <div v-if="isConnected && vpn.status?.uptime" class="mb-3">
+      <!-- Uptime + Pause control -->
+      <div v-if="isConnected && vpn.status?.uptime" class="mb-3 flex items-center gap-2">
         <span class="text-lg font-mono text-gray-900 dark:text-white">{{ vpn.status.uptime }}</span>
+        <!-- Pause dropdown. Click → quick-pick duration menu. Equivalent
+             of Android ConnectScreen long-press. Hidden while a pause
+             is already active (the Resume-now banner above replaces it). -->
+        <div class="relative" v-if="!isPaused">
+          <button @click.stop="showPauseMenu = !showPauseMenu"
+            class="p-1 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
+            title="Pause VPN">
+            <PauseIcon class="w-4 h-4" />
+          </button>
+          <div v-if="showPauseMenu"
+               @click.stop
+               class="absolute right-0 top-full mt-1 w-32 card p-1 shadow-lg z-10 text-xs">
+            <button @click="applyPause(5*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">5 minutes</button>
+            <button @click="applyPause(15*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">15 minutes</button>
+            <button @click="applyPause(60*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">1 hour</button>
+            <button @click="applyPause(4*60*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">4 hours</button>
+          </div>
+        </div>
       </div>
 
       <!-- Connection Name — click to switch between connections -->
@@ -261,22 +310,78 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useVpnStore, formatSpeed } from '@/stores/vpn'
-import { SelectProtocol, ListConnections, ActivateConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus } from '../../wailsjs/go/main/App'
+import { SelectProtocol, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause } from '../../wailsjs/go/main/App'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import SpeedSparkline from '@/components/SpeedSparkline.vue'
 import {
   ShieldCheckIcon,
+  ShieldExclamationIcon,
   ArrowPathIcon,
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
   ChevronDownIcon,
   PencilSquareIcon,
+  PauseIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
 const vpn = useVpnStore()
 const showConnectionPicker = ref(false)
 const allConnections = ref<any[]>([])
+
+// Hardcore Kill Switch: when state is SINKHOLE the OS firewall is
+// actively blocking everything outside the (failed) tunnel. Connect
+// button must visually mirror that and refuse user-initiated connect
+// attempts - the only way out is the user toggling KS off in
+// Settings, mirroring the Android v0.9.10.6 hardcore lock.
+const isSinkhole = computed(() => vpn.status?.kill_switch_state === 'SINKHOLE')
+
+// Pause UI: backend exposes pause_remaining_sec on the live status,
+// counts down naturally because the backend updates it on every
+// status push (~2s).
+const pauseRemaining = computed(() => Number(vpn.status?.pause_remaining_sec || 0))
+const isPaused = computed(() => pauseRemaining.value > 0)
+const pauseLabel = computed(() => {
+  const total = pauseRemaining.value
+  if (total <= 0) return ''
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+})
+
+// Transient inline notice (toast). 4s auto-clear is enough for the
+// user to read without lingering. Set via showNotice('text').
+const notice = ref('')
+let noticeTimer: ReturnType<typeof setTimeout> | null = null
+function showNotice(msg: string) {
+  notice.value = msg
+  if (noticeTimer) clearTimeout(noticeTimer)
+  noticeTimer = setTimeout(() => {
+    notice.value = ''
+    noticeTimer = null
+  }, 4000)
+}
+
+// Pause-duration menu state. Click on Pause button opens the small
+// dropdown with quick-pick durations.
+const showPauseMenu = ref(false)
+async function applyPause(seconds: number) {
+  showPauseMenu.value = false
+  try {
+    await PauseFor(seconds)
+    await vpn.fetchStatus()
+  } catch (e: any) {
+    showNotice('Pause failed: ' + (e?.message || e))
+  }
+}
+async function resumeNow() {
+  try {
+    await CancelPause()
+    await vpn.fetchStatus()
+  } catch (e: any) {
+    showNotice('Resume failed: ' + (e?.message || e))
+  }
+}
 
 // Config editor state
 const showConfigEditor = ref(false)
@@ -323,7 +428,16 @@ async function pickConnection(conn: any) {
   if (conn.id === vpn.status?.connection_id) return
   try {
     const proto = conn.active_protocol || conn.protocols?.[0]?.protocol || ''
-    await ActivateConnection(conn.id, proto)
+    // SwitchActiveConnection returns true iff a reconnect will be
+    // attempted (because tunnel was up, or COD says it should be).
+    // When KS is also armed in that case the disconnect engages
+    // forceSinkhole and the upcoming reconnect is refused by the
+    // hardcore-lock guard - surface a toast so the user knows.
+    const willReconnect = await SwitchActiveConnection(conn.id, proto)
+    const ksState = vpn.status?.kill_switch_state || 'IDLE'
+    if (willReconnect && (ksState === 'ARMED' || ksState === 'SINKHOLE')) {
+      showNotice('Kill Switch active. This will block your reconnect!')
+    }
     await vpn.fetchStatus()
     await loadConnections()
   } catch (e: any) {
@@ -418,6 +532,7 @@ const showWelcome = computed(() => {
 })
 
 const connectionLabel = computed(() => {
+  if (isSinkhole.value) return 'Kill Switch Active'
   if (vpn.loading) {
     return isConnected.value ? 'Disconnecting...' : 'Connecting...'
   }
@@ -429,6 +544,15 @@ const connectionProtocols = computed(() => {
 })
 
 async function toggleConnection() {
+  // Hardcore Kill Switch: when sinkhole is engaged the connect-button
+  // is rendered as a red shield indicating the lock state. Tapping it
+  // does NOT fire a connect intent - the only release is the user
+  // toggling KS off in Settings. We surface a toast so the affordance
+  // is not just non-responsive.
+  if (isSinkhole.value) {
+    showNotice('Kill Switch is active. Toggle Kill Switch off in Settings to release.')
+    return
+  }
   if (isConnected.value) {
     await vpn.disconnect()
   } else {

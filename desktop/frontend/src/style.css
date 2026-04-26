@@ -152,6 +152,14 @@
   filter: blur(8px);
 }
 
+/* Sinkhole halo: same shape and timing as .connect-glow but red.
+   Signals "Kill Switch active" rather than "Connected ok". */
+.sinkhole-glow {
+  animation: glow-fade-in 600ms ease-out forwards;
+  background: radial-gradient(closest-side, rgba(220, 38, 38, 0.55), transparent 70%);
+  filter: blur(8px);
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease-in-out;

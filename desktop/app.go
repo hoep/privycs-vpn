@@ -34,6 +34,7 @@ type App struct {
 	killSwitch         *KillSwitch         // legacy - kept ONLY for one-time PrivycsKS-* cleanup at startup/shutdown
 	ksManager          *KillSwitchManager  // new state machine (Phase 1)
 	sinkholeController *SinkholeController // new platform driver bridge (Phase 2/3)
+	pauseManager       *PauseManager       // user-initiated VPN pause (B4)
 	autoConnect        *AutoConnectManager
 	settings           *AppSettings
 
@@ -56,6 +57,7 @@ func NewApp() *App {
 		killSwitch:         NewKillSwitch(),
 		ksManager:          ks,
 		sinkholeController: NewSinkholeController(ks, NewPlatformSinkhole()),
+		pauseManager:       NewPauseManager(),
 		autoConnect:        NewAutoConnectManager(),
 		settings:           LoadSettings(),
 		stopStats:          make(chan struct{}),
@@ -301,7 +303,9 @@ type StatusResponse struct {
 	LatencyMs           float64  `json:"latency_ms,omitempty"`
 	Uptime              string   `json:"uptime,omitempty"`
 	KillSwitchEnabled   bool     `json:"kill_switch_enabled"`
+	KillSwitchState     string   `json:"kill_switch_state"` // "IDLE" / "ARMED" / "SINKHOLE"
 	AutoConnectEnabled  bool     `json:"auto_connect_enabled"`
+	PauseRemainingSec   int      `json:"pause_remaining_sec"` // 0 when not paused
 	ConnectionName      string   `json:"connection_name,omitempty"`
 	ConnectionID        string   `json:"connection_id,omitempty"`
 	ConnectionProtocols []string `json:"connection_protocols,omitempty"` // protocols available for this connection
@@ -359,13 +363,37 @@ func (a *App) Status() *StatusResponse {
 	// Running auto-detect in the poll loop caused disconnect to "reconnect"
 	// because the process was still briefly visible after SIGTERM.
 
+	// 3. Defensive Kill Switch arming. When the user has KS enabled
+	// AND the tunnel is up AND ksManager is not yet ARMED, arm it.
+	// Mirrors Android v0.9.10.5+ defensive-arming pattern: covers the
+	// edge case where the user toggles KS on while already connected
+	// (settings flip alone does not transition the state machine
+	// because the connect path already finished). arm() is idempotent
+	// across all three states so re-checking on every status tick is
+	// cheap.
+	if connected && a.settings.KillSwitchEnabled && a.ksManager != nil {
+		if a.ksManager.State() != KSStateArmed {
+			a.ksManager.Arm()
+		}
+	}
+
 	// 4. Build response
+	pauseRem := 0
+	if a.pauseManager != nil {
+		pauseRem = int(a.pauseManager.Remaining().Seconds())
+	}
+	ksState := "IDLE"
+	if a.ksManager != nil {
+		ksState = a.ksManager.State().String()
+	}
 	resp := &StatusResponse{
 		Connected:           connected,
 		ActiveProtocol:      activeProtocol,
 		AvailableProtocols:  a.availableProtocols(),
 		KillSwitchEnabled:   a.settings.KillSwitchEnabled,
+		KillSwitchState:     ksState,
 		AutoConnectEnabled:  a.autoConnect.IsRunning(),
+		PauseRemainingSec:   pauseRem,
 		ServerAddress:       protoStatus.ServerAddress,
 		LocalAddress:        protoStatus.LocalAddress,
 		BytesRx:             protoStatus.BytesRx,
@@ -393,6 +421,15 @@ func (a *App) Status() *StatusResponse {
 func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
+	// Hardcore Kill Switch lock: refuse every connect attempt while
+	// the sinkhole is engaged. The ONLY release path is the user
+	// toggling KS off in Settings (which transitions ksManager to
+	// IDLE and lets the controller release the firewall block).
+	// Mirrors the Android v0.9.10.6 hardcore lock behaviour.
+	if a.ksManager != nil && a.ksManager.IsSinkholeActive() {
+		return nil, fmt.Errorf("kill switch active — toggle Kill Switch off in Settings to release the sinkhole")
+	}
 
 	// Switch protocol if specified
 	if protocol != "" && protocol != a.activeProtocol {
@@ -825,6 +862,103 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 	SaveSettings(a.settings)
 
 	log.Printf("Activated connection: %s (%s)", conn.Name, selectedProtocol)
+	return nil
+}
+
+// SwitchActiveConnection switches the active connection AND - if the
+// tunnel was up at switch time, or COD says it should be up on the
+// current network - automatically reconnects with the new connection.
+// Returns true if a reconnect will be attempted (caller should
+// surface a Kill-Switch warning toast in that case), false when the
+// call is purely a setActive.
+//
+// Mirrors the Android v0.9.10.10 switchActiveConnection contract.
+// The KillSwitch interaction is identical: if KS is armed and a
+// reconnect is attempted, the disconnect engages forceSinkhole and
+// the next Connect call is refused by the hardcore-lock guard. The
+// new active connection id is persisted regardless so that toggling
+// KS off later resumes with the right connection.
+func (a *App) SwitchActiveConnection(id string, protocol string) (bool, error) {
+	a.mu.Lock()
+	wasConnected := a.connected
+	prevID := ""
+	if act := a.connections.Active(); act != nil {
+		prevID = act.ID
+	}
+	a.mu.Unlock()
+
+	if id == prevID {
+		return false, nil
+	}
+
+	// ActivateConnection already disconnects-on-active and reconfigures
+	// the protocol handler. Reuse it.
+	if err := a.ActivateConnection(id, protocol); err != nil {
+		return false, err
+	}
+
+	// Decide whether to fire a fresh Connect.
+	willReconnect := wasConnected
+	if !willReconnect && a.settings.ConnectOnDemand.Enabled {
+		nm := a.autoConnect.NetworkMonitor()
+		if nm != nil {
+			ns := nm.CurrentState()
+			willReconnect = ns.RuleMatch
+		}
+	}
+	if !willReconnect {
+		return false, nil
+	}
+
+	// Detach from the caller's goroutine so the slow tunnel-up path
+	// does not block the UI's pickConnection click handler.
+	go func() {
+		// Brief settle delay so the disconnect-on-active inside
+		// ActivateConnection has time to complete its native-side
+		// teardown before we fire a new Up().
+		time.Sleep(1500 * time.Millisecond)
+		if _, err := a.Connect(""); err != nil {
+			log.Printf("SwitchActiveConnection reconnect: %v", err)
+		}
+	}()
+	return true, nil
+}
+
+// PauseFor schedules a user-initiated VPN pause for the given number
+// of seconds. While the pause is active, ConnectCoordinator gates
+// non-USER connect intents and the live status surfaces a countdown
+// to the UI. Mirrors the Android long-press-to-pause feature.
+func (a *App) PauseFor(seconds int) error {
+	if a.pauseManager == nil {
+		return fmt.Errorf("pause manager not initialised")
+	}
+	if seconds <= 0 {
+		a.pauseManager.Cancel()
+		return nil
+	}
+	a.pauseManager.PauseFor(time.Duration(seconds) * time.Second)
+	// If currently connected, disconnect now - the user explicitly
+	// asked for a pause window.
+	a.mu.Lock()
+	connected := a.connected
+	a.mu.Unlock()
+	if connected {
+		go func() {
+			if err := a.Disconnect(); err != nil {
+				log.Printf("PauseFor: disconnect failed: %v", err)
+			}
+		}()
+	}
+	return nil
+}
+
+// CancelPause clears any active pause. The next COD evaluation tick
+// (or a manual user-tap) will then reconnect normally.
+func (a *App) CancelPause() error {
+	if a.pauseManager == nil {
+		return nil
+	}
+	a.pauseManager.Cancel()
 	return nil
 }
 

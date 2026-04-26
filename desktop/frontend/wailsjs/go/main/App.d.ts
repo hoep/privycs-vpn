@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function ActivateConnection(arg1:string,arg2:string):Promise<void>;
 
+export function CancelPause():Promise<void>;
+
 export function Connect(arg1:string):Promise<main.StatusResponse>;
 
 export function DeleteConnection(arg1:string):Promise<void>;
@@ -38,7 +40,11 @@ export function SetKillSwitch(arg1:boolean):Promise<void>;
 
 export function SetProtocol(arg1:string):Promise<void>;
 
+export function PauseFor(arg1:number):Promise<void>;
+
 export function Status():Promise<main.StatusResponse>;
+
+export function SwitchActiveConnection(arg1:string,arg2:string):Promise<boolean>;
 
 export function SwitchConnectionProtocol(arg1:string):Promise<void>;
 

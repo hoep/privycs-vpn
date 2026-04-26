@@ -223,6 +223,10 @@ func startWlanWatcher(stopCh <-chan struct{}, callback func()) (cleanup func(), 
 				return
 			default:
 			}
+			// Invalidate the SSID cache so the upcoming checkAndAct
+			// reads fresh data. Without this, a real WLAN state
+			// transition could be served stale-cached for up to 500ms.
+			invalidateSSIDCache()
 			log.Println("Network monitor: WLAN notification received")
 			callback()
 		}()
@@ -258,28 +262,73 @@ func startWlanWatcher(stopCh <-chan struct{}, callback func()) (cleanup func(), 
 	return cleanup, nil
 }
 
-// getCurrentSSIDPlatform returns the current WiFi SSID on Windows.
+// ssidCache is a tiny TTL cache fronting the multi-path SSID lookup
+// in getCurrentSSIDPlatform. Real-world checkAndAct call patterns
+// look like 5-7 calls in the same 100ms window during a WLAN
+// connect / disconnect burst (one per ACM event from the kernel,
+// plus the 2s-follow-up scheduled by the network monitor). Without
+// the cache each call walked the full pipeline: helper IPC + 5 file
+// reads + XML parse for users with multiple saved profiles - 25
+// disk reads per event burst on the user's machine. With a 500ms
+// TTL all but the first call inside a burst hit the cache and
+// return immediately.
 //
-// Four paths in order, each with diagnostic logging so a user on a
-// hostile environment (Location-permission GPO etc.) can see in the
-// log exactly which fallback finally succeeded - or which step
-// returned empty.
+// 500ms is short enough that a real network state change (WLAN
+// disconnect from one network and reconnect to another usually
+// takes >1s) will be visible on the next call, and long enough to
+// dedupe the same-event burst pattern. The 2s safety follow-up
+// always reads fresh.
+type ssidCacheEntry struct {
+	ssid string
+	ts   time.Time
+}
+
+var (
+	ssidCacheMu sync.Mutex
+	ssidCache   ssidCacheEntry
+)
+
+const ssidCacheTTL = 500 * time.Millisecond
+
+// getCurrentSSIDPlatform returns the current WiFi SSID on Windows
+// with a 500ms TTL cache around the multi-path lookup. See
+// ssidLookupFresh for the actual detection paths.
+func getCurrentSSIDPlatform() string {
+	ssidCacheMu.Lock()
+	if !ssidCache.ts.IsZero() && time.Since(ssidCache.ts) < ssidCacheTTL {
+		cached := ssidCache.ssid
+		ssidCacheMu.Unlock()
+		return cached
+	}
+	ssidCacheMu.Unlock()
+
+	result := ssidLookupFresh()
+
+	ssidCacheMu.Lock()
+	ssidCache = ssidCacheEntry{ssid: result, ts: time.Now()}
+	ssidCacheMu.Unlock()
+	return result
+}
+
+// ssidLookupFresh runs the four-path SSID detection without caching.
+// Each path logs its outcome so users on hostile environments
+// (Location-permission GPO etc.) can see in the log exactly which
+// fallback finally succeeded - or which step returned empty.
 //
 //   1. Helper IPC (SYSTEM context). On most enterprise GPOs the
 //      Location restriction is user-scoped, so a SYSTEM-context
-//      WlanQueryInterface from the helper bypasses it.
+//      WlanQueryInterface from the helper bypasses it. The helper
+//      itself further falls through to reading WLAN profile XML
+//      files off disk, which works even when the WLAN APIs are
+//      computer-wide blocked.
 //   2. User-mode WlanQueryInterface. Works on consumer Windows.
 //   3. Registry walk of HKLM\...\NetworkList\Profiles. NOT subject
 //      to the Location gate because it reads on-disk profile
-//      metadata, not a live wireless scan. Only consulted when an
-//      adapter is in connected state, otherwise the most-recent
-//      profile would be a stale answer.
+//      metadata. Only consulted when an adapter is in connected
+//      state, otherwise the most-recent profile would be a stale
+//      answer.
 //   4. netsh wlan show interfaces parser. Last-ditch fallback.
-//
-// Path 3 is the one that succeeds on Win11 enterprise machines
-// with computer-wide Location-policy where even the helper-as-SYSTEM
-// returns ERROR_ACCESS_DENIED on WlanQueryInterface.
-func getCurrentSSIDPlatform() string {
+func ssidLookupFresh() string {
 	if ssid, ok := readWLANSSIDViaHelper(); ok && ssid != "" {
 		return ssid
 	}
@@ -304,6 +353,17 @@ func getCurrentSSIDPlatform() string {
 		}
 	}
 	return ""
+}
+
+// invalidateSSIDCache forces the next getCurrentSSIDPlatform call to
+// re-run the full lookup. Called on WLAN-state-change platform
+// events so a user-perceived state transition (associate / drop)
+// reflects in the next checkAndAct without waiting up to 500ms for
+// the cache to expire.
+func invalidateSSIDCache() {
+	ssidCacheMu.Lock()
+	ssidCache = ssidCacheEntry{}
+	ssidCacheMu.Unlock()
 }
 
 // isAnyWLANAdapterConnected reports whether the WLAN service has at
