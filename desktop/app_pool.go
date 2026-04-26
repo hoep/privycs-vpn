@@ -496,20 +496,48 @@ func (a *App) resolveServerCountry(serverAddr string) string {
 	return cc
 }
 
-// resolveServerCity extracts a best-effort city label from the
-// connection name. Mullvad and most providers encode city in the
-// hostname pattern: "de-fra-wg-002" → city = "fra" → "Frankfurt".
-// Empty string when the pattern does not match (custom servers,
-// non-standard naming).
+// resolveServerCity extracts a best-effort city label.
+//
+// For active pools, ActivatePool clears the singles' active id, so
+// connName is empty - we must read the city from the pool's active
+// member name (which IS the Mullvad-style hostname like
+// "it-mil-wg-001"). Tier 1 covers that.
+//
+// For singles, connName is the saved-connection name. That can be
+// anything the user typed (or the file basename). Tier 2 tries the
+// same hostname pattern parse for users who imported provider
+// configs as singles. Returns "" if nothing matches.
 func (a *App) resolveServerCity(connName string) string {
-	if connName == "" {
+	// Tier 1: active pool member name.
+	a.mu.RLock()
+	activePoolID := a.activePoolID
+	a.mu.RUnlock()
+	if activePoolID != "" && a.pools != nil {
+		if pool := a.pools.Get(activePoolID); pool != nil && pool.ActiveMemberID != "" {
+			if m := pool.MemberByID(pool.ActiveMemberID); m != nil && m.Name != "" {
+				if city := cityFromHostnamePattern(m.Name); city != "" {
+					return city
+				}
+			}
+		}
+	}
+
+	// Tier 2: single connection's name.
+	return cityFromHostnamePattern(connName)
+}
+
+// cityFromHostnamePattern parses a "<country>-<city>-<protocol>-N"
+// hostname like "de-fra-wg-002" and returns the full city name from
+// the lookup table. Returns "" if the input is too short or the
+// city code is unknown.
+func cityFromHostnamePattern(name string) string {
+	if name == "" {
 		return ""
 	}
-	parts := strings.Split(connName, "-")
+	parts := strings.Split(name, "-")
 	if len(parts) < 2 {
 		return ""
 	}
-	// parts[0] is the country code, parts[1] is the city code.
 	if cityFull, ok := cityCodeToName[strings.ToLower(parts[1])]; ok {
 		return cityFull
 	}
