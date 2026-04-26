@@ -22,6 +22,12 @@
       </router-view>
     </main>
 
+    <!-- Pool import progress toast: subscribes globally to
+         "pool:import_progress" events so the user sees XX of YY
+         feedback regardless of which view they navigate to while
+         a 600-server provider ZIP is resolving. -->
+    <PoolImportToast />
+
     <!-- Bottom Navigation -->
     <nav class="flex items-center justify-around py-2 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700/50">
       <router-link
@@ -42,6 +48,7 @@
 import { ref, onMounted, onUnmounted, markRaw } from 'vue'
 import { useRoute } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
+import PoolImportToast from '@/components/PoolImportToast.vue'
 import {
   ShieldCheckIcon,
   Cog6ToothIcon,

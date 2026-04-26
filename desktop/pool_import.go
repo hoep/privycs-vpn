@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,8 +25,16 @@ type PoolImportProgress struct {
 	Total    int    `json:"total"`
 	Imported int    `json:"imported"`
 	Skipped  int    `json:"skipped"`
-	Message  string `json:"message,omitempty"`
+	Message  string `json:"message,omitempty"`  // current hostname being resolved (during "resolving" stage)
 }
+
+// dnsLookupConcurrency caps how many DNS lookups can run in parallel.
+// 20 chosen empirically: high enough that a 600-entry Mullvad ZIP
+// finishes in ~30s typical / 60s with cache misses, low enough that
+// we don't drown the system resolver or hit per-process socket
+// limits. Net library uses one goroutine per Lookup so 20 is a safe
+// ceiling on typical desktops (1024+ socket fd budget).
+const dnsLookupConcurrency = 20
 
 // PoolImportResult is what the import returns to its caller.
 type PoolImportResult struct {
@@ -340,11 +349,19 @@ func extractIPSecEndpoint(content string) string {
 // ImportFromUploads is the production import path: the frontend has
 // already loaded each file via FileReader (text or arraybuffer) and
 // shipped the bytes here. We do not touch the filesystem - everything
-// happens in memory. Maps to the same staged result as Import().
+// happens in memory.
 //
-// A .zip upload is unpacked into individual config entries; .conf /
-// .ovpn / .sswan uploads become single entries directly. Anything
-// else lands in result.Skipped with a "unsupported extension" reason.
+// Pipeline:
+//  1. Extract: unpack ZIPs in-memory, surface direct config files
+//  2. Parse: detect protocol + extract endpoint hostname for each
+//     entry. Cheap, runs in <1ms per entry.
+//  3. Resolve: bulk-resolve hostnames to IPs via a worker pool
+//     (sequential DNS makes a 600-entry import 5+ minutes). Each
+//     completion bumps the progress counter.
+//  4. Country lookup: synchronous MMDB hit per resolved IP.
+//
+// Stage 3 is where the wall-clock time goes; this is what the user
+// sees as "import is running" in the progress toast.
 func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(PoolImportProgress)) (*PoolImportResult, error) {
 	result := &PoolImportResult{}
 
@@ -374,7 +391,14 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 		}
 	}
 
-	// Stage 2: parse + resolve - identical to the path-based Import.
+	// Stage 2: parse - for each entry detect protocol and extract
+	// endpoint host. Stage results carry into Stage 3's worker pool.
+	type parsed struct {
+		entry    importEntry
+		protocol string
+		host     string
+	}
+	parsedList := make([]parsed, 0, len(entries))
 	total := len(entries)
 	for i, e := range entries {
 		emit(PoolImportProgress{
@@ -390,32 +414,108 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 			result.Skipped = append(result.Skipped, SkippedFile{e.name, "unsupported extension"})
 			continue
 		}
-
 		host := extractEndpointHost(protocol, string(e.content))
 		if host == "" {
 			result.Skipped = append(result.Skipped, SkippedFile{e.name, "no endpoint in config"})
 			continue
 		}
+		parsedList = append(parsedList, parsed{entry: e, protocol: protocol, host: host})
+	}
 
-		country := ""
-		if pi.geo != nil {
-			ip := resolveHostToIP(host)
-			if ip != nil {
-				if c, err := pi.geo.CountryCode(ip); err == nil {
-					country = c
+	// Stage 3: resolve hostnames in parallel. Members are appended in
+	// their original parse order so the final pool keeps a stable
+	// sort - even though the resolutions complete out of order.
+	resolveTotal := len(parsedList)
+	emit(PoolImportProgress{
+		Stage:    "resolving",
+		Current:  0,
+		Total:    resolveTotal,
+		Imported: len(result.Members),
+		Skipped:  len(result.Skipped),
+	})
+
+	type resolved struct {
+		index   int
+		country string
+	}
+
+	// Bounded worker pool: dnsLookupConcurrency goroutines pull jobs
+	// off `jobs`, push results onto `results`. The producer publishes
+	// jobs in order; the consumer reads results out-of-order and
+	// updates a per-index slot. We do not abort on errors - a failed
+	// lookup yields country="" and the member still imports (Geo-
+	// Nearest will skip them or treat as Other-region).
+	type job struct {
+		index int
+		host  string
+	}
+	jobs := make(chan job, resolveTotal)
+	results := make(chan resolved, resolveTotal)
+
+	var wg sync.WaitGroup
+	for w := 0; w < dnsLookupConcurrency; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				cc := ""
+				if pi.geo != nil {
+					if ip := resolveHostToIP(j.host); ip != nil {
+						if c, err := pi.geo.CountryCode(ip); err == nil {
+							cc = c
+						}
+					}
 				}
+				results <- resolved{index: j.index, country: cc}
 			}
-		}
+		}()
+	}
+	for i, p := range parsedList {
+		jobs <- job{index: i, host: p.host}
+	}
+	close(jobs)
 
-		nameWithoutExt := strings.TrimSuffix(e.name, filepath.Ext(e.name))
+	// Closer goroutine - signals end of results channel after workers drain.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	countries := make([]string, resolveTotal)
+	completed := 0
+	for r := range results {
+		countries[r.index] = r.country
+		completed++
+		// Emit on every completion. With 600 entries that's 600
+		// events - negligible compared to the IPC overhead the
+		// frontend already absorbs for status polls. The hostname
+		// of the most-recently-completed entry is the "Message"
+		// field so the user sees the toast text change even when
+		// the counter pauses on a slow DNS server.
+		if completed%5 == 0 || completed == resolveTotal {
+			emit(PoolImportProgress{
+				Stage:    "resolving",
+				Current:  completed,
+				Total:    resolveTotal,
+				Imported: completed,
+				Skipped:  len(result.Skipped),
+				Message:  parsedList[r.index].host,
+			})
+		}
+	}
+
+	// Assemble members in original order using the resolved countries.
+	for i, p := range parsedList {
+		nameWithoutExt := strings.TrimSuffix(p.entry.name, filepath.Ext(p.entry.name))
+		country := countries[i]
 		member := &PoolMember{
 			ID:   uuid.New().String(),
 			Name: nameWithoutExt,
 			Config: &ProtocolConfig{
-				Protocol:      protocol,
-				ConfigContent: string(e.content),
-				Filename:      e.name,
-				ServerAddress: host,
+				Protocol:      p.protocol,
+				ConfigContent: string(p.entry.content),
+				Filename:      p.entry.name,
+				ServerAddress: p.host,
 				AddedAt:       time.Now().Format(time.RFC3339),
 			},
 			Country: country,
@@ -427,8 +527,8 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 
 	emit(PoolImportProgress{
 		Stage:    "done",
-		Current:  total,
-		Total:    total,
+		Current:  resolveTotal,
+		Total:    resolveTotal,
 		Imported: len(result.Members),
 		Skipped:  len(result.Skipped),
 	})

@@ -150,7 +150,8 @@ const policyDescription = computed(() => {
 
 const progressLabel = computed(() => {
   if (progress.value.stage === 'extracting') return 'Extracting archive...'
-  if (progress.value.stage === 'parsing')    return `Resolving endpoints... ${progress.value.current}/${progress.value.total}`
+  if (progress.value.stage === 'parsing')    return `Parsing configs... ${progress.value.current}/${progress.value.total}`
+  if (progress.value.stage === 'resolving')  return `Resolving endpoints... ${progress.value.current}/${progress.value.total}`
   if (progress.value.stage === 'done')       return 'Finishing...'
   return 'Working...'
 })
