@@ -37,6 +37,11 @@ export interface PoolListItem {
   active_member_id?: string
   active_member_name?: string
   active_member_cc?: string
+  // Set by the rotator's pre-warm step (60s before rotation). When
+  // present the UI shows "Next: <name>" alongside the countdown.
+  pending_member_id?: string
+  pending_member_name?: string
+  pending_member_cc?: string
   is_active: boolean
 }
 

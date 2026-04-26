@@ -13,6 +13,7 @@ type rotatorTestHarness struct {
 	r *PoolRotator
 
 	rotateCount  atomic.Int32
+	preWarmCount atomic.Int32
 	lastPoolID   atomic.Value
 	mu           sync.Mutex
 	rx, tx       int64
@@ -27,6 +28,9 @@ func newHarness() *rotatorTestHarness {
 		func(poolID string) {
 			h.rotateCount.Add(1)
 			h.lastPoolID.Store(poolID)
+		},
+		func(poolID string) {
+			h.preWarmCount.Add(1)
 		},
 		func() (rx, tx int64) {
 			h.mu.Lock()
@@ -223,9 +227,83 @@ func TestRotator_StatusInactiveWhenNoPool(t *testing.T) {
 
 func TestRotator_StopIsIdempotent(t *testing.T) {
 	r := NewPoolRotator()
-	r.Start(func(string) {}, nil, nil)
+	r.Start(func(string) {}, func(string) {}, nil, nil)
 	r.Stop()
 	r.Stop() // must not panic
+}
+
+// TestRotator_PreWarmFiresOnceWithinLeadWindow verifies the rotator
+// pre-warm contract: 60 s before scheduledRotation, the onPreWarm
+// callback fires EXACTLY ONCE per cycle, regardless of how many
+// ticks happen inside that window. The App side uses pre-warm to
+// pick the next member ahead of time so the rotation tick itself
+// does not also do the pick-and-IO work in the critical path.
+func TestRotator_PreWarmFiresOnceWithinLeadWindow(t *testing.T) {
+	h := newHarness()
+	defer h.r.Stop()
+	p := &Pool{
+		ID:       "p1",
+		Policy:   PolicyRoundRobin,
+		Rotation: PoolRotation{IntervalMin: 5, IdleAware: false},
+	}
+	h.r.SetActivePool(p)
+
+	// Backdate scheduledRotation so we sit INSIDE the pre-warm
+	// window (less than 60s away) but not yet at rotation time.
+	h.r.mu.Lock()
+	h.r.scheduledRotation = time.Now().Add(30 * time.Second)
+	h.r.preWarmFired = false
+	h.r.mu.Unlock()
+
+	// First tick fires onPreWarm.
+	h.r.tick()
+	time.Sleep(50 * time.Millisecond)
+	if got := h.preWarmCount.Load(); got != 1 {
+		t.Errorf("after first tick in lead window, preWarmCount = %d, want 1", got)
+	}
+	if got := h.rotateCount.Load(); got != 0 {
+		t.Errorf("rotation must NOT fire while we are still in lead window, got %d", got)
+	}
+
+	// Subsequent ticks must NOT re-fire onPreWarm in the same cycle.
+	h.r.tick()
+	h.r.tick()
+	h.r.tick()
+	time.Sleep(50 * time.Millisecond)
+	if got := h.preWarmCount.Load(); got != 1 {
+		t.Errorf("preWarm fired %d times, expected exactly 1 per cycle", got)
+	}
+}
+
+// TestRotator_PreWarmResetsAfterRotation: once a rotation actually
+// fires, the pre-warm flag must reset so the NEXT cycle's pre-warm
+// can fire again.
+func TestRotator_PreWarmResetsAfterRotation(t *testing.T) {
+	h := newHarness()
+	defer h.r.Stop()
+	p := &Pool{
+		ID:       "p1",
+		Policy:   PolicyRoundRobin,
+		Rotation: PoolRotation{IntervalMin: 5, IdleAware: false},
+	}
+	h.r.SetActivePool(p)
+
+	// Force pre-warm flag set as if it already fired this cycle,
+	// then move past scheduledRotation to trigger fireRotation.
+	h.r.mu.Lock()
+	h.r.preWarmFired = true
+	h.r.scheduledRotation = time.Now().Add(-1 * time.Second)
+	h.r.mu.Unlock()
+
+	h.r.tick()
+	time.Sleep(50 * time.Millisecond)
+
+	h.r.mu.Lock()
+	stillFired := h.r.preWarmFired
+	h.r.mu.Unlock()
+	if stillFired {
+		t.Error("preWarmFired should be reset to false after rotation fires")
+	}
 }
 
 // TestRotator_NoDeadlockWhenCallerHoldsSimulatedAppMutex is a
@@ -255,6 +333,7 @@ func TestRotator_NoDeadlockWhenCallerHoldsSimulatedAppMutex(t *testing.T) {
 
 	r := NewPoolRotator()
 	r.Start(
+		func(string) {},
 		func(string) {},
 		func() (int64, int64) {
 			// Simulates App.poolTrafficSnapshot: acquires the

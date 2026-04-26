@@ -6,6 +6,16 @@ import (
 	"time"
 )
 
+// preWarmLeadSeconds is how far ahead of a scheduled rotation the
+// preWarm callback fires. The App uses this lead time to PICK the
+// next member and (where possible) stage its config so the rotation
+// itself only has to do the disconnect-then-up dance, not also the
+// pick-and-write work. 60 s is generous - WireGuard endpoint
+// resolution + MMDB lookup + JSON-marshal-and-disk-write are all
+// in the sub-100ms range, but the lead window also gives the UI a
+// chance to surface "preparing next server" text.
+const preWarmLeadSeconds = 60
+
 // PoolRotator drives the Round-Robin rotation timer for an active
 // Pool. Pure goroutine + callbacks - knows nothing about App, Connect,
 // or VPN state. The App wires the callbacks to its own connect path.
@@ -19,6 +29,11 @@ import (
 // idle-aware setting is on, the rotation is suppressed and a "force-
 // after" deadline is tracked. Once the force-deadline passes, rotation
 // fires regardless of traffic state.
+//
+// Pre-warm: 60 s before scheduledRotation, the rotator fires onPreWarm
+// (once per cycle). The App responds by picking the next member ahead
+// of time so the rotation tick itself only has to do
+// disconnect+connect, not also the pick-and-IO work.
 type PoolRotator struct {
 	mu       sync.Mutex
 	stopCh   chan struct{}
@@ -37,8 +52,14 @@ type PoolRotator struct {
 	idleBlockedSince  time.Time
 	scheduledRotation time.Time
 
+	// preWarmFired: true once onPreWarm has fired for the current
+	// cycle. Reset on every rotation. Prevents the pre-warm callback
+	// from firing on every tick once the lead window opens.
+	preWarmFired bool
+
 	// Callbacks injected by App at Start time.
 	onRotate     func(poolID string)
+	onPreWarm    func(poolID string)
 	getTraffic   func() (rx, tx int64)
 	getIsActive  func() bool // returns true if VPN is currently up
 }
@@ -54,11 +75,13 @@ func NewPoolRotator() *PoolRotator {
 // second goroutine.
 func (r *PoolRotator) Start(
 	onRotate func(poolID string),
+	onPreWarm func(poolID string),
 	getTraffic func() (rx, tx int64),
 	getIsActive func() bool,
 ) {
 	r.mu.Lock()
 	r.onRotate = onRotate
+	r.onPreWarm = onPreWarm
 	r.getTraffic = getTraffic
 	r.getIsActive = getIsActive
 	if r.running {
@@ -166,6 +189,7 @@ func (r *PoolRotator) ResetSchedule() {
 	r.idleBlockedSince = time.Time{}
 	r.lastTrafficRx = 0
 	r.lastTrafficTx = 0
+	r.preWarmFired = false
 }
 
 // Status returns the rotator's current state for UI consumption.
@@ -257,6 +281,28 @@ func (r *PoolRotator) tick() {
 
 	now := time.Now()
 
+	// Pre-warm window: 60 s before scheduled rotation, fire onPreWarm
+	// exactly once. The App picks the next member ahead of time so
+	// the rotation tick itself only does disconnect+connect, not also
+	// the pick-and-IO work. Frontend uses this to surface "Next:
+	// <member>" in the rotation indicator.
+	preWarmAt := r.scheduledRotation.Add(-time.Duration(preWarmLeadSeconds) * time.Second)
+	if !r.preWarmFired && r.onPreWarm != nil && !now.Before(preWarmAt) && now.Before(r.scheduledRotation) {
+		r.preWarmFired = true
+		cb := r.onPreWarm
+		pid := r.poolID
+		r.mu.Unlock()
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("PoolRotator: onPreWarm panic recovered: %v", rec)
+				}
+			}()
+			cb(pid)
+		}()
+		return
+	}
+
 	// Check if it is time to rotate at all.
 	if now.Before(r.scheduledRotation) {
 		r.mu.Unlock()
@@ -310,6 +356,8 @@ func (r *PoolRotator) fireRotationLocked() {
 	pid := r.poolID
 	r.scheduledRotation = time.Now().Add(time.Duration(r.intervalMin) * time.Minute)
 	r.idleBlockedSince = time.Time{}
+	// Reset pre-warm flag so the next cycle's onPreWarm can fire.
+	r.preWarmFired = false
 	if r.getTraffic != nil {
 		r.lastTrafficRx, r.lastTrafficTx = r.getTraffic()
 	}

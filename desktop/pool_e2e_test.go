@@ -275,6 +275,7 @@ func TestE2E_RotatorWithRealishPool(t *testing.T) {
 				pickedIDs = append(pickedIDs, next.ID)
 			}
 		},
+		func(poolID string) {}, // onPreWarm: no-op for this rotation-focused test
 		func() (rx, tx int64) { return 0, 0 }, // always idle
 		func() bool { return true },           // always VPN-active
 	)

@@ -1476,6 +1476,12 @@ func (a *App) startPoolRotator() {
 				log.Printf("PoolRotator: rotation for %s failed: %v", poolID, err)
 			}
 		},
+		func(poolID string) {
+			// Pre-warm: 60s before rotation, pick the next member
+			// and persist as PendingMemberID. UI surfaces "Next:
+			// <name>" once this lands. Cleared on actual rotate.
+			a.preWarmActivePool()
+		},
 		a.poolTrafficSnapshot,
 		func() bool {
 			a.mu.RLock()

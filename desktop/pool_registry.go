@@ -76,6 +76,11 @@ type Pool struct {
 	// the same-name-reuse race that caused tunnels to fail to come
 	// back up on rotation. "" means "no slot yet, start with A".
 	ActiveSlot string `json:"active_slot,omitempty"`
+	// PendingMemberID is set by the rotator's pre-warm step (60 s
+	// before scheduled rotation). UI uses this to surface "Next:
+	// <member-name>" in the rotation indicator. Cleared after the
+	// rotation actually fires.
+	PendingMemberID string `json:"pending_member_id,omitempty"`
 }
 
 // NextSlot returns the slot to use for the NEXT connect (opposite of

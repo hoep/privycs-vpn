@@ -67,6 +67,10 @@
           <div v-if="activeMemberDisplay" class="text-[10px] text-gray-600 dark:text-gray-300 truncate">
             <span class="text-gray-400">Currently:</span> {{ activeMemberDisplay }}
           </div>
+          <div v-if="pendingMemberDisplay" class="text-[10px] text-amber-500 dark:text-amber-400 truncate mt-0.5">
+            <ArrowRightIcon class="inline w-3 h-3 -mt-0.5" />
+            <span class="text-gray-400">Next:</span> {{ pendingMemberDisplay }}
+          </div>
 
           <!-- Round-Robin countdown: prominent dedicated row.
                When idle_blocked the row tints amber and the label
@@ -517,6 +521,7 @@ import {
   PauseIcon,
   XMarkIcon,
   RectangleStackIcon,
+  ArrowRightIcon,
 } from '@heroicons/vue/24/outline'
 
 const vpn = useVpnStore()
@@ -535,6 +540,16 @@ const activeMemberDisplay = computed(() => {
   if (!p?.active_member_name) return ''
   if (p.active_member_cc) return `${p.active_member_name} (${p.active_member_cc})`
   return p.active_member_name
+})
+
+// "Next:" line - rendered when the rotator has pre-warmed (60 s
+// before rotation). Distinct amber tint so the user reads it as
+// "upcoming" rather than current state.
+const pendingMemberDisplay = computed(() => {
+  const p = poolStore.pools.find(x => x.id === poolStore.activePoolId)
+  if (!p?.pending_member_name) return ''
+  if (p.pending_member_cc) return `${p.pending_member_name} (${p.pending_member_cc})`
+  return p.pending_member_name
 })
 
 // Pool indicator data. activePoolPolicyShort surfaces "Round-Robin",
@@ -905,9 +920,15 @@ onMounted(() => {
   // PickAndConnect. Refresh the pools list immediately so
   // "Currently: <member>" reflects the new server without waiting
   // for the 5s pollRotator cadence.
+  // "pool:prewarm" fires 60s ahead of rotation - same handler
+  // because both want a fresh pools list (active vs pending member
+  // changed in the registry).
   stopPoolRotatedListener = EventsOn('pool:rotated', () => {
     poolStore.refresh()
     vpn.fetchStatus()
+  })
+  EventsOn('pool:prewarm', () => {
+    poolStore.refresh()
   })
 
   rotatorCountdownInterval = setInterval(() => {

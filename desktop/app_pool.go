@@ -33,6 +33,12 @@ type PoolListItem struct {
 	ActiveMemberID    string `json:"active_member_id,omitempty"`
 	ActiveMemberName  string `json:"active_member_name,omitempty"`
 	ActiveMemberCC    string `json:"active_member_cc,omitempty"`
+	// Pre-warmed next member (set by the rotator's pre-warm step
+	// 60 s before rotation, cleared after the rotation actually
+	// fires). UI shows "Next: <name>" when these are set.
+	PendingMemberID   string `json:"pending_member_id,omitempty"`
+	PendingMemberName string `json:"pending_member_name,omitempty"`
+	PendingMemberCC   string `json:"pending_member_cc,omitempty"`
 	IsActive          bool   `json:"is_active"` // is this pool the currently-activated one
 }
 
@@ -56,6 +62,13 @@ func (a *App) ListPools() []PoolListItem {
 		if m := p.MemberByID(p.ActiveMemberID); m != nil {
 			item.ActiveMemberName = m.Name
 			item.ActiveMemberCC = m.Country
+		}
+		if p.PendingMemberID != "" {
+			if pm := p.MemberByID(p.PendingMemberID); pm != nil {
+				item.PendingMemberID = pm.ID
+				item.PendingMemberName = pm.Name
+				item.PendingMemberCC = pm.Country
+			}
 		}
 		out = append(out, item)
 	}
@@ -800,12 +813,23 @@ func (a *App) PickAndConnectActivePool() error {
 		}
 	}
 
-	member := PickMember(pool, userCountry, pool.ActiveMemberID)
+	// If pre-warm already picked next member, reuse it - keeps the
+	// rotation deterministic with what the UI advertised as "Next:".
+	// Falls back to PickMember if pre-warm did not run (manual
+	// trigger, brand-new pool, pool changed since pre-warm).
+	var member *PoolMember
+	if pool.PendingMemberID != "" {
+		member = pool.MemberByID(pool.PendingMemberID)
+	}
+	if member == nil {
+		member = PickMember(pool, userCountry, pool.ActiveMemberID)
+	}
 	if member == nil {
 		return fmt.Errorf("pool %s: no eligible member to pick", pool.Name)
 	}
 
 	pool.ActiveMemberID = member.ID
+	pool.PendingMemberID = "" // Clear pre-warm hint now that rotation happens.
 	if err := a.pools.Update(pool); err != nil {
 		log.Printf("Pool: persist active-member failed: %v", err)
 	}
@@ -860,6 +884,55 @@ func (a *App) PickAndConnectActivePool() error {
 		})
 	}
 	return nil
+}
+
+// preWarmActivePool runs 60 s before the next scheduled rotation. It
+// picks the next member using the same logic as the rotation itself,
+// persists the pick as Pool.PendingMemberID, and emits "pool:rotated"
+// so the frontend refreshes and renders "Next: <name>". The actual
+// disconnect+connect still happens at the rotation tick - this just
+// surfaces the upcoming server name early so the user sees what's
+// coming and so the rotation tick does not also have to do the pick
+// work in the critical path.
+func (a *App) preWarmActivePool() {
+	a.mu.RLock()
+	poolID := a.activePoolID
+	a.mu.RUnlock()
+	if poolID == "" || a.pools == nil {
+		return
+	}
+	pool := a.pools.Get(poolID)
+	if pool == nil {
+		return
+	}
+
+	userCountry := ""
+	if a.selfIPDetector != nil {
+		if cached := a.selfIPDetector.Cached(); cached != nil {
+			userCountry = cached.Country
+		}
+	}
+
+	member := PickMember(pool, userCountry, pool.ActiveMemberID)
+	if member == nil {
+		return
+	}
+	pool.PendingMemberID = member.ID
+	if err := a.pools.Update(pool); err != nil {
+		log.Printf("Pool: preWarm persist failed: %v", err)
+		return
+	}
+	log.Printf("Pool %s pre-warm: next member will be %s (%s)",
+		pool.Name, member.Name, member.Country)
+
+	if a.ctx != nil {
+		wailsRuntime.EventsEmit(a.ctx, "pool:prewarm", map[string]interface{}{
+			"pool_id":             pool.ID,
+			"pending_member_id":   member.ID,
+			"pending_member_name": member.Name,
+			"country":             member.Country,
+		})
+	}
 }
 
 // PoolRotatorStatus exposes the rotator's view to the frontend's
