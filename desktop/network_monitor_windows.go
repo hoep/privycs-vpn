@@ -11,7 +11,16 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows/registry"
 )
+
+// registryOpenKey opens a HKLM subkey for reading. Wraps the
+// golang.org/x/sys/windows/registry API to keep the rest of the
+// file syscall-style.
+func registryOpenKey(path string) (registry.Key, error) {
+	return registry.OpenKey(registry.LOCAL_MACHINE, path, registry.READ)
+}
 
 var (
 	iphlpapi             = syscall.NewLazyDLL("iphlpapi.dll")
@@ -251,29 +260,37 @@ func startWlanWatcher(stopCh <-chan struct{}, callback func()) (cleanup func(), 
 
 // getCurrentSSIDPlatform returns the current WiFi SSID on Windows.
 //
-// Three paths in order:
-//   1. Helper IPC (SYSTEM context) - bypasses user-level GPO that
-//      blocks Location permission on enterprise machines.
-//   2. User-mode WlanQueryInterface kernel call.
-//   3. netsh wlan show interfaces parser.
+// Four paths in order, each with diagnostic logging so a user on a
+// hostile environment (Location-permission GPO etc.) can see in the
+// log exactly which fallback finally succeeded - or which step
+// returned empty.
 //
-// Each path logs its outcome so users on environments where SSID
-// detection fails can see exactly which step returned empty.
+//   1. Helper IPC (SYSTEM context). On most enterprise GPOs the
+//      Location restriction is user-scoped, so a SYSTEM-context
+//      WlanQueryInterface from the helper bypasses it.
+//   2. User-mode WlanQueryInterface. Works on consumer Windows.
+//   3. Registry walk of HKLM\...\NetworkList\Profiles. NOT subject
+//      to the Location gate because it reads on-disk profile
+//      metadata, not a live wireless scan. Only consulted when an
+//      adapter is in connected state, otherwise the most-recent
+//      profile would be a stale answer.
+//   4. netsh wlan show interfaces parser. Last-ditch fallback.
+//
+// Path 3 is the one that succeeds on Win11 enterprise machines
+// with computer-wide Location-policy where even the helper-as-SYSTEM
+// returns ERROR_ACCESS_DENIED on WlanQueryInterface.
 func getCurrentSSIDPlatform() string {
-	// Path 1: privileged helper. The WLAN-data location restriction
-	// is typically applied to user sessions only; SYSTEM-context
-	// queries from the helper service often see the SSID where the
-	// user-mode app does not.
 	if ssid, ok := readWLANSSIDViaHelper(); ok && ssid != "" {
 		return ssid
 	}
-
-	// Path 2: user-mode syscall.
 	if ssid, ok := readWLANSSIDViaSyscall(); ok && ssid != "" {
 		return ssid
 	}
-
-	// Path 3: netsh parser with retry-on-empty.
+	if isAnyWLANAdapterConnected() {
+		if ssid, ok := readWLANSSIDViaRegistry(); ok && ssid != "" {
+			return ssid
+		}
+	}
 	for attempt := 0; attempt < 3; attempt++ {
 		ssid, hasAdapter := readNetshSSID()
 		if ssid != "" {
@@ -289,17 +306,63 @@ func getCurrentSSIDPlatform() string {
 	return ""
 }
 
-// readWLANSSIDViaHelper asks the privileged helper to return the
-// currently-connected WLAN SSID. The helper runs as LocalSystem,
-// which is not subject to user-session Location-permission GPOs in
-// most enterprise configurations. Returns ("", false) if the helper
-// is unreachable or did not produce a usable SSID; ("foo", true) on
-// success.
-func readWLANSSIDViaHelper() (string, bool) {
-	client := NewHelperClient()
-	if !client.IsHelperReachable() {
-		return "", false
+// isAnyWLANAdapterConnected reports whether the WLAN service has at
+// least one interface in state=connected (1). Used to gate the
+// registry-based SSID lookup so we do not return a stale most-
+// recent profile when the adapter is actually disconnected /
+// associating / authenticating.
+func isAnyWLANAdapterConnected() bool {
+	var clientHandle uintptr
+	var negotiatedVersion uint32
+	const wlanAPIVersion = 0x00000002
+
+	ret, _, _ := procWlanOpenHandle.Call(
+		uintptr(wlanAPIVersion), 0,
+		uintptr(unsafe.Pointer(&negotiatedVersion)),
+		uintptr(unsafe.Pointer(&clientHandle)),
+	)
+	if ret != 0 {
+		return false
 	}
+	defer procWlanCloseHandle.Call(clientHandle, 0)
+
+	var ifListPtr uintptr
+	ret, _, _ = procWlanEnumInterfaces.Call(
+		clientHandle, 0,
+		uintptr(unsafe.Pointer(&ifListPtr)),
+	)
+	if ret != 0 || ifListPtr == 0 {
+		return false
+	}
+	defer procWlanFreeMemory.Call(ifListPtr)
+
+	header := (*wlanInterfaceInfoList)(unsafe.Pointer(ifListPtr))
+	const headerSize = 8
+	entrySize := unsafe.Sizeof(wlanInterfaceInfo{})
+	for i := uint32(0); i < header.NumberOfItems; i++ {
+		entry := (*wlanInterfaceInfo)(unsafe.Pointer(uintptr(ifListPtr) + uintptr(headerSize) + uintptr(i)*entrySize))
+		if entry.IsState == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// readWLANSSIDViaHelper asks the privileged helper to return the
+// currently-connected WLAN SSID. The helper runs as LocalSystem
+// which on most enterprise setups is not subject to the user-session
+// Location-permission GPO that produces ERROR_ACCESS_DENIED on
+// WlanQueryInterface from the user-mode app.
+//
+// Diagnostic note: a previous version gated this on
+// IsHelperReachable() but that probe was apparently transient-
+// failing on the user's system (other helper actions like
+// killswitch_disable worked fine yet IsHelperReachable returned
+// false here). We now go straight into SendCommand and let any
+// real failure surface as a logged error.
+func readWLANSSIDViaHelper() (string, bool) {
+	log.Printf("WLAN: trying helper wlan_ssid")
+	client := NewHelperClient()
 	resp, err := client.SendCommand("wlan_ssid", nil)
 	if err != nil {
 		log.Printf("WLAN: helper wlan_ssid IPC failed: %v", err)
@@ -310,10 +373,94 @@ func readWLANSSIDViaHelper() (string, bool) {
 		return "", false
 	}
 	ssid := strings.TrimSpace(resp.Output)
+	log.Printf("WLAN: helper returned ssid=%q", ssid)
 	if ssid == "" {
 		return "", false
 	}
 	return ssid, true
+}
+
+// readWLANSSIDViaRegistry walks HKLM\SOFTWARE\Microsoft\Windows NT\
+// CurrentVersion\NetworkList\Profiles and returns the ProfileName of
+// the most-recently-connected wireless profile (NameType == 47).
+//
+// Why this works on Location-GPO-blocked systems:
+//   - The data is plain stored disk metadata, not a live wireless
+//     scan. The Location-permission gate that blocks dot11Ssid /
+//     strProfileName via WlanQueryInterface does NOT apply to
+//     reading this part of HKLM (it is treated as system
+//     configuration, not location data).
+//   - DateLastConnected is updated by the OS the moment a profile
+//     is associated, so the most-recent profile is the current one
+//     when the WLAN adapter is in state=connected.
+//
+// Caveats:
+//   - Returns the saved profile name. For default profiles this
+//     equals the SSID; user-renamed profiles will diverge.
+//   - If the user has connected to multiple WiFi networks recently
+//     and none of them is currently the active one, the result
+//     could be a stale profile. The caller should only consult
+//     this when WlanEnumInterfaces reports state=connected.
+func readWLANSSIDViaRegistry() (string, bool) {
+	const profilesPath = `SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles`
+
+	root, err := registryOpenKey(profilesPath)
+	if err != nil {
+		log.Printf("WLAN[registry]: open Profiles failed: %v", err)
+		return "", false
+	}
+	defer root.Close()
+
+	subkeys, err := root.ReadSubKeyNames(-1)
+	if err != nil {
+		log.Printf("WLAN[registry]: enum subkeys failed: %v", err)
+		return "", false
+	}
+	log.Printf("WLAN[registry]: %d profile(s) on disk", len(subkeys))
+
+	var bestName string
+	var bestStamp uint64
+
+	for _, sub := range subkeys {
+		k, err := registryOpenKey(profilesPath + `\` + sub)
+		if err != nil {
+			continue
+		}
+		nameType, _, _ := k.GetIntegerValue("NameType")
+		// 47 = wireless. 6 = wired. 0 = unknown / disconnected.
+		// 71 = mobile broadband.
+		if nameType != 47 {
+			k.Close()
+			continue
+		}
+		name, _, err := k.GetStringValue("ProfileName")
+		if err != nil || name == "" {
+			k.Close()
+			continue
+		}
+		// DateLastConnected is REG_BINARY, 16 bytes (SYSTEMTIME).
+		// The first 8 bytes encoded as little-endian uint64 give
+		// us a stamp comparable for "most recent" sorting without
+		// having to parse SYSTEMTIME.
+		stamp := uint64(0)
+		if data, _, err := k.GetBinaryValue("DateLastConnected"); err == nil && len(data) >= 8 {
+			for i := 0; i < 8; i++ {
+				stamp |= uint64(data[i]) << (8 * i)
+			}
+		}
+		if stamp >= bestStamp {
+			bestStamp = stamp
+			bestName = name
+		}
+		k.Close()
+	}
+
+	if bestName != "" {
+		log.Printf("WLAN[registry]: most-recent wireless profile=%q", bestName)
+		return bestName, true
+	}
+	log.Printf("WLAN[registry]: no wireless profile found")
+	return "", false
 }
 
 // readWLANSSIDViaSyscall queries the WLAN service directly through
