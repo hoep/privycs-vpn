@@ -175,36 +175,41 @@
         </div>
       </div>
 
-      <!-- Connection Name — click to switch between connections -->
-      <div v-if="vpn.status?.connection_name" class="mb-2 relative">
+      <!-- Connection / Pool Name — click to switch between any saved
+           connection or pool. The picker is unified: pools render
+           with the stack-icon at the top, singles below. Picking a
+           pool calls ActivatePool (clears single's activeID); picking
+           a single calls SwitchActiveConnection (clears active pool). -->
+      <div v-if="activeName" class="mb-2 relative">
         <button
           @click.stop="showConnectionPicker = !showConnectionPicker"
           class="flex items-center gap-1 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-primary-400 transition-colors"
         >
-          {{ vpn.status.connection_name }}
+          {{ activeName }}
           <ChevronDownIcon class="w-3.5 h-3.5" :class="showConnectionPicker ? 'rotate-180' : ''" />
         </button>
-        <!-- Dropdown -->
+        <!-- Unified dropdown -->
         <div
-          v-if="showConnectionPicker && allConnections.length > 1"
+          v-if="showConnectionPicker && pickerEntries.length > 1"
           @click.stop
-          class="absolute left-1/2 -translate-x-1/2 mt-1 w-56 card p-1 shadow-lg z-10"
+          class="absolute left-1/2 -translate-x-1/2 mt-1 w-64 card p-1 shadow-lg z-10"
         >
           <button
-            v-for="conn in allConnections"
-            :key="conn.id"
-            @click="pickConnection(conn)"
+            v-for="entry in pickerEntries"
+            :key="entry.type + ':' + entry.id"
+            @click="pickEntry(entry)"
             class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-xs transition-colors"
-            :class="conn.id === vpn.status?.connection_id
+            :class="entry.isActive
               ? 'bg-primary-500/10 text-primary-300'
               : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-white'"
           >
             <div class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-              :class="conn.id === vpn.status?.connection_id ? 'bg-primary-400' : 'bg-gray-600'">
+              :class="entry.isActive ? 'bg-primary-400' : 'bg-gray-600'">
             </div>
-            <span class="truncate">{{ conn.name }}</span>
+            <RectangleStackIcon v-if="entry.type === 'pool'" class="w-3.5 h-3.5 text-primary-400 flex-shrink-0" />
+            <span class="truncate flex-1">{{ entry.name }}</span>
             <span class="ml-auto text-[9px] text-gray-600">
-              {{ conn.protocols?.map((p: any) => protocolShort(p.protocol)).join('/') }}
+              {{ entry.subtitle }}
             </span>
           </button>
         </div>
@@ -460,6 +465,7 @@ import {
   PencilSquareIcon,
   PauseIcon,
   XMarkIcon,
+  RectangleStackIcon,
 } from '@heroicons/vue/24/outline'
 
 const vpn = useVpnStore()
@@ -590,7 +596,7 @@ async function loadConnections() {
 
 async function pickConnection(conn: any) {
   showConnectionPicker.value = false
-  if (conn.id === vpn.status?.connection_id) return
+  if (conn.id === vpn.status?.connection_id && !poolStore.activePoolId) return
   try {
     const proto = conn.active_protocol || conn.protocols?.[0]?.protocol || ''
     // SwitchActiveConnection returns true iff a reconnect will be
@@ -605,8 +611,75 @@ async function pickConnection(conn: any) {
     }
     await vpn.fetchStatus()
     await loadConnections()
+    await poolStore.refresh()
   } catch (e: any) {
     vpn.error = 'Failed to switch connection'
+  }
+}
+
+// Unified picker entry shape - merges singles and pools so the
+// dropdown can render them in one list. The data flow:
+//   - singles come from allConnections (loaded via ListConnections)
+//   - pools come from poolStore.pools (loaded via ListPools)
+// Active state is derived locally rather than trusting either list's
+// is_active flag exclusively, since the two layers refresh at
+// different cadences.
+interface PickerEntry {
+  type: 'single' | 'pool'
+  id: string
+  name: string
+  subtitle: string
+  isActive: boolean
+}
+
+const pickerEntries = computed<PickerEntry[]>(() => {
+  const activePoolId = poolStore.activePoolId
+  const activeSingleId = vpn.status?.connection_id || ''
+
+  const pools: PickerEntry[] = poolStore.pools.map((p) => ({
+    type: 'pool',
+    id: p.id,
+    name: p.name,
+    subtitle: `${p.member_count}`,
+    isActive: !!activePoolId && p.id === activePoolId,
+  }))
+  const singles: PickerEntry[] = allConnections.value.map((c) => ({
+    type: 'single',
+    id: c.id,
+    name: c.name,
+    subtitle: c.protocols?.map((p: any) => protocolShort(p.protocol)).join('/') || '',
+    // Singles are only "active" if no pool is active (mutual exclusion).
+    isActive: !activePoolId && c.id === activeSingleId,
+  }))
+  // Pools above singles - matches the ConnectionsView layout so the
+  // user's mental map is consistent across screens.
+  return [...pools, ...singles]
+})
+
+const activeName = computed(() => {
+  if (poolStore.activePoolId) {
+    const p = poolStore.pools.find((x) => x.id === poolStore.activePoolId)
+    return p?.name || ''
+  }
+  return vpn.status?.connection_name || ''
+})
+
+async function pickEntry(entry: PickerEntry) {
+  showConnectionPicker.value = false
+  if (entry.isActive) return
+  try {
+    if (entry.type === 'pool') {
+      await poolStore.activate(entry.id)
+      await vpn.fetchStatus()
+      await loadConnections()
+    } else {
+      // Reuse pickConnection's path so KS-warning + reconnect logic
+      // is centralised. Find the conn object for the protocol hint.
+      const conn = allConnections.value.find((c) => c.id === entry.id)
+      if (conn) await pickConnection(conn)
+    }
+  } catch (e: any) {
+    vpn.error = e?.toString() || 'failed to switch'
   }
 }
 
@@ -719,6 +792,10 @@ const latestTxSpeed = computed(() => {
 const showWelcome = computed(() => {
   if (!vpn.status) return true
   if (isConnected.value) return false
+  // An active pool is a virtual connection - the Connect button needs
+  // to render so the user can fire PickAndConnectActivePool, even
+  // though the singles' connection_name is empty (mutual exclusion).
+  if (poolStore.activePoolId) return false
   if (vpn.status.connection_name) return false
   if (vpn.status.connection_protocols?.length > 0) return false
   return true

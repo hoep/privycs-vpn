@@ -891,6 +891,17 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 		return fmt.Errorf("connection not found: %s", id)
 	}
 
+	// Mutual exclusion with the Pool layer: activating a single
+	// clears any active pool, just like ActivatePool clears the
+	// singles' activeID. The picker UI assumes only one of (pool,
+	// single) drives the connection at a time.
+	if a.activePoolID != "" {
+		a.activePoolID = ""
+		if a.poolRotator != nil {
+			a.poolRotator.SetActivePool(nil)
+		}
+	}
+
 	// Disconnect current tunnel if connected
 	if a.connected {
 		if err := a.disconnectInternal(); err != nil {
