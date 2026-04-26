@@ -36,18 +36,74 @@
     <template v-else>
       <!-- Coverage section -->
       <div class="card p-3 mb-4">
-        <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-2">Coverage</h3>
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Coverage</h3>
+          <button
+            v-if="coverage.length > 1"
+            @click="showRegionFilter = !showRegionFilter"
+            class="text-[10px] text-primary-400 hover:text-primary-300"
+          >
+            {{ showRegionFilter ? 'Hide' : 'Restrict to region' }}
+          </button>
+        </div>
         <div v-if="coverage.length === 0" class="text-[10px] text-gray-500 italic">
           No country data — geo policies will fall back to Random.
         </div>
-        <div v-else class="space-y-1">
-          <div
-            v-for="row in coverage"
-            :key="row.region"
-            class="flex justify-between items-center text-xs"
-          >
-            <span class="text-gray-700 dark:text-gray-300">{{ row.region }}</span>
-            <span class="text-gray-500">{{ row.servers }} server<span v-if="row.servers !== 1">s</span> · {{ row.countries }} {{ row.countries === 1 ? 'country' : 'countries' }}</span>
+        <div v-else>
+          <!-- Read-only summary, hidden when the filter is open. -->
+          <div v-if="!showRegionFilter" class="space-y-1">
+            <div
+              v-for="row in coverage"
+              :key="row.region"
+              class="flex justify-between items-center text-xs"
+            >
+              <span class="text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                {{ row.region }}
+                <span
+                  v-if="restrictedRegions.length > 0 && !restrictedRegions.includes(row.region)"
+                  class="text-[9px] text-gray-500 italic"
+                >excluded</span>
+              </span>
+              <span class="text-gray-500">{{ row.servers }} server<span v-if="row.servers !== 1">s</span> · {{ row.countries }} {{ row.countries === 1 ? 'country' : 'countries' }}</span>
+            </div>
+          </div>
+
+          <!-- Region restriction toggle list. Empty = no restriction. -->
+          <div v-else class="space-y-1.5">
+            <p class="text-[10px] text-gray-500 mb-1">
+              Toggle off any region to exclude it from policy picks. Leave all on for no restriction.
+            </p>
+            <label
+              v-for="row in coverage"
+              :key="row.region"
+              class="flex items-center justify-between py-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/30 rounded px-2"
+            >
+              <div class="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  :checked="isRegionEnabled(row.region)"
+                  @change="toggleRegion(row.region)"
+                  class="rounded"
+                />
+                <span class="text-xs text-gray-700 dark:text-gray-300">{{ row.region }}</span>
+              </div>
+              <span class="text-[10px] text-gray-500">{{ row.servers }} · {{ row.countries }}</span>
+            </label>
+            <div class="flex justify-end pt-2 gap-2">
+              <button
+                @click="restrictedRegions = []"
+                class="text-[10px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                Reset
+              </button>
+              <button
+                @click="saveRegionRestriction"
+                :disabled="regionRestrictSaving"
+                class="text-[10px] px-2 py-1 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+              >
+                {{ regionRestrictSaving ? 'Saving...' : 'Apply' }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -228,6 +284,60 @@ const coverage = ref<any[]>([])
 const loading = ref(true)
 const memberFilter = ref('')
 
+// Region restriction state. restrictedRegions mirrors the backend
+// pool.restrict_regions: an empty array means "no restriction"; any
+// non-empty list means "only members in these regions count for
+// policy picks". The toggle UI builds the list as the user checks/
+// unchecks boxes; saveRegionRestriction persists via UpdatePool.
+const showRegionFilter = ref(false)
+const restrictedRegions = ref<string[]>([])
+const regionRestrictSaving = ref(false)
+
+function isRegionEnabled(region: string): boolean {
+  // Empty restriction list = all regions enabled.
+  if (restrictedRegions.value.length === 0) return true
+  return restrictedRegions.value.includes(region)
+}
+
+function toggleRegion(region: string) {
+  if (restrictedRegions.value.length === 0) {
+    // Transitioning from "all" to "all except this one": initialise
+    // with every region except the toggled-off one.
+    restrictedRegions.value = coverage.value
+      .map((r: any) => r.region)
+      .filter((r: string) => r !== region)
+    return
+  }
+  const idx = restrictedRegions.value.indexOf(region)
+  if (idx >= 0) {
+    restrictedRegions.value.splice(idx, 1)
+  } else {
+    restrictedRegions.value.push(region)
+  }
+  // If we're back to including every visible region, collapse to "all"
+  // by clearing the list (semantically identical, simpler persistence).
+  const allRegions = coverage.value.map((r: any) => r.region)
+  if (allRegions.every((r: string) => restrictedRegions.value.includes(r))) {
+    restrictedRegions.value = []
+  }
+}
+
+async function saveRegionRestriction() {
+  if (!pool.value) return
+  regionRestrictSaving.value = true
+  try {
+    await poolStore.update(pool.value.id, {
+      restrict_regions: restrictedRegions.value,
+    })
+    showRegionFilter.value = false
+    await load()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    regionRestrictSaving.value = false
+  }
+}
+
 // Edit modal state
 const showSettingsModal = ref(false)
 const editName = ref('')
@@ -281,6 +391,7 @@ async function load() {
       editIntervalMin.value = pool.value.rotation?.interval_min || 30
       editIdleAware.value = pool.value.rotation?.idle_aware ?? true
       editForceAfterMin.value = pool.value.rotation?.force_after_min || 60
+      restrictedRegions.value = [...(pool.value.restrict_regions || [])]
     }
   } catch (e) {
     console.error(e)
