@@ -287,22 +287,22 @@ func getCurrentSSIDPlatform() string {
 
 // readWLANSSIDViaSyscall queries the WLAN service directly through
 // the Win32 wlanapi.dll. Returns (ssid, true) on success including
-// the case where there are no connected WLAN adapters (returns
-// "", true - definitive answer). Returns (any, false) only when
-// the API itself failed and we should fall back to netsh.
+// the case where there are no connected WLAN adapters. Returns
+// (any, false) only when the API itself failed and we should fall
+// back to netsh.
 //
-// Sequence:
-//   1. WlanOpenHandle: get a client handle.
-//   2. WlanEnumInterfaces: list WLAN adapter GUIDs.
-//   3. For each GUID, WlanQueryInterface(opcode=current_connection):
-//      returns a WLAN_CONNECTION_ATTRIBUTES struct from which we
-//      extract dot11Ssid (length-prefixed bytes, NOT zero-terminated).
-//   4. WlanFreeMemory + WlanCloseHandle to clean up.
+// IMPORTANT: as of Windows 10 build 2004 the wlanAssociationAttributes
+// .dot11Ssid field requires the Location permission. Enterprise GPOs
+// often block Location for non-elevated user sessions ("Standort-
+// meldungen vom Administrator gesperrt" dialog). When that happens
+// uSSIDLength returns 0 even though the adapter is associated.
 //
-// Threading: WlanOpenHandle / WlanQueryInterface are reentrant and
-// thread-safe per MSDN. We open + close per call - cheap and avoids
-// keeping a long-lived handle that could survive into a
-// daemon-restart context.
+// Workaround: also read strProfileName at offset 8. The profile
+// name is the saved name of the WiFi network (defaults to SSID at
+// connect time, locally stored, NOT subject to location permission
+// in our testing). For most home / office networks profile name ==
+// SSID exactly, which makes the user's "only" rule work without
+// additional configuration.
 func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 	var clientHandle uintptr
 	var negotiatedVersion uint32
@@ -332,15 +332,10 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 	header := (*wlanInterfaceInfoList)(unsafe.Pointer(ifListPtr))
 	count := header.NumberOfItems
 	if count == 0 {
-		// No WLAN interface present - definitive answer "no SSID",
-		// not a failure.
 		return "", true
 	}
 
-	// The first interface entry sits immediately after the 8-byte
-	// header (NumberOfItems uint32 + Index uint32). Subsequent
-	// entries are sizeof(wlanInterfaceInfo) apart.
-	const headerSize = 8 // 2 * uint32
+	const headerSize = 8 // NumberOfItems + Index = 2 * uint32
 	entrySize := unsafe.Sizeof(wlanInterfaceInfo{})
 
 	for i := uint32(0); i < count; i++ {
@@ -348,8 +343,7 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 		entry := (*wlanInterfaceInfo)(entryPtr)
 
 		// IsState 1 = wlan_interface_state_connected. Skip
-		// disconnected/associating adapters; they have no current
-		// SSID to report.
+		// disconnected/associating adapters.
 		if entry.IsState != 1 {
 			continue
 		}
@@ -369,27 +363,64 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 			continue
 		}
 
-		// WLAN_CONNECTION_ATTRIBUTES layout (relevant fields only):
-		//   isState                 (uint32)  - offset  0
-		//   wlanConnectionMode      (uint32)  - offset  4
-		//   strProfileName[256]     (wchar_t) - offset  8 (256*2 bytes)
-		//   wlanAssociationAttributes (DOT11_ASSOCIATION_ATTRIBUTES)
-		//     starts at offset 8 + 512 = 520
-		//   inside which dot11Ssid (uint32 len + 32 bytes) starts at
-		//   offset 520 + 8 (bssid 6 + pad 2) = 530
-		const ssidOffset = 530
-		ssidLen := *(*uint32)(unsafe.Pointer(uintptr(dataPtr) + ssidOffset))
+		// WLAN_CONNECTION_ATTRIBUTES layout (verified against
+		// wlanapi.h):
+		//   isState                 (uint32)  - offset   0
+		//   wlanConnectionMode      (uint32)  - offset   4
+		//   strProfileName[256]     (wchar_t) - offset   8  (512 bytes)
+		//   wlanAssociationAttributes:
+		//     dot11Bssid (6 bytes)            - offset 520
+		//     padding to align uint32         - offset 526..527
+		//     dot11Ssid:
+		//       uSSIDLength (uint32)          - offset 528
+		//       ucSSID[32]                    - offset 532
+		//
+		// PRIOR BUG: I had ssidOffset = 530 here. The DOT11_ASSOCIATION
+		// _ATTRIBUTES struct starts the DOT11_SSID at +8 from its base
+		// (6 bytes BSSID + 2 bytes alignment padding for uint32-sized
+		// uSSIDLength), not +10. Reading at the wrong offset gave
+		// ssidLen garbage values from inside the BSSID, which the
+		// `<= 32` guard always rejected.
+		const profileNameOffset = 8
+		const profileNameByteLen = 512 // 256 * sizeof(wchar_t)
+		const ssidLenOffset = 528
+		const ssidBytesOffset = 532
+
+		// Try the location-restricted real SSID first.
+		ssidLen := *(*uint32)(unsafe.Pointer(uintptr(dataPtr) + ssidLenOffset))
 		if ssidLen > 0 && ssidLen <= 32 {
-			ssidBytes := (*[32]byte)(unsafe.Pointer(uintptr(dataPtr) + ssidOffset + 4))
+			ssidBytes := (*[32]byte)(unsafe.Pointer(uintptr(dataPtr) + ssidBytesOffset))
 			result := string(ssidBytes[:ssidLen])
 			procWlanFreeMemory.Call(dataPtr)
 			return result, true
 		}
+
+		// Fallback: profile name. Not subject to location permission
+		// because the OS reads it from the locally-saved WLAN
+		// profile, not from a live scan. profile name == SSID for
+		// the default-named profiles every Windows install creates.
+		profileWChar := (*[256]uint16)(unsafe.Pointer(uintptr(dataPtr) + profileNameOffset))
+		nameLen := 0
+		for nameLen < 256 && profileWChar[nameLen] != 0 {
+			nameLen++
+		}
+		if nameLen > 0 {
+			result := utf16ToString(profileWChar[:nameLen])
+			procWlanFreeMemory.Call(dataPtr)
+			return result, true
+		}
+		_ = profileNameByteLen // referenced via offset constants, retained for documentation
 		procWlanFreeMemory.Call(dataPtr)
 	}
 
-	// Adapters enumerated, none connected with a usable SSID.
 	return "", true
+}
+
+// utf16ToString decodes a UTF-16 LE slice into a Go UTF-8 string.
+// Standard library's syscall.UTF16ToString does the same but
+// requires a []uint16 slice; we already have one so we just call it.
+func utf16ToString(s []uint16) string {
+	return syscall.UTF16ToString(s)
 }
 
 // readNetshSSID parses one shot of netsh wlan show interfaces.
