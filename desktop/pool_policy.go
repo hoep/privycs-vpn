@@ -33,7 +33,7 @@ func PickMember(p *Pool, userCountry string, lastMemberID string) *PoolMember {
 	case PolicyRandom:
 		return pickRandom(eligible)
 	case PolicyRoundRobin:
-		return pickRoundRobin(eligible, lastMemberID)
+		return pickRoundRobin(eligible, lastMemberID, effectiveCountry(p, userCountry))
 	}
 
 	// Unknown policy - degrade to random rather than refusing to connect.
@@ -123,19 +123,36 @@ func pickRandom(members []*PoolMember) *PoolMember {
 // this gives a pseudo-equal distribution over members of that region,
 // without the bookkeeping of remembering per-region cursors.
 //
+// First-pick semantics: start at the user's home region (derived from
+// userCountry) when known, so the very first connect is geographically
+// sensible. Without this, alphabetical sort puts "Africa" first and a
+// user in AT would land on a Nigerian server before rotation kicks in.
+// Subsequent picks alphabetic-rotate from there.
+//
 // If the pool has only a single region (so "different region" cannot
 // be satisfied), we degrade to "different member from same region" so
 // rotation visibly does something.
-func pickRoundRobin(eligible []*PoolMember, lastMemberID string) *PoolMember {
+func pickRoundRobin(eligible []*PoolMember, lastMemberID string, userCountry string) *PoolMember {
 	if len(eligible) == 0 {
 		return nil
 	}
 
 	byRegion := groupByRegion(eligible)
 	regions := sortedRegionKeys(byRegion)
+	if len(regions) == 0 {
+		return nil
+	}
 
-	// First-time pick: start at the alphabetically-first region.
-	if lastMemberID == "" || len(regions) == 0 {
+	// First-time pick: start at the user's home region if we have a
+	// country and that region is represented in the pool. Otherwise
+	// fall back to the alphabetically-first region.
+	if lastMemberID == "" {
+		if userCountry != "" {
+			homeRegion := geoip.Region(userCountry)
+			if members, ok := byRegion[homeRegion]; ok && len(members) > 0 {
+				return pickRandom(members)
+			}
+		}
 		return pickRandom(byRegion[regions[0]])
 	}
 
@@ -149,7 +166,13 @@ func pickRoundRobin(eligible []*PoolMember, lastMemberID string) *PoolMember {
 	}
 	if lastRegion == "" {
 		// Last member is no longer eligible (deleted, marked unreachable).
-		// Restart from the first region.
+		// Restart from the user's home region if known, else first region.
+		if userCountry != "" {
+			homeRegion := geoip.Region(userCountry)
+			if members, ok := byRegion[homeRegion]; ok && len(members) > 0 {
+				return pickRandom(members)
+			}
+		}
 		return pickRandom(byRegion[regions[0]])
 	}
 

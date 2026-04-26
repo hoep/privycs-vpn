@@ -42,11 +42,14 @@ func TestPoolRegistry_DefaultRotation(t *testing.T) {
 	if p.Rotation.IntervalMin != 30 {
 		t.Errorf("default IntervalMin = %d, want 30", p.Rotation.IntervalMin)
 	}
-	if !p.Rotation.IdleAware {
-		t.Error("default IdleAware should be true")
+	// Strict-by-default: IdleAware off so user-chosen Round-Robin
+	// rotation actually fires on schedule. Users who want traffic-aware
+	// deferral can opt in via the Edit-Pool modal.
+	if p.Rotation.IdleAware {
+		t.Error("default IdleAware should be false (strict rotation)")
 	}
-	if p.Rotation.ForceAfterMin != 60 {
-		t.Errorf("default ForceAfterMin = %d, want 60", p.Rotation.ForceAfterMin)
+	if p.Rotation.ForceAfterMin != 30 {
+		t.Errorf("default ForceAfterMin = %d, want 30", p.Rotation.ForceAfterMin)
 	}
 }
 

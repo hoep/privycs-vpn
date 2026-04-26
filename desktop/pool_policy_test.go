@@ -74,6 +74,46 @@ func TestPickRandom_SkipsInactive(t *testing.T) {
 	}
 }
 
+func TestPickRoundRobin_FirstPickStartsInUserRegion(t *testing.T) {
+	// AT user with a 4-region pool. First pick must be Europe -
+	// alphabetical order would otherwise pick Africa first.
+	members := []*PoolMember{
+		{ID: "ng1", Country: "NG", Region: "Africa", Active: true},
+		{ID: "jp1", Country: "JP", Region: "Asia-Pacific", Active: true},
+		{ID: "at1", Country: "AT", Region: "Europe", Active: true},
+		{ID: "us1", Country: "US", Region: "North America", Active: true},
+	}
+	p := &Pool{Policy: PolicyRoundRobin, Members: members}
+
+	got := PickMember(p, "AT", "")
+	if got == nil {
+		t.Fatal("nil pick")
+	}
+	if got.Region != "Europe" {
+		t.Errorf("first pick for AT user landed in %s, want Europe (got member %s)", got.Region, got.ID)
+	}
+}
+
+func TestPickRoundRobin_FirstPickFallsBackWhenUserRegionMissing(t *testing.T) {
+	// AT user but the pool has no Europe servers. Falls back to the
+	// alphabetically-first region (Africa here) - degraded but
+	// connection-positive.
+	members := []*PoolMember{
+		{ID: "ng1", Country: "NG", Region: "Africa", Active: true},
+		{ID: "jp1", Country: "JP", Region: "Asia-Pacific", Active: true},
+		{ID: "us1", Country: "US", Region: "North America", Active: true},
+	}
+	p := &Pool{Policy: PolicyRoundRobin, Members: members}
+	got := PickMember(p, "AT", "")
+	if got == nil {
+		t.Fatal("nil pick")
+	}
+	// Should not crash; some region is fine.
+	if got.Region == "" {
+		t.Error("empty region")
+	}
+}
+
 func TestPickRoundRobin_AdvancesAcrossRegions(t *testing.T) {
 	members := []*PoolMember{atVie(), usNyc(), jpTok()}
 	p := &Pool{Policy: PolicyRoundRobin, Members: members}

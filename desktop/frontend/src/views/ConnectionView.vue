@@ -489,13 +489,28 @@ const activeMemberDisplay = computed(() => {
 // Rotator banner: three states sourced from PoolRotatorStatus.
 // Only Round-Robin policy produces a non-empty banner - other policies
 // pick once per Connect with no rotation, so there is nothing to count.
+//
+// Format: "Next rotation in 4:32  (at 14:23)" - countdown for "how
+// long" plus absolute clock-time for "when". Helps the user plan
+// around mid-session reconnects ("I have 4 minutes to finish this
+// page load").
+function formatClockTime(ns: number): string {
+  if (!ns || ns <= 0) return ''
+  const future = new Date(Date.now() + ns / 1_000_000)
+  const hh = future.getHours().toString().padStart(2, '0')
+  const mm = future.getMinutes().toString().padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
 const rotatorBannerLine = computed(() => {
   const r = poolStore.rotatorStatus
   if (!r || !r.active) return ''
   if (r.idle_blocked) {
-    return `Rotation paused — active traffic. Force-rotate in ${formatDuration(r.force_rotate_in || 0)}`
+    const forceClock = formatClockTime(r.force_rotate_in || 0)
+    return `Rotation paused — active traffic. Force-rotate in ${formatDuration(r.force_rotate_in || 0)} (at ${forceClock})`
   }
-  return `Next rotation in ${formatDuration(r.next_rotation_in)}`
+  const clock = formatClockTime(r.next_rotation_in)
+  return `Next rotation in ${formatDuration(r.next_rotation_in)} (at ${clock})`
 })
 const showConnectionPicker = ref(false)
 const allConnections = ref<any[]>([])

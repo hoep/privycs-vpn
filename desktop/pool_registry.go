@@ -32,10 +32,14 @@ type PoolRotation struct {
 }
 
 // DefaultRotation returns the rotation defaults written for new Pools.
-// 30 min interval + idle-aware + 60 min force-cap matches what the Pool
-// design spec calls "the vernünftigste Variante".
+// 30 min interval, NOT idle-aware, 30 min force-cap. Strict-by-default:
+// the user has explicitly chosen Round-Robin so rotation should fire
+// reliably; if they want idle-aware deferral they enable it via the
+// Edit-Pool modal. Earlier defaults (idle_aware=true, force_after=60)
+// led to cases where traffic-driven sessions blocked rotation for an
+// hour - that defeats the privacy intent of Round-Robin.
 func DefaultRotation() PoolRotation {
-	return PoolRotation{IntervalMin: 30, IdleAware: true, ForceAfterMin: 60}
+	return PoolRotation{IntervalMin: 30, IdleAware: false, ForceAfterMin: 30}
 }
 
 // PoolMember is one config inside a Pool. Each member is an independent
