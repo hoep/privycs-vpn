@@ -139,12 +139,45 @@ type RotatorStatus struct {
 	ForceRotateIn    time.Duration `json:"force_rotate_in,omitempty"`
 }
 
+// ResetSchedule snaps scheduledRotation to "now + intervalMin", as if
+// the user had just started a fresh rotation cycle. Called from
+// App.Connect when the VPN actually goes connected so the countdown
+// the user sees on screen begins exactly at connect-time, not at
+// pool-activate-time. Without this the schedule drifts: a user
+// activating a pool at 10:00 and only Connecting at 10:25 would see
+// "5 min remaining" on a 30-min cycle, which is confusing.
+func (r *PoolRotator) ResetSchedule() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.poolID == "" || r.intervalMin <= 0 {
+		return
+	}
+	r.scheduledRotation = time.Now().Add(time.Duration(r.intervalMin) * time.Minute)
+	r.idleBlockedSince = time.Time{}
+	if r.getTraffic != nil {
+		r.lastTrafficRx, r.lastTrafficTx = r.getTraffic()
+	}
+}
+
 // Status returns the rotator's current state for UI consumption.
+//
+// Returns Active=false unless ALL of:
+//   - the goroutine is running (Start was called)
+//   - a Round-Robin pool has been bound via SetActivePool
+//   - the VPN is currently connected (via getIsActive callback)
+//
+// The VPN-connected gate is what makes the countdown only run after
+// Connect: Pool selection alone does not start the rotation timer
+// the user sees on screen, even though the schedule field is set
+// internally for the tick goroutine's bookkeeping.
 func (r *PoolRotator) Status() RotatorStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.poolID == "" || !r.running {
+		return RotatorStatus{Active: false}
+	}
+	if r.getIsActive != nil && !r.getIsActive() {
 		return RotatorStatus{Active: false}
 	}
 

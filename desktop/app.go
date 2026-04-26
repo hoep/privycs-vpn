@@ -627,6 +627,15 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	a.connected = true
 	a.connectedAt = time.Now()
 
+	// Pool rotator: reset the rotation countdown to start fresh from
+	// THIS moment. The countdown the user sees on the Connect screen
+	// should begin at connect-time, not at pool-activation-time. Only
+	// has an effect when activePoolID is set and the rotator has a
+	// pool wired (i.e. Round-Robin with a known interval).
+	if a.activePoolID != "" && a.poolRotator != nil {
+		a.poolRotator.ResetSchedule()
+	}
+
 	// Tunnel verified up: arm the kill switch state machine so an
 	// unexpected drop engages the sinkhole. Idempotent across all
 	// states (IDLE -> ARMED, SINKHOLE -> ARMED, ARMED no-op). Only

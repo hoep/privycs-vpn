@@ -68,24 +68,36 @@
             <span class="text-gray-400">Currently:</span> {{ activeMemberDisplay }}
           </div>
 
-          <!-- Round-Robin countdown: prominent dedicated row. -->
+          <!-- Round-Robin countdown: prominent dedicated row.
+               When idle_blocked the row tints amber and the label
+               reads "Force-rotate in" (because rotation got deferred
+               by traffic) - the configured interval line below makes
+               it explicit so a 30-min countdown does not get
+               misread as the user's interval setting. -->
           <div
             v-if="rotatorActive"
-            class="mt-1.5 flex items-center justify-between gap-2 px-2 py-1.5 rounded-md bg-primary-500/10 ring-1 ring-primary-500/20"
+            class="mt-1.5 flex items-center justify-between gap-2 px-2 py-1.5 rounded-md ring-1"
+            :class="rotatorIdleBlocked
+              ? 'bg-amber-500/10 ring-amber-500/30'
+              : 'bg-primary-500/10 ring-primary-500/20'"
           >
             <div class="flex items-center gap-1.5 min-w-0">
-              <ArrowPathIcon class="w-3 h-3 text-primary-400 flex-shrink-0"
-                :class="{ 'animate-spin': rotatorIdleBlocked }" />
+              <ArrowPathIcon class="w-3 h-3 flex-shrink-0"
+                :class="rotatorIdleBlocked ? 'text-amber-500 animate-spin' : 'text-primary-400'" />
               <span class="text-[10px] text-gray-700 dark:text-gray-300 truncate">
                 {{ rotatorPrimaryLabel }}
               </span>
             </div>
-            <span class="text-xs font-mono font-semibold text-primary-500 dark:text-primary-300 tabular-nums flex-shrink-0">
+            <span
+              class="text-xs font-mono font-semibold tabular-nums flex-shrink-0"
+              :class="rotatorIdleBlocked ? 'text-amber-500 dark:text-amber-400' : 'text-primary-500 dark:text-primary-300'"
+            >
               {{ rotatorCountdown }}
             </span>
           </div>
-          <div v-if="rotatorActive && rotatorAtLine" class="text-[9px] text-gray-500 mt-0.5 text-right">
-            {{ rotatorAtLine }}
+          <div v-if="rotatorActive" class="flex items-center justify-between text-[9px] text-gray-500 mt-0.5">
+            <span v-if="rotatorIntervalLabel">{{ rotatorIntervalLabel }}</span>
+            <span v-if="rotatorAtLine">{{ rotatorAtLine }}</span>
           </div>
         </div>
       </div>
@@ -563,6 +575,12 @@ const rotatorAtLine = computed(() => {
   if (r.idle_blocked) return `at ${formatClockTime(r.force_rotate_in || 0)}`
   return `at ${formatClockTime(r.next_rotation_in)}`
 })
+
+const rotatorIntervalLabel = computed(() => {
+  const r = poolStore.rotatorStatus
+  if (!r || !r.active) return ''
+  return `${r.interval_min} min cycle`
+})
 const showConnectionPicker = ref(false)
 const allConnections = ref<any[]>([])
 
@@ -858,7 +876,11 @@ const latestTxSpeed = computed(() => {
 })
 
 const showWelcome = computed(() => {
-  if (!vpn.status) return true
+  // Wait for the vpn status fetch to land - earlier we returned true
+  // here, which flashed Welcome for ~500ms during initial fetch even
+  // when the user has saved connections and pools. That window was
+  // long enough to notice on first start.
+  if (!vpn.status) return false
   if (isConnected.value) return false
   // An active pool is a virtual connection - the Connect button needs
   // to render so the user can fire PickAndConnectActivePool, even
@@ -866,6 +888,12 @@ const showWelcome = computed(() => {
   if (poolStore.activePoolId) return false
   if (vpn.status.connection_name) return false
   if (vpn.status.connection_protocols?.length > 0) return false
+  // Welcome ONLY when we know there are no saved connections AND no
+  // pools - otherwise the Connect-screen layout is the right thing
+  // even if neither is "active" yet (auto-select-MRU on the backend
+  // makes that case rare anyway).
+  if (allConnections.value.length > 0) return false
+  if (poolStore.pools.length > 0) return false
   return true
 })
 
