@@ -134,6 +134,26 @@ func (w *WireGuardProtocol) Configure(cfg []byte) error {
 	return nil
 }
 
+// AdoptExistingConfig binds the protocol handler to a .conf file
+// that already exists on disk - no file write. Used by pool
+// pre-warm: the next-slot's .conf was written 60 s before
+// rotation, so at rotation time we just point the handler at it
+// and call Up. Skips the redundant write that Configure would
+// otherwise do with identical content.
+func (w *WireGuardProtocol) AdoptExistingConfig() error {
+	if w.confPath == "" {
+		return fmt.Errorf("AdoptExistingConfig: confPath not set (call setTunnelName first)")
+	}
+	content, err := os.ReadFile(w.confPath)
+	if err != nil {
+		return fmt.Errorf("AdoptExistingConfig: read %s: %w", w.confPath, err)
+	}
+	w.ifaceName = strings.TrimSuffix(filepath.Base(w.confPath), ".conf")
+	w.parseConfFile(string(content))
+	log.Printf("WireGuard config adopted from %s (tunnel: %s)", w.confPath, w.ifaceName)
+	return nil
+}
+
 // ============================================================================
 // Unix (Linux/macOS) — wg-quick
 // ============================================================================

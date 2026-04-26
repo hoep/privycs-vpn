@@ -424,9 +424,38 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 	tunnelName := "privycs-pool-" + suffix + "-" + slot
 	setTunnelName(proto, tunnelName)
 
-	if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
-		a.mu.Unlock()
-		return fmt.Errorf("invalid pool-member config: %w", err)
+	// Was this slot's .conf pre-written 60 s ago? If yes, adopt it
+	// (read-only) instead of writing again with identical content.
+	preWritten := false
+	if a.pools != nil && m.Config.Protocol == "wireguard" {
+		if pool := a.pools.Get(a.activePoolID); pool != nil && pool.PendingMemberID == m.ID {
+			confPath := filepath.Join(appDataDir(), tunnelName+".conf")
+			if _, err := os.Stat(confPath); err == nil {
+				preWritten = true
+			}
+		}
+	}
+
+	if preWritten {
+		if wg, ok := proto.(*WireGuardProtocol); ok {
+			if err := wg.AdoptExistingConfig(); err != nil {
+				// Fallback: pre-written file vanished or unreadable.
+				if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
+					a.mu.Unlock()
+					return fmt.Errorf("invalid pool-member config: %w", err)
+				}
+			}
+		} else {
+			if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
+				a.mu.Unlock()
+				return fmt.Errorf("invalid pool-member config: %w", err)
+			}
+		}
+	} else {
+		if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
+			a.mu.Unlock()
+			return fmt.Errorf("invalid pool-member config: %w", err)
+		}
 	}
 
 	a.activeProtocol = m.Config.Protocol
