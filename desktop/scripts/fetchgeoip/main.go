@@ -42,40 +42,66 @@ func main() {
 		log.Fatalf("fetchgeoip: mkdir: %v", err)
 	}
 
+	// Retry with exponential backoff. github.com/raw frequently
+	// returns transient 502 / 503 / 504 during CI peak hours; one
+	// attempt is too brittle and blocks the entire release pipeline.
+	// 3 tries with 2s / 4s / 8s waits absorb most flakes without
+	// holding up successful fetches.
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		written, err := tryFetch(dbPath)
+		if err == nil {
+			log.Printf("fetchgeoip: saved %s (%d bytes) [%s]", dbPath, written, runtime.GOOS)
+			return
+		}
+		lastErr = err
+		log.Printf("fetchgeoip: attempt %d/%d failed: %v", attempt, maxAttempts, err)
+		if attempt < maxAttempts {
+			wait := time.Duration(1<<attempt) * time.Second
+			time.Sleep(wait)
+		}
+	}
+	log.Fatalf("fetchgeoip: %d attempts failed, last error: %v", maxAttempts, lastErr)
+}
+
+// tryFetch performs a single download. Returns (bytes-written, nil)
+// on success or (0, err) on any failure. Caller decides whether to
+// retry.
+func tryFetch(dbPath string) (int64, error) {
 	tmp, err := os.CreateTemp(filepath.Dir(dbPath), "Country.mmdb.*.tmp")
 	if err != nil {
-		log.Fatalf("fetchgeoip: tempfile: %v", err)
+		return 0, fmt.Errorf("tempfile: %w", err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath) // best-effort cleanup if rename fails
+	defer os.Remove(tmpPath)
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Get(sourceURL)
 	if err != nil {
 		tmp.Close()
-		log.Fatalf("fetchgeoip: GET %s: %v", sourceURL, err)
+		return 0, fmt.Errorf("GET %s: %w", sourceURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		tmp.Close()
-		log.Fatalf("fetchgeoip: %s -> HTTP %d", sourceURL, resp.StatusCode)
+		return 0, fmt.Errorf("%s -> HTTP %d", sourceURL, resp.StatusCode)
 	}
 
 	written, err := io.Copy(tmp, resp.Body)
 	tmp.Close()
 	if err != nil {
-		log.Fatalf("fetchgeoip: download: %v", err)
+		return 0, fmt.Errorf("download: %w", err)
 	}
 	if written < 1024*1024 {
-		log.Fatalf("fetchgeoip: downloaded file is only %d bytes - source likely returned an error page", written)
+		return 0, fmt.Errorf("downloaded file is only %d bytes - source likely returned an error page", written)
 	}
 
 	if err := os.Rename(tmpPath, dbPath); err != nil {
-		log.Fatalf("fetchgeoip: rename %s -> %s: %v", tmpPath, dbPath, err)
+		return 0, fmt.Errorf("rename %s -> %s: %w", tmpPath, dbPath, err)
 	}
-
-	log.Printf("fetchgeoip: saved %s (%d bytes) [%s]", dbPath, written, runtime.GOOS)
+	return written, nil
 }
 
 // destinationPath resolves where to write the MMDB. Order:
