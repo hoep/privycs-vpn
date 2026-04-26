@@ -278,6 +278,46 @@
       <p v-if="vpn.error" class="mt-3 text-xs text-red-400 text-center max-w-sm">{{ vpn.error }}</p>
     </template>
 
+    <!-- COD-Mismatch Confirm Modal -->
+    <!-- Shown when user clicks Connect while COD is enabled but the
+         current network does not match any rule. COD's NetworkMonitor
+         will tear the tunnel down within ~1s of it coming up, so we
+         pre-empt with a clear info + Cancel/Connect-anyway choice. -->
+    <div v-if="showCodMismatchModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" @click.self="cancelCodMismatchConnect">
+      <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md">
+        <div class="flex items-start gap-3 px-5 pt-5 pb-3">
+          <div class="flex-shrink-0 mt-0.5">
+            <ShieldExclamationIcon class="w-6 h-6 text-amber-500" />
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+              Connect on Demand will disconnect
+            </h3>
+            <p class="mt-1.5 text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+              Connect on Demand is enabled but no rule matches the current network ({{ codCurrentNetworkLabel }}). If you connect now, Connect on Demand will tear the tunnel down again within seconds.
+            </p>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-500 leading-relaxed">
+              To keep this connection, either disable Connect on Demand in Settings or add a rule for this network.
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            @click="cancelCodMismatchConnect"
+            class="px-3 py-1.5 text-[11px] font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md"
+          >
+            Cancel
+          </button>
+          <button
+            @click="confirmCodMismatchConnect"
+            class="px-3 py-1.5 text-[11px] font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md"
+          >
+            Connect anyway
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Config Editor Modal -->
     <div v-if="showConfigEditor" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" @click.self="showConfigEditor = false">
       <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
@@ -549,6 +589,40 @@ const connectionProtocols = computed(() => {
   return vpn.status?.connection_protocols || []
 })
 
+// COD-mismatch confirm modal: shown when user clicks Connect while
+// COD is enabled but the current network does not match any rule.
+// COD would otherwise tear the tunnel down ~1s after handshake, leaving
+// the user with a flicker and no explanation. The dialog explains the
+// situation and offers a real out (Cancel) plus an explicit override
+// (Connect anyway) for users who understand the consequence.
+const showCodMismatchModal = ref(false)
+
+const codCurrentNetworkLabel = computed(() => {
+  const c = codStatus.value
+  if (!c) return 'unknown'
+  if (c.ssid) return c.ssid
+  if (c.network_type && c.network_type !== 'none') return c.network_type
+  return 'no network'
+})
+
+function shouldWarnCodMismatch(): boolean {
+  const c = codStatus.value
+  if (!c || !c.enabled) return false
+  if (c.vpn_connected) return false
+  // rule_match true = COD will sustain the connection; only warn when
+  // it would actively tear it down.
+  return !c.rule_match
+}
+
+function cancelCodMismatchConnect() {
+  showCodMismatchModal.value = false
+}
+
+async function confirmCodMismatchConnect() {
+  showCodMismatchModal.value = false
+  await vpn.connect()
+}
+
 async function toggleConnection() {
   // Hardcore Kill Switch: when sinkhole is engaged the connect-button
   // is rendered as a red shield indicating the lock state. Tapping it
@@ -561,9 +635,13 @@ async function toggleConnection() {
   }
   if (isConnected.value) {
     await vpn.disconnect()
-  } else {
-    await vpn.connect()
+    return
   }
+  if (shouldWarnCodMismatch()) {
+    showCodMismatchModal.value = true
+    return
+  }
+  await vpn.connect()
 }
 
 async function switchProtocol(proto: string) {

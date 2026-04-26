@@ -14,6 +14,8 @@ export function Disconnect():Promise<void>;
 
 export function GetActiveConfigContent():Promise<string>;
 
+export function GetConnectOnDemandStatus():Promise<{[key: string]: any}>;
+
 export function GetAvailableProtocols():Promise<Array<main.ProtocolInfo>>;
 
 export function GetLogs():Promise<Array<string>>;

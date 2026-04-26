@@ -10,6 +10,10 @@ export function CancelPause() {
   return window['go']['main']['App']['CancelPause']();
 }
 
+export function GetConnectOnDemandStatus() {
+  return window['go']['main']['App']['GetConnectOnDemandStatus']();
+}
+
 export function PauseFor(arg1) {
   return window['go']['main']['App']['PauseFor'](arg1);
 }
