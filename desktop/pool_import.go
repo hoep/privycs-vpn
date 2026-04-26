@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -45,6 +46,16 @@ type SkippedFile struct {
 type importEntry struct {
 	name    string
 	content []byte
+}
+
+// PoolUpload is one file the frontend has already loaded into memory.
+// Used by ImportFromUploads which is the production path - desktop
+// browsers (Wails WebView) do not expose absolute filesystem paths
+// to JS, so we cannot use os.ReadFile from the backend. Instead the
+// frontend FileReader reads each file and ships the bytes via Wails.
+type PoolUpload struct {
+	Filename string `json:"filename"`
+	Content  []byte `json:"content"`
 }
 
 // PoolImporter assembles members from a set of file paths or a ZIP
@@ -175,15 +186,33 @@ func (pi *PoolImporter) Import(paths []string, onProgress func(PoolImportProgres
 }
 
 // extractZipEntries pulls every .conf / .ovpn / .sswan file out of a
-// ZIP into memory. Skips directories, README files, and oversized
-// entries (>1 MB per file is treated as "not a config").
+// ZIP file at the given path. Convenience for tests and CLI use; the
+// production import path uses extractZipEntriesFromReader so the
+// frontend can ship ZIP bytes through Wails without filesystem access.
 func extractZipEntries(path string) ([]importEntry, error) {
 	r, err := zip.OpenReader(path)
 	if err != nil {
 		return nil, err
 	}
 	defer r.Close()
+	return extractZipEntriesCommon(&r.Reader)
+}
 
+// extractZipEntriesFromBytes reads ZIP bytes from memory. Used by
+// ImportFromUploads when the frontend has loaded a .zip via
+// FileReader.readAsArrayBuffer.
+func extractZipEntriesFromBytes(data []byte) ([]importEntry, error) {
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	return extractZipEntriesCommon(r)
+}
+
+// extractZipEntriesCommon walks a *zip.Reader. Skips directories,
+// README files, and oversized entries (>1 MB per file is treated as
+// "not a config").
+func extractZipEntriesCommon(r *zip.Reader) ([]importEntry, error) {
 	const maxConfigSize = 1024 * 1024 // 1 MB - generous for the largest expected .ovpn with inline certs
 
 	var entries []importEntry
@@ -306,6 +335,107 @@ func extractIPSecEndpoint(content string) string {
 		return rest[1 : 1+end]
 	}
 	return ""
+}
+
+// ImportFromUploads is the production import path: the frontend has
+// already loaded each file via FileReader (text or arraybuffer) and
+// shipped the bytes here. We do not touch the filesystem - everything
+// happens in memory. Maps to the same staged result as Import().
+//
+// A .zip upload is unpacked into individual config entries; .conf /
+// .ovpn / .sswan uploads become single entries directly. Anything
+// else lands in result.Skipped with a "unsupported extension" reason.
+func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(PoolImportProgress)) (*PoolImportResult, error) {
+	result := &PoolImportResult{}
+
+	emit := func(p PoolImportProgress) {
+		if onProgress != nil {
+			onProgress(p)
+		}
+	}
+
+	// Stage 1: unpack uploads into a flat list of entries.
+	emit(PoolImportProgress{Stage: "extracting"})
+	var entries []importEntry
+	for _, up := range uploads {
+		ext := strings.ToLower(filepath.Ext(up.Filename))
+		switch ext {
+		case ".zip":
+			extracted, err := extractZipEntriesFromBytes(up.Content)
+			if err != nil {
+				result.Skipped = append(result.Skipped, SkippedFile{up.Filename, "zip parse: " + err.Error()})
+				continue
+			}
+			entries = append(entries, extracted...)
+		case ".conf", ".ovpn", ".sswan":
+			entries = append(entries, importEntry{name: filepath.Base(up.Filename), content: up.Content})
+		default:
+			result.Skipped = append(result.Skipped, SkippedFile{up.Filename, "unsupported extension"})
+		}
+	}
+
+	// Stage 2: parse + resolve - identical to the path-based Import.
+	total := len(entries)
+	for i, e := range entries {
+		emit(PoolImportProgress{
+			Stage:    "parsing",
+			Current:  i + 1,
+			Total:    total,
+			Imported: len(result.Members),
+			Skipped:  len(result.Skipped),
+		})
+
+		protocol := detectProtocolFromFilename(e.name)
+		if protocol == "" {
+			result.Skipped = append(result.Skipped, SkippedFile{e.name, "unsupported extension"})
+			continue
+		}
+
+		host := extractEndpointHost(protocol, string(e.content))
+		if host == "" {
+			result.Skipped = append(result.Skipped, SkippedFile{e.name, "no endpoint in config"})
+			continue
+		}
+
+		country := ""
+		if pi.geo != nil {
+			ip := resolveHostToIP(host)
+			if ip != nil {
+				if c, err := pi.geo.CountryCode(ip); err == nil {
+					country = c
+				}
+			}
+		}
+
+		nameWithoutExt := strings.TrimSuffix(e.name, filepath.Ext(e.name))
+		member := &PoolMember{
+			ID:   uuid.New().String(),
+			Name: nameWithoutExt,
+			Config: &ProtocolConfig{
+				Protocol:      protocol,
+				ConfigContent: string(e.content),
+				Filename:      e.name,
+				ServerAddress: host,
+				AddedAt:       time.Now().Format(time.RFC3339),
+			},
+			Country: country,
+			Region:  geoip.Region(country),
+			Active:  true,
+		}
+		result.Members = append(result.Members, member)
+	}
+
+	emit(PoolImportProgress{
+		Stage:    "done",
+		Current:  total,
+		Total:    total,
+		Imported: len(result.Members),
+		Skipped:  len(result.Skipped),
+	})
+
+	log.Printf("Pool import (uploads): %d imported, %d skipped from %d uploads",
+		len(result.Members), len(result.Skipped), len(uploads))
+	return result, nil
 }
 
 // resolveHostToIP returns the first IPv4 (preferred) or IPv6 address

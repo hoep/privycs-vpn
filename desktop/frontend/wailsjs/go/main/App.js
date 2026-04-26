@@ -74,6 +74,10 @@ export function CreatePoolFromPaths(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreatePoolFromPaths'](arg1, arg2, arg3);
 }
 
+export function CreatePoolFromUploads(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreatePoolFromUploads'](arg1, arg2, arg3);
+}
+
 export function UpdatePool(arg1, arg2) {
   return window['go']['main']['App']['UpdatePool'](arg1, arg2);
 }

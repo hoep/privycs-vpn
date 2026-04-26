@@ -45,15 +45,21 @@ type backupEnvelope struct {
 
 // backupPlaintext is what gets encrypted into the envelope.
 // Android does a similar export combining connections + settings.
+//
+// Schema versions:
+//   v1 - connections + settings only
+//   v2 - adds pools (Connection Pool feature, v0.9.11+). v1 backups
+//        still load on v2-aware clients; the Pools field is just nil.
 type backupPlaintext struct {
-	Version     int              `json:"version"` // app backup schema version
-	AppVersion  string           `json:"app_version"`
+	Version     int                 `json:"version"` // app backup schema version
+	AppVersion  string              `json:"app_version"`
 	Connections *ConnectionRegistry `json:"connections"`
-	Settings    *AppSettings     `json:"settings"`
+	Settings    *AppSettings        `json:"settings"`
+	Pools       *PoolRegistry       `json:"pools,omitempty"`
 }
 
 const (
-	backupVersion       = 1
+	backupVersion       = 2
 	backupKDFIterations = 600_000
 	backupKeyLen        = 32 // 256-bit AES key
 	backupSaltLen       = 16
@@ -75,6 +81,7 @@ func (a *App) ExportBackup(path string, passphrase string) error {
 		AppVersion:  AppVersion,
 		Connections: a.connections,
 		Settings:    a.settings,
+		Pools:       a.pools,
 	}
 	plainBytes, err := json.Marshal(&plain)
 	if err != nil {
@@ -123,8 +130,13 @@ func (a *App) ImportBackup(path string, passphrase string) error {
 		return fmt.Errorf("parse backup envelope: %w", err)
 	}
 
-	if env.Version != backupVersion {
-		return fmt.Errorf("unsupported backup version %d (expected %d)", env.Version, backupVersion)
+	// Accept any backup whose schema we know about. We bumped from v1
+	// to v2 with the Pool feature; older backups must still restore
+	// on newer clients (their Pools field is just absent). Future
+	// versions are rejected so a malformed plaintext does not get
+	// interpreted with the wrong schema.
+	if env.Version < 1 || env.Version > backupVersion {
+		return fmt.Errorf("unsupported backup version %d (this client supports up to %d)", env.Version, backupVersion)
 	}
 	if env.Cipher != "aes-256-gcm" {
 		return fmt.Errorf("unsupported cipher %q", env.Cipher)
@@ -158,6 +170,24 @@ func (a *App) ImportBackup(path string, passphrase string) error {
 	if plain.Settings != nil {
 		a.settings = plain.Settings
 		SaveSettings(a.settings)
+	}
+
+	// Pools are only present in v2+ backups. Same filePath-preservation
+	// pattern as connections - the path is env-dependent and must come
+	// from the current process, not the backup origin. saveLocked
+	// requires the mutex, but the registry we just deserialized does
+	// not have its mutex initialised in any meaningful way; calling
+	// Update would re-lock. We persist via a direct save under a
+	// fresh registry initialisation pattern.
+	if plain.Pools != nil && a.pools != nil {
+		plain.Pools.filePath = a.pools.filePath
+		a.pools = plain.Pools
+		a.pools.mu.Lock()
+		err := a.pools.saveLocked()
+		a.pools.mu.Unlock()
+		if err != nil {
+			return fmt.Errorf("persist restored pools: %w", err)
+		}
 	}
 	return nil
 }

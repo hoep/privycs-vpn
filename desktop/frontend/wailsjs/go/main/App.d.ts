@@ -46,6 +46,8 @@ export function GetPoolDetail(arg1:string):Promise<{[key: string]: any}>;
 
 export function CreatePoolFromPaths(arg1:string, arg2:string, arg3:Array<string>):Promise<{[key: string]: any}>;
 
+export function CreatePoolFromUploads(arg1:string, arg2:string, arg3:Array<{filename:string;content:string}>):Promise<{[key: string]: any}>;
+
 export function UpdatePool(arg1:string, arg2:{[key: string]: any}):Promise<{[key: string]: any}>;
 
 export function DeletePool(arg1:string):Promise<void>;

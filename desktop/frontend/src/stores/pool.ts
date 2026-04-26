@@ -13,6 +13,7 @@ import {
   ListPools,
   GetPoolDetail,
   CreatePoolFromPaths,
+  CreatePoolFromUploads,
   UpdatePool,
   DeletePool,
   DeletePoolMember,
@@ -100,6 +101,16 @@ export const usePoolStore = defineStore('pool', () => {
     return created
   }
 
+  async function createFromUploads(
+    name: string,
+    policy: PoolPolicy,
+    uploads: Array<{ filename: string; content: string }>
+  ) {
+    const created = await CreatePoolFromUploads(name, policy, uploads)
+    await refresh()
+    return created
+  }
+
   async function update(id: string, patch: Record<string, any>) {
     const updated = await UpdatePool(id, patch)
     await refresh()
@@ -171,6 +182,7 @@ export const usePoolStore = defineStore('pool', () => {
     refresh,
     detail,
     create,
+    createFromUploads,
     update,
     remove,
     removeMember,

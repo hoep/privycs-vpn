@@ -49,8 +49,9 @@
           @change="onFileChange"
           class="hidden"
         />
-        <p v-if="selectedPaths.length > 0" class="text-[10px] text-primary-400 mt-2">
-          Selected: {{ selectedPaths.length }} file<span v-if="selectedPaths.length !== 1">s</span>
+        <p v-if="selectedFiles.length > 0" class="text-[10px] text-primary-400 mt-2">
+          Selected: {{ selectedFiles.length }} file<span v-if="selectedFiles.length !== 1">s</span>
+          <span class="text-gray-500"> ({{ formatBytes(totalSize) }})</span>
         </p>
       </div>
 
@@ -118,7 +119,7 @@ const pool = usePoolStore()
 
 const poolName = ref('')
 const policy = ref<PoolPolicy>('geo-nearest')
-const selectedPaths = ref<string[]>([])
+const selectedFiles = ref<File[]>([])
 const dragHover = ref(false)
 const filePicker = ref<HTMLInputElement | null>(null)
 
@@ -128,7 +129,15 @@ const progress = ref({ stage: '', current: 0, total: 0, imported: 0, skipped: 0 
 
 let stopProgressListener: (() => void) | null = null
 
-const canImport = computed(() => poolName.value.trim() !== '' && selectedPaths.value.length > 0)
+const canImport = computed(() => poolName.value.trim() !== '' && selectedFiles.value.length > 0)
+
+const totalSize = computed(() => selectedFiles.value.reduce((sum, f) => sum + f.size, 0))
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 const policyDescription = computed(() => {
   switch (policy.value) {
@@ -149,13 +158,41 @@ const progressLabel = computed(() => {
 function onDrop(e: DragEvent) {
   dragHover.value = false
   if (!e.dataTransfer?.files) return
-  selectedPaths.value = Array.from(e.dataTransfer.files).map(f => (f as any).path || f.name)
+  selectedFiles.value = Array.from(e.dataTransfer.files)
 }
 
 function onFileChange(e: Event) {
   const input = e.target as HTMLInputElement
   if (!input.files) return
-  selectedPaths.value = Array.from(input.files).map(f => (f as any).path || f.name)
+  selectedFiles.value = Array.from(input.files)
+}
+
+// readFileAsBytes returns the file's raw bytes as a Uint8Array. We
+// use ArrayBuffer for both ZIPs (binary) and config files (text) for
+// uniformity - text files just happen to contain printable ASCII.
+function readFileAsBytes(file: File): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => {
+      const buf = r.result as ArrayBuffer
+      resolve(new Uint8Array(buf))
+    }
+    r.onerror = () => reject(new Error(`Failed to read ${file.name}: ${r.error}`))
+    r.readAsArrayBuffer(file)
+  })
+}
+
+// uint8ToBase64 converts a Uint8Array into a base64 string. Wails
+// transparently base64-decodes string fields landing in []byte
+// parameters on the Go side, so we ship the content as a base64
+// string per upload.
+function uint8ToBase64(data: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < data.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, data.subarray(i, i + chunkSize) as unknown as number[])
+  }
+  return btoa(binary)
 }
 
 async function doImport() {
@@ -169,7 +206,17 @@ async function doImport() {
   })
 
   try {
-    await pool.create(poolName.value.trim(), policy.value, selectedPaths.value)
+    // Read every selected file's bytes in JS - the browser sandbox
+    // does not give us absolute filesystem paths to pass to the
+    // backend, so we ship the content directly. Mirrors how
+    // AddConnectionView already works for single configs.
+    const uploads = await Promise.all(
+      selectedFiles.value.map(async (f) => ({
+        filename: f.name,
+        content: uint8ToBase64(await readFileAsBytes(f)),
+      }))
+    )
+    await pool.createFromUploads(poolName.value.trim(), policy.value, uploads)
     router.push('/connections')
   } catch (e: any) {
     error.value = e?.toString() || 'import failed'

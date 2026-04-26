@@ -78,10 +78,55 @@ func (a *App) GetPoolDetail(id string) (*PoolDetail, error) {
 	}, nil
 }
 
+// CreatePoolFromUploads is the production import path called from the
+// Vue frontend. The browser sandbox does not expose absolute filesystem
+// paths via HTML File API or drag-drop, so the frontend has already
+// read each file via FileReader and ships the bytes through Wails.
+// Each upload's filename drives the protocol detection; .zip uploads
+// are unpacked in-memory.
+func (a *App) CreatePoolFromUploads(name string, policy string, uploads []PoolUpload) (*Pool, error) {
+	if len(uploads) == 0 {
+		return nil, fmt.Errorf("no files provided")
+	}
+	if !validPolicy(PoolPolicy(policy)) {
+		return nil, fmt.Errorf("invalid policy %q", policy)
+	}
+
+	result, err := a.poolImporter.ImportFromUploads(uploads, func(p PoolImportProgress) {
+		if a.ctx != nil {
+			wailsRuntime.EventsEmit(a.ctx, "pool:import_progress", p)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Members) == 0 {
+		return nil, fmt.Errorf("no valid configs found (skipped: %d)", len(result.Skipped))
+	}
+
+	pool, err := a.pools.Create(name, PoolPolicy(policy), result.Members)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Pool created: %s (%d members, %d skipped)", name, len(result.Members), len(result.Skipped))
+	if a.ctx != nil {
+		wailsRuntime.EventsEmit(a.ctx, "pool:created", map[string]interface{}{
+			"pool_id":     pool.ID,
+			"name":        pool.Name,
+			"members":     len(result.Members),
+			"skipped":     len(result.Skipped),
+			"skipped_log": result.Skipped,
+		})
+	}
+	return pool, nil
+}
+
 // CreatePoolFromPaths reads a list of file paths (each may be a .zip,
-// .conf, .ovpn, or .sswan) and creates a Pool from them. Progress
-// events are emitted on the "pool:import_progress" channel for the
-// frontend stepper.
+// .conf, .ovpn, or .sswan) and creates a Pool from them. Path-based
+// import is for testing and CLI use only - the browser sandbox cannot
+// pass real filesystem paths so production goes through
+// CreatePoolFromUploads.
 func (a *App) CreatePoolFromPaths(name string, policy string, paths []string) (*Pool, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no files provided")
