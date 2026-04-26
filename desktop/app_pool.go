@@ -256,6 +256,10 @@ func (a *App) ActivePoolID() string {
 // We do NOT fire Connect or Disconnect from here - activation is just
 // "select this in the picker". The user still drives connect via the
 // main button.
+//
+// The selection is persisted to pools.json via SetActiveID so it
+// survives app restart - users do not want to re-pick their pool
+// every cold-start.
 func (a *App) ActivatePool(id string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -263,6 +267,7 @@ func (a *App) ActivatePool(id string) error {
 	if id == "" {
 		a.activePoolID = ""
 		a.poolRotator.SetActivePool(nil)
+		_ = a.pools.SetActiveID("")
 		return nil
 	}
 
@@ -278,6 +283,7 @@ func (a *App) ActivatePool(id string) error {
 	a.connections.SetActive("")
 
 	a.poolRotator.SetActivePool(p)
+	_ = a.pools.SetActiveID(id)
 	return nil
 }
 
@@ -366,6 +372,28 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// mostRecentlyUsedConnection returns the connection with the newest
+// LastConnected timestamp. Used at startup to auto-select the most
+// recent single-connection when neither a pool nor a single is
+// explicitly selected. Returns nil for an empty list.
+//
+// A connection that has never been connected yet (LastConnected is
+// zero) loses to any connection that has, so brand-new imports do
+// not jump above proven-good selections. If all connections have
+// zero timestamps, the first one in the list wins.
+func mostRecentlyUsedConnection(connections []*SavedConnection) *SavedConnection {
+	if len(connections) == 0 {
+		return nil
+	}
+	best := connections[0]
+	for _, c := range connections[1:] {
+		if c.LastConnected.After(best.LastConnected) {
+			best = c
+		}
+	}
+	return best
 }
 
 // PickAndConnectActivePool runs the active pool's policy and connects

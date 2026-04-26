@@ -152,6 +152,25 @@ func (a *App) startup(ctx context.Context) {
 		a.activeProtocol = "wireguard"
 	}
 
+	// Restore selection from last session. Order of precedence:
+	//   1. Persisted pool ActiveID  -> activate that pool
+	//   2. Persisted single ActiveID -> already loaded by registry
+	//   3. Neither set, but saved connections exist -> auto-select
+	//      the most-recently-used single (highest LastConnected)
+	// Step 3 is the user-facing fix: cold-start should never land on
+	// the empty Welcome screen when there ARE saved connections, the
+	// user just hasn't pinned one as active.
+	if a.pools != nil && a.pools.ActiveID != "" && a.pools.Get(a.pools.ActiveID) != nil {
+		a.activePoolID = a.pools.ActiveID
+		log.Printf("Restored active pool: %s", a.pools.Get(a.activePoolID).Name)
+	} else if a.connections.Active() == nil && len(a.connections.List()) > 0 {
+		mru := mostRecentlyUsedConnection(a.connections.List())
+		if mru != nil {
+			a.connections.SetActive(mru.ID)
+			log.Printf("Auto-selected last-used connection: %s", mru.Name)
+		}
+	}
+
 	// Load saved connections and configure the active protocol handler
 	// so status checks and disconnect work even after app restart
 	if conn := a.connections.Active(); conn != nil {
@@ -162,6 +181,13 @@ func (a *App) startup(ctx context.Context) {
 				a.activeProtocol = cfg.Protocol
 				log.Printf("Restored active connection: %s (%s, tunnel: %s)", conn.Name, cfg.Protocol, sanitizeTunnelName(conn.Name))
 			}
+		}
+	}
+
+	// Wire pool rotator with the restored active pool, if any.
+	if a.activePoolID != "" && a.pools != nil && a.poolRotator != nil {
+		if p := a.pools.Get(a.activePoolID); p != nil {
+			a.poolRotator.SetActivePool(p)
 		}
 	}
 
@@ -894,11 +920,15 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 	// Mutual exclusion with the Pool layer: activating a single
 	// clears any active pool, just like ActivatePool clears the
 	// singles' activeID. The picker UI assumes only one of (pool,
-	// single) drives the connection at a time.
+	// single) drives the connection at a time. Persist the cleared
+	// pool selection so a restart does not revive it.
 	if a.activePoolID != "" {
 		a.activePoolID = ""
 		if a.poolRotator != nil {
 			a.poolRotator.SetActivePool(nil)
+		}
+		if a.pools != nil {
+			_ = a.pools.SetActiveID("")
 		}
 	}
 

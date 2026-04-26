@@ -188,78 +188,163 @@
     </template>
 
     <!-- Edit Pool Modal -->
-    <div
-      v-if="showSettingsModal"
-      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-      @click.self="showSettingsModal = false"
-    >
-      <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Edit Pool</h3>
-          <button @click="showSettingsModal = false" class="text-gray-400 hover:text-gray-600">
-            <XMarkIcon class="w-4 h-4" />
-          </button>
+    <TransitionRoot :show="showSettingsModal" as="template">
+      <Dialog as="div" class="relative z-50" @close="showSettingsModal = false">
+        <TransitionChild
+          as="template"
+          enter="ease-out duration-200"
+          enter-from="opacity-0"
+          enter-to="opacity-100"
+          leave="ease-in duration-150"
+          leave-from="opacity-100"
+          leave-to="opacity-0"
+        >
+          <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+        </TransitionChild>
+
+        <div class="fixed inset-0 overflow-y-auto">
+          <div class="flex min-h-full items-center justify-center p-4">
+            <TransitionChild
+              as="template"
+              enter="ease-out duration-200"
+              enter-from="opacity-0 scale-95"
+              enter-to="opacity-100 scale-100"
+              leave="ease-in duration-150"
+              leave-from="opacity-100 scale-100"
+              leave-to="opacity-0 scale-95"
+            >
+              <DialogPanel class="w-full max-w-md transform overflow-hidden rounded-xl bg-white dark:bg-gray-900 shadow-2xl ring-1 ring-black/5 dark:ring-white/10 max-h-[85vh] flex flex-col">
+                <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-gray-700">
+                  <DialogTitle class="text-sm font-semibold text-gray-900 dark:text-white">
+                    Edit Pool
+                  </DialogTitle>
+                  <button
+                    @click="showSettingsModal = false"
+                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  >
+                    <XMarkIcon class="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                  <!-- Name -->
+                  <div>
+                    <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                      Name
+                    </label>
+                    <input
+                      v-model="editName"
+                      class="block w-full rounded-md border border-gray-300 dark:border-gray-600
+                             bg-white dark:bg-gray-800 px-3 py-1.5 text-sm
+                             text-gray-900 dark:text-gray-200
+                             focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                    />
+                  </div>
+
+                  <!-- Policy: HeadlessUI Listbox via AppSelect -->
+                  <div>
+                    <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                      Selection policy
+                    </label>
+                    <AppSelect
+                      v-model="editPolicy"
+                      :options="policyOptions"
+                    />
+                    <p class="text-[10px] text-gray-500 mt-1.5">
+                      {{ policyDescriptionFor(editPolicy) }}
+                    </p>
+                  </div>
+
+                  <!-- Country override -->
+                  <div>
+                    <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                      Country override
+                    </label>
+                    <input
+                      v-model="editCountryOverride"
+                      :placeholder="`Auto (currently ${poolStore.userCountry || 'unknown'})`"
+                      class="block w-full rounded-md border border-gray-300 dark:border-gray-600
+                             bg-white dark:bg-gray-800 px-3 py-1.5 text-sm
+                             text-gray-900 dark:text-gray-200 placeholder:text-gray-400
+                             focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                    />
+                    <p class="text-[10px] text-gray-500 mt-1.5">
+                      Leave blank for auto-detect via DoH probe.
+                    </p>
+                  </div>
+
+                  <!-- Rotation params (Round-Robin only) -->
+                  <div
+                    v-if="editPolicy === 'round-robin-region'"
+                    class="space-y-3 border-t border-gray-200 dark:border-gray-700 pt-4"
+                  >
+                    <div>
+                      <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                        Rotation interval (minutes)
+                      </label>
+                      <AppSelect
+                        v-model="editIntervalMinStr"
+                        :options="intervalOptions"
+                      />
+                    </div>
+
+                    <!-- Idle-aware HeadlessUI Switch -->
+                    <SwitchGroup as="div" class="flex items-start justify-between gap-3">
+                      <div class="flex-1">
+                        <SwitchLabel as="span" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                          Idle-aware
+                        </SwitchLabel>
+                        <p class="text-[10px] text-gray-500 mt-0.5">
+                          Defer rotation while traffic flows, force-rotate after the cap below.
+                        </p>
+                      </div>
+                      <Switch
+                        v-model="editIdleAware"
+                        :class="editIdleAware ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-700'"
+                        class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full
+                               transition-colors duration-200 ease-in-out
+                               focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                      >
+                        <span
+                          :class="editIdleAware ? 'translate-x-4' : 'translate-x-0'"
+                          class="pointer-events-none inline-block h-5 w-5 transform rounded-full
+                                 bg-white shadow ring-0 transition-transform duration-200 ease-in-out"
+                        />
+                      </Switch>
+                    </SwitchGroup>
+
+                    <div v-if="editIdleAware">
+                      <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                        Force-rotate after (min idle-blocked)
+                      </label>
+                      <AppSelect
+                        v-model="editForceAfterMinStr"
+                        :options="forceAfterOptions"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/30">
+                  <button
+                    @click="showSettingsModal = false"
+                    class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    @click="saveSettings"
+                    class="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
+              </DialogPanel>
+            </TransitionChild>
+          </div>
         </div>
-        <div class="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
-          <div>
-            <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
-            <input
-              v-model="editName"
-              class="w-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700"
-            />
-          </div>
-          <div>
-            <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Selection policy</label>
-            <select v-model="editPolicy" class="w-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700">
-              <option value="geo-nearest">Geo-Nearest</option>
-              <option value="random">Random</option>
-              <option value="round-robin-region">Round-Robin Region</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Country override</label>
-            <input
-              v-model="editCountryOverride"
-              :placeholder="`Auto (currently ${poolStore.userCountry || 'unknown'})`"
-              class="w-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700"
-            />
-            <p class="text-[10px] text-gray-500 mt-1">Leave blank for auto-detect via DoH probe.</p>
-          </div>
-          <div v-if="editPolicy === 'round-robin-region'" class="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-3">
-            <div>
-              <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Rotation interval (min)</label>
-              <input
-                v-model.number="editIntervalMin"
-                type="number"
-                min="1"
-                class="w-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700"
-              />
-            </div>
-            <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-              <input v-model="editIdleAware" type="checkbox" class="rounded" />
-              Idle-aware (don't rotate during traffic)
-            </label>
-            <div>
-              <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Force-rotate after (min idle-blocked)</label>
-              <input
-                v-model.number="editForceAfterMin"
-                type="number"
-                min="1"
-                class="w-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700"
-              />
-            </div>
-          </div>
-        </div>
-        <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-          <button @click="showSettingsModal = false" class="px-3 py-1.5 text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-            Cancel
-          </button>
-          <button @click="saveSettings" class="px-3 py-1.5 text-[11px] font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md">
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
+      </Dialog>
+    </TransitionRoot>
   </div>
 </template>
 
@@ -268,12 +353,57 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePoolStore, type PoolPolicy } from '@/stores/pool'
 import {
+  Dialog,
+  DialogPanel,
+  DialogTitle,
+  Switch,
+  SwitchGroup,
+  SwitchLabel,
+  TransitionRoot,
+  TransitionChild,
+} from '@headlessui/vue'
+import AppSelect from '@/components/AppSelect.vue'
+import {
   ArrowLeftIcon,
   Cog6ToothIcon,
   PencilSquareIcon,
   TrashIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
+
+// AppSelect carries string values via Listbox, so the numeric
+// rotation params get a string-typed proxy that converts in/out.
+const policyOptions = [
+  { value: 'geo-nearest', label: 'Geo-Nearest' },
+  { value: 'random', label: 'Random' },
+  { value: 'round-robin-region', label: 'Round-Robin (Region)' },
+]
+
+const intervalOptions = [
+  { value: '5',  label: '5 minutes'  },
+  { value: '10', label: '10 minutes' },
+  { value: '15', label: '15 minutes' },
+  { value: '30', label: '30 minutes' },
+  { value: '60', label: '1 hour'     },
+  { value: '120', label: '2 hours'   },
+]
+
+const forceAfterOptions = [
+  { value: '15', label: '15 minutes' },
+  { value: '30', label: '30 minutes' },
+  { value: '60', label: '1 hour'     },
+  { value: '120', label: '2 hours'   },
+  { value: '240', label: '4 hours'   },
+]
+
+function policyDescriptionFor(p: string): string {
+  switch (p) {
+    case 'geo-nearest': return 'Closest country to you. Falls back to same-region or random.'
+    case 'random':      return 'Picks a random server on every connect.'
+    case 'round-robin-region': return 'Rotates through different regions on a timer.'
+  }
+  return ''
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -344,8 +474,20 @@ const editName = ref('')
 const editPolicy = ref<PoolPolicy>('geo-nearest')
 const editCountryOverride = ref('')
 const editIntervalMin = ref(30)
-const editIdleAware = ref(true)
-const editForceAfterMin = ref(60)
+const editIdleAware = ref(false)
+const editForceAfterMin = ref(30)
+
+// AppSelect uses string-typed v-model. Bridge the numeric edit refs
+// to/from string proxies so the dropdown options match without losing
+// integer semantics on the backend round-trip.
+const editIntervalMinStr = computed<string>({
+  get: () => String(editIntervalMin.value),
+  set: (v: string) => { editIntervalMin.value = parseInt(v, 10) || 30 },
+})
+const editForceAfterMinStr = computed<string>({
+  get: () => String(editForceAfterMin.value),
+  set: (v: string) => { editForceAfterMin.value = parseInt(v, 10) || 30 },
+})
 
 const policyLabel = computed(() => {
   switch (pool.value?.policy) {

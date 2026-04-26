@@ -161,10 +161,29 @@ type RegionCoverage struct {
 // PoolRegistry manages all saved Pools, parallel to ConnectionRegistry.
 // Pool and SavedConnection live in separate files so each can evolve
 // independently and the UI just merges them in the connection picker.
+//
+// ActiveID persists which pool is currently the "selected" one across
+// restarts - parallel to ConnectionRegistry.ActiveID for singles. The
+// App reads this at NewApp() time to restore the user's last selection
+// rather than booting into an empty Welcome state.
 type PoolRegistry struct {
 	Pools    []*Pool `json:"pools"`
+	ActiveID string  `json:"active_id,omitempty"`
 	filePath string
 	mu       sync.Mutex
+}
+
+// SetActiveID persists the currently-selected pool ID. Empty string
+// clears the selection. Used by App.ActivatePool / ActivateConnection
+// to keep the on-disk state in sync with App.activePoolID.
+func (r *PoolRegistry) SetActiveID(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if id != "" && r.findLocked(id) == nil {
+		return fmt.Errorf("pool: not found %s", id)
+	}
+	r.ActiveID = id
+	return r.saveLocked()
 }
 
 // NewPoolRegistry creates a registry, loading from disk if available.
