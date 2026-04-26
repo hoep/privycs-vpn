@@ -16,6 +16,32 @@ export function GetActiveConfigContent():Promise<string>;
 
 export function GetConnectOnDemandStatus():Promise<{[key: string]: any}>;
 
+export function ListPools():Promise<Array<{[key: string]: any}>>;
+
+export function GetPoolDetail(arg1:string):Promise<{[key: string]: any}>;
+
+export function CreatePoolFromPaths(arg1:string, arg2:string, arg3:Array<string>):Promise<{[key: string]: any}>;
+
+export function UpdatePool(arg1:string, arg2:{[key: string]: any}):Promise<{[key: string]: any}>;
+
+export function DeletePool(arg1:string):Promise<void>;
+
+export function DeletePoolMember(arg1:string, arg2:string):Promise<void>;
+
+export function RenamePoolMember(arg1:string, arg2:string, arg3:string):Promise<void>;
+
+export function ActivePoolID():Promise<string>;
+
+export function ActivatePool(arg1:string):Promise<void>;
+
+export function SwitchPoolMember(arg1:string):Promise<void>;
+
+export function PickAndConnectActivePool():Promise<void>;
+
+export function PoolRotatorStatus():Promise<{[key: string]: any}>;
+
+export function SelfIPCountry():Promise<string>;
+
 export function GetAvailableProtocols():Promise<Array<main.ProtocolInfo>>;
 
 export function GetLogs():Promise<Array<string>>;

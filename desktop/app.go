@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hoep/privycs/desktop/geoip"
+	"github.com/hoep/privycs/desktop/selfip"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -29,6 +31,16 @@ type App struct {
 
 	// Connection registry for multi-config support
 	connections *ConnectionRegistry
+
+	// Pool feature: virtual connections that wrap multiple endpoints
+	// and pick one per Connect using a policy. activePoolID is set
+	// when the user activates a Pool in the picker; activeMemberID
+	// is the member currently connected (set after PickMember runs).
+	pools          *PoolRegistry
+	poolImporter   *PoolImporter
+	poolRotator    *PoolRotator
+	selfIPDetector *selfip.Detector
+	activePoolID   string
 
 	// Features
 	killSwitch         *KillSwitch         // legacy - kept ONLY for one-time PrivycsKS-* cleanup at startup/shutdown
@@ -51,9 +63,30 @@ type App struct {
 // NewApp creates a new App instance
 func NewApp() *App {
 	ks := NewKillSwitchManager()
+
+	// Resolve the GeoIP reader once and share it between the Pool
+	// importer (resolves endpoint hostnames at import time) and the
+	// SelfIP detector (resolves the user's public IP at connect time).
+	// A missing MMDB is non-fatal - downstream callers handle the
+	// "country unknown" case by degrading Geo-Nearest to Random.
+	geoR, geoErr := geoip.Default()
+	if geoErr != nil {
+		log.Printf("App: GeoIP DB unavailable (%v); Geo-Nearest will degrade to Random", geoErr)
+	}
+	var geoForImport CountryResolverIF
+	var geoForSelfIP selfip.CountryResolver
+	if geoR != nil {
+		geoForImport = geoR
+		geoForSelfIP = geoR
+	}
+
 	return &App{
 		protocols:          make(map[string]VPNProtocol),
 		connections:        NewConnectionRegistry(),
+		pools:              NewPoolRegistry(),
+		poolImporter:       NewPoolImporter(geoForImport),
+		poolRotator:        NewPoolRotator(),
+		selfIPDetector:     selfip.New(geoForSelfIP),
 		killSwitch:         NewKillSwitch(),
 		ksManager:          ks,
 		sinkholeController: NewSinkholeController(ks, NewPlatformSinkhole()),
@@ -1291,6 +1324,52 @@ func (a *App) startOnDemandMonitoring() {
 	if nm := a.autoConnect.NetworkMonitor(); nm != nil && a.pauseManager != nil {
 		nm.SetPauseCheck(a.pauseManager.IsPaused)
 	}
+
+	// Wire SelfIP cache invalidation to network-roam events. The
+	// NetworkMonitor's OnChange fan-out delivers each subscriber
+	// asynchronously - cheap to add and the detector handles
+	// re-probing lazily on the next CountryFor / Detect call.
+	if nm := a.autoConnect.NetworkMonitor(); nm != nil && a.selfIPDetector != nil {
+		a.selfIPDetector.SubscribeNetworkChanges(nm)
+	}
+
+	// Wire the Pool rotator. Traffic-bytes are consumed for the
+	// idle-aware decision; the active-state callback prevents rotation
+	// from firing while the VPN is down. onRotate -> PickAndConnectActivePool
+	// pulls a new member, tears the current tunnel, and reconnects.
+	if a.poolRotator != nil {
+		a.poolRotator.Start(
+			func(poolID string) {
+				if err := a.PickAndConnectActivePool(); err != nil {
+					log.Printf("PoolRotator: rotation for %s failed: %v", poolID, err)
+				}
+			},
+			a.poolTrafficSnapshot,
+			func() bool {
+				a.mu.RLock()
+				defer a.mu.RUnlock()
+				return a.connected
+			},
+		)
+	}
+}
+
+// poolTrafficSnapshot reads the current tunnel's RX/TX byte counters
+// for the rotator's idle-aware detection. Returns (0, 0) when no
+// active protocol or when the protocol has no stats - either case is
+// indistinguishable from "user is idle" which is the safe default
+// (rotation may fire). When a real number comes back, the rotator can
+// detect deltas across ticks.
+func (a *App) poolTrafficSnapshot() (int64, int64) {
+	a.mu.RLock()
+	activeProto := a.activeProtocol
+	proto, ok := a.protocols[activeProto]
+	a.mu.RUnlock()
+	if !ok {
+		return 0, 0
+	}
+	st := proto.Status()
+	return st.BytesRx, st.BytesTx
 }
 
 // applyKillSwitchSetting drives the new state machine in response to

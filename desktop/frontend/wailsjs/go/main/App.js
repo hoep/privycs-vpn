@@ -14,6 +14,58 @@ export function GetConnectOnDemandStatus() {
   return window['go']['main']['App']['GetConnectOnDemandStatus']();
 }
 
+export function ListPools() {
+  return window['go']['main']['App']['ListPools']();
+}
+
+export function GetPoolDetail(arg1) {
+  return window['go']['main']['App']['GetPoolDetail'](arg1);
+}
+
+export function CreatePoolFromPaths(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreatePoolFromPaths'](arg1, arg2, arg3);
+}
+
+export function UpdatePool(arg1, arg2) {
+  return window['go']['main']['App']['UpdatePool'](arg1, arg2);
+}
+
+export function DeletePool(arg1) {
+  return window['go']['main']['App']['DeletePool'](arg1);
+}
+
+export function DeletePoolMember(arg1, arg2) {
+  return window['go']['main']['App']['DeletePoolMember'](arg1, arg2);
+}
+
+export function RenamePoolMember(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RenamePoolMember'](arg1, arg2, arg3);
+}
+
+export function ActivePoolID() {
+  return window['go']['main']['App']['ActivePoolID']();
+}
+
+export function ActivatePool(arg1) {
+  return window['go']['main']['App']['ActivatePool'](arg1);
+}
+
+export function SwitchPoolMember(arg1) {
+  return window['go']['main']['App']['SwitchPoolMember'](arg1);
+}
+
+export function PickAndConnectActivePool() {
+  return window['go']['main']['App']['PickAndConnectActivePool']();
+}
+
+export function PoolRotatorStatus() {
+  return window['go']['main']['App']['PoolRotatorStatus']();
+}
+
+export function SelfIPCountry() {
+  return window['go']['main']['App']['SelfIPCountry']();
+}
+
 export function PauseFor(arg1) {
   return window['go']['main']['App']['PauseFor'](arg1);
 }
