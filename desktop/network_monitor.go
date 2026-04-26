@@ -19,16 +19,51 @@ type NetworkState struct {
 // ConnectOnDemandSettings rules.  A safety poll at 60-second intervals
 // ensures changes are never missed even if the OS event is lost.
 type NetworkMonitor struct {
-	mu           sync.Mutex
-	running      bool
-	stopCh       chan struct{}
-	settings     *ConnectOnDemandSettings
-	connectFn    func()
-	disconnectFn func()
-	isConnected  func() bool
-	isPaused     func() bool // optional - when set and returns true, monitor suppresses all actions
-	lastState    NetworkState
-	stopWatcher  func() // platform watcher teardown
+	mu              sync.Mutex
+	running         bool
+	stopCh          chan struct{}
+	settings        *ConnectOnDemandSettings
+	connectFn       func()
+	disconnectFn    func()
+	isConnected     func() bool
+	isPaused        func() bool // optional - when set and returns true, monitor suppresses all actions
+	lastState       NetworkState
+	stopWatcher     func() // platform watcher teardown
+	changeObservers []func()
+}
+
+// OnChange registers a callback fired (asynchronously, on its own
+// goroutine) whenever the platform watcher reports a network change.
+// Used by Self-IP-Cache to invalidate its cached country on network
+// roam, and by Pool to re-pick a Geo-Nearest member after the user's
+// location changes. Callbacks must be cheap and non-blocking - the
+// monitor does not serialise them.
+func (nm *NetworkMonitor) OnChange(fn func()) {
+	if fn == nil {
+		return
+	}
+	nm.mu.Lock()
+	nm.changeObservers = append(nm.changeObservers, fn)
+	nm.mu.Unlock()
+}
+
+// fireChangeObservers dispatches all registered observers on
+// independent goroutines so a slow observer cannot block the monitor.
+func (nm *NetworkMonitor) fireChangeObservers() {
+	nm.mu.Lock()
+	obs := make([]func(), len(nm.changeObservers))
+	copy(obs, nm.changeObservers)
+	nm.mu.Unlock()
+	for _, fn := range obs {
+		go func(f func()) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Network monitor: observer panic recovered: %v", r)
+				}
+			}()
+			f()
+		}(fn)
+	}
 }
 
 // SetPauseCheck installs an optional callback the monitor consults
@@ -152,6 +187,7 @@ func (nm *NetworkMonitor) run() {
 	// after IP-acquired; on Linux/macOS the platform events tend to
 	// be more synchronous so the follow-up is just a no-op.
 	stopWatcher, err := startPlatformWatcher(func() {
+		nm.fireChangeObservers()
 		nm.checkAndAct()
 		go func() {
 			time.Sleep(2 * time.Second)
