@@ -363,9 +363,20 @@ func (a *App) SwitchPoolMember(memberID string) error {
 // pool members are not "saved connections" the user picks individually
 // in the picker, they are pool-internal entries.
 //
-// Tunnel-name uses a deterministic "pool-<8 chars of memberID>"
-// pattern so a re-pick of the same member reuses the same interface
-// name (avoids leftover wg0 / privycs-vpn-X interfaces piling up).
+// Tunnel-name is STABLE per pool ("privycs-pool-<8 chars of poolID>"),
+// NOT per member. Pool semantics guarantee only one member is active
+// at a time, so reusing the same tunnel name across rotations means:
+//
+//   - one .conf file in WireGuard's Configurations dir (overwritten
+//     on each rotation) instead of one file per member ever connected
+//   - one WireGuardTunnel$ service registered (stop+restart on
+//     rotation) instead of N services accumulating in the service
+//     registry
+//   - one wintun adapter cycled, not N
+//
+// At 600-server Mullvad pool with full rotation history, this is the
+// difference between zero leftover state and 600 .conf files +
+// 600 services on disk.
 func (a *App) connectToPoolMember(m *PoolMember) error {
 	if m == nil || m.Config == nil {
 		return fmt.Errorf("invalid member or config")
@@ -378,7 +389,10 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 		return fmt.Errorf("protocol %s not registered", m.Config.Protocol)
 	}
 
-	tunnelName := "pool-" + shortID(m.ID)
+	// Stable per-pool tunnel name. Pool ID is fixed for the pool's
+	// lifetime, members rotate through but reuse the same name so
+	// the OS never sees more than one tunnel/service per pool.
+	tunnelName := "privycs-pool-" + shortID(a.activePoolID)
 	setTunnelName(proto, tunnelName)
 
 	if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
