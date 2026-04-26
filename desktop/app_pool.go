@@ -662,6 +662,52 @@ var cityCodeToName = map[string]string{
 	"ist": "Istanbul",
 }
 
+// backfillPoolCountries iterates every saved pool and re-resolves
+// countries for members whose Country field is empty. Pools imported
+// before v0.9.11.9 (MMDB schema mismatch) ended up with all members
+// at country="" - which made flag rendering, Geo-Nearest, and the
+// pool-detail country lookup all fall through silently. This
+// background pass repairs them in place so the user does not have
+// to delete + reimport.
+//
+// Runs in a goroutine off app startup. Each member resolves with the
+// already-loaded GeoIP reader; total wall time for 600 members is
+// bounded by the DNS-resolution worker pool.
+func (a *App) backfillPoolCountries() {
+	if a.pools == nil {
+		return
+	}
+	geoR, err := geoip.Default()
+	if err != nil || geoR == nil {
+		return
+	}
+	pools := a.pools.List()
+	for _, pool := range pools {
+		changed := false
+		for _, m := range pool.Members {
+			if m.Country != "" || m.Config == nil || m.Config.ServerAddress == "" {
+				continue
+			}
+			ip := resolveHostToIP(stripPortIfPresent(m.Config.ServerAddress))
+			if ip == nil {
+				continue
+			}
+			cc, _ := geoR.CountryCode(ip)
+			if cc == "" {
+				continue
+			}
+			m.Country = cc
+			m.Region = geoip.Region(cc)
+			changed = true
+		}
+		if changed {
+			if err := a.pools.Update(pool); err == nil {
+				log.Printf("Pool %s: backfilled country data for previously-empty members", pool.Name)
+			}
+		}
+	}
+}
+
 // mostRecentlyUsedConnection returns the connection with the newest
 // LastConnected timestamp. Used at startup to auto-select the most
 // recent single-connection when neither a pool nor a single is

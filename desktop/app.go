@@ -229,6 +229,13 @@ func (a *App) startup(ctx context.Context) {
 		}()
 	}
 
+	// Backfill empty pool-member country fields from the MMDB. Pools
+	// imported before v0.9.11.9 (when the MMDB schema bug shipped)
+	// have country="" for every member; this background pass repairs
+	// them in place so flag rendering, Geo-Nearest, and Pool-Detail
+	// country lookups all start working without re-import.
+	go a.backfillPoolCountries()
+
 	// Wire pool rotator with the restored active pool, if any.
 	// Also backfill RestrictRegions for pools created before v0.9.11.13
 	// landed - any pool with an empty restriction list gets pinned
@@ -751,15 +758,22 @@ func (a *App) disconnectInternal() error {
 
 	if downErr != nil {
 		log.Printf("Disconnect error: %v", downErr)
-		// Surface to the user so they can act (e.g. restart helper).
-		// Keep a.connected=true because the OS-level tunnel is in
-		// fact still up.
+		// Earlier behaviour kept a.connected=true here on the theory
+		// that the OS tunnel might still be up. Result was the user
+		// got stuck with a Disconnect button that did nothing -
+		// every retry returned the same error, app state never
+		// reset. Now we mark app state disconnected regardless and
+		// surface a notification so the user knows the OS tunnel
+		// MAY still be running and they should run the cleanup
+		// PowerShell if their public IP still shows the VPN exit.
+		// User-recoverable beats user-stuck.
 		wailsRuntime.EventsEmit(a.ctx, "vpn:error", downErr.Error())
-		Notify("VPN disconnect failed",
-			fmt.Sprintf("%s tunnel could not be torn down: %s",
+		Notify("VPN disconnect (with errors)",
+			fmt.Sprintf("%s reported: %s. If your public IP still shows the VPN, run the cleanup script.",
 				strings.ToUpper(a.activeProtocol), downErr.Error()),
 			NotifyError)
-		return downErr
+		a.connected = false
+		return nil
 	}
 
 	a.connected = false
