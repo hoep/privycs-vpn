@@ -17,11 +17,52 @@ var (
 	iphlpapi             = syscall.NewLazyDLL("iphlpapi.dll")
 	procNotifyAddrChange = iphlpapi.NewProc("NotifyAddrChange")
 
-	wlanapi                     = syscall.NewLazyDLL("wlanapi.dll")
-	procWlanOpenHandle          = wlanapi.NewProc("WlanOpenHandle")
-	procWlanCloseHandle         = wlanapi.NewProc("WlanCloseHandle")
+	wlanapi                      = syscall.NewLazyDLL("wlanapi.dll")
+	procWlanOpenHandle           = wlanapi.NewProc("WlanOpenHandle")
+	procWlanCloseHandle          = wlanapi.NewProc("WlanCloseHandle")
 	procWlanRegisterNotification = wlanapi.NewProc("WlanRegisterNotification")
+	procWlanEnumInterfaces       = wlanapi.NewProc("WlanEnumInterfaces")
+	procWlanQueryInterface       = wlanapi.NewProc("WlanQueryInterface")
+	procWlanFreeMemory           = wlanapi.NewProc("WlanFreeMemory")
 )
+
+// WLAN_INTF_OPCODE values from wlanapi.h. We only need
+// wlan_intf_opcode_current_connection (7) which returns a
+// WLAN_CONNECTION_ATTRIBUTES struct including the SSID.
+const wlanIntfOpcodeCurrentConnection = 7
+
+// Subset of the Windows WLAN structs we read. Field order matches
+// the C definition exactly - any layout change here corrupts the
+// reads below.
+
+type dot11SSID struct {
+	Length uint32
+	SSID   [32]byte
+}
+
+type dot11AssociationAttributes struct {
+	Dot11Bssid           [6]byte
+	_pad                 [2]byte
+	Dot11SSID            dot11SSID
+	Dot11BSSType         uint32
+	Dot11PHYType         uint32
+	UDot11PhyIndex       uint32
+	WlanSignalQuality    uint32
+	ULRxRate             uint32
+	ULTxRate             uint32
+}
+
+type wlanInterfaceInfo struct {
+	InterfaceGUID        [16]byte
+	StrInterfaceDescr    [256]uint16
+	IsState              uint32
+}
+
+type wlanInterfaceInfoList struct {
+	NumberOfItems uint32
+	Index         uint32
+	// Followed by NumberOfItems * wlanInterfaceInfo entries
+}
 
 // Windows WLAN_NOTIFICATION_SOURCE bit flags. We only care about
 // ACM (Auto Configuration Module) - that source emits the
@@ -208,40 +249,147 @@ func startWlanWatcher(stopCh <-chan struct{}, callback func()) (cleanup func(), 
 	return cleanup, nil
 }
 
-// getCurrentSSIDPlatform returns the current WiFi SSID on Windows
-// by parsing the output of netsh wlan show interfaces.
+// getCurrentSSIDPlatform returns the current WiFi SSID on Windows.
 //
-// Race-aware retry: when this function is called from a platform
-// watcher callback (NotifyAddrChange, WLAN ACM event), the OS may
-// not yet have populated the SSID field even though the WLAN
-// adapter is associated. Symptom: user joins WiFi while on
-// Ethernet, our event-driven checkAndAct fires immediately, netsh
-// returns "" for SSID, we conclude state="ethernet", COD trigger
-// "wifi_mobile" mismatches, no auto-connect. By the time the OS
-// finishes populating SSID a few hundred ms later, no event re-
-// fires until the 60s safety poll. To close that gap we retry up
-// to 3 times with a 500ms backoff if the netsh output indicates a
-// WLAN adapter exists but the SSID slot is empty.
+// Primary path: WlanQueryInterface kernel API. Reads the SSID
+// directly from the WLAN service's connection attributes - no
+// string parsing, no localized output, no admin requirement. This
+// replaces an earlier netsh-based path that returned empty SSID on
+// at least one user's system (German Win11 with Hoep@Home WiFi
+// joined on top of Ethernet - log showed many WLAN notifications
+// firing but every getCurrentSSIDPlatform() call returning ""
+// despite the user being clearly associated). Likely cause was a
+// netsh output format / locale variant the parser missed.
+//
+// Fallback path: the original netsh parser. Used only if the WLAN
+// API calls themselves fail (rare; would mean wlanapi.dll missing
+// or WLAN service down). The retry loop is preserved on the
+// fallback path.
 func getCurrentSSIDPlatform() string {
+	if ssid, ok := readWLANSSIDViaSyscall(); ok {
+		return ssid
+	}
+	// Fallback to netsh parsing with retry-on-empty.
 	for attempt := 0; attempt < 3; attempt++ {
 		ssid, hasAdapter := readNetshSSID()
 		if ssid != "" {
 			return ssid
 		}
 		if !hasAdapter {
-			// No WLAN adapter at all - retrying will not change
-			// anything. Return immediately.
 			return ""
 		}
-		// Adapter present but SSID empty: likely mid-association.
-		// Wait a bit and try again. Skip the wait on the last
-		// attempt so the function returns within ~1s in the worst
-		// case.
 		if attempt < 2 {
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
 	return ""
+}
+
+// readWLANSSIDViaSyscall queries the WLAN service directly through
+// the Win32 wlanapi.dll. Returns (ssid, true) on success including
+// the case where there are no connected WLAN adapters (returns
+// "", true - definitive answer). Returns (any, false) only when
+// the API itself failed and we should fall back to netsh.
+//
+// Sequence:
+//   1. WlanOpenHandle: get a client handle.
+//   2. WlanEnumInterfaces: list WLAN adapter GUIDs.
+//   3. For each GUID, WlanQueryInterface(opcode=current_connection):
+//      returns a WLAN_CONNECTION_ATTRIBUTES struct from which we
+//      extract dot11Ssid (length-prefixed bytes, NOT zero-terminated).
+//   4. WlanFreeMemory + WlanCloseHandle to clean up.
+//
+// Threading: WlanOpenHandle / WlanQueryInterface are reentrant and
+// thread-safe per MSDN. We open + close per call - cheap and avoids
+// keeping a long-lived handle that could survive into a
+// daemon-restart context.
+func readWLANSSIDViaSyscall() (ssid string, ok bool) {
+	var clientHandle uintptr
+	var negotiatedVersion uint32
+	const wlanAPIVersion = 0x00000002 // WLAN_API_VERSION_2_0
+
+	ret, _, _ := procWlanOpenHandle.Call(
+		uintptr(wlanAPIVersion),
+		0,
+		uintptr(unsafe.Pointer(&negotiatedVersion)),
+		uintptr(unsafe.Pointer(&clientHandle)),
+	)
+	if ret != 0 {
+		return "", false
+	}
+	defer procWlanCloseHandle.Call(clientHandle, 0)
+
+	var ifListPtr uintptr
+	ret, _, _ = procWlanEnumInterfaces.Call(
+		clientHandle, 0,
+		uintptr(unsafe.Pointer(&ifListPtr)),
+	)
+	if ret != 0 || ifListPtr == 0 {
+		return "", false
+	}
+	defer procWlanFreeMemory.Call(ifListPtr)
+
+	header := (*wlanInterfaceInfoList)(unsafe.Pointer(ifListPtr))
+	count := header.NumberOfItems
+	if count == 0 {
+		// No WLAN interface present - definitive answer "no SSID",
+		// not a failure.
+		return "", true
+	}
+
+	// The first interface entry sits immediately after the 8-byte
+	// header (NumberOfItems uint32 + Index uint32). Subsequent
+	// entries are sizeof(wlanInterfaceInfo) apart.
+	const headerSize = 8 // 2 * uint32
+	entrySize := unsafe.Sizeof(wlanInterfaceInfo{})
+
+	for i := uint32(0); i < count; i++ {
+		entryPtr := unsafe.Pointer(uintptr(ifListPtr) + uintptr(headerSize) + uintptr(i)*entrySize)
+		entry := (*wlanInterfaceInfo)(entryPtr)
+
+		// IsState 1 = wlan_interface_state_connected. Skip
+		// disconnected/associating adapters; they have no current
+		// SSID to report.
+		if entry.IsState != 1 {
+			continue
+		}
+
+		var dataPtr uintptr
+		var dataSize uint32
+		ret, _, _ := procWlanQueryInterface.Call(
+			clientHandle,
+			uintptr(unsafe.Pointer(&entry.InterfaceGUID[0])),
+			uintptr(wlanIntfOpcodeCurrentConnection),
+			0,
+			uintptr(unsafe.Pointer(&dataSize)),
+			uintptr(unsafe.Pointer(&dataPtr)),
+			0,
+		)
+		if ret != 0 || dataPtr == 0 {
+			continue
+		}
+
+		// WLAN_CONNECTION_ATTRIBUTES layout (relevant fields only):
+		//   isState                 (uint32)  - offset  0
+		//   wlanConnectionMode      (uint32)  - offset  4
+		//   strProfileName[256]     (wchar_t) - offset  8 (256*2 bytes)
+		//   wlanAssociationAttributes (DOT11_ASSOCIATION_ATTRIBUTES)
+		//     starts at offset 8 + 512 = 520
+		//   inside which dot11Ssid (uint32 len + 32 bytes) starts at
+		//   offset 520 + 8 (bssid 6 + pad 2) = 530
+		const ssidOffset = 530
+		ssidLen := *(*uint32)(unsafe.Pointer(uintptr(dataPtr) + ssidOffset))
+		if ssidLen > 0 && ssidLen <= 32 {
+			ssidBytes := (*[32]byte)(unsafe.Pointer(uintptr(dataPtr) + ssidOffset + 4))
+			result := string(ssidBytes[:ssidLen])
+			procWlanFreeMemory.Call(dataPtr)
+			return result, true
+		}
+		procWlanFreeMemory.Call(dataPtr)
+	}
+
+	// Adapters enumerated, none connected with a usable SSID.
+	return "", true
 }
 
 // readNetshSSID parses one shot of netsh wlan show interfaces.
