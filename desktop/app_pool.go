@@ -363,20 +363,13 @@ func (a *App) SwitchPoolMember(memberID string) error {
 // pool members are not "saved connections" the user picks individually
 // in the picker, they are pool-internal entries.
 //
-// Tunnel-name is STABLE per pool ("privycs-pool-<8 chars of poolID>"),
-// NOT per member. Pool semantics guarantee only one member is active
-// at a time, so reusing the same tunnel name across rotations means:
-//
-//   - one .conf file in WireGuard's Configurations dir (overwritten
-//     on each rotation) instead of one file per member ever connected
-//   - one WireGuardTunnel$ service registered (stop+restart on
-//     rotation) instead of N services accumulating in the service
-//     registry
-//   - one wintun adapter cycled, not N
-//
-// At 600-server Mullvad pool with full rotation history, this is the
-// difference between zero leftover state and 600 .conf files +
-// 600 services on disk.
+// Tunnel-name is STABLE per pool. Pool semantics guarantee only one
+// member is active at a time, so reusing the same tunnel name across
+// rotations keeps OS state minimal: one .conf file overwritten,
+// one WireGuardTunnel$ service stop/restart cycled, one wintun
+// adapter. Without this we accumulated one .conf + one service per
+// member ever connected (up to 600 leftover entries on a Mullvad
+// pool with full rotation history).
 func (a *App) connectToPoolMember(m *PoolMember) error {
 	if m == nil || m.Config == nil {
 		return fmt.Errorf("invalid member or config")
@@ -389,10 +382,14 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 		return fmt.Errorf("protocol %s not registered", m.Config.Protocol)
 	}
 
-	// Stable per-pool tunnel name. Pool ID is fixed for the pool's
-	// lifetime, members rotate through but reuse the same name so
-	// the OS never sees more than one tunnel/service per pool.
-	tunnelName := "privycs-pool-" + shortID(a.activePoolID)
+	// Stable per-pool tunnel name. Falls back to a fixed string if
+	// activePoolID is somehow empty so the call never produces an
+	// invalid name like "privycs-pool-".
+	suffix := shortID(a.activePoolID)
+	if suffix == "" {
+		suffix = "active"
+	}
+	tunnelName := "privycs-pool-" + suffix
 	setTunnelName(proto, tunnelName)
 
 	if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
@@ -740,26 +737,34 @@ func (a *App) PickAndConnectActivePool() error {
 	log.Printf("Pool %s policy=%s picked member %s (%s, %s)",
 		pool.Name, pool.Policy, member.Name, member.Country, member.Region)
 
-	// CRITICAL: tear down the existing tunnel before the new one
-	// comes up. Without this, a.Connect short-circuits on
-	// "tunnel already running" and the rotation is metadata-only -
-	// pool.ActiveMemberID updates, the UI shows the new member,
-	// but the wintun adapter still routes through the old member's
-	// exit. Whatsmyip continues to show the old country.
+	// CRITICAL: tear down the existing tunnel before the new one's
+	// config is written. Two reasons:
 	//
-	// The same disconnect-then-reconnect pattern lives in
-	// SwitchPoolMember (manual member-pick from the picker UI);
-	// PickAndConnectActivePool was the missing automatic-rotation
-	// counterpart.
+	//   1. Connect short-circuits on "tunnel already running" so a
+	//      Configure-then-Connect without disconnect does not actually
+	//      change the routing - the rotation becomes metadata-only.
+	//   2. The new member's config writes to the same .conf path
+	//      (stable per-pool tunnel name in connectToPoolMember). If
+	//      we overwrite while the OS WireGuard service is still
+	//      reading it, we corrupt the file the running service
+	//      depends on. Wait for proto.Down to complete (which happens
+	//      synchronously inside disconnectInternal) before letting
+	//      connectToPoolMember touch disk.
+	//
+	// If disconnect FAILS (helper unreachable, service stuck) we
+	// must NOT proceed - the old tunnel is still up at the OS level
+	// and overwriting .conf would corrupt its state. Bail with an
+	// error so the user knows the rotation did not happen.
 	a.mu.RLock()
 	wasConnected := a.connected
 	a.mu.RUnlock()
 	if wasConnected {
 		a.mu.Lock()
-		if err := a.disconnectInternal(); err != nil {
-			log.Printf("Pool: disconnect-before-rotate failed: %v", err)
-		}
+		err := a.disconnectInternal()
 		a.mu.Unlock()
+		if err != nil {
+			return fmt.Errorf("pool rotate: disconnect failed, refusing to overwrite config: %w", err)
+		}
 	}
 	return a.connectToPoolMember(member)
 }
