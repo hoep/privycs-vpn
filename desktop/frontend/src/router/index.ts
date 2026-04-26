@@ -16,6 +16,16 @@ const routes = [
     component: () => import('@/views/AddConnectionView.vue'),
   },
   {
+    path: '/add-pool',
+    name: 'AddPool',
+    component: () => import('@/views/AddPoolView.vue'),
+  },
+  {
+    path: '/pool/:id',
+    name: 'PoolDetail',
+    component: () => import('@/views/PoolDetailView.vue'),
+  },
+  {
     path: '/protocols',
     name: 'Protocols',
     component: () => import('@/views/ProtocolSelector.vue'),
