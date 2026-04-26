@@ -129,7 +129,16 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 		if err == nil && strings.Contains(string(out), "Connected") {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
-			status.BytesRx, status.BytesTx = getWindowsTrafficStats(i.connName)
+			// Windows IPSec/IKEv2 via Add-VpnConnection / rasdial
+			// creates an adapter whose alias usually matches the
+			// connection name, but on some Win11 builds the adapter
+			// shows up as "WAN Miniport (IKEv2)" or has a sanitized
+			// name. Try several patterns to be robust.
+			status.BytesRx, status.BytesTx = getWindowsTrafficStats(
+				i.connName,        // primary - matches default adapter alias
+				"IKEv2",           // RAS miniport label
+				"WAN Miniport",    // generic RAS catch-all
+			)
 		}
 	}
 

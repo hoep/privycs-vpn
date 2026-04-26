@@ -11,64 +11,74 @@ import (
 )
 
 // getWindowsTrafficStats reads per-interface byte counters for the
-// first network adapter whose Name or Description contains the
-// caller-supplied substring (e.g. "OpenVPN", "WireGuard"). Uses the
-// native Win32 GetIfEntry2 API via iphlpapi.dll — no PowerShell
-// subprocess, no console-window flash, no WMI provider dependency,
-// returns in 1–2 ms per call. Safe to poll every 1–2 s.
+// first UP network adapter whose Name contains any of the supplied
+// needle substrings (case-insensitive). Variadic so callers can try
+// several known patterns - e.g. OpenVPN can be "OpenVPN", "ovpn-dco",
+// "TAP-Windows", "Wintun" depending on which transport driver is
+// installed; IPSec via Windows rasdial uses the user's
+// ConnectionName as the adapter alias. Uses Win32 GetIfEntry2 via
+// iphlpapi.dll - no PowerShell subprocess, returns in 1-2 ms.
 //
-// Previous implementation spawned PowerShell on every call which:
-//
-//   - Made the UI window flicker on Windows 11 because conhost
-//     briefly materialises behind CREATE_NO_WINDOW despite the flag
-//     being set (documented Win11 regression; see Microsoft forums).
-//   - Burned ~50 ms of CPU per poll on a fresh PowerShell engine
-//     startup, stacking up over a long session.
-//   - Returned zero for ovpn-dco adapters on the .NET IPv4Statistics
-//     path because DCO bypasses the IP layer (see GitHub issue
-//     OpenVPN/openvpn#447 and follow-ups). Get-NetAdapterStatistics
-//     worked but still spawned PowerShell.
-//
-// The new path calls iphlpapi!GetIfEntry2 directly with the index of
-// the Go-enumerated network interface, which talks to the NDIS driver
-// and returns DCO-accurate, 64-bit-wide InOctets / OutOctets values.
-func getWindowsTrafficStats(adapterName string) (rx, tx int64) {
-	needle := strings.ToLower(adapterName)
-
+// On no match, logs the list of UP adapters so a user reporting
+// "traffic stats stay zero" can see what adapter names are actually
+// present and the caller can be updated with the right needle.
+func getWindowsTrafficStats(needles ...string) (rx, tx int64) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return 0, 0
 	}
 
+	// Build the lowercase needle list once.
+	nLower := make([]string, 0, len(needles))
+	for _, n := range needles {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			continue
+		}
+		nLower = append(nLower, strings.ToLower(n))
+	}
+	if len(nLower) == 0 {
+		return 0, 0
+	}
+
 	var matched *net.Interface
+	var matchedOn string
+	upNames := make([]string, 0, 8)
 	for i := range ifaces {
 		// Only consider up adapters so a stale/disconnected VPN
-		// adapter (e.g. a lingering TAP adapter from a previous
-		// session) doesn't frontrun the currently-active one.
+		// adapter does not frontrun the currently-active one.
 		if ifaces[i].Flags&net.FlagUp == 0 {
 			continue
 		}
 		nameLower := strings.ToLower(ifaces[i].Name)
-		if strings.Contains(nameLower, needle) {
-			matched = &ifaces[i]
+		upNames = append(upNames, ifaces[i].Name)
+		for _, needle := range nLower {
+			if strings.Contains(nameLower, needle) {
+				matched = &ifaces[i]
+				matchedOn = needle
+				break
+			}
+		}
+		if matched != nil {
 			break
 		}
 	}
 	if matched == nil {
+		log.Printf("Traffic stats: no UP adapter matches any of %v (UP adapters: %v)",
+			needles, upNames)
 		return 0, 0
 	}
 
 	rxU, txU, err := getIfEntry2Stats(uint32(matched.Index))
 	if err != nil {
+		log.Printf("Traffic stats: GetIfEntry2 idx=%d failed: %v", matched.Index, err)
 		return 0, 0
 	}
-	// Both counters fit into int64 until ~8 EB; VPN sessions don't
-	// push that much traffic, so the cast is safe.
 	rx = int64(rxU)
 	tx = int64(txU)
 	if rx > 0 || tx > 0 {
-		log.Printf("Traffic stats for %s (GetIfEntry2 idx=%d): rx=%d tx=%d",
-			matched.Name, matched.Index, rx, tx)
+		log.Printf("Traffic stats for %s (matched=%q idx=%d): rx=%d tx=%d",
+			matched.Name, matchedOn, matched.Index, rx, tx)
 	}
 	return rx, tx
 }

@@ -395,7 +395,18 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 	status.Connected = true
 	status.ConnectedAt = o.connectedAt.Format(time.RFC3339)
 	if runtime.GOOS == "windows" {
-		status.BytesRx, status.BytesTx = getWindowsTrafficStats("OpenVPN")
+		// OpenVPN on Windows can use any of three transport drivers
+		// each producing a different adapter friendly-name. Try all
+		// the known patterns plus "Wintun" because some installs
+		// share the WG driver. Order does not matter - we take the
+		// first UP adapter that matches.
+		status.BytesRx, status.BytesTx = getWindowsTrafficStats(
+			"OpenVPN",       // OpenVPN Wintun / OpenVPN TAP-Windows6 / OpenVPN Data Channel Offload
+			"ovpn-dco",      // standalone DCO driver naming
+			"TAP-Windows",   // legacy TAP driver
+			"Wintun",        // shared wintun adapter
+			"tap",           // catch-all for tap variants
+		)
 	} else if runtime.GOOS == "linux" {
 		status.BytesRx, status.BytesTx = getLinuxInterfaceStats("tun0")
 	}

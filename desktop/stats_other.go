@@ -9,7 +9,7 @@ import (
 )
 
 // getWindowsTrafficStats is a no-op on non-Windows platforms.
-func getWindowsTrafficStats(adapterName string) (rx, tx int64) {
+func getWindowsTrafficStats(needles ...string) (rx, tx int64) {
 	return 0, 0
 }
 

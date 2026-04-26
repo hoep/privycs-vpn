@@ -587,8 +587,15 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	return a.statusLocked(), nil
 }
 
-// Disconnect tears down the active VPN connection
+// Disconnect tears down the active VPN connection. User-initiated
+// (clicked the disconnect button, called via tray, etc.) - cancels
+// any pending Pause auto-reconnect because the user has explicitly
+// said "I want to be off". PauseFor uses disconnectInternal directly
+// to keep its scheduled reconnect alive.
 func (a *App) Disconnect() error {
+	if a.pauseManager != nil {
+		a.pauseManager.Cancel()
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.disconnectInternal()
@@ -632,24 +639,28 @@ func (a *App) disconnectInternal() error {
 
 	a.connected = false
 
-	// SAFETY: do NOT engage the sinkhole on a user-initiated
-	// disconnect on desktop. The Android client does this as part of
-	// the "hardcore Kill Switch" semantic, but on Windows it has been
-	// reported to BSOD: the netsh advfirewall add-rule sequence races
-	// against the still-completing WireGuard NDIS teardown
-	// (wintun.sys cleanup), and the kernel-side state mismatch
-	// crashes the box. Mobile platforms have no NDIS layer so the
-	// race does not exist there.
+	// Hardcore Kill Switch: a user-initiated disconnect with KS
+	// enabled engages the sinkhole - traffic stays blocked until
+	// the user reconnects or toggles KS off. CRITICAL on Windows:
+	// engage with a settle delay so the WireGuard NDIS teardown
+	// (wintun.sys cleanup, async after proto.Down returns) is
+	// COMPLETE before netsh modifies WFP filters. The two
+	// operations racing in kernel mode is what BSOD'd v0.9.10.29.
 	//
-	// Sinkhole still engages automatically on UNEXPECTED tunnel
-	// drops via the network watcher path (network lost while armed),
-	// which runs at a different point in the lifecycle and is not
-	// racing tunnel teardown. That is the use case KS was designed
-	// for: protect against silent VPN failure. Explicit
-	// user-disconnects fall back to "user wants the network now".
-	// Users who specifically want disconnect-blocks-traffic can
-	// still toggle KS off-and-on after disconnecting which engages
-	// the sinkhole via SettingsRepository.applyKillSwitchSetting.
+	// 3 seconds is empirically enough on Windows for wintun.sys
+	// to fully release. On Linux/macOS the delay is harmless
+	// (iptables/pf changes are atomic and not racing anything).
+	//
+	// Engagement is via goroutine so the disconnect path returns
+	// immediately to the UI - the user does not wait 3s for the
+	// disconnect to finish, the sinkhole just slides in
+	// underneath afterwards.
+	if a.settings.KillSwitchEnabled && a.ksManager != nil {
+		go func() {
+			time.Sleep(3 * time.Second)
+			a.ksManager.ForceSinkhole("user-initiated disconnect with KS enabled (delayed for NDIS settle)")
+		}()
+	}
 
 	wailsRuntime.EventsEmit(a.ctx, "vpn:disconnected", a.activeProtocol)
 	log.Println("Disconnected")
@@ -950,9 +961,13 @@ func (a *App) SwitchActiveConnection(id string, protocol string) (bool, error) {
 }
 
 // PauseFor schedules a user-initiated VPN pause for the given number
-// of seconds. While the pause is active, ConnectCoordinator gates
-// non-USER connect intents and the live status surfaces a countdown
-// to the UI. Mirrors the Android long-press-to-pause feature.
+// of seconds. While the pause is active, the network monitor's pause
+// guard suppresses COD reconnects and App.Connect rejects new
+// intents (including the user clicking the connect button). When the
+// pause expires, if the VPN was connected at pause-start time, this
+// auto-reconnects to whatever was active. The auto-reconnect intent
+// is cancelled if the user explicitly disconnects during the pause
+// (via the public Disconnect method, which calls pauseManager.Cancel).
 func (a *App) PauseFor(seconds int) error {
 	if a.pauseManager == nil {
 		return fmt.Errorf("pause manager not initialised")
@@ -961,29 +976,93 @@ func (a *App) PauseFor(seconds int) error {
 		a.pauseManager.Cancel()
 		return nil
 	}
-	a.pauseManager.PauseFor(time.Duration(seconds) * time.Second)
-	// If currently connected, disconnect now - the user explicitly
-	// asked for a pause window.
+
 	a.mu.Lock()
-	connected := a.connected
+	wasConnected := a.connected
 	a.mu.Unlock()
-	if connected {
+
+	a.pauseManager.PauseFor(time.Duration(seconds) * time.Second)
+
+	if wasConnected {
+		// Disconnect via the internal path so we do NOT clear our
+		// own pause (public Disconnect cancels pause as part of
+		// "user wants off" semantics).
 		go func() {
-			if err := a.Disconnect(); err != nil {
-				log.Printf("PauseFor: disconnect failed: %v", err)
+			a.mu.Lock()
+			err := a.disconnectInternal()
+			a.mu.Unlock()
+			if err != nil {
+				log.Printf("PauseFor: internal disconnect failed: %v", err)
 			}
 		}()
+		// Schedule the auto-reconnect watcher.
+		go a.pauseExpiryReconnectWatcher(time.Duration(seconds) * time.Second)
 	}
 	return nil
 }
 
-// CancelPause clears any active pause. The next COD evaluation tick
-// (or a manual user-tap) will then reconnect normally.
+// pauseExpiryReconnectWatcher waits for the pause to elapse and then
+// fires Connect if the pause was not explicitly cancelled and the
+// VPN is still down. The cancellation case (user clicked the
+// disconnect button during the pause, or hit Resume Now which calls
+// CancelPause) results in pauseManager.IsPaused() returning false
+// before our timer fires - we then check whether the user already
+// hit Resume (in which case Connect was kicked off elsewhere) or
+// Disconnect (in which case we should NOT auto-reconnect).
+func (a *App) pauseExpiryReconnectWatcher(pauseDuration time.Duration) {
+	// Wait the full pause duration plus a small grace window so the
+	// PauseManager's wall-clock check has definitely flipped to
+	// expired by the time we check.
+	time.Sleep(pauseDuration + 250*time.Millisecond)
+
+	if a.pauseManager == nil {
+		return
+	}
+	// If pause is still considered active here, the user must have
+	// extended it via another PauseFor call. The newer call has its
+	// own watcher; this one bows out.
+	if a.pauseManager.IsPaused() {
+		return
+	}
+	// If we are already connected (e.g. user hit Resume Now and the
+	// reconnect already ran), nothing to do.
+	a.mu.RLock()
+	connected := a.connected
+	a.mu.RUnlock()
+	if connected {
+		return
+	}
+	log.Println("Pause expired - auto-reconnecting (was connected at pause start)")
+	if _, err := a.Connect(""); err != nil {
+		log.Printf("Pause-expiry reconnect failed: %v", err)
+	}
+}
+
+// CancelPause clears any active pause. If the user invoked this via
+// "Resume now" in the pause banner, also fire an immediate
+// reconnect - they explicitly asked to be back on the VPN.
 func (a *App) CancelPause() error {
 	if a.pauseManager == nil {
 		return nil
 	}
+	wasPaused := a.pauseManager.IsPaused()
 	a.pauseManager.Cancel()
+	if !wasPaused {
+		return nil
+	}
+	a.mu.RLock()
+	connected := a.connected
+	a.mu.RUnlock()
+	if connected {
+		return nil
+	}
+	// Resume Now intent: reconnect immediately. Detached so the
+	// IPC call returns fast.
+	go func() {
+		if _, err := a.Connect(""); err != nil {
+			log.Printf("Resume-now reconnect failed: %v", err)
+		}
+	}()
 	return nil
 }
 
