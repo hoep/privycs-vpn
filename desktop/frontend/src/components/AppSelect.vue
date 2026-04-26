@@ -13,12 +13,9 @@
         </span>
       </ListboxButton>
 
-      <transition
-        leave-active-class="transition duration-100 ease-in"
-        leave-from-class="opacity-100"
-        leave-to-class="opacity-0"
-      >
-        <ListboxOptions
+      <!-- No leave transition: 100ms fade-out felt like input lag after
+           clicking an option. Dropdown closes instantly now. -->
+      <ListboxOptions
           class="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md
                  bg-white dark:bg-gray-800 py-1 text-sm shadow-lg
                  ring-1 ring-black/5 dark:ring-white/10
@@ -44,7 +41,6 @@
             </li>
           </ListboxOption>
         </ListboxOptions>
-      </transition>
     </div>
   </Listbox>
 </template>

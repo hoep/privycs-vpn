@@ -624,9 +624,9 @@ async function pickConnection(conn: any) {
     if (willReconnect && (ksState === 'ARMED' || ksState === 'SINKHOLE')) {
       showNotice('Kill Switch active. This will block your reconnect!')
     }
-    await vpn.fetchStatus()
-    await loadConnections()
-    await poolStore.refresh()
+    // Parallelise the three post-switch refresh calls - sequential
+    // form added ~150 ms perceived lag when switching pool ↔ single.
+    await Promise.all([vpn.fetchStatus(), loadConnections(), poolStore.refresh()])
   } catch (e: any) {
     vpn.error = 'Failed to switch connection'
   }
@@ -684,9 +684,11 @@ async function pickEntry(entry: PickerEntry) {
   if (entry.isActive) return
   try {
     if (entry.type === 'pool') {
+      // poolStore.activate already calls ActivatePool then refresh().
+      // The follow-up vpn.fetchStatus + loadConnections + the
+      // refresh inside activate run in parallel rather than serially.
       await poolStore.activate(entry.id)
-      await vpn.fetchStatus()
-      await loadConnections()
+      await Promise.all([vpn.fetchStatus(), loadConnections()])
     } else {
       // Reuse pickConnection's path so KS-warning + reconnect logic
       // is centralised. Find the conn object for the protocol hint.
