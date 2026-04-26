@@ -184,6 +184,13 @@ func (a *App) startup(ctx context.Context) {
 		}
 	}
 
+	// Start the pool rotator goroutine. Must run unconditionally
+	// (NOT gated on COD-enabled) so Round-Robin pools rotate even
+	// when the user has Connect-on-Demand off. Earlier versions
+	// piggybacked the rotator on COD startup and rotation silently
+	// never fired for COD-disabled users.
+	a.startPoolRotator()
+
 	// Wire pool rotator with the restored active pool, if any.
 	// Also backfill RestrictRegions for pools created before v0.9.11.13
 	// landed - any pool with an empty restriction list gets pinned
@@ -1382,25 +1389,35 @@ func (a *App) startOnDemandMonitoring() {
 		a.selfIPDetector.SubscribeNetworkChanges(nm)
 	}
 
-	// Wire the Pool rotator. Traffic-bytes are consumed for the
-	// idle-aware decision; the active-state callback prevents rotation
-	// from firing while the VPN is down. onRotate -> PickAndConnectActivePool
-	// pulls a new member, tears the current tunnel, and reconnects.
-	if a.poolRotator != nil {
-		a.poolRotator.Start(
-			func(poolID string) {
-				if err := a.PickAndConnectActivePool(); err != nil {
-					log.Printf("PoolRotator: rotation for %s failed: %v", poolID, err)
-				}
-			},
-			a.poolTrafficSnapshot,
-			func() bool {
-				a.mu.RLock()
-				defer a.mu.RUnlock()
-				return a.connected
-			},
-		)
+}
+
+// startPoolRotator brings the rotator goroutine up. Independent of
+// Connect-on-Demand: the rotator drives Round-Robin pool rotation
+// regardless of COD state. Earlier this lived inside
+// startOnDemandMonitoring which only fired when COD was enabled, so
+// users with Round-Robin pools but no COD never saw the rotation
+// timer fire and never saw the "Next server in" countdown on the
+// Connect screen.
+//
+// Idempotent - PoolRotator.Start handles double-call by replacing
+// callbacks but not spawning a second goroutine.
+func (a *App) startPoolRotator() {
+	if a.poolRotator == nil {
+		return
 	}
+	a.poolRotator.Start(
+		func(poolID string) {
+			if err := a.PickAndConnectActivePool(); err != nil {
+				log.Printf("PoolRotator: rotation for %s failed: %v", poolID, err)
+			}
+		},
+		a.poolTrafficSnapshot,
+		func() bool {
+			a.mu.RLock()
+			defer a.mu.RUnlock()
+			return a.connected
+		},
+	)
 }
 
 // poolTrafficSnapshot reads the current tunnel's RX/TX byte counters
