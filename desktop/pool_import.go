@@ -272,16 +272,62 @@ func detectProtocolFromFilename(filename string) string {
 // parsers in protocol_*.go - those run heavier validation paths that
 // touch system files (e.g. WireGuard tunnel-name registration). For
 // Pool import we want pure parse-only.
+//
+// Every extractor's output passes through stripPortIfPresent so the
+// returned value is always a bare host suitable for net.ParseIP /
+// net.LookupIP - no port residue, IPv6 brackets unwrapped.
 func extractEndpointHost(protocol, content string) string {
+	var raw string
 	switch protocol {
 	case "wireguard":
-		return extractWireGuardEndpoint(content)
+		raw = extractWireGuardEndpoint(content)
 	case "openvpn":
-		return extractOpenVPNEndpoint(content)
+		raw = extractOpenVPNEndpoint(content)
 	case "ipsec":
-		return extractIPSecEndpoint(content)
+		raw = extractIPSecEndpoint(content)
+	default:
+		return ""
 	}
-	return ""
+	return stripPortIfPresent(raw)
+}
+
+// stripPortIfPresent normalises a host[:port] / [host]:port / bare
+// host string into just the host. Handles four shapes:
+//   "1.2.3.4:1194"          -> "1.2.3.4"
+//   "[2001:db8::1]:51820"   -> "2001:db8::1"
+//   "host.example.com:443"  -> "host.example.com"
+//   "1.2.3.4" (no port)     -> "1.2.3.4"
+//   "2001:db8::1" (no port) -> "2001:db8::1"  -- IMPORTANT: bare IPv6
+//                              also has colons; we must NOT mistake
+//                              the address for "host:port".
+//
+// We use net.SplitHostPort for the explicit-port forms and fall
+// through to "no port present" for everything else. ParseIP catches
+// the bare-IPv6 case before SplitHostPort can misinterpret it.
+func stripPortIfPresent(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Bare IP literal (v4 or v6, no port) - net.SplitHostPort would
+	// either succeed-by-accident on v6 or fail on v4. Catch it first.
+	if ip := net.ParseIP(s); ip != nil {
+		return s
+	}
+	// Try SplitHostPort. If it succeeds, we had host:port.
+	if host, _, err := net.SplitHostPort(s); err == nil && host != "" {
+		return host
+	}
+	// Bracket-only IPv6 without port: "[2001:db8::1]"
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		inner := s[1 : len(s)-1]
+		if ip := net.ParseIP(inner); ip != nil {
+			return inner
+		}
+	}
+	// Last resort: assume the whole string is a hostname (e.g.
+	// "vpn.example.com" without port).
+	return s
 }
 
 func extractWireGuardEndpoint(content string) string {

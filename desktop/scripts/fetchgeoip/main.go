@@ -20,7 +20,13 @@ import (
 )
 
 const (
-	sourceURL = "https://github.com/sapics/ip-location-db/raw/main/geolite2-country-mmdb/geolite2-country-ipv4.mmdb"
+	// Combined IPv4+IPv6 country database from sapics/ip-location-db.
+	// The sibling file `geolite2-country-ipv4.mmdb` (which we used in
+	// earlier releases) only carries IPv4 ranges - IPv6-only endpoints
+	// would silently miss the country lookup. The combined `.mmdb`
+	// file is ~6 MB total (still under the binary-size budget) and
+	// covers both stacks.
+	sourceURL = "https://github.com/sapics/ip-location-db/raw/main/geolite2-country-mmdb/geolite2-country.mmdb"
 	maxAge    = 7 * 24 * time.Hour // skip download if existing file is newer than this
 )
 

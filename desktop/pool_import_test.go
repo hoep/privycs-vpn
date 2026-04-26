@@ -228,3 +228,83 @@ func TestResolveHostToIP_Literal(t *testing.T) {
 		t.Errorf("resolveHostToIP(IPv6 literal) returned nil")
 	}
 }
+
+func TestStripPortIfPresent(t *testing.T) {
+	cases := map[string]string{
+		// Standard host:port forms.
+		"1.2.3.4:1194":             "1.2.3.4",
+		"vpn.example.com:443":      "vpn.example.com",
+		"[2001:db8::1]:51820":      "2001:db8::1",
+		// Bare host - no port to strip.
+		"1.2.3.4":                  "1.2.3.4",
+		"vpn.example.com":          "vpn.example.com",
+		"2001:db8::1":              "2001:db8::1", // bare IPv6 must NOT be split as host:port
+		"::1":                      "::1",
+		// Edge cases.
+		"":                         "",
+		"  1.2.3.4:1194  ":         "1.2.3.4",
+		"[2001:db8::1]":            "2001:db8::1", // bracket-wrapped without port
+	}
+	for in, want := range cases {
+		if got := stripPortIfPresent(in); got != want {
+			t.Errorf("stripPortIfPresent(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestExtractEndpointHost_AllFormats verifies the public extractor
+// handles every shape we see in real-world configs - including the
+// non-standard inline host:port form for OpenVPN that some providers
+// emit, and IPSec .sswan with port in addr field.
+func TestExtractEndpointHost_AllFormats(t *testing.T) {
+	cases := []struct {
+		name     string
+		protocol string
+		content  string
+		want     string
+	}{
+		{
+			name:     "WireGuard IPv4 with port",
+			protocol: "wireguard",
+			content:  "[Peer]\nEndpoint = 198.51.100.5:51820\n",
+			want:     "198.51.100.5",
+		},
+		{
+			name:     "WireGuard IPv6 with port",
+			protocol: "wireguard",
+			content:  "[Peer]\nEndpoint = [2001:db8::1]:51820\n",
+			want:     "2001:db8::1",
+		},
+		{
+			name:     "OpenVPN space-separated standard",
+			protocol: "openvpn",
+			content:  "remote 198.51.100.5 1194 udp\n",
+			want:     "198.51.100.5",
+		},
+		{
+			name:     "OpenVPN inline host:port (non-standard)",
+			protocol: "openvpn",
+			content:  "remote 198.51.100.5:1194\n",
+			want:     "198.51.100.5",
+		},
+		{
+			name:     "IPSec sswan with literal addr",
+			protocol: "ipsec",
+			content:  `{"remote":{"addr":"198.51.100.5"}}`,
+			want:     "198.51.100.5",
+		},
+		{
+			name:     "IPSec sswan with addr containing port",
+			protocol: "ipsec",
+			content:  `{"remote":{"addr":"198.51.100.5:500"}}`,
+			want:     "198.51.100.5",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := extractEndpointHost(c.protocol, c.content); got != c.want {
+				t.Errorf("extractEndpointHost(%s) = %q, want %q", c.protocol, got, c.want)
+			}
+		})
+	}
+}
