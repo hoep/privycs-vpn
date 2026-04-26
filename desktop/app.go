@@ -191,6 +191,22 @@ func (a *App) startup(ctx context.Context) {
 	// never fired for COD-disabled users.
 	a.startPoolRotator()
 
+	// Pre-warm the SelfIP cache in the background so the first
+	// user-facing operation (ActivatePool, Connect, picker switch)
+	// does not stall behind the DoH probe chain (up to 3-8s on a
+	// cold cache before the first endpoint responds). By the time
+	// the user clicks anything, a.selfIPDetector.Cached() returns
+	// a populated result and downstream paths read it instantly.
+	if a.selfIPDetector != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			if c := a.selfIPDetector.CountryFor(ctx); c != "" {
+				log.Printf("App: SelfIP pre-warm complete, country=%s", c)
+			}
+		}()
+	}
+
 	// Wire pool rotator with the restored active pool, if any.
 	// Also backfill RestrictRegions for pools created before v0.9.11.13
 	// landed - any pool with an empty restriction list gets pinned

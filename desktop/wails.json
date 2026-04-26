@@ -13,7 +13,7 @@
   "info": {
     "companyName": "Privycs",
     "productName": "Privycs VPN",
-    "productVersion": "0.9.11.18",
+    "productVersion": "0.9.11.19",
     "copyright": "Copyright 2026 Privycs",
     "comments": "Enterprise VPN Client for WireGuard, OpenVPN, and IPSec/IKEv2"
   }

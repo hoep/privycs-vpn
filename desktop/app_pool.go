@@ -267,17 +267,18 @@ func (a *App) ActivePoolID() string {
 // every cold-start.
 func (a *App) ActivatePool(id string) error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 
 	if id == "" {
 		a.activePoolID = ""
 		a.poolRotator.SetActivePool(nil)
 		_ = a.pools.SetActiveID("")
+		a.mu.Unlock()
 		return nil
 	}
 
 	p := a.pools.Get(id)
 	if p == nil {
+		a.mu.Unlock()
 		return fmt.Errorf("pool not found: %s", id)
 	}
 	a.activePoolID = id
@@ -287,20 +288,26 @@ func (a *App) ActivatePool(id string) error {
 	// keeps the saved data.
 	a.connections.SetActive("")
 
-	// Backfill RestrictRegions for older pools that were created
-	// before v0.9.11.13's auto-restrict landed. If the pool is
-	// Round-Robin AND has no restriction set, anchor it to the
-	// user's home region. Pools where the user explicitly cleared
-	// restrictions look identical to never-set ones from disk
-	// (both serialize as empty array) - this trade-off favours
-	// "user did not get pinballed across continents" over
-	// "user keeps their cleared empty list".
-	if len(p.RestrictRegions) == 0 {
-		a.autoRestrictRoundRobinToHomeRegion(p)
-	}
-
 	a.poolRotator.SetActivePool(p)
 	_ = a.pools.SetActiveID(id)
+	needsAutoRestrict := len(p.RestrictRegions) == 0
+
+	// Release the write lock BEFORE running auto-restrict. The
+	// auto-restrict path may probe SelfIP via DoH which can take up
+	// to 3s on a cold cache - holding a.mu through that window
+	// blocks the status emitter and every Wails RLock call (ListPools,
+	// ActivePoolID, PoolRotatorStatus, SelfIPCountry...) and the user
+	// perceives the entire app as frozen during pool activation.
+	a.mu.Unlock()
+
+	if needsAutoRestrict {
+		// Run in a goroutine so the user-facing ActivatePool call
+		// returns immediately. The restriction takes effect on the
+		// next PickAndConnect; in the unlikely race where Connect
+		// fires before this finishes, PickAndConnect's just-in-time
+		// guard sets it inline.
+		go a.autoRestrictRoundRobinToHomeRegion(p)
+	}
 	return nil
 }
 
@@ -482,15 +489,16 @@ func (a *App) PickAndConnectActivePool() error {
 		return fmt.Errorf("active pool gone: %s", poolID)
 	}
 
-	// Resolve the user's country - fast path: cached. Slow path: probe
-	// via DoH with 5s budget. Geo-Nearest tolerates "" gracefully.
+	// Resolve the user's country from the SelfIP cache. We do NOT
+	// probe synchronously here even on a cold cache - the DoH chain
+	// can take 3-8s and Connect needs to be snappy. Startup pre-warms
+	// the cache; ActivatePool's background goroutine refreshes it.
+	// In the unlikely race where neither has populated yet, Geo-
+	// Nearest tolerates "" gracefully (degrades to Random within the
+	// pool's RestrictRegions filter, if any).
 	userCountry := ""
 	if cached := a.selfIPDetector.Cached(); cached != nil {
 		userCountry = cached.Country
-	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		userCountry = a.selfIPDetector.CountryFor(ctx)
 	}
 
 	// Last-line backfill: if user has a known country and the pool
