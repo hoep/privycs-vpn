@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/hoep/privycs/desktop/geoip"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -109,6 +110,8 @@ func (a *App) CreatePoolFromUploads(name string, policy string, uploads []PoolUp
 		return nil, err
 	}
 
+	a.autoRestrictRoundRobinToHomeRegion(pool)
+
 	log.Printf("Pool created: %s (%d members, %d skipped)", name, len(result.Members), len(result.Skipped))
 	if a.ctx != nil {
 		wailsRuntime.EventsEmit(a.ctx, "pool:created", map[string]interface{}{
@@ -151,6 +154,8 @@ func (a *App) CreatePoolFromPaths(name string, policy string, paths []string) (*
 	if err != nil {
 		return nil, err
 	}
+
+	a.autoRestrictRoundRobinToHomeRegion(pool)
 
 	log.Printf("Pool created: %s (%d members, %d skipped)", name, len(result.Members), len(result.Skipped))
 	if a.ctx != nil {
@@ -372,6 +377,53 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// autoRestrictRoundRobinToHomeRegion sets RestrictRegions to the
+// user's home region on a freshly-created Round-Robin pool. Default
+// behaviour matches what most users expect: rotate through MY pool's
+// servers near where I am, not pinball through every continent.
+//
+// User-country comes from the SelfIP detector - same DoH-trace path
+// the user suggested with curl ipinfo.io, but using cloudflare-trace
+// / icanhazip / Mullvad as the well-known endpoints (no third-party
+// SaaS analytics, single GET, no auth, no cookies). Cached for 1h
+// and invalidated on network roam.
+//
+// Falls through silently if:
+//   - policy is not Round-Robin (Geo-Nearest already handles regional
+//     preference, Random has no region semantics)
+//   - SelfIP detection fails (no internet, captive portal, all
+//     fallback endpoints down)
+//   - resolved country maps to "Other" (private IP, unmapped range)
+//
+// User can clear the auto-restriction in Coverage card → Restrict to
+// region → uncheck their home region → Apply.
+func (a *App) autoRestrictRoundRobinToHomeRegion(pool *Pool) {
+	if pool == nil || pool.Policy != PolicyRoundRobin || a.selfIPDetector == nil {
+		return
+	}
+	userCountry := a.SelfIPCountry()
+	if userCountry == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		userCountry = a.selfIPDetector.CountryFor(ctx)
+		cancel()
+	}
+	if userCountry == "" {
+		log.Printf("Pool: no user-country detected, skipping auto-restrict")
+		return
+	}
+	homeRegion := geoip.Region(userCountry)
+	if homeRegion == "" || homeRegion == "Other" {
+		return
+	}
+	pool.RestrictRegions = []string{homeRegion}
+	if err := a.pools.Update(pool); err != nil {
+		log.Printf("Pool: auto-restrict to %s failed: %v", homeRegion, err)
+		return
+	}
+	log.Printf("Pool: auto-restricted Round-Robin to home region %s (user country %s)",
+		homeRegion, userCountry)
 }
 
 // mostRecentlyUsedConnection returns the connection with the newest

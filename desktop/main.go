@@ -32,9 +32,9 @@ func main() {
 	err := wails.Run(&options.App{
 		Title:     "Privycs VPN",
 		Width:     420,
-		Height:    820,
+		Height:    895, // +75 to fit pool indicator + rotation countdown without scrolling
 		MinWidth:  380,
-		MinHeight: 700,
+		MinHeight: 775,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
