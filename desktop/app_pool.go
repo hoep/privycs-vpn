@@ -842,7 +842,24 @@ func (a *App) PickAndConnectActivePool() error {
 			return fmt.Errorf("pool rotate: disconnect failed, refusing to overwrite config: %w", err)
 		}
 	}
-	return a.connectToPoolMember(member)
+	if err := a.connectToPoolMember(member); err != nil {
+		return err
+	}
+
+	// Notify the frontend that the active member changed so the
+	// "Currently: ..." line on the Connect screen and the active-
+	// member-display in the picker refresh without waiting for the
+	// next 5-second pollRotator tick. The frontend listens on
+	// "pool:rotated" and re-runs poolStore.refresh().
+	if a.ctx != nil {
+		wailsRuntime.EventsEmit(a.ctx, "pool:rotated", map[string]interface{}{
+			"pool_id":           pool.ID,
+			"active_member_id":  member.ID,
+			"active_member_name": member.Name,
+			"country":           member.Country,
+		})
+	}
+	return nil
 }
 
 // PoolRotatorStatus exposes the rotator's view to the frontend's

@@ -280,12 +280,28 @@
                   >
                     <div>
                       <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                        Rotation interval (minutes)
+                        Rotation interval
                       </label>
                       <AppSelect
-                        v-model="editIntervalMinStr"
+                        v-model="editIntervalChoice"
                         :options="intervalOptions"
                       />
+                      <!-- Custom: free-form minutes when "Custom..."
+                           is selected. Hidden otherwise so the user
+                           never sees a number input they do not need. -->
+                      <div v-if="editIntervalChoice === 'custom'" class="mt-2 flex items-center gap-2">
+                        <input
+                          v-model.number="editIntervalMin"
+                          type="number"
+                          min="1"
+                          max="1440"
+                          class="block w-24 rounded-md border border-gray-300 dark:border-gray-600
+                                 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm
+                                 text-gray-900 dark:text-gray-200
+                                 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        />
+                        <span class="text-[11px] text-gray-500">minutes (1 - 1440)</span>
+                      </div>
                     </div>
 
                     <!-- Idle-aware HeadlessUI Switch -->
@@ -349,7 +365,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePoolStore, type PoolPolicy } from '@/stores/pool'
 import {
@@ -386,6 +402,7 @@ const intervalOptions = [
   { value: '30', label: '30 minutes' },
   { value: '60', label: '1 hour'     },
   { value: '120', label: '2 hours'   },
+  { value: 'custom', label: 'Custom...' },
 ]
 
 const forceAfterOptions = [
@@ -474,6 +491,10 @@ const editName = ref('')
 const editPolicy = ref<PoolPolicy>('geo-nearest')
 const editCountryOverride = ref('')
 const editIntervalMin = ref(30)
+// editIntervalChoice mirrors the Listbox: "5" | "10" | "30" | "custom"
+// etc. When the user picks "custom" the number input below appears
+// and editIntervalMin captures the exact value entered.
+const editIntervalChoice = ref<string>('30')
 const editIdleAware = ref(false)
 const editForceAfterMin = ref(30)
 
@@ -531,6 +552,11 @@ async function load() {
       editPolicy.value = pool.value.policy
       editCountryOverride.value = pool.value.country_override || ''
       editIntervalMin.value = pool.value.rotation?.interval_min || 30
+      // Match the dropdown to the saved value if it's a preset,
+      // else show "Custom..." with the value populated in the input.
+      const presets = ['5', '10', '15', '30', '60', '120']
+      const savedStr = String(editIntervalMin.value)
+      editIntervalChoice.value = presets.includes(savedStr) ? savedStr : 'custom'
       editIdleAware.value = pool.value.rotation?.idle_aware ?? true
       editForceAfterMin.value = pool.value.rotation?.force_after_min || 60
       restrictedRegions.value = [...(pool.value.restrict_regions || [])]
@@ -541,6 +567,17 @@ async function load() {
     loading.value = false
   }
 }
+
+// Sync editIntervalMin from the dropdown choice when user picks a preset.
+// "custom" leaves editIntervalMin alone so the user's typed value survives.
+watch(editIntervalChoice, (choice: string) => {
+  if (choice !== 'custom') {
+    const n = parseInt(choice, 10)
+    if (!isNaN(n) && n > 0) {
+      editIntervalMin.value = n
+    }
+  }
+})
 
 async function saveSettings() {
   if (!pool.value) return

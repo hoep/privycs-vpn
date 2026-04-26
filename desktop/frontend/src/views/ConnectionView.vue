@@ -503,6 +503,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useVpnStore, formatSpeed } from '@/stores/vpn'
 import { usePoolStore, formatDuration } from '@/stores/pool'
 import { SelectProtocol, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause } from '../../wailsjs/go/main/App'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import SpeedSparkline from '@/components/SpeedSparkline.vue'
 import {
@@ -885,6 +886,7 @@ const codDescription = computed(() => {
 // the underlying NextRotationIn value every 5s.
 let rotatorInterval: ReturnType<typeof setInterval> | null = null
 let rotatorCountdownInterval: ReturnType<typeof setInterval> | null = null
+let stopPoolRotatedListener: (() => void) | null = null
 
 onMounted(() => {
   // Critical: gate Welcome rendering on BOTH lists landing. Until
@@ -898,6 +900,16 @@ onMounted(() => {
   pollCod()
   codInterval = setInterval(pollCod, 5000)
   rotatorInterval = setInterval(() => poolStore.pollRotator(), 5000)
+
+  // Backend emits "pool:rotated" right after a successful
+  // PickAndConnect. Refresh the pools list immediately so
+  // "Currently: <member>" reflects the new server without waiting
+  // for the 5s pollRotator cadence.
+  stopPoolRotatedListener = EventsOn('pool:rotated', () => {
+    poolStore.refresh()
+    vpn.fetchStatus()
+  })
+
   rotatorCountdownInterval = setInterval(() => {
     // Decrement the cached value by 1s so the UI counts smoothly between
     // polls. The next poll resets it to the authoritative value.
@@ -915,6 +927,10 @@ onUnmounted(() => {
   if (codInterval) {
     clearInterval(codInterval)
     codInterval = null
+  }
+  if (stopPoolRotatedListener) {
+    stopPoolRotatedListener()
+    stopPoolRotatedListener = null
   }
   if (rotatorInterval) {
     clearInterval(rotatorInterval)
