@@ -10,12 +10,13 @@ package geoip
 import (
 	_ "embed"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
 
-	"github.com/oschwald/geoip2-golang"
+	"github.com/oschwald/maxminddb-golang"
 )
 
 // DefaultDBFilename is the filename of the MMDB that operators can
@@ -33,11 +34,47 @@ const DefaultDBFilename = "Country.mmdb"
 //go:embed Country.mmdb
 var embeddedDB []byte
 
-// Reader is a thin wrapper around the MMDB reader that exposes only the
-// operations Pool selection needs. Goroutine-safe (the underlying
-// MaxMind reader is documented as concurrent-read-safe).
+// Reader is a thin wrapper around the MMDB reader that exposes only
+// the operations Pool selection needs. Goroutine-safe (the underlying
+// maxminddb reader is documented as concurrent-read-safe).
+//
+// We use maxminddb-golang directly instead of geoip2-golang because
+// the latter validates the database type identifier against the
+// hardcoded suffix "Country", rejecting any MMDB whose type string
+// does not match (e.g. sapics/ip-location-db's combined v4+v6 file
+// uses the type "country ipvAll" which is functionally identical
+// but textually different). The lower-level maxminddb library has
+// no such check and reads any country-shaped database.
 type Reader struct {
-	r *geoip2.Reader
+	r *maxminddb.Reader
+}
+
+// countryRecord is the subset of fields we extract per IP lookup.
+// Two schemas in the wild:
+//   - MaxMind GeoLite2 / GeoIP2 official: nested country.iso_code
+//   - sapics/ip-location-db combined and similar redistributions:
+//     flat country_code at the root
+// We declare both and pick whichever the MMDB populated. The
+// ToISOCode method centralises the precedence so callers always get
+// a single string.
+type countryRecord struct {
+	// MaxMind official format
+	Country struct {
+		ISOCode string `maxminddb:"iso_code"`
+	} `maxminddb:"country"`
+	// sapics / db-ip flat format
+	FlatCountryCode string `maxminddb:"country_code"`
+}
+
+// ToISOCode returns the most specific country code the record
+// carries. Prefers the flat field because that's what our shipped
+// MMDB uses; falls back to the nested form so a privately-shipped
+// MaxMind-format MMDB (set via PRIVYCS_GEOIP_DB) still works.
+func (r countryRecord) ToISOCode() string {
+	if r.FlatCountryCode != "" {
+		return r.FlatCountryCode
+	}
+	return r.Country.ISOCode
 }
 
 var (
@@ -65,14 +102,21 @@ func Default() (*Reader, error) {
 		}
 
 		// Embedded happy path - the build had a real MMDB linked in.
+		// >256 byte threshold rejects the placeholder file committed
+		// for go:embed compatibility (the placeholder is ~74 bytes).
 		if len(embeddedDB) > 256 {
-			r, err := geoip2.FromBytes(embeddedDB)
+			r, err := maxminddb.FromBytes(embeddedDB)
 			if err == nil {
 				defaultReader = &Reader{r: r}
+				log.Printf("geoip: loaded embedded MMDB (%d bytes, type=%q)",
+					len(embeddedDB), r.Metadata.DatabaseType)
 				return
 			}
-			// fall through to disk lookup; embedded blob may be the
-			// placeholder, in which case the parse error is expected.
+			// Loud failure - embed parse errors are otherwise silent
+			// and surface only as "all members country=unknown" in
+			// pool imports, which is hard to diagnose without seeing
+			// THIS line in the log.
+			log.Printf("geoip: embedded MMDB present but parse failed: %v - falling back to disk", err)
 		}
 
 		// Disk fallback for dev environments where the binary is run
@@ -90,7 +134,7 @@ func Default() (*Reader, error) {
 // Open loads an MMDB file from disk. Used both by Default() and by
 // tests that ship their own fixture DB.
 func Open(path string) (*Reader, error) {
-	r, err := geoip2.Open(path)
+	r, err := maxminddb.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("geoip: open %s: %w", path, err)
 	}
@@ -110,7 +154,10 @@ func (r *Reader) Close() error {
 
 // CountryCode returns the ISO 3166-1 alpha-2 country code for ip,
 // uppercased. Returns ("", nil) when the IP is in the database but
-// has no country attribution (rare, mostly anonymous proxies).
+// has no country attribution (rare, mostly anonymous proxies), AND
+// when the IP is a private/reserved range that the MMDB does not
+// catalogue (10.x, 192.168.x, 100.64.0.0/10, IPv6 ULAs etc.) - the
+// caller should treat empty as "country unknown" without alarm.
 func (r *Reader) CountryCode(ip net.IP) (string, error) {
 	if r == nil || r.r == nil {
 		return "", fmt.Errorf("geoip: reader not initialised")
@@ -118,11 +165,11 @@ func (r *Reader) CountryCode(ip net.IP) (string, error) {
 	if ip == nil {
 		return "", fmt.Errorf("geoip: nil IP")
 	}
-	rec, err := r.r.Country(ip)
-	if err != nil {
+	var rec countryRecord
+	if err := r.r.Lookup(ip, &rec); err != nil {
 		return "", fmt.Errorf("geoip: lookup %s: %w", ip, err)
 	}
-	return rec.Country.IsoCode, nil
+	return rec.ToISOCode(), nil
 }
 
 // defaultDBPath resolves the bundled MMDB location. Order:
