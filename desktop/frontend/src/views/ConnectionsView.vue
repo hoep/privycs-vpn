@@ -22,10 +22,53 @@
           <CloudArrowDownIcon class="w-4 h-4" />
           Gateway
         </button>
+        <router-link to="/add-pool" class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1" title="Connection Pool from a ZIP or many config files">
+          <RectangleStackIcon class="w-4 h-4" />
+          Add Pool
+        </router-link>
         <router-link to="/add" class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1">
           <PlusIcon class="w-4 h-4" />
           Add
         </router-link>
+      </div>
+    </div>
+
+    <!-- Pools section: rendered above Singles when any exist. Pool is
+         a virtual connection — selecting it activates the pool and
+         routes the user to the Connect screen for the pickAndConnect
+         interaction. Tapping a pool's row navigates to its detail
+         view; tapping the chevron-Use button activates and goes to
+         Connect. -->
+    <div v-if="poolStore.pools.length > 0" class="mb-4 space-y-2">
+      <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Connection Pools</h3>
+      <div
+        v-for="p in poolStore.pools"
+        :key="p.id"
+        class="card p-3 border-2 cursor-pointer transition-all"
+        :class="p.is_active ? 'border-primary-500 bg-primary-500/5' : 'border-transparent hover:border-gray-300 dark:hover:border-gray-600'"
+        @click="$router.push(`/pool/${p.id}`)"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 min-w-0">
+            <RectangleStackIcon class="w-5 h-5 text-primary-400 flex-shrink-0" />
+            <div class="min-w-0">
+              <p class="text-sm text-gray-900 dark:text-white truncate">{{ p.name }}</p>
+              <p class="text-[10px] text-gray-500">
+                Pool · {{ p.member_count }} server<span v-if="p.member_count !== 1">s</span> · {{ policyShort(p.policy) }}
+                <span v-if="p.is_active && p.active_member_name" class="ml-1 text-primary-400">→ {{ p.active_member_name }}</span>
+              </p>
+            </div>
+          </div>
+          <button
+            @click.stop="usePool(p.id)"
+            class="text-[10px] px-2 py-1 rounded font-medium"
+            :class="p.is_active
+              ? 'bg-primary-500/20 text-primary-300 ring-1 ring-primary-500/40'
+              : 'bg-primary-600 text-white hover:bg-primary-700'"
+          >
+            {{ p.is_active ? 'Active' : 'Use' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -203,6 +246,7 @@
 import { ref, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
+import { usePoolStore } from '@/stores/pool'
 import { ListConnections, ActivateConnection, DeleteConnection, RenameConnection, FetchMyProfile, DownloadAndImportConfig, RemoveProtocolFromConnection, ImportConfig, GetSettings, UpdateSettings } from '../../wailsjs/go/main/App'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import QrScanModal from '@/components/QrScanModal.vue'
@@ -214,10 +258,26 @@ import {
   TrashIcon,
   CloudArrowDownIcon,
   QrCodeIcon,
+  RectangleStackIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const vpn = useVpnStore()
+const poolStore = usePoolStore()
+
+function policyShort(p: string): string {
+  switch (p) {
+    case 'geo-nearest': return 'Geo-Nearest'
+    case 'random':      return 'Random'
+    case 'round-robin-region': return 'Round-Robin'
+  }
+  return p
+}
+
+async function usePool(id: string) {
+  await poolStore.activate(id)
+  router.push('/connection')
+}
 const connections = ref<any[]>([])
 const showQrScanner = ref(false)
 
@@ -450,5 +510,8 @@ function protocolBadgeActive(proto: string): string {
   }
 }
 
-onMounted(loadConnections)
+onMounted(() => {
+  loadConnections()
+  poolStore.refresh()
+})
 </script>

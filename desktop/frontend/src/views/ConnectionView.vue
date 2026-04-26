@@ -40,6 +40,32 @@
         </div>
       </div>
 
+      <!-- Pool indicator, visible when an active Pool drives the
+           connection. Shows current member, next-rotation countdown
+           (Round-Robin only), and the idle-blocked / force-rotate
+           states. The indicator card sits above the COD banner so
+           the user reads the policy chain top-down. -->
+      <div v-if="poolStore.activePoolId" class="w-full max-w-sm mb-3">
+        <div class="card px-3 py-2">
+          <div class="flex items-center justify-between mb-0.5">
+            <span class="text-[11px] font-semibold text-gray-700 dark:text-gray-200">
+              Pool · {{ activePoolName }}
+            </span>
+            <router-link
+              v-if="poolStore.activePoolId"
+              :to="`/pool/${poolStore.activePoolId}`"
+              class="text-[10px] text-primary-400 hover:text-primary-300"
+            >Edit</router-link>
+          </div>
+          <div v-if="activeMemberDisplay" class="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+            Currently: {{ activeMemberDisplay }}
+          </div>
+          <div v-if="rotatorBannerLine" class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+            {{ rotatorBannerLine }}
+          </div>
+        </div>
+      </div>
+
       <!-- Connect-on-Demand banner, visible whenever the feature is
            enabled so the user knows the tunnel state may change
            automatically based on network conditions. Matches Android
@@ -356,6 +382,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useVpnStore, formatSpeed } from '@/stores/vpn'
+import { usePoolStore, formatDuration } from '@/stores/pool'
 import { SelectProtocol, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause } from '../../wailsjs/go/main/App'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import SpeedSparkline from '@/components/SpeedSparkline.vue'
@@ -372,6 +399,34 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const vpn = useVpnStore()
+const poolStore = usePoolStore()
+
+// Pool indicator computed: only render once the store has the active
+// pool's name. The list refresh is fast enough that we render
+// "Pool · Loading..." for at most one frame.
+const activePoolName = computed(() => {
+  const p = poolStore.pools.find(x => x.id === poolStore.activePoolId)
+  return p?.name || ''
+})
+
+const activeMemberDisplay = computed(() => {
+  const p = poolStore.pools.find(x => x.id === poolStore.activePoolId)
+  if (!p?.active_member_name) return ''
+  if (p.active_member_cc) return `${p.active_member_name} (${p.active_member_cc})`
+  return p.active_member_name
+})
+
+// Rotator banner: three states sourced from PoolRotatorStatus.
+// Only Round-Robin policy produces a non-empty banner - other policies
+// pick once per Connect with no rotation, so there is nothing to count.
+const rotatorBannerLine = computed(() => {
+  const r = poolStore.rotatorStatus
+  if (!r || !r.active) return ''
+  if (r.idle_blocked) {
+    return `Rotation paused — active traffic. Force-rotate in ${formatDuration(r.force_rotate_in || 0)}`
+  }
+  return `Next rotation in ${formatDuration(r.next_rotation_in)}`
+})
 const showConnectionPicker = ref(false)
 const allConnections = ref<any[]>([])
 
@@ -539,16 +594,44 @@ const codDescription = computed(() => {
   return 'No network — idle'
 })
 
+// Pool rotator polls every 5s while a pool is active, mirroring the
+// COD poll interval. The countdown UI updates by 1s tick on a separate
+// timer so the user sees seconds advance even though we only refresh
+// the underlying NextRotationIn value every 5s.
+let rotatorInterval: ReturnType<typeof setInterval> | null = null
+let rotatorCountdownInterval: ReturnType<typeof setInterval> | null = null
+
 onMounted(() => {
   loadConnections()
   pollCod()
   codInterval = setInterval(pollCod, 5000)
+  poolStore.refresh()
+  rotatorInterval = setInterval(() => poolStore.pollRotator(), 5000)
+  rotatorCountdownInterval = setInterval(() => {
+    // Decrement the cached value by 1s so the UI counts smoothly between
+    // polls. The next poll resets it to the authoritative value.
+    const r = poolStore.rotatorStatus
+    if (r && r.active && r.next_rotation_in > 1_000_000_000) {
+      r.next_rotation_in -= 1_000_000_000
+    }
+    if (r && r.active && r.idle_blocked && (r.force_rotate_in || 0) > 1_000_000_000) {
+      r.force_rotate_in = (r.force_rotate_in || 0) - 1_000_000_000
+    }
+  }, 1000)
   document.addEventListener('click', onClickOutside)
 })
 onUnmounted(() => {
   if (codInterval) {
     clearInterval(codInterval)
     codInterval = null
+  }
+  if (rotatorInterval) {
+    clearInterval(rotatorInterval)
+    rotatorInterval = null
+  }
+  if (rotatorCountdownInterval) {
+    clearInterval(rotatorCountdownInterval)
+    rotatorCountdownInterval = null
   }
   document.removeEventListener('click', onClickOutside)
 })
@@ -620,7 +703,24 @@ function cancelCodMismatchConnect() {
 
 async function confirmCodMismatchConnect() {
   showCodMismatchModal.value = false
-  await vpn.connect()
+  await dispatchConnect()
+}
+
+// dispatchConnect picks the right Connect entry point based on whether
+// a Pool is active. Pool-driven connects run PickAndConnectActivePool
+// which resolves a member via the policy and calls Connect("") with
+// the member's config staged. Single-connection users still go through
+// the existing vpn.connect() path.
+async function dispatchConnect() {
+  if (poolStore.activePoolId) {
+    try {
+      await poolStore.pickAndConnect()
+    } catch (e: any) {
+      vpn.error = e?.toString() || 'pool connect failed'
+    }
+  } else {
+    await vpn.connect()
+  }
 }
 
 async function toggleConnection() {
@@ -641,7 +741,7 @@ async function toggleConnection() {
     showCodMismatchModal.value = true
     return
   }
-  await vpn.connect()
+  await dispatchConnect()
 }
 
 async function switchProtocol(proto: string) {
