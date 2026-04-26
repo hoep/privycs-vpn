@@ -270,12 +270,21 @@ func (r *PoolRegistry) Update(p *Pool) error {
 // Delete removes a Pool by ID. The caller must have already
 // disconnected if this Pool was the active connection - the registry
 // has no awareness of connect state.
+//
+// Also clears ActiveID if it pointed at the deleted pool. Without
+// this, pools.json carries a stale ActiveID across restart and the
+// startup restore branch silently fails (Get returns nil for a
+// dangling ID, neither pool nor MRU-single is auto-selected, user
+// lands on the empty Welcome screen).
 func (r *PoolRegistry) Delete(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for i, p := range r.Pools {
 		if p.ID == id {
 			r.Pools = append(r.Pools[:i], r.Pools[i+1:]...)
+			if r.ActiveID == id {
+				r.ActiveID = ""
+			}
 			return r.saveLocked()
 		}
 	}

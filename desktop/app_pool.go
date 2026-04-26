@@ -290,7 +290,14 @@ func (a *App) ActivatePool(id string) error {
 	a.connections.SetActive("")
 
 	a.poolRotator.SetActivePool(p)
-	_ = a.pools.SetActiveID(id)
+	if err := a.pools.SetActiveID(id); err != nil {
+		// Persist failure means the next restart will not see this
+		// pool as the active one. Loud log so the symptom (Welcome
+		// screen instead of restored pool) is diagnosable.
+		log.Printf("Pool: SetActiveID(%s) failed: %v - active state will not survive restart", id, err)
+	} else {
+		log.Printf("Pool: persisted active pool %s", id)
+	}
 	needsAutoRestrict := len(p.RestrictRegions) == 0
 
 	// Release the write lock BEFORE running auto-restrict. The
@@ -694,17 +701,15 @@ func (a *App) PickAndConnectActivePool() error {
 	}
 
 	// Last-line backfill: if user has a known country and the pool
-	// still has no restriction (e.g. startup goroutine has not
-	// finished, or the user opted out and the system did not rerun),
-	// apply the home region NOW for this connect. Persists for next
-	// time so subsequent picks behave consistently.
+	// still has no restriction, apply the home region in memory. We
+	// do NOT write pools.json here - the SetActiveMember call below
+	// will save the pool with both the new RestrictRegions AND the
+	// new ActiveMemberID in a single ~1MB write instead of two.
 	if userCountry != "" && len(pool.RestrictRegions) == 0 {
 		homeRegion := geoip.Region(userCountry)
 		if homeRegion != "" && homeRegion != "Other" {
 			pool.RestrictRegions = []string{homeRegion}
-			if err := a.pools.Update(pool); err == nil {
-				log.Printf("Pool: just-in-time restrict to %s on connect", homeRegion)
-			}
+			log.Printf("Pool: just-in-time restrict to %s (will persist with active-member set)", homeRegion)
 		}
 	}
 
@@ -713,8 +718,9 @@ func (a *App) PickAndConnectActivePool() error {
 		return fmt.Errorf("pool %s: no eligible member to pick", pool.Name)
 	}
 
-	if err := a.pools.SetActiveMember(pool.ID, member.ID); err != nil {
-		log.Printf("Pool: SetActiveMember failed: %v", err)
+	pool.ActiveMemberID = member.ID
+	if err := a.pools.Update(pool); err != nil {
+		log.Printf("Pool: persist active-member failed: %v", err)
 	}
 
 	log.Printf("Pool %s policy=%s picked member %s (%s, %s)",

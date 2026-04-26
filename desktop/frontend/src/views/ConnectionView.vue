@@ -887,10 +887,16 @@ let rotatorInterval: ReturnType<typeof setInterval> | null = null
 let rotatorCountdownInterval: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
-  loadConnections()
+  // Critical: gate Welcome rendering on BOTH lists landing. Until
+  // dataLoaded flips, showWelcome returns false even if the
+  // currently-empty refs would otherwise satisfy "no data" - that
+  // is what caused the user-visible "Welcome at startup despite
+  // having a pool and connections saved" regression.
+  Promise.all([loadConnections(), poolStore.refresh()]).finally(() => {
+    dataLoaded.value = true
+  })
   pollCod()
   codInterval = setInterval(pollCod, 5000)
-  poolStore.refresh()
   rotatorInterval = setInterval(() => poolStore.pollRotator(), 5000)
   rotatorCountdownInterval = setInterval(() => {
     // Decrement the cached value by 1s so the UI counts smoothly between
@@ -937,23 +943,22 @@ const latestTxSpeed = computed(() => {
   return h.length > 0 ? h[h.length - 1] : 0
 })
 
+// Welcome flashes on cold start until BOTH the connection list AND
+// the pool list have loaded - earlier conditions checking
+// allConnections.value.length and poolStore.pools.length read
+// initial empty arrays before the async fetches landed, so the
+// Welcome screen briefly rendered even with saved data on disk.
+// dataLoaded is flipped to true once both fetches return; until
+// then Welcome stays hidden so an empty-state-flash never happens.
+const dataLoaded = ref(false)
+
 const showWelcome = computed(() => {
-  // Wait for the vpn status fetch to land - earlier we returned true
-  // here, which flashed Welcome for ~500ms during initial fetch even
-  // when the user has saved connections and pools. That window was
-  // long enough to notice on first start.
+  if (!dataLoaded.value) return false
   if (!vpn.status) return false
   if (isConnected.value) return false
-  // An active pool is a virtual connection - the Connect button needs
-  // to render so the user can fire PickAndConnectActivePool, even
-  // though the singles' connection_name is empty (mutual exclusion).
   if (poolStore.activePoolId) return false
   if (vpn.status.connection_name) return false
   if (vpn.status.connection_protocols?.length > 0) return false
-  // Welcome ONLY when we know there are no saved connections AND no
-  // pools - otherwise the Connect-screen layout is the right thing
-  // even if neither is "active" yet (auto-select-MRU on the backend
-  // makes that case rare anyway).
   if (allConnections.value.length > 0) return false
   if (poolStore.pools.length > 0) return false
   return true

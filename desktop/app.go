@@ -160,14 +160,36 @@ func (a *App) startup(ctx context.Context) {
 	// Step 3 is the user-facing fix: cold-start should never land on
 	// the empty Welcome screen when there ARE saved connections, the
 	// user just hasn't pinned one as active.
-	if a.pools != nil && a.pools.ActiveID != "" && a.pools.Get(a.pools.ActiveID) != nil {
-		a.activePoolID = a.pools.ActiveID
-		log.Printf("Restored active pool: %s", a.pools.Get(a.activePoolID).Name)
-	} else if a.connections.Active() == nil && len(a.connections.List()) > 0 {
-		mru := mostRecentlyUsedConnection(a.connections.List())
-		if mru != nil {
-			a.connections.SetActive(mru.ID)
-			log.Printf("Auto-selected last-used connection: %s", mru.Name)
+	{
+		poolActiveID := ""
+		poolCount := 0
+		if a.pools != nil {
+			poolActiveID = a.pools.ActiveID
+			poolCount = len(a.pools.List())
+		}
+		singleActive := a.connections.Active()
+		singleActiveName := ""
+		if singleActive != nil {
+			singleActiveName = singleActive.Name
+		}
+		log.Printf("Startup state: pools=%d active_pool_id=%q | connections=%d active_single=%q",
+			poolCount, poolActiveID, len(a.connections.List()), singleActiveName)
+
+		if a.pools != nil && a.pools.ActiveID != "" && a.pools.Get(a.pools.ActiveID) != nil {
+			a.activePoolID = a.pools.ActiveID
+			log.Printf("Startup: restored active pool %q", a.pools.Get(a.activePoolID).Name)
+		} else if a.pools != nil && a.pools.ActiveID != "" && a.pools.Get(a.pools.ActiveID) == nil {
+			// Stale ActiveID points at a deleted pool. Clear it so
+			// next time this branch does not block the MRU fallback.
+			log.Printf("Startup: pools.active_id %q is stale, clearing", a.pools.ActiveID)
+			_ = a.pools.SetActiveID("")
+		}
+		if a.activePoolID == "" && a.connections.Active() == nil && len(a.connections.List()) > 0 {
+			mru := mostRecentlyUsedConnection(a.connections.List())
+			if mru != nil {
+				a.connections.SetActive(mru.ID)
+				log.Printf("Startup: auto-selected last-used connection %q", mru.Name)
+			}
 		}
 	}
 
