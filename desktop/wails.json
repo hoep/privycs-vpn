@@ -6,11 +6,6 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
-  "preBuildHooks": {
-    "linux/*":   "bash scripts/fetch-geoip.sh",
-    "darwin/*":  "bash scripts/fetch-geoip.sh",
-    "windows/*": "bash scripts/fetch-geoip.sh"
-  },
   "author": {
     "name": "Privycs",
     "email": "info@privycs.com"
@@ -18,7 +13,7 @@
   "info": {
     "companyName": "Privycs",
     "productName": "Privycs VPN",
-    "productVersion": "0.9.11.1",
+    "productVersion": "0.9.11.2",
     "copyright": "Copyright 2026 Privycs",
     "comments": "Enterprise VPN Client for WireGuard, OpenVPN, and IPSec/IKEv2"
   }

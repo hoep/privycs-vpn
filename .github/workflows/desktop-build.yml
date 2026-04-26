@@ -48,6 +48,9 @@ jobs:
         working-directory: desktop/frontend
         run: npm ci
 
+      - name: Fetch GeoLite2 Country MMDB
+        run: go run scripts/fetchgeoip/main.go
+
       - name: Build desktop app
         run: ~/go/bin/wails build
 

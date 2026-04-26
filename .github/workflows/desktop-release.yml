@@ -67,6 +67,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: desktop/frontend
         run: npm ci
+      - name: Fetch GeoLite2 Country MMDB
+        working-directory: desktop
+        run: go run scripts/fetchgeoip/main.go
       - name: Build desktop app
         working-directory: desktop
         run: |
@@ -128,6 +131,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: desktop/frontend
         run: npm ci
+      - name: Fetch GeoLite2 Country MMDB
+        working-directory: desktop
+        run: go run scripts/fetchgeoip/main.go
       - name: Build desktop app
         working-directory: desktop
         env:
@@ -174,6 +180,9 @@ jobs:
         run: npm ci
       - name: Install NSIS
         run: choco install nsis -y
+      - name: Fetch GeoLite2 Country MMDB
+        working-directory: desktop
+        run: go run scripts/fetchgeoip/main.go
       - name: Build desktop app with NSIS installer
         working-directory: desktop
         run: |
