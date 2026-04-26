@@ -232,6 +232,20 @@
         >
           +
         </router-link>
+
+        <!-- Switch member: visible only when an active Pool is driving
+             the connection. Opens a picker that overrides the policy's
+             current pick - useful when the user wants a specific
+             country / region right now without changing the policy. -->
+        <button
+          v-if="poolStore.activePoolId && isConnected"
+          @click="showMemberPicker = true"
+          class="ml-auto px-2 py-1 rounded-full text-[11px] text-primary-400 hover:text-primary-300 bg-primary-500/10 hover:bg-primary-500/20 transition-all flex items-center gap-1"
+          title="Switch to a different pool member"
+        >
+          <ArrowPathIcon class="w-3 h-3" />
+          Switch member
+        </button>
       </div>
 
       <!-- Server Address -->
@@ -344,6 +358,56 @@
       </div>
     </div>
 
+    <!-- Pool Member Picker Modal -->
+    <div
+      v-if="showMemberPicker"
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+      @click.self="showMemberPicker = false"
+    >
+      <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+            Switch pool member
+          </h3>
+          <button @click="showMemberPicker = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <XMarkIcon class="w-4 h-4" />
+          </button>
+        </div>
+        <div class="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
+          <input
+            v-model="memberPickerFilter"
+            type="text"
+            placeholder="Search by name, country, or region..."
+            class="w-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded text-xs border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-1 focus:ring-primary-500"
+          />
+        </div>
+        <div class="flex-1 overflow-y-auto px-2 py-1">
+          <button
+            v-for="m in filteredPickerMembers"
+            :key="m.id"
+            @click="pickMember(m)"
+            :disabled="memberSwitchInFlight"
+            class="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700/50 disabled:opacity-50 text-left"
+          >
+            <div class="min-w-0">
+              <div class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ m.name }}</div>
+              <div class="text-[10px] text-gray-500">
+                {{ m.country || 'unknown' }} · {{ m.region || 'Other' }}
+                <span v-if="m.unreachable" class="text-amber-400 ml-1">• unreachable</span>
+              </div>
+            </div>
+            <span v-if="m.id === activePickerMemberId" class="text-[10px] text-primary-400 flex-shrink-0">Current</span>
+          </button>
+          <div v-if="filteredPickerMembers.length === 0" class="text-center text-[10px] text-gray-500 italic py-4">
+            No matches.
+          </div>
+        </div>
+        <div v-if="memberSwitchError" class="px-4 py-2 text-[10px] text-red-400 border-t border-gray-200 dark:border-gray-700">
+          {{ memberSwitchError }}
+        </div>
+      </div>
+    </div>
+
     <!-- Config Editor Modal -->
     <div v-if="showConfigEditor" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" @click.self="showConfigEditor = false">
       <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
@@ -380,7 +444,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useVpnStore, formatSpeed } from '@/stores/vpn'
 import { usePoolStore, formatDuration } from '@/stores/pool'
 import { SelectProtocol, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause } from '../../wailsjs/go/main/App'
@@ -711,6 +775,56 @@ async function confirmCodMismatchConnect() {
 // which resolves a member via the policy and calls Connect("") with
 // the member's config staged. Single-connection users still go through
 // the existing vpn.connect() path.
+// Switch-Member picker state. Loads the full member list from
+// PoolDetail on first open (the pools list endpoint only carries the
+// active member name) and caches in a ref so re-opens are instant.
+const showMemberPicker = ref(false)
+const memberPickerFilter = ref('')
+const memberPickerMembers = ref<any[]>([])
+const memberSwitchInFlight = ref(false)
+const memberSwitchError = ref('')
+
+const activePickerMemberId = computed(() => {
+  const p = poolStore.pools.find(x => x.id === poolStore.activePoolId)
+  return p?.active_member_id || ''
+})
+
+const filteredPickerMembers = computed(() => {
+  const q = memberPickerFilter.value.trim().toLowerCase()
+  if (!q) return memberPickerMembers.value
+  return memberPickerMembers.value.filter((m: any) =>
+    m.name.toLowerCase().includes(q) ||
+    (m.country || '').toLowerCase().includes(q) ||
+    (m.region || '').toLowerCase().includes(q)
+  )
+})
+
+watch(showMemberPicker, async (open: boolean) => {
+  if (!open) return
+  if (!poolStore.activePoolId) return
+  memberPickerFilter.value = ''
+  memberSwitchError.value = ''
+  try {
+    const detail: any = await poolStore.detail(poolStore.activePoolId)
+    memberPickerMembers.value = detail?.pool?.members || []
+  } catch (e: any) {
+    memberSwitchError.value = e?.toString() || 'failed to load members'
+  }
+})
+
+async function pickMember(m: any) {
+  memberSwitchInFlight.value = true
+  memberSwitchError.value = ''
+  try {
+    await poolStore.switchMember(m.id)
+    showMemberPicker.value = false
+  } catch (e: any) {
+    memberSwitchError.value = e?.toString() || 'switch failed'
+  } finally {
+    memberSwitchInFlight.value = false
+  }
+}
+
 async function dispatchConnect() {
   if (poolStore.activePoolId) {
     try {
