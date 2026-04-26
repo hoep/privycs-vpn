@@ -385,6 +385,8 @@ type StatusResponse struct {
 	ActiveProtocol      string   `json:"active_protocol"`
 	AvailableProtocols  []string `json:"available_protocols"`
 	ServerAddress       string   `json:"server_address,omitempty"`
+	ServerCountryCode   string   `json:"server_country_code,omitempty"` // ISO 3166-1 alpha-2 (e.g. "IT")
+	ServerCity          string   `json:"server_city,omitempty"`         // best-effort from pool-member name pattern
 	LocalAddress        string   `json:"local_address,omitempty"`
 	BytesRx             int64    `json:"bytes_rx"`
 	BytesTx             int64    `json:"bytes_tx"`
@@ -485,6 +487,8 @@ func (a *App) Status() *StatusResponse {
 		AutoConnectEnabled:  a.autoConnect.IsRunning(),
 		PauseRemainingSec:   pauseRem,
 		ServerAddress:       protoStatus.ServerAddress,
+		ServerCountryCode:   a.resolveServerCountry(protoStatus.ServerAddress),
+		ServerCity:          a.resolveServerCity(connName),
 		LocalAddress:        protoStatus.LocalAddress,
 		BytesRx:             protoStatus.BytesRx,
 		BytesTx:             protoStatus.BytesTx,

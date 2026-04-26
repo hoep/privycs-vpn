@@ -289,10 +289,24 @@
         </button>
       </div>
 
-      <!-- Server Address -->
-      <div v-if="vpn.status?.server_address" class="mb-4">
-        <span class="text-xs text-gray-500 truncate max-w-[250px] block text-center">
+      <!-- Server address with country flag (left) and city + country
+           label (right). The flag is a flag-icons CSS rectangle keyed
+           by ISO 3166-1 alpha-2 (vpn.status.server_country_code).
+           City comes from the Mullvad-style hostname pattern; both
+           degrade silently to no-flag / no-city for non-standard
+           configs. -->
+      <div v-if="vpn.status?.server_address" class="mb-4 flex items-center justify-center gap-2 flex-wrap px-3">
+        <span
+          v-if="vpn.status.server_country_code"
+          :class="`fi fi-${vpn.status.server_country_code.toLowerCase()}`"
+          class="rounded-sm shadow-sm flex-shrink-0"
+          style="width: 1.25rem; height: 0.875rem;"
+        />
+        <span class="text-xs text-gray-500 truncate font-mono">
           {{ vpn.status.server_address }}
+        </span>
+        <span v-if="serverLocation" class="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+          · {{ serverLocation }}
         </span>
       </div>
 
@@ -581,6 +595,54 @@ const rotatorIntervalLabel = computed(() => {
   if (!r || !r.active) return ''
   return `${r.interval_min} min cycle`
 })
+
+// Server location: "Milan, Italy" / "Frankfurt, Germany" / "Italy"
+// (when only country is known) / "" (unknown - flag and label both
+// hidden). Country codes from MMDB lookup (backend resolveServerCountry);
+// city from Mullvad-style hostname pattern (backend resolveServerCity).
+const serverLocation = computed(() => {
+  const cc = vpn.status?.server_country_code || ''
+  const city = vpn.status?.server_city || ''
+  const countryName = cc ? COUNTRY_NAMES[cc.toUpperCase()] || cc : ''
+  if (city && countryName) return `${city}, ${countryName}`
+  if (countryName) return countryName
+  if (city) return city
+  return ''
+})
+
+// ISO 3166-1 alpha-2 → English country name. Inline because it's a
+// small lookup table; loading a separate locale file would be
+// disproportionate. Covers every country a major commercial VPN
+// provider has servers in plus the long tail.
+const COUNTRY_NAMES: Record<string, string> = {
+  AT: 'Austria',     BE: 'Belgium',     BG: 'Bulgaria',    CH: 'Switzerland',
+  CY: 'Cyprus',      CZ: 'Czechia',     DE: 'Germany',     DK: 'Denmark',
+  EE: 'Estonia',     ES: 'Spain',       FI: 'Finland',     FR: 'France',
+  GB: 'UK',          GR: 'Greece',      HR: 'Croatia',     HU: 'Hungary',
+  IE: 'Ireland',     IS: 'Iceland',     IT: 'Italy',       LI: 'Liechtenstein',
+  LT: 'Lithuania',   LU: 'Luxembourg',  LV: 'Latvia',      MD: 'Moldova',
+  MT: 'Malta',       NL: 'Netherlands', NO: 'Norway',      PL: 'Poland',
+  PT: 'Portugal',    RO: 'Romania',     SE: 'Sweden',      SI: 'Slovenia',
+  SK: 'Slovakia',    UA: 'Ukraine',     RS: 'Serbia',      BA: 'Bosnia',
+  AL: 'Albania',     MK: 'N. Macedonia',ME: 'Montenegro',  XK: 'Kosovo',
+  BY: 'Belarus',     RU: 'Russia',
+  US: 'USA',         CA: 'Canada',      MX: 'Mexico',
+  BR: 'Brazil',      AR: 'Argentina',   CL: 'Chile',       CO: 'Colombia',
+  PE: 'Peru',        VE: 'Venezuela',   EC: 'Ecuador',     UY: 'Uruguay',
+  JP: 'Japan',       KR: 'South Korea', CN: 'China',       TW: 'Taiwan',
+  HK: 'Hong Kong',   SG: 'Singapore',   MY: 'Malaysia',    TH: 'Thailand',
+  VN: 'Vietnam',     PH: 'Philippines', ID: 'Indonesia',   IN: 'India',
+  PK: 'Pakistan',    BD: 'Bangladesh',  LK: 'Sri Lanka',   NP: 'Nepal',
+  KH: 'Cambodia',    KZ: 'Kazakhstan',  UZ: 'Uzbekistan',  GE: 'Georgia',
+  AM: 'Armenia',     AZ: 'Azerbaijan',
+  AU: 'Australia',   NZ: 'New Zealand', FJ: 'Fiji',
+  ZA: 'South Africa',NG: 'Nigeria',     EG: 'Egypt',       KE: 'Kenya',
+  MA: 'Morocco',     DZ: 'Algeria',     TN: 'Tunisia',     GH: 'Ghana',
+  ET: 'Ethiopia',    TZ: 'Tanzania',    UG: 'Uganda',
+  AE: 'UAE',         SA: 'Saudi Arabia',IL: 'Israel',      TR: 'Turkey',
+  IR: 'Iran',        IQ: 'Iraq',        JO: 'Jordan',      LB: 'Lebanon',
+  QA: 'Qatar',       KW: 'Kuwait',      OM: 'Oman',        BH: 'Bahrain',
+}
 const showConnectionPicker = ref(false)
 const allConnections = ref<any[]>([])
 

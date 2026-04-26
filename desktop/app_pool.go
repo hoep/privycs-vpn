@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/hoep/privycs/desktop/geoip"
@@ -450,6 +451,169 @@ func (a *App) autoRestrictRoundRobinToHomeRegion(pool *Pool) {
 	}
 	log.Printf("Pool: auto-restricted Round-Robin to home region %s (user country %s)",
 		homeRegion, userCountry)
+}
+
+// resolveServerCountry returns the ISO 3166-1 alpha-2 country code
+// for the given server address (IP or hostname). Three-tier lookup:
+//
+//  1. If a pool is active, walk the active member to read the
+//     pre-resolved country - cheapest, no network or MMDB call.
+//  2. If the server address parses as a literal IP, run it
+//     through the MMDB directly. Fast (microseconds).
+//  3. Hostname: DNS resolve once then MMDB. Slower but rare since
+//     most VPN configs carry literal IPs.
+//
+// Returns "" on any failure - the frontend renders without a flag
+// in that case rather than blocking on a slow lookup.
+func (a *App) resolveServerCountry(serverAddr string) string {
+	if serverAddr == "" || a.selfIPDetector == nil {
+		return ""
+	}
+
+	// Tier 1: active pool member already carries country.
+	a.mu.RLock()
+	activePoolID := a.activePoolID
+	a.mu.RUnlock()
+	if activePoolID != "" && a.pools != nil {
+		if pool := a.pools.Get(activePoolID); pool != nil && pool.ActiveMemberID != "" {
+			if m := pool.MemberByID(pool.ActiveMemberID); m != nil && m.Country != "" {
+				return m.Country
+			}
+		}
+	}
+
+	// Tier 2 + 3: split host:port if present, then resolve via MMDB.
+	host := stripPortIfPresent(serverAddr)
+	geoR, _ := geoip.Default()
+	if geoR == nil {
+		return ""
+	}
+	ip := resolveHostToIP(host)
+	if ip == nil {
+		return ""
+	}
+	cc, _ := geoR.CountryCode(ip)
+	return cc
+}
+
+// resolveServerCity extracts a best-effort city label from the
+// connection name. Mullvad and most providers encode city in the
+// hostname pattern: "de-fra-wg-002" → city = "fra" → "Frankfurt".
+// Empty string when the pattern does not match (custom servers,
+// non-standard naming).
+func (a *App) resolveServerCity(connName string) string {
+	if connName == "" {
+		return ""
+	}
+	parts := strings.Split(connName, "-")
+	if len(parts) < 2 {
+		return ""
+	}
+	// parts[0] is the country code, parts[1] is the city code.
+	if cityFull, ok := cityCodeToName[strings.ToLower(parts[1])]; ok {
+		return cityFull
+	}
+	return ""
+}
+
+// cityCodeToName maps the 3-letter city codes commonly used in
+// Mullvad/IVPN/Proton hostnames to full English names. Inline rather
+// than a separate file because the list is small and read-mostly.
+var cityCodeToName = map[string]string{
+	"vie": "Vienna",
+	"fra": "Frankfurt",
+	"ber": "Berlin",
+	"muc": "Munich",
+	"dus": "Düsseldorf",
+	"ham": "Hamburg",
+	"zrh": "Zurich",
+	"gva": "Geneva",
+	"par": "Paris",
+	"mrs": "Marseille",
+	"lon": "London",
+	"mnc": "Manchester",
+	"glw": "Glasgow",
+	"mad": "Madrid",
+	"bcn": "Barcelona",
+	"mil": "Milan",
+	"rom": "Rome",
+	"ams": "Amsterdam",
+	"bru": "Brussels",
+	"sto": "Stockholm",
+	"got": "Gothenburg",
+	"mma": "Malmö",
+	"osl": "Oslo",
+	"cph": "Copenhagen",
+	"hel": "Helsinki",
+	"prg": "Prague",
+	"war": "Warsaw",
+	"buh": "Bucharest",
+	"sof": "Sofia",
+	"bud": "Budapest",
+	"ath": "Athens",
+	"lis": "Lisbon",
+	"dub": "Dublin",
+	"tll": "Tallinn",
+	"rix": "Riga",
+	"vno": "Vilnius",
+	"beg": "Belgrade",
+	"zag": "Zagreb",
+	"lju": "Ljubljana",
+	"bts": "Bratislava",
+	"kiv": "Kyiv",
+	"nyc": "New York",
+	"chi": "Chicago",
+	"lax": "Los Angeles",
+	"sea": "Seattle",
+	"sjc": "San Jose",
+	"mia": "Miami",
+	"dal": "Dallas",
+	"den": "Denver",
+	"atl": "Atlanta",
+	"phx": "Phoenix",
+	"bos": "Boston",
+	"iad": "Washington",
+	"slc": "Salt Lake City",
+	"yyz": "Toronto",
+	"yvr": "Vancouver",
+	"ymq": "Montreal",
+	"mex": "Mexico City",
+	"sao": "São Paulo",
+	"gru": "São Paulo",
+	"eze": "Buenos Aires",
+	"scl": "Santiago",
+	"bog": "Bogotá",
+	"lim": "Lima",
+	"tok": "Tokyo",
+	"nrt": "Tokyo",
+	"osa": "Osaka",
+	"sel": "Seoul",
+	"icn": "Seoul",
+	"hkg": "Hong Kong",
+	"tpe": "Taipei",
+	"sin": "Singapore",
+	"kul": "Kuala Lumpur",
+	"bkk": "Bangkok",
+	"jkt": "Jakarta",
+	"mnl": "Manila",
+	"hnd": "Hanoi",
+	"sgn": "Ho Chi Minh City",
+	"bom": "Mumbai",
+	"del": "Delhi",
+	"blr": "Bangalore",
+	"mad_eu": "Madrid", // dedup safety
+	"syd": "Sydney",
+	"mel": "Melbourne",
+	"per": "Perth",
+	"akl": "Auckland",
+	"jnb": "Johannesburg",
+	"cpt": "Cape Town",
+	"lag": "Lagos",
+	"nai": "Nairobi",
+	"cai": "Cairo",
+	"dxb": "Dubai",
+	"tlv": "Tel Aviv",
+	"ist": "Istanbul",
 }
 
 // mostRecentlyUsedConnection returns the connection with the newest

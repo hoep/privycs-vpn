@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import './style.css'
+import 'flag-icons/css/flag-icons.min.css'
 
 // Apply initial theme before first paint to avoid flash.
 // The saved setting is loaded later in SettingsView.loadSettings().
