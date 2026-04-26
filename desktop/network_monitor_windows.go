@@ -251,25 +251,29 @@ func startWlanWatcher(stopCh <-chan struct{}, callback func()) (cleanup func(), 
 
 // getCurrentSSIDPlatform returns the current WiFi SSID on Windows.
 //
-// Primary path: WlanQueryInterface kernel API. Reads the SSID
-// directly from the WLAN service's connection attributes - no
-// string parsing, no localized output, no admin requirement. This
-// replaces an earlier netsh-based path that returned empty SSID on
-// at least one user's system (German Win11 with Hoep@Home WiFi
-// joined on top of Ethernet - log showed many WLAN notifications
-// firing but every getCurrentSSIDPlatform() call returning ""
-// despite the user being clearly associated). Likely cause was a
-// netsh output format / locale variant the parser missed.
+// Three paths in order:
+//   1. Helper IPC (SYSTEM context) - bypasses user-level GPO that
+//      blocks Location permission on enterprise machines.
+//   2. User-mode WlanQueryInterface kernel call.
+//   3. netsh wlan show interfaces parser.
 //
-// Fallback path: the original netsh parser. Used only if the WLAN
-// API calls themselves fail (rare; would mean wlanapi.dll missing
-// or WLAN service down). The retry loop is preserved on the
-// fallback path.
+// Each path logs its outcome so users on environments where SSID
+// detection fails can see exactly which step returned empty.
 func getCurrentSSIDPlatform() string {
-	if ssid, ok := readWLANSSIDViaSyscall(); ok {
+	// Path 1: privileged helper. The WLAN-data location restriction
+	// is typically applied to user sessions only; SYSTEM-context
+	// queries from the helper service often see the SSID where the
+	// user-mode app does not.
+	if ssid, ok := readWLANSSIDViaHelper(); ok && ssid != "" {
 		return ssid
 	}
-	// Fallback to netsh parsing with retry-on-empty.
+
+	// Path 2: user-mode syscall.
+	if ssid, ok := readWLANSSIDViaSyscall(); ok && ssid != "" {
+		return ssid
+	}
+
+	// Path 3: netsh parser with retry-on-empty.
 	for attempt := 0; attempt < 3; attempt++ {
 		ssid, hasAdapter := readNetshSSID()
 		if ssid != "" {
@@ -283,6 +287,33 @@ func getCurrentSSIDPlatform() string {
 		}
 	}
 	return ""
+}
+
+// readWLANSSIDViaHelper asks the privileged helper to return the
+// currently-connected WLAN SSID. The helper runs as LocalSystem,
+// which is not subject to user-session Location-permission GPOs in
+// most enterprise configurations. Returns ("", false) if the helper
+// is unreachable or did not produce a usable SSID; ("foo", true) on
+// success.
+func readWLANSSIDViaHelper() (string, bool) {
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		return "", false
+	}
+	resp, err := client.SendCommand("wlan_ssid", nil)
+	if err != nil {
+		log.Printf("WLAN: helper wlan_ssid IPC failed: %v", err)
+		return "", false
+	}
+	if !resp.Success {
+		log.Printf("WLAN: helper wlan_ssid reported failure: %s", resp.Error)
+		return "", false
+	}
+	ssid := strings.TrimSpace(resp.Output)
+	if ssid == "" {
+		return "", false
+	}
+	return ssid, true
 }
 
 // readWLANSSIDViaSyscall queries the WLAN service directly through
@@ -315,6 +346,7 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 		uintptr(unsafe.Pointer(&clientHandle)),
 	)
 	if ret != 0 {
+		log.Printf("WLAN[user]: WlanOpenHandle failed ret=%d", ret)
 		return "", false
 	}
 	defer procWlanCloseHandle.Call(clientHandle, 0)
@@ -325,6 +357,7 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 		uintptr(unsafe.Pointer(&ifListPtr)),
 	)
 	if ret != 0 || ifListPtr == 0 {
+		log.Printf("WLAN[user]: WlanEnumInterfaces failed ret=%d ptr=%v", ret, ifListPtr)
 		return "", false
 	}
 	defer procWlanFreeMemory.Call(ifListPtr)
@@ -332,8 +365,10 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 	header := (*wlanInterfaceInfoList)(unsafe.Pointer(ifListPtr))
 	count := header.NumberOfItems
 	if count == 0 {
+		log.Printf("WLAN[user]: 0 interfaces enumerated")
 		return "", true
 	}
+	log.Printf("WLAN[user]: enumerated %d interface(s)", count)
 
 	const headerSize = 8 // NumberOfItems + Index = 2 * uint32
 	entrySize := unsafe.Sizeof(wlanInterfaceInfo{})
@@ -341,6 +376,7 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 	for i := uint32(0); i < count; i++ {
 		entryPtr := unsafe.Pointer(uintptr(ifListPtr) + uintptr(headerSize) + uintptr(i)*entrySize)
 		entry := (*wlanInterfaceInfo)(entryPtr)
+		log.Printf("WLAN[user]: interface[%d] state=%d (1=connected)", i, entry.IsState)
 
 		// IsState 1 = wlan_interface_state_connected. Skip
 		// disconnected/associating adapters.
@@ -359,6 +395,7 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 			uintptr(unsafe.Pointer(&dataPtr)),
 			0,
 		)
+		log.Printf("WLAN[user]: WlanQueryInterface ret=%d size=%d", ret, dataSize)
 		if ret != 0 || dataPtr == 0 {
 			continue
 		}
@@ -388,24 +425,27 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 
 		// Try the location-restricted real SSID first.
 		ssidLen := *(*uint32)(unsafe.Pointer(uintptr(dataPtr) + ssidLenOffset))
+		log.Printf("WLAN[user]: dot11Ssid uSSIDLength=%d", ssidLen)
 		if ssidLen > 0 && ssidLen <= 32 {
 			ssidBytes := (*[32]byte)(unsafe.Pointer(uintptr(dataPtr) + ssidBytesOffset))
 			result := string(ssidBytes[:ssidLen])
+			log.Printf("WLAN[user]: returning dot11Ssid=%q", result)
 			procWlanFreeMemory.Call(dataPtr)
 			return result, true
 		}
 
 		// Fallback: profile name. Not subject to location permission
-		// because the OS reads it from the locally-saved WLAN
-		// profile, not from a live scan. profile name == SSID for
-		// the default-named profiles every Windows install creates.
+		// in our testing because the OS reads it from the locally-
+		// saved WLAN profile, not from a live scan.
 		profileWChar := (*[256]uint16)(unsafe.Pointer(uintptr(dataPtr) + profileNameOffset))
 		nameLen := 0
 		for nameLen < 256 && profileWChar[nameLen] != 0 {
 			nameLen++
 		}
+		log.Printf("WLAN[user]: strProfileName length=%d", nameLen)
 		if nameLen > 0 {
 			result := utf16ToString(profileWChar[:nameLen])
+			log.Printf("WLAN[user]: returning strProfileName=%q", result)
 			procWlanFreeMemory.Call(dataPtr)
 			return result, true
 		}

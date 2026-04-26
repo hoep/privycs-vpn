@@ -43,6 +43,7 @@ var allowedActions = map[string]bool{
 	"wg_install_config":     true,
 	"ipsec_configure":       true,
 	"remove_legacy_sudoers": true,
+	"wlan_ssid":             true, // SSID query (bypasses user-level Location GPO)
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.
@@ -249,6 +250,8 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdSinkholeEngage(cmd)
 	case "sinkhole_release":
 		return h.cmdSinkholeRelease(cmd)
+	case "wlan_ssid":
+		return h.cmdWlanSSID(cmd)
 	case "status":
 		return h.cmdStatus(cmd)
 	case "wg_install_config":
