@@ -598,16 +598,16 @@ class PrivycsVpnService : VpnService() {
         }
 
         override suspend fun userCountry(): String {
-            // No live Geo-IP detection on Android (no MMDB bundled).
-            // The HostnameCountryResolver provides per-member country
-            // tags for region filtering at import time. Geo-Nearest's
-            // home-region branch needs this method to return the
-            // user's country code; without it, Geo-Nearest falls back
-            // to Random within the unfiltered set. For most users
-            // that's the right behaviour anyway since the home
-            // region defaults to whatever's geo-IP-detected by their
-            // ISP, which is what the picker would do too.
-            return ""
+            // Live Geo-IP detection: probe public IP via plain
+            // HTTPS to a chain of well-known endpoints, then look
+            // up country in the bundled MMDB. Cached for 1 hour
+            // and invalidated on network change.
+            //
+            // Returns "" if all probes fail (no internet, captive
+            // portal). Geo-Nearest's tier 1+2 then short-circuit
+            // and the picker falls back to Random within the
+            // RestrictRegions filter.
+            return PrivycsApp.instance.selfIpDetector.countryFor()
         }
     }
 

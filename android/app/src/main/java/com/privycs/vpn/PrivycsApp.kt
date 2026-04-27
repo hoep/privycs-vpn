@@ -6,11 +6,14 @@ import android.content.Context
 import android.graphics.Color
 import android.os.Build
 import android.util.Log
+import com.privycs.vpn.data.CombinedCountryResolver
 import com.privycs.vpn.data.ConnectionRepository
 import com.privycs.vpn.data.HostnameCountryResolver
+import com.privycs.vpn.data.MmdbCountryResolver
 import com.privycs.vpn.data.PoolImporter
 import com.privycs.vpn.data.PoolRepository
 import com.privycs.vpn.data.PoolStateRepository
+import com.privycs.vpn.data.SelfIpDetector
 import com.privycs.vpn.data.SettingsRepository
 import com.privycs.vpn.data.models.VpnProtocol
 import de.blinkt.openvpn.VpnProfile
@@ -76,6 +79,14 @@ class PrivycsApp : StrongSwanApplication() {
     lateinit var poolImporter: PoolImporter
         private set
 
+    /** MMDB-backed country lookup for both IP-endpoints and self-IP. */
+    lateinit var mmdbResolver: MmdbCountryResolver
+        private set
+
+    /** User's public-IP -> country detector. Used by Geo-Nearest. */
+    lateinit var selfIpDetector: SelfIpDetector
+        private set
+
     // Kept as a GC root for the AIDL ServiceConnection inside StatusListener;
     // losing this reference lets the OpenVPNStatusService unbind and we stop
     // receiving state/log/byte-count events from the :openvpn subprocess.
@@ -99,7 +110,13 @@ class PrivycsApp : StrongSwanApplication() {
         settingsRepository = SettingsRepository(this)
         poolStateRepository = PoolStateRepository(this)
         poolRepository = PoolRepository(this, poolStateRepository)
-        poolImporter = PoolImporter(this, HostnameCountryResolver())
+        // MMDB-first resolver chain: IP-endpoints get exact country
+        // via the bundled MMDB; the rare hostname-only-with-pattern
+        // case falls back to filename parsing.
+        mmdbResolver = MmdbCountryResolver(this)
+        val combinedResolver = CombinedCountryResolver(mmdbResolver, HostnameCountryResolver())
+        poolImporter = PoolImporter(this, combinedResolver)
+        selfIpDetector = SelfIpDetector(mmdbResolver)
         // Load persisted Always-On detection flag so the UI on first
         // frame already knows whether disconnect should go through the
         // pause-or-settings bottom-sheet rather than straight teardown.

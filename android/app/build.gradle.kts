@@ -196,6 +196,14 @@ dependencies {
     // ZXing (older, more boilerplate).
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 
+    // MMDB reader for Pool feature's country-of-origin lookup. We
+    // use the lightweight maxmind-db library (NOT geoip2) - it just
+    // reads the binary MMDB format without the GeoIP2-specific
+    // model classes. ~250 KB. Both MaxMind GeoLite2-Country and
+    // db-ip's CC-BY-licensed dbip-country-lite are in MMDB format
+    // so this reader works with either.
+    implementation("com.maxmind.db:maxmind-db:3.1.0")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

@@ -66,3 +66,8 @@
 # Keep OpenVPN classes (when ics-openvpn is integrated)
 -keep class de.blinkt.openvpn.** { *; }
 -dontwarn de.blinkt.openvpn.**
+
+# MaxMind MMDB reader uses reflection to instantiate decoded
+# record types. Keep the public API + the Reader internals.
+-keep class com.maxmind.db.** { *; }
+-dontwarn com.maxmind.db.**
