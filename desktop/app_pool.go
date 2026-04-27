@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hoep/privycs/desktop/geoip"
@@ -54,20 +55,22 @@ func (a *App) ListPools() []PoolListItem {
 	pools := a.pools.List()
 	out := make([]PoolListItem, 0, len(pools))
 	for _, p := range pools {
+		activeMemID := a.pools.ActiveMemberID(p.ID)
+		pendingMemID := a.pools.PendingMemberID(p.ID)
 		item := PoolListItem{
 			ID:             p.ID,
 			Name:           p.Name,
 			Policy:         string(p.Policy),
 			MemberCount:    len(p.Members),
-			ActiveMemberID: p.ActiveMemberID,
+			ActiveMemberID: activeMemID,
 			IsActive:       p.ID == activePoolID,
 		}
-		if m := p.MemberByID(p.ActiveMemberID); m != nil {
+		if m := p.MemberByID(activeMemID); m != nil {
 			item.ActiveMemberName = m.Name
 			item.ActiveMemberCC = m.Country
 		}
-		if p.PendingMemberID != "" {
-			if pm := p.MemberByID(p.PendingMemberID); pm != nil {
+		if pendingMemID != "" {
+			if pm := p.MemberByID(pendingMemID); pm != nil {
 				item.PendingMemberID = pm.ID
 				item.PendingMemberName = pm.Name
 				item.PendingMemberCC = pm.Country
@@ -276,24 +279,10 @@ func (a *App) ResetPoolUnreachable(poolID string) (int, error) {
 	if poolID == "" {
 		return 0, fmt.Errorf("pool id required")
 	}
-	pool := a.pools.Get(poolID)
-	if pool == nil {
+	if a.pools.Get(poolID) == nil {
 		return 0, fmt.Errorf("pool not found: %s", poolID)
 	}
-	cleared := 0
-	for _, m := range pool.Members {
-		if m.Unreachable {
-			m.Unreachable = false
-			m.LastError = ""
-			m.LastUnreachable = time.Time{}
-			cleared++
-		}
-	}
-	if cleared > 0 {
-		if err := a.pools.Update(pool); err != nil {
-			return cleared, fmt.Errorf("persist failed: %w", err)
-		}
-	}
+	cleared := a.pools.ClearAllMembersUnreachable(poolID)
 	return cleared, nil
 }
 
@@ -358,15 +347,16 @@ func (a *App) BootstrapState() *BootstrapStateInfo {
 
 	if activePoolID != "" && a.pools != nil {
 		if p := a.pools.Get(activePoolID); p != nil {
+			activeMemID := a.pools.ActiveMemberID(p.ID)
 			item := &PoolListItem{
 				ID:             p.ID,
 				Name:           p.Name,
 				Policy:         string(p.Policy),
 				MemberCount:    len(p.Members),
-				ActiveMemberID: p.ActiveMemberID,
+				ActiveMemberID: activeMemID,
 				IsActive:       true,
 			}
-			if m := p.MemberByID(p.ActiveMemberID); m != nil {
+			if m := p.MemberByID(activeMemID); m != nil {
 				item.ActiveMemberName = m.Name
 				item.ActiveMemberCC = m.Country
 			}
@@ -467,7 +457,7 @@ func (a *App) SwitchPoolMember(memberID string) error {
 		return fmt.Errorf("member not in pool: %s", memberID)
 	}
 
-	if err := a.pools.SetActiveMember(poolID, memberID); err != nil {
+	if err := a.pools.SetActiveMemberValidated(poolID, memberID); err != nil {
 		return err
 	}
 
@@ -527,20 +517,26 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 	if suffix == "" {
 		suffix = "active"
 	}
-	slot := "A"
-	if a.pools != nil {
-		if pool := a.pools.Get(a.activePoolID); pool != nil {
-			slot = pool.NextSlot()
+	// Slot alternation: opposite of currently-active slot. Reads
+	// state via the registry helper so we cannot read a stale value
+	// from a Pool struct that the rotator pre-warmed against. Empty
+	// state.ActiveSlot ("") naturally yields "A" via NextSlot.
+	currentSlot := a.pools.ActiveSlot(a.activePoolID)
+	nextSlotForPool := func(active string) string {
+		if active == "A" {
+			return "B"
 		}
+		return "A"
 	}
+	slot := nextSlotForPool(currentSlot)
 	tunnelName := "privycs-pool-" + suffix + "-" + slot
 	setTunnelName(proto, tunnelName)
 
 	// Was this slot's .conf pre-written 60 s ago? If yes, adopt it
 	// (read-only) instead of writing again with identical content.
 	preWritten := false
-	if a.pools != nil && m.Config.Protocol == "wireguard" {
-		if pool := a.pools.Get(a.activePoolID); pool != nil && pool.PendingMemberID == m.ID {
+	if m.Config.Protocol == "wireguard" {
+		if pendingID := a.pools.PendingMemberID(a.activePoolID); pendingID == m.ID {
 			confPath := filepath.Join(appDataDir(), tunnelName+".conf")
 			if _, err := os.Stat(confPath); err == nil {
 				preWritten = true
@@ -574,21 +570,21 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 	a.settings.ActiveProtocol = m.Config.Protocol
 	a.mu.Unlock()
 
+	// Persist the new slot BEFORE Connect. The race we used to have:
+	// Connect's status-poll loop ran for several seconds while
+	// pool.ActiveSlot was still the OLD value. If pre-warm fired
+	// during that window (e.g. very short rotation interval), it
+	// computed NextSlot from the stale value and pre-wrote into the
+	// CURRENT slot's file. Persisting first puts the new value where
+	// pre-warm reads it and eliminates that path. If Connect
+	// subsequently fails, the retry loop's next iteration will
+	// re-target the same slot anyway (current ActiveSlot stays the
+	// new value, NextSlot() flips back to the previous one) - no
+	// orphaned state.
+	a.pools.SetActiveSlot(a.activePoolID, slot)
+
 	if _, err := a.Connect(""); err != nil {
 		return err
-	}
-
-	// Persist the new slot AFTER successful connect. If Up failed
-	// the pool's ActiveSlot stays at the previous value so a retry
-	// targets the same slot (no orphan slot-flip from a half-failed
-	// connect).
-	if a.pools != nil {
-		if pool := a.pools.Get(a.activePoolID); pool != nil {
-			pool.ActiveSlot = slot
-			if err := a.pools.Update(pool); err != nil {
-				log.Printf("Pool: persist ActiveSlot=%s failed: %v", slot, err)
-			}
-		}
 	}
 	return nil
 }
@@ -679,9 +675,11 @@ func (a *App) resolveServerCountry(serverAddr string) string {
 	activePoolID := a.activePoolID
 	a.mu.RUnlock()
 	if activePoolID != "" && a.pools != nil {
-		if pool := a.pools.Get(activePoolID); pool != nil && pool.ActiveMemberID != "" {
-			if m := pool.MemberByID(pool.ActiveMemberID); m != nil && m.Country != "" {
-				return m.Country
+		if pool := a.pools.Get(activePoolID); pool != nil {
+			if memID := a.pools.ActiveMemberID(activePoolID); memID != "" {
+				if m := pool.MemberByID(memID); m != nil && m.Country != "" {
+					return m.Country
+				}
 			}
 		}
 	}
@@ -717,10 +715,12 @@ func (a *App) resolveServerCity(connName string) string {
 	activePoolID := a.activePoolID
 	a.mu.RUnlock()
 	if activePoolID != "" && a.pools != nil {
-		if pool := a.pools.Get(activePoolID); pool != nil && pool.ActiveMemberID != "" {
-			if m := pool.MemberByID(pool.ActiveMemberID); m != nil && m.Name != "" {
-				if city := cityFromHostnamePattern(m.Name); city != "" {
-					return city
+		if pool := a.pools.Get(activePoolID); pool != nil {
+			if memID := a.pools.ActiveMemberID(activePoolID); memID != "" {
+				if m := pool.MemberByID(memID); m != nil && m.Name != "" {
+					if city := cityFromHostnamePattern(m.Name); city != "" {
+						return city
+					}
 				}
 			}
 		}
@@ -748,106 +748,6 @@ func cityFromHostnamePattern(name string) string {
 	return ""
 }
 
-// cityCodeToName maps the 3-letter city codes commonly used in
-// Mullvad/IVPN/Proton hostnames to full English names. Inline rather
-// than a separate file because the list is small and read-mostly.
-var cityCodeToName = map[string]string{
-	"vie": "Vienna",
-	"fra": "Frankfurt",
-	"ber": "Berlin",
-	"muc": "Munich",
-	"dus": "Düsseldorf",
-	"ham": "Hamburg",
-	"zrh": "Zurich",
-	"gva": "Geneva",
-	"par": "Paris",
-	"mrs": "Marseille",
-	"lon": "London",
-	"mnc": "Manchester",
-	"glw": "Glasgow",
-	"mad": "Madrid",
-	"bcn": "Barcelona",
-	"mil": "Milan",
-	"rom": "Rome",
-	"ams": "Amsterdam",
-	"bru": "Brussels",
-	"sto": "Stockholm",
-	"got": "Gothenburg",
-	"mma": "Malmö",
-	"osl": "Oslo",
-	"cph": "Copenhagen",
-	"hel": "Helsinki",
-	"prg": "Prague",
-	"war": "Warsaw",
-	"buh": "Bucharest",
-	"sof": "Sofia",
-	"bud": "Budapest",
-	"ath": "Athens",
-	"lis": "Lisbon",
-	"dub": "Dublin",
-	"tll": "Tallinn",
-	"rix": "Riga",
-	"vno": "Vilnius",
-	"beg": "Belgrade",
-	"zag": "Zagreb",
-	"lju": "Ljubljana",
-	"bts": "Bratislava",
-	"kiv": "Kyiv",
-	"nyc": "New York",
-	"chi": "Chicago",
-	"lax": "Los Angeles",
-	"sea": "Seattle",
-	"sjc": "San Jose",
-	"mia": "Miami",
-	"dal": "Dallas",
-	"den": "Denver",
-	"atl": "Atlanta",
-	"phx": "Phoenix",
-	"bos": "Boston",
-	"iad": "Washington",
-	"slc": "Salt Lake City",
-	"yyz": "Toronto",
-	"yvr": "Vancouver",
-	"ymq": "Montreal",
-	"mex": "Mexico City",
-	"sao": "São Paulo",
-	"gru": "São Paulo",
-	"eze": "Buenos Aires",
-	"scl": "Santiago",
-	"bog": "Bogotá",
-	"lim": "Lima",
-	"tok": "Tokyo",
-	"nrt": "Tokyo",
-	"osa": "Osaka",
-	"sel": "Seoul",
-	"icn": "Seoul",
-	"hkg": "Hong Kong",
-	"tpe": "Taipei",
-	"sin": "Singapore",
-	"kul": "Kuala Lumpur",
-	"bkk": "Bangkok",
-	"jkt": "Jakarta",
-	"mnl": "Manila",
-	"hnd": "Hanoi",
-	"sgn": "Ho Chi Minh City",
-	"bom": "Mumbai",
-	"del": "Delhi",
-	"blr": "Bangalore",
-	"mad_eu": "Madrid", // dedup safety
-	"syd": "Sydney",
-	"mel": "Melbourne",
-	"per": "Perth",
-	"akl": "Auckland",
-	"jnb": "Johannesburg",
-	"cpt": "Cape Town",
-	"lag": "Lagos",
-	"nai": "Nairobi",
-	"cai": "Cairo",
-	"dxb": "Dubai",
-	"tlv": "Tel Aviv",
-	"ist": "Istanbul",
-}
-
 // backfillPoolCountries iterates every saved pool and re-resolves
 // countries for members whose Country field is empty. Pools imported
 // before v0.9.11.9 (MMDB schema mismatch) ended up with all members
@@ -856,9 +756,10 @@ var cityCodeToName = map[string]string{
 // background pass repairs them in place so the user does not have
 // to delete + reimport.
 //
-// Runs in a goroutine off app startup. Each member resolves with the
-// already-loaded GeoIP reader; total wall time for 600 members is
-// bounded by the DNS-resolution worker pool.
+// Runs in a goroutine off app startup. Uses a worker pool so 600+
+// members complete in the same wall-clock as the import would, not
+// minutes-of-sequential-DNS. The worker count matches
+// dnsLookupConcurrency (20) for consistency with the import path.
 func (a *App) backfillPoolCountries() {
 	if a.pools == nil {
 		return
@@ -869,53 +770,83 @@ func (a *App) backfillPoolCountries() {
 	}
 	pools := a.pools.List()
 
-	// Count how many members actually need backfill so the toast
-	// progress is meaningful (no progress for already-correct pools).
-	var pending int
+	// Collect every member that needs backfill into a flat work
+	// queue so the worker pool can consume them across pools.
+	type job struct {
+		pool   *Pool
+		member *PoolMember
+	}
+	var jobs []job
 	for _, pool := range pools {
 		for _, m := range pool.Members {
 			if m.Country == "" && m.Config != nil && m.Config.ServerAddress != "" {
-				pending++
+				jobs = append(jobs, job{pool: pool, member: m})
 			}
 		}
 	}
+	pending := len(jobs)
 	if pending == 0 {
 		return
 	}
 	a.emitLoading("backfill", 0, pending, "")
 
-	processed := 0
-	// Throttle progress events: every 10 members or 250ms, whichever
-	// fires first. Emitting on every member would saturate the
-	// frontend with hundreds of events for a 600-member pool.
-	lastEmit := time.Now()
-	for _, pool := range pools {
-		changed := false
-		for _, m := range pool.Members {
-			if m.Country != "" || m.Config == nil || m.Config.ServerAddress == "" {
-				continue
+	jobCh := make(chan job, dnsLookupConcurrency*2)
+	type result struct {
+		pool *Pool
+		// member is left in place (mutation done in worker before
+		// send). result just signals "done" + which pool to flag
+		// dirty for batched persist.
+	}
+	resCh := make(chan result, dnsLookupConcurrency*2)
+
+	// Spin workers. Each does DNS + MMDB + member-mutation.
+	var wg sync.WaitGroup
+	for i := 0; i < dnsLookupConcurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobCh {
+				ip := resolveHostToIP(stripPortIfPresent(j.member.Config.ServerAddress))
+				if ip != nil {
+					if cc, _ := geoR.CountryCode(ip); cc != "" {
+						j.member.Country = cc
+						j.member.Region = geoip.Region(cc)
+					}
+				}
+				resCh <- result{pool: j.pool}
 			}
-			ip := resolveHostToIP(stripPortIfPresent(m.Config.ServerAddress))
-			processed++
-			if ip == nil {
-				continue
-			}
-			cc, _ := geoR.CountryCode(ip)
-			if cc == "" {
-				continue
-			}
-			m.Country = cc
-			m.Region = geoip.Region(cc)
-			changed = true
-			if processed%10 == 0 || time.Since(lastEmit) > 250*time.Millisecond {
-				a.emitLoading("backfill", processed, pending, "")
-				lastEmit = time.Now()
-			}
+		}()
+	}
+
+	// Producer.
+	go func() {
+		for _, j := range jobs {
+			jobCh <- j
 		}
-		if changed {
-			if err := a.pools.Update(pool); err == nil {
-				log.Printf("Pool %s: backfilled country data for previously-empty members", pool.Name)
-			}
+		close(jobCh)
+		wg.Wait()
+		close(resCh)
+	}()
+
+	// Consumer + progress reporter. Tracks which pools changed for
+	// a single batched persist at the end.
+	processed := 0
+	lastEmit := time.Now()
+	dirtyPools := make(map[string]*Pool)
+	for r := range resCh {
+		processed++
+		dirtyPools[r.pool.ID] = r.pool
+		if processed%10 == 0 || time.Since(lastEmit) > 250*time.Millisecond {
+			a.emitLoading("backfill", processed, pending, "")
+			lastEmit = time.Now()
+		}
+	}
+
+	// Persist once per pool that had any backfill activity (definition
+	// fields - Country/Region - changed).
+	for _, p := range dirtyPools {
+		if err := a.pools.Update(p); err == nil {
+			log.Printf("Pool %s: backfilled country data for previously-empty members", p.Name)
 		}
 	}
 	a.emitLoading("backfill-done", pending, pending, "")
@@ -1040,27 +971,32 @@ func (a *App) PickAndConnectActivePool() error {
 	var attempted []string
 	var lastErr error
 
+	lastActiveMember := a.pools.ActiveMemberID(pool.ID)
+
 	for attempt := 0; attempt < maxConnectAttempts; attempt++ {
 		var member *PoolMember
-		if attempt == 0 && pool.PendingMemberID != "" {
-			candidate := pool.MemberByID(pool.PendingMemberID)
-			if candidate != nil && !candidate.Unreachable {
-				member = candidate
+		if attempt == 0 {
+			if pendingID := a.pools.PendingMemberID(pool.ID); pendingID != "" {
+				candidate := pool.MemberByID(pendingID)
+				if candidate != nil && !a.pools.IsMemberUnreachable(pool.ID, candidate.ID) {
+					member = candidate
+				}
 			}
 		}
 		if member == nil {
-			member = PickMemberExcluding(pool, userCountry, pool.ActiveMemberID, attempted)
+			member = a.pools.PickExcluding(pool, userCountry, lastActiveMember, attempted)
 		}
 		if member == nil {
 			break
 		}
 		attempted = append(attempted, member.ID)
 
-		pool.ActiveMemberID = member.ID
-		pool.PendingMemberID = "" // Clear pre-warm hint - decision is now made.
-		if err := a.pools.Update(pool); err != nil {
-			log.Printf("Pool: persist active-member failed: %v", err)
-		}
+		// Persist the new active member + clear pre-warm hint via
+		// state.json (NOT pools.json - the actual definition file).
+		// Combined effect of both writes is one debounced state.json
+		// flush after the rotation completes.
+		a.pools.SetActiveMember(pool.ID, member.ID)
+		a.pools.SetPendingMember(pool.ID, "")
 
 		log.Printf("Pool %s policy=%s attempt %d/%d: trying member %s (%s, %s)",
 			pool.Name, pool.Policy, attempt+1, maxConnectAttempts,
@@ -1180,6 +1116,14 @@ func (a *App) verifyWireGuardPeerHealth(member *PoolMember, timeout time.Duratio
 		return true
 	}
 
+	// Initial wait before the first poll: triggered packet has to
+	// leave the kernel, traverse to the peer, peer has to respond.
+	// On a healthy connection that's ~50-300ms. Sleeping 200ms first
+	// means the first poll typically catches a non-zero rx already,
+	// avoiding the proto.Status() syscall churn of polling every
+	// 100ms during the network round-trip.
+	time.Sleep(200 * time.Millisecond)
+
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		s := proto.Status()
@@ -1193,9 +1137,13 @@ func (a *App) verifyWireGuardPeerHealth(member *PoolMember, timeout time.Duratio
 
 // parseAllowedIPsTarget extracts a single routable IPv4 destination
 // from a WireGuard config's AllowedIPs line. Strategy:
-//   - 0.0.0.0/0 present -> use 1.1.1.1 (Cloudflare DNS, well-known
-//     benign target; the actual response does not matter, only that
-//     the kernel routes the packet through the wg interface)
+//   - 0.0.0.0/0 (full tunnel) wins over everything: use 1.1.1.1
+//     (Cloudflare DNS, well-known benign target). Earlier versions
+//     iterated CIDRs left-to-right and might pick "10.50.0.1" before
+//     "0.0.0.0/0" in mixed configs like
+//     "AllowedIPs = 10.50.0.0/24, 0.0.0.0/0", which can produce
+//     false-positive "peer silent" if 10.50.0.1 is not a real host.
+//     The full-tunnel branch is now scanned in a separate pre-pass.
 //   - Else the first IPv4 CIDR yields network-address + 1 (the
 //     typical gateway IP in private VPN networks; even if no host
 //     answers, the kernel still routes the packet through wg and
@@ -1215,13 +1163,19 @@ func parseAllowedIPsTarget(content string) string {
 			continue
 		}
 		cidrs := strings.Split(parts[1], ",")
+		// First pass: full-tunnel CIDR always wins. If present, the
+		// kernel will route 1.1.1.1 through the wg interface, which
+		// is exactly what we want for a benign trigger.
+		for _, c := range cidrs {
+			if strings.TrimSpace(c) == "0.0.0.0/0" {
+				return "1.1.1.1"
+			}
+		}
+		// Second pass: first valid IPv4 CIDR -> network-address + 1.
 		for _, c := range cidrs {
 			c = strings.TrimSpace(c)
 			if c == "" || strings.Contains(c, ":") {
 				continue // skip IPv6
-			}
-			if c == "0.0.0.0/0" {
-				return "1.1.1.1"
 			}
 			_, ipnet, err := net.ParseCIDR(c)
 			if err != nil {
@@ -1231,8 +1185,6 @@ func parseAllowedIPsTarget(content string) string {
 			if ip == nil {
 				continue
 			}
-			// network-address + 1: typical gateway. Make a copy so
-			// we do not mutate the parsed CIDR's net.IP slice.
 			out := make(net.IP, 4)
 			copy(out, ip)
 			out[3]++
@@ -1300,8 +1252,9 @@ func (a *App) preWarmActivePool() {
 	const maxPreWarmAttempts = 3
 	var attempted []string
 	var member *PoolMember
+	lastActiveMember := a.pools.ActiveMemberID(pool.ID)
 	for i := 0; i < maxPreWarmAttempts; i++ {
-		candidate := PickMemberExcluding(pool, userCountry, pool.ActiveMemberID, attempted)
+		candidate := a.pools.PickExcluding(pool, userCountry, lastActiveMember, attempted)
 		if candidate == nil {
 			break
 		}
@@ -1319,11 +1272,7 @@ func (a *App) preWarmActivePool() {
 		log.Printf("Pool %s pre-warm: no probe-passing member after %d tries", pool.Name, len(attempted))
 		return
 	}
-	pool.PendingMemberID = member.ID
-	if err := a.pools.Update(pool); err != nil {
-		log.Printf("Pool: preWarm persist failed: %v", err)
-		return
-	}
+	a.pools.SetPendingMember(pool.ID, member.ID)
 
 	// Pre-write the .conf file for the next slot to disk RIGHT NOW
 	// (60 s before rotation). The rotation tick then only has to do
@@ -1333,7 +1282,7 @@ func (a *App) preWarmActivePool() {
 	// different - we skip pre-write for OpenVPN/IPSec rather than
 	// risk writing to the wrong place.
 	if member.Config != nil && member.Config.Protocol == "wireguard" {
-		nextSlot := pool.NextSlot()
+		nextSlot := pool.NextSlot(a.pools)
 		nextTunnel := "privycs-pool-" + shortID(pool.ID) + "-" + nextSlot
 		if err := a.preWriteWGConfig(nextTunnel, member.Config.ConfigContent); err != nil {
 			log.Printf("Pool: pre-write %s.conf failed: %v", nextTunnel, err)

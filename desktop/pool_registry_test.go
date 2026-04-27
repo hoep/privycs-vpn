@@ -7,11 +7,23 @@ import (
 )
 
 // withTempPoolRegistry redirects pools.json to a tmp dir so tests don't
-// stomp the real user's pools.
+// stomp the real user's pools. Wires up a synchronous-only state
+// registry too so SetActiveMember etc. work without a flusher goroutine.
 func withTempPoolRegistry(t *testing.T) *PoolRegistry {
 	t.Helper()
 	dir := t.TempDir()
-	r := &PoolRegistry{filePath: filepath.Join(dir, "pools.json")}
+	state := &PoolStateRegistry{
+		filePath: filepath.Join(dir, "pool_state.json"),
+		stopCh:   make(chan struct{}),
+		wakeCh:   make(chan struct{}, 1),
+	}
+	state.state.Pools = make(map[string]*poolStateEntry)
+	close(state.stopCh) // disable flusher; saves are no-ops in tests
+	r := &PoolRegistry{
+		filePath: filepath.Join(dir, "pools.json"),
+		poolByID: make(map[string]*Pool),
+		state:    state,
+	}
 	return r
 }
 
@@ -92,9 +104,8 @@ func TestPoolRegistry_DeleteActiveMemberClearsPointer(t *testing.T) {
 	if err := r.DeleteMember(p.ID, "m1"); err != nil {
 		t.Fatalf("DeleteMember: %v", err)
 	}
-	got := r.Get(p.ID)
-	if got.ActiveMemberID != "" {
-		t.Errorf("ActiveMemberID = %q, want empty after delete", got.ActiveMemberID)
+	if id := r.ActiveMemberID(p.ID); id != "" {
+		t.Errorf("ActiveMemberID = %q, want empty after delete", id)
 	}
 }
 
@@ -156,37 +167,40 @@ func TestPool_Coverage(t *testing.T) {
 // re-installation. Same slot twice in a row would race the .conf
 // write against the still-running service.
 func TestPool_NextSlot(t *testing.T) {
-	p := &Pool{}
+	r := withTempPoolRegistry(t)
+	p, _ := r.Create("slot test", PolicyRoundRobin, []*PoolMember{
+		{ID: "m1", Name: "a", Active: true},
+	})
 
 	// First call (empty ActiveSlot) starts at A.
-	if got := p.NextSlot(); got != "A" {
+	if got := p.NextSlot(r); got != "A" {
 		t.Errorf("NextSlot on fresh pool = %q, want A", got)
 	}
 
 	// Now simulate a connect: the App would persist ActiveSlot = "A".
-	p.ActiveSlot = "A"
-	if got := p.NextSlot(); got != "B" {
+	r.SetActiveSlot(p.ID, "A")
+	if got := p.NextSlot(r); got != "B" {
 		t.Errorf("NextSlot after A = %q, want B", got)
 	}
 
 	// Next rotation: ActiveSlot = "B", expect A back.
-	p.ActiveSlot = "B"
-	if got := p.NextSlot(); got != "A" {
+	r.SetActiveSlot(p.ID, "B")
+	if got := p.NextSlot(r); got != "A" {
 		t.Errorf("NextSlot after B = %q, want A", got)
 	}
 
 	// Long sequence sanity: 10 rotations alternate cleanly.
-	p.ActiveSlot = ""
+	r.SetActiveSlot(p.ID, "")
 	for i := 0; i < 10; i++ {
 		want := "A"
 		if i%2 == 1 {
 			want = "B"
 		}
-		got := p.NextSlot()
+		got := p.NextSlot(r)
 		if got != want {
 			t.Errorf("rotation %d: NextSlot = %q, want %q", i, got, want)
 		}
-		p.ActiveSlot = got
+		r.SetActiveSlot(p.ID, got)
 	}
 }
 
@@ -194,23 +208,30 @@ func TestPool_NextSlot(t *testing.T) {
 // are neither A nor B (corrupted JSON, future schema). NextSlot must
 // fail closed to a known slot rather than crash or loop.
 func TestPool_NextSlot_UnknownValue(t *testing.T) {
-	p := &Pool{ActiveSlot: "Z"}
-	got := p.NextSlot()
+	r := withTempPoolRegistry(t)
+	p, _ := r.Create("slot test", PolicyRoundRobin, []*PoolMember{
+		{ID: "m1", Name: "a", Active: true},
+	})
+	r.SetActiveSlot(p.ID, "Z")
+	got := p.NextSlot(r)
 	if got != "A" && got != "B" {
 		t.Errorf("NextSlot on unknown ActiveSlot = %q, want A or B", got)
 	}
 }
 
 func TestPool_EligibleMembers_RestrictRegions(t *testing.T) {
+	state := newTestStateRegistry()
 	p := &Pool{
+		ID:              "test-eligible",
 		RestrictRegions: []string{"Europe"},
 		Members: []*PoolMember{
 			{ID: "1", Region: "Europe", Active: true},
 			{ID: "2", Region: "North America", Active: true},
-			{ID: "3", Region: "Europe", Active: true, Unreachable: true},
+			{ID: "3", Region: "Europe", Active: true},
 		},
 	}
-	got := p.EligibleMembers()
+	state.MarkMemberUnreachable(p.ID, "3", "test")
+	got := p.EligibleMembers(state)
 	if len(got) != 1 || got[0].ID != "1" {
 		t.Errorf("EligibleMembers = %+v, want only ID=1", got)
 	}

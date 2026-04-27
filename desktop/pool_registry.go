@@ -46,21 +46,63 @@ func DefaultRotation() PoolRotation {
 // VPN endpoint with its own config, country, and health state. Members
 // may be from different protocols within the same Pool (importing a
 // mixed ZIP of .conf and .ovpn files is supported).
+//
+// Runtime state (Unreachable / LastError / LastUnreachable) was moved
+// out of this struct in v0.9.11.39 and lives in pool_state.json now.
+// The Unreachable / LastError / LastUnreachable fields here are
+// deprecated and exist ONLY for one-time migration from old
+// pools.json files. They are NOT persisted (json:"-") and NOT read
+// at runtime (Unreachable() / LastError() / LastUnreachable() helpers
+// route to the state registry).
 type PoolMember struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`         // derived from filename
-	Config      *ProtocolConfig `json:"config"`       // reused from connection_registry
-	Country     string          `json:"country"`      // ISO 3166-1 alpha-2, "" if unknown
-	Region      string          `json:"region"`       // derived from country via geoip.Region
-	Active      bool            `json:"active"`       // future Pro-tier cap; default true
-	Unreachable bool            `json:"unreachable"`  // last connect attempt failed
-	LastError   string          `json:"last_error,omitempty"`
-	// LastUnreachable is when the failure happened. PickMember lazily
-	// clears Unreachable once the timestamp is older than the TTL
-	// (UnreachableTTL) so transient outages do not kill members
-	// permanently. Zero-value means "never failed" - a fresh import
-	// starts here regardless of Unreachable boolean.
-	LastUnreachable time.Time `json:"last_unreachable,omitempty"`
+	ID      string          `json:"id"`
+	Name    string          `json:"name"`         // derived from filename
+	Config  *ProtocolConfig `json:"config"`       // reused from connection_registry
+	Country string          `json:"country"`      // ISO 3166-1 alpha-2, "" if unknown
+	Region  string          `json:"region"`       // derived from country via geoip.Region
+	Active  bool            `json:"active"`       // future Pro-tier cap; default true
+
+	// Legacy runtime fields - kept ONLY so an existing pools.json
+	// from before the v0.9.11.39 state-split can be read. The custom
+	// UnmarshalJSON copies them into legacy* fields, then registry
+	// migration moves them to pool_state.json. After the first save
+	// these never appear on disk again because of json:"-".
+	legacyUnreachable     bool
+	legacyLastError       string
+	legacyLastUnreachable time.Time
+}
+
+// UnmarshalJSON exists so we can read the old field names from a
+// legacy pools.json without persisting them again. The extra struct
+// gives us the wire format with the legacy keys; we copy into the
+// real struct (which omits them) plus the legacy* fields used by
+// MigrateFromLegacy.
+func (m *PoolMember) UnmarshalJSON(data []byte) error {
+	type wireFormat struct {
+		ID              string          `json:"id"`
+		Name            string          `json:"name"`
+		Config          *ProtocolConfig `json:"config"`
+		Country         string          `json:"country"`
+		Region          string          `json:"region"`
+		Active          bool            `json:"active"`
+		Unreachable     bool            `json:"unreachable"`
+		LastError       string          `json:"last_error"`
+		LastUnreachable time.Time       `json:"last_unreachable"`
+	}
+	var w wireFormat
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	m.ID = w.ID
+	m.Name = w.Name
+	m.Config = w.Config
+	m.Country = w.Country
+	m.Region = w.Region
+	m.Active = w.Active
+	m.legacyUnreachable = w.Unreachable
+	m.legacyLastError = w.LastError
+	m.legacyLastUnreachable = w.LastUnreachable
+	return nil
 }
 
 // UnreachableTTL is how long after a connect/probe failure we keep a
@@ -71,47 +113,126 @@ const UnreachableTTL = 30 * time.Minute
 
 // Pool is a virtual connection that wraps multiple PoolMembers and
 // picks one of them at connect-time using its policy.
+//
+// Runtime state (ActiveMemberID, PendingMemberID, ActiveSlot) was
+// moved into pool_state.json in v0.9.11.39. The fields below are
+// kept on the struct so existing call-sites compile without churn,
+// but they are NOT serialized into pools.json (json:"-"). Code that
+// reads them goes through PoolRegistry helpers (ActiveMemberID(),
+// PendingMemberID(), ActiveSlot()) which delegate to PoolStateRegistry.
+//
+// Legacy fields (legacyActiveMemberID etc.) preserve old pools.json
+// values for one-time migration into state.json.
 type Pool struct {
-	ID              string       `json:"id"`
-	Name            string       `json:"name"`
-	CreatedAt       time.Time    `json:"created_at"`
-	Policy          PoolPolicy   `json:"policy"`
-	Rotation        PoolRotation `json:"rotation"`
+	ID              string        `json:"id"`
+	Name            string        `json:"name"`
+	CreatedAt       time.Time     `json:"created_at"`
+	Policy          PoolPolicy    `json:"policy"`
+	Rotation        PoolRotation  `json:"rotation"`
 	Members         []*PoolMember `json:"members"`
-	CountryOverride string       `json:"country_override,omitempty"` // "" = auto-detect
-	RestrictRegions []string     `json:"restrict_regions,omitempty"` // [] = no restriction
-	ActiveMemberID  string       `json:"active_member_id,omitempty"` // most recently picked
-	// ActiveSlot tracks which of two alternating tunnel-name slots
-	// is currently up ("A" or "B"). Each rotation flips to the
-	// opposite slot so the next member's config writes to a fresh
-	// .conf file and installs to a fresh OS service entry, avoiding
-	// the same-name-reuse race that caused tunnels to fail to come
-	// back up on rotation. "" means "no slot yet, start with A".
-	ActiveSlot string `json:"active_slot,omitempty"`
-	// PendingMemberID is set by the rotator's pre-warm step (60 s
-	// before scheduled rotation). UI uses this to surface "Next:
-	// <member-name>" in the rotation indicator. Cleared after the
-	// rotation actually fires.
-	PendingMemberID string `json:"pending_member_id,omitempty"`
+	CountryOverride string        `json:"country_override,omitempty"`
+	RestrictRegions []string      `json:"restrict_regions,omitempty"`
+
+	// memberByID is a parallel index for O(1) MemberByID lookups.
+	// Built on load + Create + DeleteMember + RenameMember. NOT
+	// persisted (rebuilt deterministically from Members). Hot path:
+	// connectToPoolMember + ListPools call MemberByID multiple times
+	// per pool per second.
+	memberByID map[string]*PoolMember
+
+	// Legacy runtime fields - read from old pools.json, migrated to
+	// state.json on first load post-upgrade, then never persisted
+	// again. Do not read these directly at runtime - use the
+	// registry helpers.
+	legacyActiveMemberID  string
+	legacyPendingMemberID string
+	legacyActiveSlot      string
 }
 
-// NextSlot returns the slot to use for the NEXT connect (opposite of
-// the currently-active slot). Empty current → start with "A".
-func (p *Pool) NextSlot() string {
-	if p.ActiveSlot == "A" {
+// UnmarshalJSON reads pools.json including the legacy runtime fields
+// so they can be migrated to state.json. After migration, save
+// behavior (default Marshal) produces a clean pools.json without
+// runtime fields.
+func (p *Pool) UnmarshalJSON(data []byte) error {
+	type wireFormat struct {
+		ID              string        `json:"id"`
+		Name            string        `json:"name"`
+		CreatedAt       time.Time     `json:"created_at"`
+		Policy          PoolPolicy    `json:"policy"`
+		Rotation        PoolRotation  `json:"rotation"`
+		Members         []*PoolMember `json:"members"`
+		CountryOverride string        `json:"country_override"`
+		RestrictRegions []string      `json:"restrict_regions"`
+		ActiveMemberID  string        `json:"active_member_id"`
+		PendingMemberID string        `json:"pending_member_id"`
+		ActiveSlot      string        `json:"active_slot"`
+	}
+	var w wireFormat
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	p.ID = w.ID
+	p.Name = w.Name
+	p.CreatedAt = w.CreatedAt
+	p.Policy = w.Policy
+	p.Rotation = w.Rotation
+	p.Members = w.Members
+	p.CountryOverride = w.CountryOverride
+	p.RestrictRegions = w.RestrictRegions
+	p.legacyActiveMemberID = w.ActiveMemberID
+	p.legacyPendingMemberID = w.PendingMemberID
+	p.legacyActiveSlot = w.ActiveSlot
+	p.rebuildMemberIndex()
+	return nil
+}
+
+// rebuildMemberIndex rebuilds memberByID from Members. Called on
+// load and after any add/remove operation. Cheap (~600 entries).
+func (p *Pool) rebuildMemberIndex() {
+	if p.memberByID == nil {
+		p.memberByID = make(map[string]*PoolMember, len(p.Members))
+	} else {
+		// Reuse map to avoid GC churn.
+		for k := range p.memberByID {
+			delete(p.memberByID, k)
+		}
+	}
+	for _, m := range p.Members {
+		if m != nil && m.ID != "" {
+			p.memberByID[m.ID] = m
+		}
+	}
+}
+
+// NextSlot returns the slot to use for the NEXT connect for this
+// pool. Reads runtime state from the registry (not stored on Pool
+// since v0.9.11.39). Caller must pass the registry; nil registry
+// means "no state, start with A".
+//
+// NOTE: this method exists for callers that already have a *Pool +
+// *PoolRegistry pair. Most call sites can use registry.ActiveSlot()
+// directly with their own logic.
+func (p *Pool) NextSlot(r *PoolRegistry) string {
+	if r == nil {
+		return "A"
+	}
+	if r.ActiveSlot(p.ID) == "A" {
 		return "B"
 	}
 	return "A"
 }
 
-// MemberByID returns the member with the given ID, or nil.
+// MemberByID returns the member with the given ID, or nil. O(1) via
+// the memberByID index (rebuilt on load / add / remove).
 func (p *Pool) MemberByID(id string) *PoolMember {
-	for _, m := range p.Members {
-		if m.ID == id {
-			return m
-		}
+	if id == "" {
+		return nil
 	}
-	return nil
+	if p.memberByID == nil {
+		// Defensive: index was lost (e.g. zero-value Pool) - rebuild.
+		p.rebuildMemberIndex()
+	}
+	return p.memberByID[id]
 }
 
 // ActiveMembers returns members whose Active flag is true. Today this
@@ -128,32 +249,38 @@ func (p *Pool) ActiveMembers() []*PoolMember {
 }
 
 // EligibleMembers returns active members that are not flagged
-// unreachable AND match the RestrictRegions filter (if any). This is
-// the set the policies pick from at connect-time.
+// unreachable AND match the RestrictRegions filter (if any).
 //
-// Lazy TTL clear: a member with Unreachable=true whose LastUnreachable
-// is older than UnreachableTTL gets re-eligible AND has its flag
-// cleared in place. Cheaper than a periodic sweeper goroutine - any
-// pick attempt naturally rehabilitates stale flags.
+// PURE READ: this method does NOT mutate state. The TTL-clear
+// semantics that used to live here have moved to the state registry's
+// SweepStaleUnreachable, which the caller invokes once before the
+// pick. The all-unreachable reset is also a state-registry operation
+// (ClearAllMembersUnreachable).
 //
-// All-unreachable reset: if every member is filtered out by the
-// Unreachable check (and there ARE matching members ignoring the
-// flag), we treat that as "local network is broken, not all servers
-// genuinely dead", clear flags, and return everyone matching the
-// region filter. This keeps the pool usable when the user toggles
-// WiFi off/on or the system wakes from sleep.
-func (p *Pool) EligibleMembers() []*PoolMember {
+// Why the split: earlier versions mutated *PoolMember pointers from
+// here, racing with concurrent markMemberUnreachable from the
+// rotator. With state moved out and reads-only, EligibleMembers can
+// be called from any goroutine without lock-discipline concerns.
+//
+// The state registry parameter is required - callers always have it
+// because PoolRegistry holds the reference. Passing nil yields the
+// "treat all members as reachable" behavior, which is used by tests
+// that don't set up a state registry.
+func (p *Pool) EligibleMembers(state *PoolStateRegistry) []*PoolMember {
 	out := make([]*PoolMember, 0, len(p.Members))
-	now := time.Now()
+
+	// Lazy TTL sweep: clear stale flags before filtering. State
+	// registry handles its own locking; this returns count cleared
+	// (used only for diagnostic logs, not control flow).
+	if state != nil {
+		state.SweepStaleUnreachable(p.ID, UnreachableTTL)
+	}
+
 	for _, m := range p.Members {
-		if !m.Active {
+		if m == nil || !m.Active {
 			continue
 		}
-		if m.Unreachable && !m.LastUnreachable.IsZero() && now.Sub(m.LastUnreachable) > UnreachableTTL {
-			m.Unreachable = false
-			m.LastError = ""
-		}
-		if m.Unreachable {
+		if state != nil && state.MemberState(p.ID, m.ID).Unreachable {
 			continue
 		}
 		if len(p.RestrictRegions) > 0 && !containsString(p.RestrictRegions, m.Region) {
@@ -166,18 +293,19 @@ func (p *Pool) EligibleMembers() []*PoolMember {
 		return out
 	}
 
-	// All-unreachable reset path: count region-matching members
-	// ignoring the Unreachable flag. If there's at least one, we
-	// flip every Unreachable to false and return them.
+	// All-unreachable reset path: clear every flag and return all
+	// active region-matching members. The reset is a real state
+	// mutation and persists.
+	if state != nil {
+		state.ClearAllMembersUnreachable(p.ID)
+	}
 	for _, m := range p.Members {
-		if !m.Active {
+		if m == nil || !m.Active {
 			continue
 		}
 		if len(p.RestrictRegions) > 0 && !containsString(p.RestrictRegions, m.Region) {
 			continue
 		}
-		m.Unreachable = false
-		m.LastError = ""
 		out = append(out, m)
 	}
 	return out
@@ -238,9 +366,26 @@ type RegionCoverage struct {
 // restarts - parallel to ConnectionRegistry.ActiveID for singles. The
 // App reads this at NewApp() time to restore the user's last selection
 // rather than booting into an empty Welcome state.
+//
+// Runtime state lives in PoolStateRegistry (pool_state.json). Methods
+// on PoolRegistry that mutate runtime fields (MarkUnreachable,
+// SetActiveMember, etc.) delegate to the state registry while keeping
+// the lock-discipline simple: PoolRegistry locks for definition-data,
+// PoolStateRegistry locks for runtime-data, and the two registries
+// never lock-bridge each other.
 type PoolRegistry struct {
 	Pools    []*Pool `json:"pools"`
 	ActiveID string  `json:"active_id,omitempty"`
+
+	// poolByID indexes the Pools slice for O(1) Get. Rebuilt on
+	// load / Create / Delete. NOT persisted.
+	poolByID map[string]*Pool
+
+	// state is the runtime-state companion. Pointer so it can be
+	// shared with anyone who needs to read state directly without
+	// going through registry methods (rare - prefer the helpers).
+	state *PoolStateRegistry
+
 	filePath string
 	mu       sync.Mutex
 }
@@ -259,16 +404,87 @@ func (r *PoolRegistry) SetActiveID(id string) error {
 }
 
 // NewPoolRegistry creates a registry, loading from disk if available.
-func NewPoolRegistry() *PoolRegistry {
+// state must be a constructed PoolStateRegistry; the registry uses it
+// for all runtime-state reads/writes. Migration runs synchronously on
+// first load: any legacy runtime fields embedded in pools.json are
+// copied into the state registry, and the next pools.json save drops
+// them.
+func NewPoolRegistry(state *PoolStateRegistry) *PoolRegistry {
 	r := &PoolRegistry{
+		state:    state,
 		filePath: filepath.Join(appDataDir(), "pools.json"),
+		poolByID: make(map[string]*Pool),
 	}
 	r.load()
+	r.migrateLegacyState()
 	return r
 }
 
+// migrateLegacyState copies any legacy runtime fields from old
+// pools.json into the state registry. Runs once at construction;
+// subsequent saves of pools.json drop the legacy fields entirely.
+//
+// Idempotent: state registry's MigrateFromLegacy refuses to overwrite
+// entries that already exist, so calling this twice (or running with
+// a state.json that's already populated) doesn't reset anything.
+func (r *PoolRegistry) migrateLegacyState() {
+	if r.state == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	migratedAny := false
+	for _, p := range r.Pools {
+		if p.legacyActiveMemberID != "" {
+			r.state.SetActiveMember(p.ID, p.legacyActiveMemberID)
+			migratedAny = true
+		}
+		if p.legacyPendingMemberID != "" {
+			r.state.SetPendingMember(p.ID, p.legacyPendingMemberID)
+			migratedAny = true
+		}
+		if p.legacyActiveSlot != "" {
+			r.state.SetActiveSlot(p.ID, p.legacyActiveSlot)
+			migratedAny = true
+		}
+		// Member-level legacy state.
+		hasMemberState := false
+		for _, m := range p.Members {
+			if m != nil && (m.legacyUnreachable || m.legacyLastError != "") {
+				hasMemberState = true
+				break
+			}
+		}
+		if hasMemberState {
+			r.state.MigrateFromLegacy(p.ID, p.Members)
+			migratedAny = true
+		}
+		// Clear legacy fields so the next save excludes them.
+		p.legacyActiveMemberID = ""
+		p.legacyPendingMemberID = ""
+		p.legacyActiveSlot = ""
+		for _, m := range p.Members {
+			if m != nil {
+				m.legacyUnreachable = false
+				m.legacyLastError = ""
+				m.legacyLastUnreachable = time.Time{}
+			}
+		}
+	}
+	if migratedAny {
+		// Persist the cleaned-up pools.json once so subsequent loads
+		// have nothing legacy to migrate. saveLocked is fine here
+		// because we already hold r.mu.
+		if err := r.saveLocked(); err != nil {
+			log.Printf("PoolRegistry: post-migration save failed: %v", err)
+		}
+	}
+}
+
 // List returns all pools (snapshot copy of slice header; pool pointers
-// are shared - callers must not mutate without coordinating).
+// are shared - callers must not mutate Pool definition fields without
+// coordinating, and runtime fields must be touched only via the state
+// registry).
 func (r *PoolRegistry) List() []*Pool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -277,7 +493,7 @@ func (r *PoolRegistry) List() []*Pool {
 	return out
 }
 
-// Get returns a pool by ID, or nil.
+// Get returns a pool by ID, or nil. O(1).
 func (r *PoolRegistry) Get(id string) *Pool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -285,12 +501,118 @@ func (r *PoolRegistry) Get(id string) *Pool {
 }
 
 func (r *PoolRegistry) findLocked(id string) *Pool {
-	for _, p := range r.Pools {
-		if p.ID == id {
-			return p
+	if r.poolByID == nil {
+		return nil
+	}
+	return r.poolByID[id]
+}
+
+// rebuildPoolIndex re-indexes the Pools slice. Caller must hold r.mu.
+func (r *PoolRegistry) rebuildPoolIndex() {
+	if r.poolByID == nil {
+		r.poolByID = make(map[string]*Pool, len(r.Pools))
+	} else {
+		for k := range r.poolByID {
+			delete(r.poolByID, k)
 		}
 	}
-	return nil
+	for _, p := range r.Pools {
+		if p != nil && p.ID != "" {
+			r.poolByID[p.ID] = p
+		}
+	}
+}
+
+// ============================================================================
+// RUNTIME STATE HELPERS - delegate to PoolStateRegistry
+// ============================================================================
+// These keep callsites compact: app_pool.go can read pool.ActiveMember
+// or call registry.MarkMemberUnreachable without juggling two registry
+// references. All locking is owned by PoolStateRegistry (independent
+// of PoolRegistry.mu).
+
+// ActiveMemberID returns the runtime "currently active" member ID for
+// a pool, or "" if none. Reads from state registry.
+func (r *PoolRegistry) ActiveMemberID(poolID string) string {
+	if r == nil || r.state == nil {
+		return ""
+	}
+	return r.state.PoolState(poolID).ActiveMemberID
+}
+
+// PendingMemberID returns the pre-warmed next member ID, or "".
+func (r *PoolRegistry) PendingMemberID(poolID string) string {
+	if r == nil || r.state == nil {
+		return ""
+	}
+	return r.state.PoolState(poolID).PendingMemberID
+}
+
+// ActiveSlot returns "A" or "B" or "" if no slot has been used yet.
+func (r *PoolRegistry) ActiveSlot(poolID string) string {
+	if r == nil || r.state == nil {
+		return ""
+	}
+	return r.state.PoolState(poolID).ActiveSlot
+}
+
+// SetActiveMember persists the runtime active member.
+func (r *PoolRegistry) SetActiveMember(poolID, memberID string) {
+	if r != nil && r.state != nil {
+		r.state.SetActiveMember(poolID, memberID)
+	}
+}
+
+// SetPendingMember persists the pre-warmed next member.
+func (r *PoolRegistry) SetPendingMember(poolID, memberID string) {
+	if r != nil && r.state != nil {
+		r.state.SetPendingMember(poolID, memberID)
+	}
+}
+
+// SetActiveSlot persists which slot (A/B) is currently up.
+func (r *PoolRegistry) SetActiveSlot(poolID, slot string) {
+	if r != nil && r.state != nil {
+		r.state.SetActiveSlot(poolID, slot)
+	}
+}
+
+// MarkMemberUnreachable persists the unreachable flag + reason
+// + timestamp for a single member.
+func (r *PoolRegistry) MarkMemberUnreachable(poolID, memberID, reason string) {
+	if r != nil && r.state != nil {
+		r.state.MarkMemberUnreachable(poolID, memberID, reason)
+	}
+}
+
+// ClearMemberUnreachable clears the flag for a single member.
+func (r *PoolRegistry) ClearMemberUnreachable(poolID, memberID string) {
+	if r != nil && r.state != nil {
+		r.state.ClearMemberUnreachable(poolID, memberID)
+	}
+}
+
+// ClearAllMembersUnreachable clears every member's flag in the pool.
+// Returns count cleared.
+func (r *PoolRegistry) ClearAllMembersUnreachable(poolID string) int {
+	if r == nil || r.state == nil {
+		return 0
+	}
+	return r.state.ClearAllMembersUnreachable(poolID)
+}
+
+// MemberStatus returns the runtime status block for a single member.
+// Returns zero value if no failures have ever been recorded.
+func (r *PoolRegistry) MemberStatus(poolID, memberID string) memberStateEntry {
+	if r == nil || r.state == nil {
+		return memberStateEntry{}
+	}
+	return r.state.MemberState(poolID, memberID)
+}
+
+// IsMemberUnreachable is a convenience for filter loops.
+func (r *PoolRegistry) IsMemberUnreachable(poolID, memberID string) bool {
+	return r.MemberStatus(poolID, memberID).Unreachable
 }
 
 // Create persists a new Pool. Caller is responsible for assembling
@@ -314,19 +636,39 @@ func (r *PoolRegistry) Create(name string, policy PoolPolicy, members []*PoolMem
 		Rotation:  DefaultRotation(),
 		Members:   members,
 	}
+	p.rebuildMemberIndex()
 	r.Pools = append(r.Pools, p)
+	if r.poolByID == nil {
+		r.poolByID = make(map[string]*Pool)
+	}
+	r.poolByID[p.ID] = p
 	if err := r.saveLocked(); err != nil {
 		// Roll back the in-memory append so the persisted state and
 		// the in-memory state stay in sync.
 		r.Pools = r.Pools[:len(r.Pools)-1]
+		delete(r.poolByID, p.ID)
 		return nil, err
 	}
 	return p, nil
 }
 
-// Update writes back changes to a Pool. Used by the Edit-Pool modal
-// for name / policy / rotation / restrict-regions / country-override
-// changes.
+// Update persists definition changes (name, policy, rotation,
+// restrict-regions, country-override). Caller mutates the Pool
+// pointer they got from Get/List directly, then calls Update to
+// flush.
+//
+// IMPORTANT: this method is for DEFINITION-LEVEL changes only.
+// Runtime fields (active member, pending member, slot, unreachable)
+// must NOT be persisted via this path - they live in state.json and
+// have their own helpers (SetActiveMember, MarkMemberUnreachable,
+// etc.). Calling Update for a runtime change just wastes a 100KB+
+// pools.json rewrite for no effect on the runtime state file.
+//
+// API contract: the supplied pointer must be the SAME pointer that
+// Get/List returned. We validate by ID lookup, not pointer identity,
+// so a detached pointer with a matching ID would silently no-op.
+// The earlier behavior was the same; flagging it here for any
+// future audit.
 func (r *PoolRegistry) Update(p *Pool) error {
 	if p == nil {
 		return fmt.Errorf("pool: nil")
@@ -354,8 +696,14 @@ func (r *PoolRegistry) Delete(id string) error {
 	for i, p := range r.Pools {
 		if p.ID == id {
 			r.Pools = append(r.Pools[:i], r.Pools[i+1:]...)
+			delete(r.poolByID, id)
 			if r.ActiveID == id {
 				r.ActiveID = ""
+			}
+			// State for this pool is no longer needed - drop it so
+			// pool_state.json doesn't accumulate orphan entries.
+			if r.state != nil {
+				r.state.DeletePool(id)
 			}
 			return r.saveLocked()
 		}
@@ -374,8 +722,11 @@ func (r *PoolRegistry) DeleteMember(poolID, memberID string) error {
 	for i, m := range p.Members {
 		if m.ID == memberID {
 			p.Members = append(p.Members[:i], p.Members[i+1:]...)
-			if p.ActiveMemberID == memberID {
-				p.ActiveMemberID = ""
+			delete(p.memberByID, memberID)
+			// Drop runtime state too (state-registry handles
+			// active/pending bookkeeping if this was the active one).
+			if r.state != nil {
+				r.state.DeleteMember(poolID, memberID)
 			}
 			return r.saveLocked()
 		}
@@ -402,25 +753,30 @@ func (r *PoolRegistry) RenameMember(poolID, memberID, newName string) error {
 	return r.saveLocked()
 }
 
-// SetActiveMember records the most recently picked member so the UI
-// can show "Currently: Germany (de-fra-wg-002)" without re-running
-// the policy on every poll.
-func (r *PoolRegistry) SetActiveMember(poolID, memberID string) error {
+// SetActiveMemberValidated is a thin validation wrapper around the
+// state-registry's SetActiveMember. Returns an error if the pool or
+// member does not exist; otherwise updates state.json. Used by the
+// UI's manual member-switch path; rotation hot-path goes directly
+// through SetActiveMember (no validation needed because callers
+// already have the *PoolMember in hand).
+func (r *PoolRegistry) SetActiveMemberValidated(poolID, memberID string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	p := r.findLocked(poolID)
 	if p == nil {
+		r.mu.Unlock()
 		return fmt.Errorf("pool: not found %s", poolID)
 	}
 	if memberID != "" && p.MemberByID(memberID) == nil {
+		r.mu.Unlock()
 		return fmt.Errorf("pool: member not found %s", memberID)
 	}
-	p.ActiveMemberID = memberID
-	return r.saveLocked()
+	r.mu.Unlock()
+	r.SetActiveMember(poolID, memberID)
+	return nil
 }
 
 // load reads pools.json. Missing-file is not an error - it just means
-// the user has no pools yet.
+// the user has no pools yet. Re-builds the byID index post-parse.
 func (r *PoolRegistry) load() {
 	data, err := os.ReadFile(r.filePath)
 	if err != nil {
@@ -433,6 +789,7 @@ func (r *PoolRegistry) load() {
 		log.Printf("pool: parse %s: %v - resetting", r.filePath, err)
 		r.Pools = nil
 	}
+	r.rebuildPoolIndex()
 }
 
 // saveLocked persists the current state to disk. Caller must hold r.mu.

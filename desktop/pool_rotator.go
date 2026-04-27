@@ -240,12 +240,18 @@ func (r *PoolRotator) Status() RotatorStatus {
 	}
 }
 
-// run is the rotator's tick loop. 30s tick is a balance: fine enough
-// that a 5-min interval gets ~10 evaluation points (so traffic-state
-// transitions are caught quickly), coarse enough that idle CPU is
-// negligible.
+// run is the rotator's tick loop. 5s tick (was 30s in v0.9.11.38) so
+// the pre-warm callback (60s before scheduled rotation) fires within
+// 5s of its target time instead of 30s. With pre-warm precision
+// matching the rotation precision, very short intervals (1-3 min)
+// behave correctly: pre-warm always lands in the lead window, never
+// collides with the rotation tick.
+//
+// Idle CPU cost: a no-op tick is ~1μs (mutex check + cmp + return).
+// 5s ticks vs 30s ticks costs the user ~8 nanoseconds per minute -
+// negligible compared to the precision win.
 func (r *PoolRotator) run() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -286,8 +292,17 @@ func (r *PoolRotator) tick() {
 	// the rotation tick itself only does disconnect+connect, not also
 	// the pick-and-IO work. Frontend uses this to surface "Next:
 	// <member>" in the rotation indicator.
+	//
+	// Collision avoidance for very short intervals: if intervalMin*60
+	// is shorter than the pre-warm lead (60s), pre-warm and rotation
+	// would race within the same cycle. In that case skip pre-warm
+	// entirely - the rotation hot-path absorbs the pick+IO work, which
+	// at 1-min intervals is the user's explicit signal that they
+	// want fast rotation over smooth UX.
+	intervalSeconds := r.intervalMin * 60
+	skipPreWarm := intervalSeconds <= preWarmLeadSeconds
 	preWarmAt := r.scheduledRotation.Add(-time.Duration(preWarmLeadSeconds) * time.Second)
-	if !r.preWarmFired && r.onPreWarm != nil && !now.Before(preWarmAt) && now.Before(r.scheduledRotation) {
+	if !skipPreWarm && !r.preWarmFired && r.onPreWarm != nil && !now.Before(preWarmAt) && now.Before(r.scheduledRotation) {
 		r.preWarmFired = true
 		cb := r.onPreWarm
 		pid := r.poolID
@@ -351,6 +366,14 @@ func (r *PoolRotator) tick() {
 
 // fireRotationLocked invokes the onRotate callback and resets the
 // schedule. Caller must hold r.mu.
+//
+// IMPORTANT: r.getTraffic is captured but NOT called here, even
+// though tick is on a dedicated goroutine that does not hold App.mu.
+// Symmetry with ResetSchedule (which is called from inside Connect
+// holding App.mu) keeps the locking discipline obvious: any code path
+// that reads r.lastTrafficRx samples it later, when no app-level
+// lock is held. Caller-callback (onRotate) is the right place to
+// re-sample if needed; not the tick path.
 func (r *PoolRotator) fireRotationLocked() {
 	cb := r.onRotate
 	pid := r.poolID
@@ -358,9 +381,12 @@ func (r *PoolRotator) fireRotationLocked() {
 	r.idleBlockedSince = time.Time{}
 	// Reset pre-warm flag so the next cycle's onPreWarm can fire.
 	r.preWarmFired = false
-	if r.getTraffic != nil {
-		r.lastTrafficRx, r.lastTrafficTx = r.getTraffic()
-	}
+	// Reset traffic baseline to zero rather than calling r.getTraffic
+	// here. The first idle-aware tick after rotation samples naturally;
+	// the lost baseline is harmless (traffic-counters resume from 0
+	// on the new tunnel anyway).
+	r.lastTrafficRx = 0
+	r.lastTrafficTx = 0
 
 	// Fire on a goroutine so a slow Connect/Disconnect cannot block
 	// the tick loop.

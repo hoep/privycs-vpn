@@ -269,9 +269,12 @@ func TestE2E_RotatorWithRealishPool(t *testing.T) {
 			defer rotateMu.Unlock()
 			rotateCount++
 			// Simulate the App's onRotate behaviour: pick a new member.
-			next := PickMember(pool, "", pool.ActiveMemberID)
+			lastID := ""
+			if len(pickedIDs) > 0 {
+				lastID = pickedIDs[len(pickedIDs)-1]
+			}
+			next := PickMember(pool, "", lastID)
 			if next != nil {
-				pool.ActiveMemberID = next.ID
 				pickedIDs = append(pickedIDs, next.ID)
 			}
 		},

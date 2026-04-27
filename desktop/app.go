@@ -37,6 +37,7 @@ type App struct {
 	// when the user activates a Pool in the picker; activeMemberID
 	// is the member currently connected (set after PickMember runs).
 	pools          *PoolRegistry
+	poolStates     *PoolStateRegistry
 	poolImporter   *PoolImporter
 	poolRotator    *PoolRotator
 	selfIPDetector *selfip.Detector
@@ -80,10 +81,12 @@ func NewApp() *App {
 		geoForSelfIP = geoR
 	}
 
+	poolStates := NewPoolStateRegistry()
 	return &App{
 		protocols:          make(map[string]VPNProtocol),
 		connections:        NewConnectionRegistry(),
-		pools:              NewPoolRegistry(),
+		poolStates:         poolStates,
+		pools:              NewPoolRegistry(poolStates),
 		poolImporter:       NewPoolImporter(geoForImport),
 		poolRotator:        NewPoolRotator(),
 		selfIPDetector:     selfip.New(geoForSelfIP),
@@ -380,6 +383,15 @@ func (a *App) shutdown(ctx context.Context) {
 	// Wait for background goroutines (status emitter, tray) to exit.
 	// They listen on stopStats which was closed above.
 	a.wg.Wait()
+
+	// Stop the pool-state flusher and force a final save so any
+	// in-flight runtime mutations (active member, pending member,
+	// unreachable flags) hit disk before exit. Without this a
+	// shutdown within the 500ms debounce window loses the latest
+	// state.
+	if a.poolStates != nil {
+		a.poolStates.Stop()
+	}
 
 	log.Println("Privycs VPN stopped")
 

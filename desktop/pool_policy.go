@@ -8,32 +8,48 @@ import (
 	"github.com/hoep/privycs/desktop/geoip"
 )
 
+// Pick is the convenience wrapper that callers with a *PoolRegistry
+// use. Threads the registry's runtime-state through so unreachable
+// members are filtered.
+func (r *PoolRegistry) Pick(p *Pool, userCountry, lastMemberID string) *PoolMember {
+	var state *PoolStateRegistry
+	if r != nil {
+		state = r.state
+	}
+	return pickMemberInternal(state, p, userCountry, lastMemberID, nil)
+}
+
+// PickExcluding is the wrapper that retry loops use.
+func (r *PoolRegistry) PickExcluding(p *Pool, userCountry, lastMemberID string, excludeIDs []string) *PoolMember {
+	var state *PoolStateRegistry
+	if r != nil {
+		state = r.state
+	}
+	return pickMemberInternal(state, p, userCountry, lastMemberID, excludeIDs)
+}
+
 // PickMember runs the Pool's policy and returns the member that should
-// be connected next. lastMemberID is the previously-active member's ID
-// (relevant for Round-Robin's diversity logic, ignored by other
-// policies). userCountry is the detected/configured user country (only
-// consumed by Geo-Nearest). Returns nil if no eligible member exists.
-//
-// The function is intentionally a pure dispatcher with no side effects
-// - it does not mark the picked member as ActiveMemberID, does not
-// touch network state, does not log. The caller (App) is responsible
-// for those.
+// be connected next. Convenience entry-point that treats all members
+// as reachable (no state-registry consultation). Production code uses
+// (*PoolRegistry).Pick() which threads the registry's state through.
+// Tests use this form directly.
 func PickMember(p *Pool, userCountry string, lastMemberID string) *PoolMember {
 	return PickMemberExcluding(p, userCountry, lastMemberID, nil)
 }
 
-// PickMemberExcluding runs the policy and returns the next member,
-// skipping any whose ID is in excludeIDs. The retry loop in
-// PickAndConnectActivePool uses this to walk the pool without picking
-// the same already-failed member twice in the same rotation cycle.
-//
-// excludeIDs is intentionally a slice (not a set) because the typical
-// retry budget is 3 - linear scan beats map allocation overhead.
+// PickMemberExcluding is the no-state-registry form. See registry.PickExcluding
+// for the production form that consults runtime unreachable state.
 func PickMemberExcluding(p *Pool, userCountry string, lastMemberID string, excludeIDs []string) *PoolMember {
+	return pickMemberInternal(nil, p, userCountry, lastMemberID, excludeIDs)
+}
+
+// pickMemberInternal is the shared implementation. state may be nil
+// (treats all members as reachable).
+func pickMemberInternal(state *PoolStateRegistry, p *Pool, userCountry string, lastMemberID string, excludeIDs []string) *PoolMember {
 	if p == nil {
 		return nil
 	}
-	eligible := p.EligibleMembers()
+	eligible := p.EligibleMembers(state)
 	if len(excludeIDs) > 0 {
 		filtered := make([]*PoolMember, 0, len(eligible))
 		for _, m := range eligible {
@@ -60,7 +76,7 @@ func PickMemberExcluding(p *Pool, userCountry string, lastMemberID string, exclu
 	case PolicyRandom:
 		return pickRandom(eligible)
 	case PolicyRoundRobin:
-		return pickRoundRobin(eligible, lastMemberID, effectiveCountry(p, userCountry))
+		return pickRoundRobin(state, p, eligible, lastMemberID, effectiveCountry(p, userCountry))
 	}
 
 	// Unknown policy - degrade to random rather than refusing to connect.
@@ -143,23 +159,29 @@ func pickRandom(members []*PoolMember) *PoolMember {
 }
 
 // pickRoundRobin advances to a member in a different region than the
-// last one. The region order is alphabetical so the rotation is
-// deterministic (useful for testing) but stable across saves.
+// last one, then picks WITHIN that region using a per-region round-
+// robin cursor (since v0.9.11.39). Earlier versions picked randomly
+// within the chosen region; the change closes a privacy hole where
+// the same exit IP could be re-picked within just a few rotations
+// despite the pool having dozens of members in that region.
 //
-// Within the chosen region we still pick randomly - over many ticks
-// this gives a pseudo-equal distribution over members of that region,
-// without the bookkeeping of remembering per-region cursors.
+// Region order is alphabetical so the inter-region rotation is
+// deterministic (useful for testing) and stable across saves.
 //
 // First-pick semantics: start at the user's home region (derived from
 // userCountry) when known, so the very first connect is geographically
-// sensible. Without this, alphabetical sort puts "Africa" first and a
-// user in AT would land on a Nigerian server before rotation kicks in.
-// Subsequent picks alphabetic-rotate from there.
+// sensible. Within the chosen region we honour the cursor -
+// SortedByID order means the same member sequence across runs.
 //
-// If the pool has only a single region (so "different region" cannot
-// be satisfied), we degrade to "different member from same region" so
-// rotation visibly does something.
-func pickRoundRobin(eligible []*PoolMember, lastMemberID string, userCountry string) *PoolMember {
+// Edge cases:
+//   - Single-region pool (len(regions) == 1): degrade to "next member
+//     in the only region" using the cursor.
+//   - Single-member pool: returns the only member every time
+//     (rotation effectively no-ops, but does not crash or loop).
+//   - Last member deleted/marked unreachable since last pick: the
+//     cursor falls through to "advance from the last persisted
+//     position", which on a fresh pool means "start at index 0".
+func pickRoundRobin(state *PoolStateRegistry, p *Pool, eligible []*PoolMember, lastMemberID string, userCountry string) *PoolMember {
 	if len(eligible) == 0 {
 		return nil
 	}
@@ -170,17 +192,65 @@ func pickRoundRobin(eligible []*PoolMember, lastMemberID string, userCountry str
 		return nil
 	}
 
-	// First-time pick: start at the user's home region if we have a
-	// country and that region is represented in the pool. Otherwise
-	// fall back to the alphabetically-first region.
+	pickCursorBased := func(region string) *PoolMember {
+		members := byRegion[region]
+		if len(members) == 0 {
+			return nil
+		}
+		// Sort members by ID inside the region for deterministic
+		// cursor advancement. Mutating the byRegion slice in place is
+		// safe (it's a fresh slice from groupByRegion).
+		sort.Slice(members, func(i, j int) bool {
+			return members[i].ID < members[j].ID
+		})
+		// Cursor source priority: state-registry's persisted cursor,
+		// else the lastMemberID arg (if it's in this region), else
+		// empty (start at index 0). The arg-fallback keeps tests
+		// without a state registry working with the historic
+		// "advance from lastMemberID" semantics.
+		cursor := ""
+		if state != nil && p != nil {
+			cursor = state.RegionCursor(p.ID, region)
+		}
+		if cursor == "" && lastMemberID != "" {
+			for _, m := range members {
+				if m.ID == lastMemberID {
+					cursor = lastMemberID
+					break
+				}
+			}
+		}
+		startIdx := 0
+		if cursor != "" {
+			for i, m := range members {
+				if m.ID == cursor {
+					startIdx = (i + 1) % len(members)
+					break
+				}
+			}
+		}
+		picked := members[startIdx]
+		if state != nil && p != nil {
+			state.SetRegionCursor(p.ID, region, picked.ID)
+		}
+		return picked
+	}
+
+	// Single-region pool: cursor-only rotation within the one region.
+	if len(regions) == 1 {
+		return pickCursorBased(regions[0])
+	}
+
+	// First-time pick: start at the user's home region if available
+	// in the pool, else the alphabetically-first region.
 	if lastMemberID == "" {
 		if userCountry != "" {
 			homeRegion := geoip.Region(userCountry)
-			if members, ok := byRegion[homeRegion]; ok && len(members) > 0 {
-				return pickRandom(members)
+			if _, ok := byRegion[homeRegion]; ok {
+				return pickCursorBased(homeRegion)
 			}
 		}
-		return pickRandom(byRegion[regions[0]])
+		return pickCursorBased(regions[0])
 	}
 
 	// Find the previous member's region.
@@ -196,33 +266,21 @@ func pickRoundRobin(eligible []*PoolMember, lastMemberID string, userCountry str
 		// Restart from the user's home region if known, else first region.
 		if userCountry != "" {
 			homeRegion := geoip.Region(userCountry)
-			if members, ok := byRegion[homeRegion]; ok && len(members) > 0 {
-				return pickRandom(members)
+			if _, ok := byRegion[homeRegion]; ok {
+				return pickCursorBased(homeRegion)
 			}
 		}
-		return pickRandom(byRegion[regions[0]])
+		return pickCursorBased(regions[0])
 	}
 
-	// Find the index of lastRegion in the sorted list and advance.
+	// Advance to the next region alphabetically.
 	for i, r := range regions {
 		if r == lastRegion {
 			next := (i + 1) % len(regions)
-			candidates := byRegion[regions[next]]
-			// If we wrapped back to the same region (only one region in
-			// the pool), exclude lastMemberID so we still rotate.
-			if regions[next] == lastRegion && len(candidates) > 1 {
-				filtered := make([]*PoolMember, 0, len(candidates)-1)
-				for _, c := range candidates {
-					if c.ID != lastMemberID {
-						filtered = append(filtered, c)
-					}
-				}
-				return pickRandom(filtered)
-			}
-			return pickRandom(candidates)
+			return pickCursorBased(regions[next])
 		}
 	}
-	return pickRandom(eligible)
+	return pickCursorBased(regions[0])
 }
 
 func groupByRegion(members []*PoolMember) map[string][]*PoolMember {

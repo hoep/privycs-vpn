@@ -27,6 +27,11 @@ func TestParseAllowedIPsTarget(t *testing.T) {
 			want: "192.168.1.1",
 		},
 		{
+			name: "0.0.0.0/0 wins over preceding private CIDRs",
+			conf: "[Peer]\nAllowedIPs = 10.50.0.0/24, 0.0.0.0/0\n",
+			want: "1.1.1.1",
+		},
+		{
 			name: "IPv6 only AllowedIPs - no usable target",
 			conf: "[Peer]\nAllowedIPs = ::/0, fd00::/8\n",
 			want: "",

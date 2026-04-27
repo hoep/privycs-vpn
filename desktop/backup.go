@@ -4,15 +4,16 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 
 	"golang.org/x/crypto/pbkdf2"
-	"crypto/sha256"
 )
 
 // backupEnvelope is the on-disk format for an encrypted Privycs backup.
@@ -50,16 +51,20 @@ type backupEnvelope struct {
 //   v1 - connections + settings only
 //   v2 - adds pools (Connection Pool feature, v0.9.11+). v1 backups
 //        still load on v2-aware clients; the Pools field is just nil.
+//   v3 - adds pool_state (runtime state separated from definitions in
+//        v0.9.11.39). v1/v2 backups still load; PoolState is just nil
+//        and runtime state on the destination starts fresh.
 type backupPlaintext struct {
-	Version     int                 `json:"version"` // app backup schema version
+	Version     int                 `json:"version"`
 	AppVersion  string              `json:"app_version"`
 	Connections *ConnectionRegistry `json:"connections"`
 	Settings    *AppSettings        `json:"settings"`
 	Pools       *PoolRegistry       `json:"pools,omitempty"`
+	PoolState   json.RawMessage     `json:"pool_state,omitempty"`
 }
 
 const (
-	backupVersion       = 2
+	backupVersion       = 3
 	backupKDFIterations = 600_000
 	backupKeyLen        = 32 // 256-bit AES key
 	backupSaltLen       = 16
@@ -82,6 +87,18 @@ func (a *App) ExportBackup(path string, passphrase string) error {
 		Connections: a.connections,
 		Settings:    a.settings,
 		Pools:       a.pools,
+	}
+	// Snapshot pool runtime state so an export-and-reimport restores
+	// the active member, slot, unreachable flags etc. Best-effort:
+	// snapshot failure is logged but not fatal because the rest of
+	// the backup is still useful and runtime state self-heals on
+	// next rotation.
+	if a.poolStates != nil {
+		if data, err := a.poolStates.SnapshotForPersist(); err == nil {
+			plain.PoolState = data
+		} else {
+			log.Printf("Backup: pool-state snapshot failed: %v - excluded from backup", err)
+		}
 	}
 	plainBytes, err := json.Marshal(&plain)
 	if err != nil {
@@ -181,12 +198,39 @@ func (a *App) ImportBackup(path string, passphrase string) error {
 	// fresh registry initialisation pattern.
 	if plain.Pools != nil && a.pools != nil {
 		plain.Pools.filePath = a.pools.filePath
+		// Preserve the state-registry reference - it's a process-
+		// scoped object, not part of the backup content. The
+		// imported PoolRegistry needs to delegate state queries to
+		// the same state registry so existing helpers keep working.
+		plain.Pools.state = a.poolStates
+		// Re-build the byID index since the unmarshaled registry's
+		// map is empty (poolByID is unexported / json:"-").
+		plain.Pools.rebuildPoolIndex()
+		for _, p := range plain.Pools.Pools {
+			if p != nil {
+				p.rebuildMemberIndex()
+			}
+		}
 		a.pools = plain.Pools
 		a.pools.mu.Lock()
 		err := a.pools.saveLocked()
 		a.pools.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("persist restored pools: %w", err)
+		}
+	}
+
+	// Pool runtime state (v3+ backups). We REPLACE rather than merge
+	// because runtime state is per-installation and the imported
+	// snapshot represents the user's last-known state from the source
+	// machine; merging would surface stale entries from before the
+	// import.
+	if len(plain.PoolState) > 0 && a.poolStates != nil {
+		var snapshot poolStateFile
+		if err := json.Unmarshal(plain.PoolState, &snapshot); err != nil {
+			log.Printf("Backup: pool-state restore parse failed: %v - skipping", err)
+		} else {
+			a.poolStates.replaceFromSnapshot(snapshot)
 		}
 	}
 	return nil

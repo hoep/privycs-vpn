@@ -27,6 +27,11 @@ func TestBackupRoundtrip_IncludesPools(t *testing.T) {
 		t.Fatalf("Create source pool: %v", err)
 	}
 	src.pools.SetActiveMember(pool.ID, "m2")
+	// Force flush the state registry so the snapshot baked into the
+	// backup includes the active-member assignment we just made.
+	if src.poolStates != nil {
+		src.poolStates.saveSafe()
+	}
 
 	// Tweak the pool's policy params to a non-default so we can verify
 	// the restore preserves them.
@@ -64,8 +69,8 @@ func TestBackupRoundtrip_IncludesPools(t *testing.T) {
 	if len(got.Members) != 3 {
 		t.Errorf("Members = %d, want 3", len(got.Members))
 	}
-	if got.ActiveMemberID != "m2" {
-		t.Errorf("ActiveMemberID = %q, want m2", got.ActiveMemberID)
+	if id := dst.pools.ActiveMemberID(got.ID); id != "m2" {
+		t.Errorf("ActiveMemberID = %q, want m2", id)
 	}
 	if got.Rotation.IntervalMin != 15 {
 		t.Errorf("Rotation.IntervalMin = %d, want 15", got.Rotation.IntervalMin)
@@ -188,12 +193,23 @@ func minimalAppForBackup(t *testing.T, dir string) *App {
 		t.Fatal(err)
 	}
 	connections := &ConnectionRegistry{filePath: filepath.Join(dir, "connections.json")}
-	pools := &PoolRegistry{filePath: filepath.Join(dir, "pools.json")}
+	poolStates := &PoolStateRegistry{
+		filePath: filepath.Join(dir, "pool_state.json"),
+		stopCh:   make(chan struct{}),
+		wakeCh:   make(chan struct{}, 1),
+	}
+	poolStates.state.Pools = make(map[string]*poolStateEntry)
+	pools := &PoolRegistry{
+		filePath: filepath.Join(dir, "pools.json"),
+		poolByID: make(map[string]*Pool),
+		state:    poolStates,
+	}
 	settings := &AppSettings{}
 
 	return &App{
 		connections: connections,
 		pools:       pools,
+		poolStates:  poolStates,
 		settings:    settings,
 	}
 }

@@ -90,108 +90,36 @@ func NewPoolImporter(geo CountryResolverIF) *PoolImporter {
 }
 
 // Import processes a list of paths (each may be a .zip, .conf, .ovpn,
-// or .sswan) and returns members ready to be wrapped in a Pool. Calls
-// onProgress (if non-nil) at each stage transition and per-file during
-// the parsing stage so the frontend can render a stepper without
-// polling.
+// or .sswan) and returns members ready to be wrapped in a Pool. CLI/
+// test-only entry point - the production frontend uses
+// ImportFromUploads.
+//
+// Since v0.9.11.39 this is a thin wrapper around ImportFromUploads:
+// reads each path into memory, then delegates. Earlier versions
+// duplicated the parse+resolve pipeline with a sequential DNS-resolve
+// path (which was slower AND inconsistent with the upload path on
+// edge cases like progress events and skipped-file reasons).
 func (pi *PoolImporter) Import(paths []string, onProgress func(PoolImportProgress)) (*PoolImportResult, error) {
-	result := &PoolImportResult{}
-
-	emit := func(p PoolImportProgress) {
-		if onProgress != nil {
-			onProgress(p)
-		}
-	}
-
-	// Stage 1: collect all config files (ZIPs are unpacked in-memory,
-	// directly-passed config files are read straight in).
-	emit(PoolImportProgress{Stage: "extracting"})
-	var entries []importEntry
+	uploads := make([]PoolUpload, 0, len(paths))
 	for _, p := range paths {
-		ext := strings.ToLower(filepath.Ext(p))
-		switch ext {
-		case ".zip":
-			extracted, err := extractZipEntries(p)
-			if err != nil {
-				return nil, fmt.Errorf("extract %s: %w", p, err)
-			}
-			entries = append(entries, extracted...)
-		case ".conf", ".ovpn", ".sswan":
-			data, err := os.ReadFile(p)
-			if err != nil {
-				result.Skipped = append(result.Skipped, SkippedFile{filepath.Base(p), err.Error()})
-				continue
-			}
-			entries = append(entries, importEntry{name: filepath.Base(p), content: data})
-		default:
-			result.Skipped = append(result.Skipped, SkippedFile{filepath.Base(p), "unsupported extension"})
+		// .zip and config files alike: read into memory, hand to the
+		// upload path. Errors get bubbled into Skipped via the upload
+		// path's normal handling.
+		data, err := os.ReadFile(p)
+		if err != nil {
+			// We do not have a result struct yet; the upload path
+			// surfaces unknown extensions to Skipped. For read
+			// errors we log and skip silently because the file
+			// never made it into the upload list.
+			log.Printf("Pool import: read %s failed: %v - skipped", p, err)
+			continue
 		}
-	}
-
-	// Stage 2: parse + resolve. We do DNS resolution serially (the
-	// system resolver caches across calls and goroutine fanout would
-	// risk hitting per-process socket limits at 600+ entries).
-	total := len(entries)
-	for i, e := range entries {
-		emit(PoolImportProgress{
-			Stage:    "parsing",
-			Current:  i + 1,
-			Total:    total,
-			Imported: len(result.Members),
-			Skipped:  len(result.Skipped),
+		uploads = append(uploads, PoolUpload{
+			Filename: filepath.Base(p),
+			Content:  data,
 		})
-
-		protocol := detectProtocolFromFilename(e.name)
-		if protocol == "" {
-			result.Skipped = append(result.Skipped, SkippedFile{e.name, "unsupported extension"})
-			continue
-		}
-
-		host := extractEndpointHost(protocol, string(e.content))
-		if host == "" {
-			result.Skipped = append(result.Skipped, SkippedFile{e.name, "no endpoint in config"})
-			continue
-		}
-
-		country := ""
-		if pi.geo != nil {
-			ip := resolveHostToIP(host)
-			if ip != nil {
-				if c, err := pi.geo.CountryCode(ip); err == nil {
-					country = c
-				}
-			}
-		}
-
-		nameWithoutExt := strings.TrimSuffix(e.name, filepath.Ext(e.name))
-		member := &PoolMember{
-			ID:   uuid.New().String(),
-			Name: nameWithoutExt,
-			Config: &ProtocolConfig{
-				Protocol:      protocol,
-				ConfigContent: string(e.content),
-				Filename:      e.name,
-				ServerAddress: host,
-				AddedAt:       time.Now().Format(time.RFC3339),
-			},
-			Country: country,
-			Region:  geoip.Region(country),
-			Active:  true,
-		}
-		result.Members = append(result.Members, member)
 	}
-
-	emit(PoolImportProgress{
-		Stage:    "done",
-		Current:  total,
-		Total:    total,
-		Imported: len(result.Members),
-		Skipped:  len(result.Skipped),
-	})
-
-	log.Printf("Pool import: %d imported, %d skipped from %d input paths",
-		len(result.Members), len(result.Skipped), len(paths))
-	return result, nil
+	return pi.ImportFromUploads(uploads, onProgress)
 }
 
 // extractZipEntries pulls every .conf / .ovpn / .sswan file out of a

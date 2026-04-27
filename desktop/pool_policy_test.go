@@ -179,21 +179,35 @@ func TestPickMember_EmptyPool(t *testing.T) {
 	}
 }
 
+// newTestStateRegistry constructs a PoolStateRegistry suitable for
+// in-process tests. No background flusher (file path is /dev/null-
+// equivalent) so saves are no-ops; in-memory mutations work normally.
+func newTestStateRegistry() *PoolStateRegistry {
+	r := &PoolStateRegistry{
+		filePath: "/dev/null",
+		stopCh:   make(chan struct{}),
+		wakeCh:   make(chan struct{}, 1),
+	}
+	r.state.Pools = make(map[string]*poolStateEntry)
+	close(r.stopCh) // never start the flusher
+	return r
+}
+
 func TestPickMember_AllUnreachableTriggersReset(t *testing.T) {
 	// All-unreachable reset: when every region-eligible member has
 	// Unreachable=true the pool is treated as "local network broken,
 	// not all servers genuinely dead". EligibleMembers clears the
 	// flags and returns the members. Without this, a pool would
 	// permanently shrink to zero after a brief connectivity blip.
+	state := newTestStateRegistry()
 	m := atVie()
-	m.Unreachable = true
-	m.LastUnreachable = time.Now()
-	p := &Pool{Policy: PolicyRandom, Members: []*PoolMember{m}}
-	got := PickMember(p, "", "")
+	p := &Pool{ID: "test-pool-1", Policy: PolicyRandom, Members: []*PoolMember{m}}
+	state.MarkMemberUnreachable(p.ID, m.ID, "test failure")
+	got := pickMemberInternal(state, p, "", "", nil)
 	if got == nil {
 		t.Fatal("all-unreachable pool should reset flags and return a member, got nil")
 	}
-	if got.Unreachable {
+	if state.MemberState(p.ID, m.ID).Unreachable {
 		t.Errorf("returned member still has Unreachable=true after reset")
 	}
 }
@@ -214,22 +228,25 @@ func TestPickMember_UnreachableTTLExpiry(t *testing.T) {
 	// Member flagged Unreachable but timestamp older than the TTL
 	// gets lazily re-eligible without manual intervention. Provider
 	// outages clear within the same user session.
+	state := newTestStateRegistry()
 	m := atVie()
-	m.Unreachable = true
-	m.LastUnreachable = time.Now().Add(-2 * UnreachableTTL)
 	healthy := usNyc()
-	p := &Pool{Policy: PolicyRandom, Members: []*PoolMember{m, healthy}}
-	// Both should be eligible after the TTL clear; just confirming
-	// PickMember does not refuse the stale-flagged member.
+	p := &Pool{ID: "test-pool-2", Policy: PolicyRandom, Members: []*PoolMember{m, healthy}}
+	// Mark stale: directly set timestamp to before TTL window.
+	state.MarkMemberUnreachable(p.ID, m.ID, "stale failure")
+	state.mu.Lock()
+	state.state.Pools[p.ID].Members[m.ID].LastUnreachable = time.Now().Add(-2 * UnreachableTTL)
+	state.mu.Unlock()
+	// Both should be eligible after the TTL clear.
 	picked := false
 	for i := 0; i < 30; i++ {
-		got := PickMember(p, "", "")
+		got := pickMemberInternal(state, p, "", "", nil)
 		if got == nil {
 			t.Fatal("PickMember returned nil despite TTL-expired member + healthy member")
 		}
 		if got.ID == m.ID {
 			picked = true
-			if got.Unreachable {
+			if state.MemberState(p.ID, m.ID).Unreachable {
 				t.Errorf("TTL-expired member still flagged Unreachable=true")
 			}
 			break

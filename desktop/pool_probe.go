@@ -101,26 +101,25 @@ func flushOSDNSCache() {
 		if cmd == nil {
 			return
 		}
-		_ = cmd.Run()
+		if err := cmd.Run(); err != nil {
+			log.Printf("Pool: OS DNS cache flush failed: %v", err)
+			return
+		}
 		log.Printf("Pool: OS DNS cache flushed")
 	}()
 }
 
 // markMemberUnreachable flips the unreachable bit and timestamps it.
-// Idempotent - calling twice has no extra effect besides updating the
-// timestamp. Persistence is best-effort: if the registry write fails
-// we still keep the in-memory flag, so the current rotation cycle's
-// retry loop sees the bad member excluded.
+// Idempotent - calling twice updates the timestamp (intentional - a
+// repeatedly-failing member's TTL effectively resets, so its time
+// out of rotation lengthens with continued failures).
+//
+// Since v0.9.11.39 this is a state.json write (small, debounced) and
+// goes through the lock-coordinated state registry. No more direct
+// PoolMember pointer mutation.
 func (a *App) markMemberUnreachable(pool *Pool, m *PoolMember, reason string) {
 	if m == nil || pool == nil {
 		return
 	}
-	m.Unreachable = true
-	m.LastUnreachable = time.Now()
-	if reason != "" {
-		m.LastError = reason
-	}
-	if err := a.pools.Update(pool); err != nil {
-		log.Printf("Pool %s: persist Unreachable=true on %s failed: %v", pool.Name, m.Name, err)
-	}
+	a.pools.MarkMemberUnreachable(pool.ID, m.ID, reason)
 }
