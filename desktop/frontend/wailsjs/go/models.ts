@@ -206,6 +206,8 @@ export namespace main {
 	    active: boolean;
 	    unreachable: boolean;
 	    last_error?: string;
+	    // Go type: time
+	    last_unreachable?: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new PoolMember(source);
@@ -221,6 +223,7 @@ export namespace main {
 	        this.active = source["active"];
 	        this.unreachable = source["unreachable"];
 	        this.last_error = source["last_error"];
+	        this.last_unreachable = this.convertValues(source["last_unreachable"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

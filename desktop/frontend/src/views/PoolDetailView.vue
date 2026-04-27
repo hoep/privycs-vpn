@@ -125,25 +125,58 @@
       <!-- Members list -->
       <div class="card p-3 mb-4">
         <div class="flex justify-between items-center mb-2">
-          <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Members</h3>
-          <input
-            v-model="memberFilter"
-            type="text"
-            placeholder="Search..."
-            class="text-[10px] bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 w-32 focus:outline-none focus:ring-1 focus:ring-primary-500"
-          />
+          <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-2">
+            Members
+            <span
+              v-if="unreachableCount > 0"
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 ring-1 ring-amber-500/30 text-amber-600 dark:text-amber-400 text-[9px] font-medium"
+              :title="`${unreachableCount} member(s) flagged unreachable. Auto-clear after 30 minutes.`"
+            >
+              <ExclamationTriangleIcon class="w-3 h-3" />
+              {{ unreachableCount }} unreachable
+            </span>
+          </h3>
+          <div class="flex items-center gap-2">
+            <button
+              v-if="unreachableCount > 0"
+              @click="onResetUnreachable"
+              :disabled="resetting"
+              class="text-[10px] text-primary-400 hover:text-primary-300 disabled:opacity-50"
+              title="Clear the unreachable flag on all members. Use after a network change so the rotator can pick them again immediately."
+            >
+              {{ resetting ? 'Resetting...' : 'Reset all' }}
+            </button>
+            <input
+              v-model="memberFilter"
+              type="text"
+              placeholder="Search..."
+              class="text-[10px] bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 w-32 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            />
+          </div>
         </div>
         <div class="space-y-0.5 max-h-96 overflow-y-auto">
           <div
             v-for="m in filteredMembers"
             :key="m.id"
             class="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700/50 group"
+            :class="m.unreachable ? 'bg-amber-500/5' : ''"
           >
             <div class="min-w-0 flex-1">
-              <span class="text-xs text-gray-700 dark:text-gray-300 truncate block">{{ m.name }}</span>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ m.name }}</span>
+                <span
+                  v-if="m.unreachable"
+                  class="inline-flex items-center px-1 py-px rounded bg-amber-500/15 ring-1 ring-amber-500/30 text-amber-600 dark:text-amber-400 text-[8px] font-medium uppercase tracking-wide flex-shrink-0"
+                  :title="memberUnreachableTooltip(m)"
+                >
+                  Unreachable
+                </span>
+              </div>
               <span class="text-[9px] text-gray-500">
                 {{ m.country || 'unknown' }} · {{ m.region || 'Other' }}
-                <span v-if="m.unreachable" class="text-amber-400 ml-1">• unreachable</span>
+                <span v-if="m.unreachable && m.last_error" class="ml-1 text-amber-500/80 truncate">
+                  · {{ m.last_error }}
+                </span>
               </span>
             </div>
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -382,6 +415,7 @@ import AppSelect from '@/components/AppSelect.vue'
 import {
   ArrowLeftIcon,
   Cog6ToothIcon,
+  ExclamationTriangleIcon,
   PencilSquareIcon,
   TrashIcon,
   XMarkIcon,
@@ -540,6 +574,49 @@ const filteredMembers = computed(() => {
     (m.region || '').toLowerCase().includes(q)
   )
 })
+
+// Number of members the rotator currently has flagged Unreachable.
+// Drives the header counter badge AND the "Reset all" button visibility -
+// only show the button if there's actually something to reset.
+const unreachableCount = computed(() => {
+  if (!pool.value?.members) return 0
+  return pool.value.members.filter((m: any) => m.unreachable).length
+})
+
+// Per-member tooltip carrying the failure timestamp + reason. Falls
+// back to "Unreachable" when no timestamp persisted yet (legacy pools
+// flagged before v0.9.11.33).
+function memberUnreachableTooltip(m: any): string {
+  if (!m.unreachable) return ''
+  const parts: string[] = []
+  if (m.last_unreachable) {
+    const t = new Date(m.last_unreachable)
+    if (!isNaN(t.getTime())) {
+      parts.push('Last failure: ' + t.toLocaleString())
+    }
+  }
+  if (m.last_error) {
+    parts.push('Reason: ' + m.last_error)
+  }
+  parts.push('Auto-clears 30 min after the last failure.')
+  return parts.join('\n')
+}
+
+// Manual flag reset. Returns silently after re-loading the pool so
+// the badge counter and per-member badges disappear in one frame.
+const resetting = ref(false)
+async function onResetUnreachable() {
+  if (!pool.value || resetting.value) return
+  resetting.value = true
+  try {
+    await poolStore.resetUnreachable(pool.value.id)
+    await load()
+  } catch (e) {
+    console.error('reset unreachable failed:', e)
+  } finally {
+    resetting.value = false
+  }
+}
 
 async function load() {
   loading.value = true

@@ -82,6 +82,8 @@ export function RenameConnection(arg1:string,arg2:string):Promise<void>;
 
 export function RenamePoolMember(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function ResetPoolUnreachable(arg1:string):Promise<number>;
+
 export function SaveActiveConfigContent(arg1:string):Promise<void>;
 
 export function SelectProtocol(arg1:string):Promise<void>;

@@ -25,6 +25,7 @@ import {
   PoolRotatorStatus,
   SelfIPCountry,
   BootstrapState,
+  ResetPoolUnreachable,
 } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 
@@ -204,6 +205,14 @@ export const usePoolStore = defineStore('pool', () => {
     await refresh()
   }
 
+  /** Clear the Unreachable flag on every member of the pool. Returns
+   *  the count of members whose flag was cleared so the caller can
+   *  surface a meaningful confirmation. */
+  async function resetUnreachable(poolId: string): Promise<number> {
+    const cleared = await ResetPoolUnreachable(poolId)
+    return Number(cleared) || 0
+  }
+
   async function pollRotator() {
     try {
       rotatorStatus.value = (await PoolRotatorStatus()) as RotatorStatus
@@ -247,6 +256,7 @@ export const usePoolStore = defineStore('pool', () => {
     deactivate,
     switchMember,
     pickAndConnect,
+    resetUnreachable,
     pollRotator,
     onImportProgress,
   }

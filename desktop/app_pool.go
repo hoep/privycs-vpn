@@ -263,6 +263,39 @@ func (a *App) RenamePoolMember(poolID, memberID, newName string) error {
 	return a.pools.RenameMember(poolID, memberID, newName)
 }
 
+// ResetPoolUnreachable clears the Unreachable flag and LastError on
+// every member of the pool, with one persisted write. Manual override
+// for the user when they know the network came back ("just reconnected
+// to home WiFi") and do not want to wait for the 30-min TTL.
+//
+// Returns the count of members whose flag was actually cleared so the
+// frontend can show a meaningful confirmation ("Reset 12 unreachable
+// members").
+func (a *App) ResetPoolUnreachable(poolID string) (int, error) {
+	if poolID == "" {
+		return 0, fmt.Errorf("pool id required")
+	}
+	pool := a.pools.Get(poolID)
+	if pool == nil {
+		return 0, fmt.Errorf("pool not found: %s", poolID)
+	}
+	cleared := 0
+	for _, m := range pool.Members {
+		if m.Unreachable {
+			m.Unreachable = false
+			m.LastError = ""
+			m.LastUnreachable = time.Time{}
+			cleared++
+		}
+	}
+	if cleared > 0 {
+		if err := a.pools.Update(pool); err != nil {
+			return cleared, fmt.Errorf("persist failed: %w", err)
+		}
+	}
+	return cleared, nil
+}
+
 // ActivePoolID returns the currently-activated pool's ID, "" if none.
 func (a *App) ActivePoolID() string {
 	a.mu.RLock()

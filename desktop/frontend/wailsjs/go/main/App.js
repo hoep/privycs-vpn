@@ -162,6 +162,10 @@ export function RenamePoolMember(arg1, arg2, arg3) {
   return window['go']['main']['App']['RenamePoolMember'](arg1, arg2, arg3);
 }
 
+export function ResetPoolUnreachable(arg1) {
+  return window['go']['main']['App']['ResetPoolUnreachable'](arg1);
+}
+
 export function SaveActiveConfigContent(arg1) {
   return window['go']['main']['App']['SaveActiveConfigContent'](arg1);
 }
