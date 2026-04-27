@@ -664,8 +664,16 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	//   - WireGuard: <1s (handshake is lazy; we consider established when
 	//     the wg-quick call returns, which already blocks that long)
 	//   - IPSec: IKE_SA + CHILD_SA negotiation: up to ~20s
+	//
+	// Poll interval was 3s, dropped to 250ms in v0.9.11.38 because the
+	// 3s gap between checks meant a healthy WireGuard tunnel that came
+	// up in 200 ms still got at minimum 3 s of "connected=false" leaking
+	// to the statusEmitter, which the frontend rendered as "00:00:00
+	// disconnected" for that whole window. 250 ms keeps the syscall
+	// load trivial (max 4 calls/s) and detects a healthy connect within
+	// half a second average.
 	const connectTimeout = 30 * time.Second
-	const pollInterval = 3 * time.Second
+	const pollInterval = 250 * time.Millisecond
 	a.mu.Unlock() // release during blocking poll so status emitter can read state
 	deadline := time.Now().Add(connectTimeout)
 	tunnelUp := false
@@ -719,7 +727,14 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	}
 
 	wailsRuntime.EventsEmit(appCtx, "vpn:connected", activeProto)
-	log.Printf("Connected via %s", protocol)
+	log.Printf("Connected via %s", activeProto)
+
+	// Immediately push a fresh status to the frontend instead of
+	// waiting up to 2 s for the statusEmitter ticker. Pool rotations
+	// in particular benefit: between disconnect (a.connected=false)
+	// and the first post-connect tick, the UI used to render "00:00
+	// disconnected" for up to 2 s after the OS tunnel was already up.
+	wailsRuntime.EventsEmit(appCtx, "vpn:status", a.statusLocked())
 
 	// Notify user — matches Android foreground notification behaviour
 	// (see PrivycsVpnService buildNotification). Desktop users had no
