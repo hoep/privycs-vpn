@@ -11,6 +11,16 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Pool rotation scheduler uses setExactAndAllowWhileIdle.
+         SCHEDULE_EXACT_ALARM is the user-revocable variant available
+         on Android 12+; we declare it for max precision when the
+         user grants it. USE_EXACT_ALARM is the calendar/alarm-app
+         variant added on Android 14 that does NOT need explicit user
+         permission - declared so the alarms fire on time on 13/14+
+         without prompting. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
     <application
         android:name=".PrivycsApp"
         android:allowBackup="false"

@@ -233,13 +233,15 @@ private fun MemberRow(member: PoolMember, isActive: Boolean, isUnreachable: Bool
                 )
             }
             if (isActive) {
-                Box(
-                    modifier = Modifier
-                        .padding(start = 8.dp)
+                // Pill-style active badge — visually prominent so
+                // user sees at a glance which member is connected.
+                androidx.compose.material3.Badge(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(start = 8.dp)
                 ) {
-                    Text("Active",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary)
+                    Text("ACTIVE",
+                        style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

@@ -50,14 +50,24 @@ fun PoolIndicatorCard(
     pendingMemberCountry: String?,
     onClick: () -> Unit
 ) {
-    var localCountdownMs by remember(nextRotationInMs) {
+    // Countdown source-of-truth: the upstream nextRotationInMs is
+    // re-emitted whenever the service refreshes. We base our local
+    // tick on a wall-clock anchor captured at every emission so the
+    // display stays in sync even after Doze deferrals.
+    val anchor = remember(nextRotationInMs) {
+        if (nextRotationInMs == null) null
+        else System.currentTimeMillis() + nextRotationInMs
+    }
+    var localCountdownMs by remember(anchor) {
         mutableStateOf(nextRotationInMs ?: 0L)
     }
-    LaunchedEffect(nextRotationInMs) {
-        if (nextRotationInMs == null) return@LaunchedEffect
-        while (localCountdownMs > 0) {
-            delay(1000L)
-            localCountdownMs = max(0L, localCountdownMs - 1000L)
+    LaunchedEffect(anchor) {
+        if (anchor == null) return@LaunchedEffect
+        while (true) {
+            val remaining = anchor - System.currentTimeMillis()
+            localCountdownMs = max(0L, remaining)
+            if (remaining <= 0) break
+            delay(500L)
         }
     }
 
@@ -103,14 +113,29 @@ fun PoolIndicatorCard(
                 )
             }
 
-            // Next member (pre-warm)
+            // Next member (pre-warm) — amber pill to signal the
+            // upcoming-but-not-yet-active state. Distinctly louder
+            // than the "Currently:" line so the user notices the
+            // change ahead of the rotation tick.
             if (!pendingMemberName.isNullOrEmpty()) {
-                Text(
-                    "Next: $pendingMemberName" +
-                            (if (!pendingMemberCountry.isNullOrEmpty()) " ($pendingMemberCountry)" else ""),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary
-                )
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            "Next: $pendingMemberName" +
+                                    (if (!pendingMemberCountry.isNullOrEmpty()) " ($pendingMemberCountry)" else ""),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                }
             }
 
             // Countdown (round-robin only)

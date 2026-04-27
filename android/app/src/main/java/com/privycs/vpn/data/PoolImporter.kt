@@ -9,20 +9,18 @@ import com.privycs.vpn.data.models.PoolMember
 import com.privycs.vpn.data.models.ProtocolConfig
 import com.privycs.vpn.data.models.SkippedFile
 import com.privycs.vpn.data.models.VpnProtocol
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.net.InetAddress
 import java.time.Instant
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -31,44 +29,50 @@ import java.util.zip.ZipInputStream
 /**
  * Pool importer — Android port of pool_import.go.
  *
- * Differences from desktop:
- *   - Uri-based input (not filesystem paths). User picks a file via
- *     ACTION_OPEN_DOCUMENT, system grants read URI permission, we
- *     read the InputStream.
- *   - DNS resolution worker pool via Coroutines + Semaphore (20
- *     concurrent), not a goroutine-channel pattern. Same throughput.
- *   - Country lookup: there is no embedded MMDB on Android (would
- *     bloat APK by ~5MB). Instead we do best-effort lookup and
- *     leave Country="" if no resolution available; the picker
- *     degrades gracefully (Random within unfiltered set).
+ * Pipeline (one-pass, single source of truth):
+ *   1. Extract: unpack ZIPs in-memory, surface direct configs.
+ *   2. Parse: detect protocol + extract endpoint hostname.
+ *   3. Resolve: parallel hostname resolution (Coroutine semaphore).
+ *   4. Country lookup: per-host via the supplied resolver.
+ *   5. Assemble: build PoolMember list + skipped reasons.
  *
- * Progress: emitted via Flow so the Compose UI can collect with
- * collectAsState() and update the import-progress sheet without
- * polling.
+ * Progress emitted via SharedFlow so the Compose UI subscribes
+ * once and gets every event. Earlier drafts had two parallel
+ * paths (importFromUris with progress + importToResult without)
+ * which read each file twice; consolidated.
  */
 class PoolImporter(
     private val context: Context,
-    private val countryResolver: CountryResolver? = null
+    private val countryResolver: CountryResolver?
 ) {
 
     /**
      * Country resolver interface. App injects a real implementation
-     * if MMDB is available, else null is fine.
+     * (HostnameCountryResolver works without an external DB) or
+     * null for "no country lookup at all".
      */
     interface CountryResolver {
         suspend fun countryCode(host: String): String
     }
 
+    private val _progress = MutableSharedFlow<PoolImportProgress>(replay = 1)
+    val progress: SharedFlow<PoolImportProgress> = _progress.asSharedFlow()
+
     /**
-     * Imports from a list of Android Uris. Each Uri may point at
-     * a .zip archive or a directly-selected .conf/.ovpn/.sswan.
-     * Progress is emitted via the returned Flow.
+     * Imports from Android Uris, returning the assembled result.
+     * Progress emits to the shared `progress` flow during the run.
+     *
+     * UI binds the flow once to render its progress sheet, then
+     * awaits this method. There is no "two pipelines" pattern -
+     * one pass, one source of truth.
      */
-    fun importFromUris(uris: List<Uri>): Flow<PoolImportProgress> = flow {
-        val state = mutableImportState()
+    suspend fun importFromUris(uris: List<Uri>): PoolImportResult = withContext(Dispatchers.IO) {
+        val skipped = mutableListOf<SkippedFile>()
+        val members = mutableListOf<PoolMember>()
 
         emit(PoolImportProgress(stage = PoolImportProgress.Stage.EXTRACTING))
 
+        // Stage 1: extract.
         val entries = mutableListOf<ImportEntry>()
         for (uri in uris) {
             val displayName = queryFileName(uri) ?: "unknown"
@@ -85,12 +89,10 @@ class PoolImporter(
                             entries.add(ImportEntry(name = displayName, content = stream.readBytes()))
                         }
                     }
-                    else -> {
-                        state.skipped.add(SkippedFile(displayName, "unsupported extension"))
-                    }
+                    else -> skipped.add(SkippedFile(displayName, "unsupported extension"))
                 }
             } catch (e: Exception) {
-                state.skipped.add(SkippedFile(displayName, "read failed: ${e.message}"))
+                skipped.add(SkippedFile(displayName, "read failed: ${e.message}"))
             }
         }
 
@@ -102,12 +104,12 @@ class PoolImporter(
         for ((i, e) in entries.withIndex()) {
             val protocol = detectProtocolFromFilename(e.name)
             if (protocol == null) {
-                state.skipped.add(SkippedFile(e.name, "unsupported extension"))
+                skipped.add(SkippedFile(e.name, "unsupported extension"))
                 continue
             }
             val host = extractEndpointHost(protocol, String(e.content, Charsets.UTF_8))
             if (host.isEmpty()) {
-                state.skipped.add(SkippedFile(e.name, "no endpoint in config"))
+                skipped.add(SkippedFile(e.name, "no endpoint in config"))
                 continue
             }
             parsedList.add(Parsed(e, protocol, host))
@@ -117,111 +119,29 @@ class PoolImporter(
                     current = i + 1,
                     total = entries.size,
                     imported = parsedList.size,
-                    skipped = state.skipped.size
+                    skipped = skipped.size
                 )
             )
         }
 
-        // Stage 3: resolve hostnames in parallel for the country
-        // lookup. Bounded semaphore caps concurrency so we don't
-        // exhaust the DNS resolver.
+        // Stage 3 + 4: parallel host → country resolution.
         val resolveTotal = parsedList.size
         emit(
             PoolImportProgress(
                 stage = PoolImportProgress.Stage.RESOLVING,
                 current = 0,
                 total = resolveTotal,
-                imported = state.members.size,
-                skipped = state.skipped.size
+                imported = members.size,
+                skipped = skipped.size
             )
         )
 
-        val countries = resolveCountriesParallel(parsedList.map { it.host })
+        val countries = resolveCountriesParallel(parsedList.map { it.host to it.entry.name })
 
-        // Assemble members in original order.
+        // Stage 5: assemble in original order.
         for ((i, p) in parsedList.withIndex()) {
             val cc = countries.getOrElse(i) { "" }
-            val member = PoolMember(
-                id = UUID.randomUUID().toString(),
-                name = p.entry.name.substringBeforeLast('.'),
-                config = ProtocolConfig(
-                    protocol = p.protocol,
-                    configContent = String(p.entry.content, Charsets.UTF_8),
-                    filename = p.entry.name,
-                    serverAddress = p.host,
-                    addedAt = Instant.now().toString()
-                ),
-                country = cc,
-                region = PoolPicker.regionForCountry(cc),
-                active = true
-            )
-            state.members.add(member)
-        }
-
-        emit(
-            PoolImportProgress(
-                stage = PoolImportProgress.Stage.DONE,
-                current = resolveTotal,
-                total = resolveTotal,
-                imported = state.members.size,
-                skipped = state.skipped.size
-            )
-        )
-
-        Log.i(TAG, "imported ${state.members.size}, skipped ${state.skipped.size} from ${uris.size} uris")
-    }.flowOn(Dispatchers.IO)
-
-    /**
-     * Synchronous-from-flow assembly path used by the UI's
-     * "create pool" button after the import flow completes.
-     * The flow's last emit doesn't carry the actual member list;
-     * this re-runs the work and returns the full result.
-     */
-    suspend fun importToResult(uris: List<Uri>): PoolImportResult = withContext(Dispatchers.IO) {
-        val state = mutableImportState()
-        val entries = mutableListOf<ImportEntry>()
-        for (uri in uris) {
-            val displayName = queryFileName(uri) ?: "unknown"
-            val ext = displayName.substringAfterLast('.', "").lowercase()
-            try {
-                when (ext) {
-                    "zip" -> {
-                        context.contentResolver.openInputStream(uri)?.use { stream ->
-                            entries.addAll(extractZipFromStream(stream))
-                        }
-                    }
-                    "conf", "ovpn", "sswan" -> {
-                        context.contentResolver.openInputStream(uri)?.use { stream ->
-                            entries.add(ImportEntry(name = displayName, content = stream.readBytes()))
-                        }
-                    }
-                    else -> state.skipped.add(SkippedFile(displayName, "unsupported extension"))
-                }
-            } catch (e: Exception) {
-                state.skipped.add(SkippedFile(displayName, "read failed: ${e.message}"))
-            }
-        }
-
-        data class Parsed(val entry: ImportEntry, val protocol: VpnProtocol, val host: String)
-        val parsedList = mutableListOf<Parsed>()
-        for (e in entries) {
-            val protocol = detectProtocolFromFilename(e.name)
-            if (protocol == null) {
-                state.skipped.add(SkippedFile(e.name, "unsupported extension"))
-                continue
-            }
-            val host = extractEndpointHost(protocol, String(e.content, Charsets.UTF_8))
-            if (host.isEmpty()) {
-                state.skipped.add(SkippedFile(e.name, "no endpoint in config"))
-                continue
-            }
-            parsedList.add(Parsed(e, protocol, host))
-        }
-
-        val countries = resolveCountriesParallel(parsedList.map { it.host })
-        for ((i, p) in parsedList.withIndex()) {
-            val cc = countries.getOrElse(i) { "" }
-            state.members.add(
+            members.add(
                 PoolMember(
                     id = UUID.randomUUID().toString(),
                     name = p.entry.name.substringBeforeLast('.'),
@@ -239,17 +159,46 @@ class PoolImporter(
             )
         }
 
-        PoolImportResult(members = state.members, skipped = state.skipped)
+        emit(
+            PoolImportProgress(
+                stage = PoolImportProgress.Stage.DONE,
+                current = resolveTotal,
+                total = resolveTotal,
+                imported = members.size,
+                skipped = skipped.size
+            )
+        )
+
+        Log.i(TAG, "imported ${members.size}, skipped ${skipped.size} from ${uris.size} uris")
+        PoolImportResult(members = members, skipped = skipped)
     }
 
-    private suspend fun resolveCountriesParallel(hosts: List<String>): List<String> = coroutineScope {
+    /**
+     * Resolves countries for each (host, filename) pair in parallel.
+     * Filename is used as a secondary signal for the
+     * HostnameCountryResolver pattern — it captures the country
+     * code in commercial provider naming when the endpoint
+     * hostname (load-balancer DNS) does not.
+     */
+    private suspend fun resolveCountriesParallel(items: List<Pair<String, String>>): List<String> = coroutineScope {
         val semaphore = Semaphore(DNS_CONCURRENCY)
-        hosts.map { host ->
+        items.map { (host, filename) ->
             async(Dispatchers.IO) {
                 semaphore.withPermit {
                     if (countryResolver == null) return@async ""
                     try {
-                        countryResolver.countryCode(host)
+                        // Try host first (cheaper if it works);
+                        // fall back to filename if the resolver
+                        // exposes a filename method.
+                        val byHost = countryResolver.countryCode(host)
+                        if (byHost.isNotEmpty()) return@async byHost
+                        // HostnameCountryResolver has a filename
+                        // overload; reflect-or-instanceof to use it.
+                        if (countryResolver is HostnameCountryResolver) {
+                            countryResolver.countryCodeFromFilename(filename)
+                        } else {
+                            ""
+                        }
                     } catch (e: Exception) {
                         ""
                     }
@@ -258,15 +207,21 @@ class PoolImporter(
         }.awaitAll()
     }
 
-    private fun queryFileName(uri: Uri): String? {
-        return try {
-            context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                if (c.moveToFirst()) c.getString(0) else null
-            }
-        } catch (e: Exception) {
-            null
-        } ?: uri.lastPathSegment
+    private suspend fun emit(p: PoolImportProgress) {
+        _progress.emit(p)
     }
+
+    private fun queryFileName(uri: Uri): String? = try {
+        context.contentResolver.query(
+            uri,
+            arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+            null, null, null
+        )?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    } catch (e: Exception) {
+        null
+    } ?: uri.lastPathSegment
 
     private fun extractZipFromStream(input: InputStream): List<ImportEntry> {
         val out = mutableListOf<ImportEntry>()
@@ -277,18 +232,20 @@ class PoolImporter(
                     val name = entry.name.substringAfterLast('/')
                     val ext = name.substringAfterLast('.', "").lowercase()
                     if (ext in listOf("conf", "ovpn", "sswan")) {
-                        if (entry.size <= MAX_CONFIG_BYTES) {
-                            val baos = ByteArrayOutputStream()
-                            val buf = ByteArray(8192)
-                            var read = zip.read(buf)
-                            while (read >= 0) {
-                                baos.write(buf, 0, read)
-                                if (baos.size() > MAX_CONFIG_BYTES) break
-                                read = zip.read(buf)
-                            }
-                            if (baos.size() <= MAX_CONFIG_BYTES) {
-                                out.add(ImportEntry(name = name, content = baos.toByteArray()))
-                            }
+                        // Read up to MAX_CONFIG_BYTES then stop. Prevents
+                        // ZIP-bomb and out-of-memory on entries with
+                        // malformed size headers (size = -1).
+                        val baos = ByteArrayOutputStream()
+                        val buf = ByteArray(8192)
+                        var read = zip.read(buf)
+                        var total = 0L
+                        while (read >= 0 && total <= MAX_CONFIG_BYTES) {
+                            baos.write(buf, 0, read)
+                            total += read.toLong()
+                            read = zip.read(buf)
+                        }
+                        if (total <= MAX_CONFIG_BYTES) {
+                            out.add(ImportEntry(name = name, content = baos.toByteArray()))
                         }
                     }
                 }
@@ -355,16 +312,9 @@ class PoolImporter(
 
     private data class ImportEntry(val name: String, val content: ByteArray)
 
-    private data class MutableImportState(
-        val members: MutableList<PoolMember> = mutableListOf(),
-        val skipped: MutableList<SkippedFile> = mutableListOf()
-    )
-
-    private fun mutableImportState() = MutableImportState()
-
     companion object {
         private const val TAG = "PoolImporter"
         private const val DNS_CONCURRENCY = 20
-        private const val MAX_CONFIG_BYTES = 1L * 1024 * 1024  // 1 MB per file
+        private const val MAX_CONFIG_BYTES = 1L * 1024 * 1024
     }
 }

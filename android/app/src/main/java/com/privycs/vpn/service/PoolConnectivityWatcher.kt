@@ -48,9 +48,8 @@ class PoolConnectivityWatcher(
 
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            // Exclude VPN networks themselves — we want the
-            // underlying transport, not the tunnel we just made.
-            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            // NOT_VPN: we want underlying transports (WiFi, mobile),
+            // not the tunnel we just made on top.
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
 
@@ -58,8 +57,18 @@ class PoolConnectivityWatcher(
             override fun onAvailable(network: Network) {
                 val handle = network.networkHandle
                 if (lastNetworkHandle != -1L && lastNetworkHandle != handle) {
-                    Log.i(TAG, "underlying network changed - firing opportunistic rotation hint")
-                    onOpportunisticRotation()
+                    // Debounce: a real WiFi-roam fires multiple
+                    // onAvailable events in quick succession (mobile
+                    // up, then wifi up, then wifi-roam). Only fire
+                    // ONE rotation hint per debounce window.
+                    val now = System.currentTimeMillis()
+                    if (now - lastRotationFiredAt > DEBOUNCE_MS) {
+                        Log.i(TAG, "underlying network changed - firing opportunistic rotation hint")
+                        lastRotationFiredAt = now
+                        onOpportunisticRotation()
+                    } else {
+                        Log.d(TAG, "network change suppressed by debounce window")
+                    }
                 }
                 lastNetworkHandle = handle
             }
@@ -77,6 +86,8 @@ class PoolConnectivityWatcher(
         }
     }
 
+    private var lastRotationFiredAt: Long = 0L
+
     fun stop() {
         callback?.let {
             try {
@@ -91,5 +102,9 @@ class PoolConnectivityWatcher(
 
     companion object {
         private const val TAG = "PoolConnWatcher"
+        // Debounce window: a typical WiFi-roam settles within
+        // 2-3 seconds. 5s leaves a safety margin without making
+        // genuinely-new transitions feel laggy to the rotator.
+        private const val DEBOUNCE_MS = 5_000L
     }
 }

@@ -46,12 +46,37 @@ class PoolRotationScheduler(private val context: Context) {
     /**
      * Cancel all pending pool alarms. Call when the active pool
      * is deactivated or the user switches to a non-pool connection.
+     *
+     * Note: PendingIntent matching ignores extras - only the action
+     * + requestCode + flags identify a slot. So calling cancel with
+     * a poolId-less Intent matches whatever poolId-bearing Intent
+     * was previously armed for the same requestCode.
      */
     fun cancelAll() {
         alarmManager.cancel(prewarmIntent())
         alarmManager.cancel(rotateIntent())
         Log.d(TAG, "alarms cancelled")
     }
+
+    /**
+     * Returns the interval in ms that the scheduler will ACTUALLY
+     * use given the current power state. The UI countdown reads
+     * this so the displayed "next rotation in X" matches reality
+     * when battery-saver doubled the schedule.
+     */
+    fun effectiveIntervalMs(intervalMin: Int): Long {
+        var ms = intervalMin.toLong() * 60 * 1000L
+        if (powerManager.isPowerSaveMode) ms *= 2
+        return ms
+    }
+
+    /**
+     * True if battery-saver doubled the rotation interval. UI
+     * surfaces this as a hint badge so the user understands why
+     * rotation is slower than configured.
+     */
+    val isBatterySaverActive: Boolean
+        get() = powerManager.isPowerSaveMode
 
     /**
      * Arm both pre-warm and rotate alarms for the next cycle.

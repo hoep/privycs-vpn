@@ -46,19 +46,29 @@ class PoolConnector(
         /**
          * Brings up a tunnel for the given member. Returns true
          * on success (kernel device installed), false on failure.
-         * Suspending: caller can await.
+         * Suspending: caller can await. Implementer is responsible
+         * for dispatching to Dispatchers.IO if blocking work is
+         * involved.
          */
         suspend fun bringUp(member: PoolMember): Boolean
 
         /**
-         * Tears down the current tunnel synchronously. Returns
-         * after the OS device has been unwired.
+         * Tears down the current tunnel synchronously.
+         *
+         * Returns true if the tunnel was successfully torn down
+         * (or was already down), false if the teardown failed in
+         * a way that leaves the OS-level state ambiguous - in
+         * which case the caller must NOT proceed to a new bringUp
+         * because that would corrupt routing state.
          */
-        suspend fun bringDown()
+        suspend fun bringDown(): Boolean
 
         /**
          * Reads received-bytes from the active WireGuard tunnel.
-         * Returns 0 if no tunnel up or non-WireGuard.
+         * Returns 0 if no tunnel up or non-WireGuard. Implementer
+         * MUST dispatch to a worker (Dispatchers.IO or its own
+         * thread pool) - blocking work in this method on the
+         * coroutine that called us would defeat the polling loop.
          */
         suspend fun bytesReceived(): Long
 
@@ -79,7 +89,16 @@ class PoolConnector(
         // Tear down current tunnel ONCE before the retry loop.
         // Layer-A retries pick a different member each iteration;
         // they don't disconnect/reconnect more than necessary.
-        tunnelOps.bringDown()
+        //
+        // CRITICAL: if teardown fails the OS-level state is
+        // ambiguous - bringing up a new tunnel would corrupt
+        // routing. Bail and let the user / next rotation tick
+        // retry. Mirrors desktop's "refusing to overwrite config"
+        // guard.
+        if (!tunnelOps.bringDown()) {
+            Log.e(tag, "bringDown failed - aborting pool rotation to avoid corrupt OS state")
+            return null
+        }
 
         val attempted = mutableListOf<String>()
         val lastActiveMember = pools.activeMemberId(pool.id)
@@ -127,7 +146,13 @@ class PoolConnector(
                 if (!verifyWireGuardPeerHealth(member)) {
                     lastErr = "no rx within ${PEER_HEALTH_TIMEOUT_MS}ms"
                     pools.markMemberUnreachable(pool.id, member.id, lastErr)
-                    tunnelOps.bringDown()
+                    // Best-effort teardown before retry. If
+                    // teardown fails here we bail too - the next
+                    // bringUp would be on top of a half-up tunnel.
+                    if (!tunnelOps.bringDown()) {
+                        Log.e(tag, "bringDown after peer-silent failed - aborting rotation cycle")
+                        return null
+                    }
                     continue
                 }
             }

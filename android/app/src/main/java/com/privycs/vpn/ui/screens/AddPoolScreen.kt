@@ -162,14 +162,23 @@ fun AddPoolScreen(
                         Spacer(Modifier.height(12.dp))
                         OutlinedTextField(
                             value = intervalMin,
-                            onValueChange = { intervalMin = it.filter { ch -> ch.isDigit() } },
+                            onValueChange = {
+                                // Numeric only. Empty allowed during
+                                // typing; on commit we backfill 30 if
+                                // still empty.
+                                intervalMin = it.filter { ch -> ch.isDigit() }
+                            },
                             label = { Text("Rotation interval (minutes)") },
+                            placeholder = { Text("e.g. 30") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
+                            supportingText = {
+                                Text("Default 30 min. Lower values rotate more often but cost more battery.")
+                            },
                             modifier = Modifier.fillMaxWidth()
                         )
-                        val intervalNum = intervalMin.toIntOrNull() ?: 30
-                        if (intervalNum < 5) {
+                        val intervalNum = intervalMin.toIntOrNull()
+                        if (intervalNum != null && intervalNum < 5) {
                             Spacer(Modifier.height(8.dp))
                             BatteryWarning("Intervals under 5 minutes use noticeably more battery (~3-5% extra/day).")
                         }
@@ -177,9 +186,13 @@ fun AddPoolScreen(
                 }
             }
 
-            // Soft warning for big pools.
-            val expectedCount = pickedUris.size  // proxy until import resolves; ZIP could expand to many
-            if (progress.imported >= MEMBER_COUNT_WARNING || expectedCount >= MEMBER_COUNT_WARNING) {
+            // Soft warning for big pools — only fires once we KNOW
+            // the actual member count (after parse/resolve has
+            // surfaced .total). Comparing against pickedUris.size
+            // would mislead on ZIPs (one Uri can expand to hundreds).
+            val showLargePoolWarning = progress.total >= MEMBER_COUNT_WARNING ||
+                    progress.imported >= MEMBER_COUNT_WARNING
+            if (showLargePoolWarning) {
                 Spacer(Modifier.height(12.dp))
                 BatteryWarning("Pools with more than $MEMBER_COUNT_WARNING members may import slowly on older devices.")
             }

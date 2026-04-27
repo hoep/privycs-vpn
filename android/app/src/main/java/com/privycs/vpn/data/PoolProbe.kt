@@ -88,19 +88,49 @@ object PoolProbe {
         return trimmed
     }
 
-    private fun isBareIp(s: String): Boolean = try {
-        InetAddress.getByName(s)
-        // Distinguish literal IP from hostname-that-happens-to-resolve:
-        // ParseLiteral semantic is "no DNS lookup". Java's InetAddress
-        // does both. The standard cheap check is regex; we do it
-        // pragmatically: contains digit/colon and parses → treat as
-        // literal, else hostname.
-        val isV4 = s.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))
-        val isV6 = s.contains(':') && !s.contains('.') &&
-                s.toCharArray().all { it.isLetterOrDigit() || it == ':' }
-        isV4 || isV6
-    } catch (e: Exception) {
-        false
+    /**
+     * True if the string is a literal IP (v4 or v6) rather than
+     * a hostname.
+     *
+     * Pure-syntactic check - does NOT invoke DNS. Earlier draft
+     * called InetAddress.getByName() which actually tries to
+     * resolve the input, defeating the purpose of "is this a
+     * literal".
+     *
+     * IPv6 with zone identifier ("fe80::1%wlan0") is normalized
+     * by stripping the zone before parsing - link-local literals
+     * with explicit zone names are still recognised as IPs.
+     */
+    private fun isBareIp(s: String): Boolean {
+        if (s.isEmpty()) return false
+        // IPv4: four dot-separated 1-3 digit octets, each 0-255.
+        val v4 = Regex("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$")
+        v4.matchEntire(s)?.let { match ->
+            return match.groupValues.drop(1).all {
+                it.toIntOrNull()?.let { n -> n in 0..255 } ?: false
+            }
+        }
+        // IPv6: contains colons, optionally has zone-identifier
+        // suffix "%zone". Strip zone for the literal check.
+        if (':' in s) {
+            val withoutZone = s.substringBefore('%')
+            // Lightweight: hex digits + colons only, at least one ::
+            // or 7 colons (full form). Comprehensive RFC 5952 parsing
+            // would be overkill - the strict case where this matters
+            // is "user typed an IP literal", not malformed input.
+            val isV6Like = withoutZone.toCharArray().all { c ->
+                c.isDigit() || c in 'a'..'f' || c in 'A'..'F' || c == ':'
+            } && withoutZone.contains(':')
+            if (!isV6Like) return false
+            // Final sanity check via InetAddress on the zone-stripped form.
+            return try {
+                InetAddress.getByName(withoutZone)
+                true
+            } catch (e: Exception) {
+                false
+            }
+        }
+        return false
     }
 }
 

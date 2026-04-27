@@ -114,7 +114,15 @@ class PoolStateRepository(private val context: Context) {
             state.pools[poolId]?.members?.get(memberId) ?: MemberStateEntry()
         }
 
-    /** Synchronous variant for hot paths where coroutine context isn't available. */
+    /**
+     * Synchronous variant for hot paths where coroutine context
+     * isn't available.
+     *
+     * WARNING: NEVER call from the UI thread - blocks until the
+     * mutex is acquired. Intended for the PoolAlarmReceiver fast-
+     * path (already on a worker thread) and tests. UI/Compose code
+     * uses the suspend memberState() instead.
+     */
     fun memberStateBlocking(poolId: String, memberId: String): MemberStateEntry =
         runBlocking { memberState(poolId, memberId) }
 
@@ -270,10 +278,16 @@ class PoolStateRepository(private val context: Context) {
     /**
      * Cancels the flusher and forces a synchronous final save.
      * Call from Application#onLowMemory + ServiceLifecycleObserver.
+     *
+     * Race-safe: closes the dirty channel FIRST (so no new flush
+     * scheduling is possible), then forces a final flush, then
+     * cancels the scope. Without this order a markDirty fired
+     * during close() could leave its mutation un-persisted because
+     * the flusher coroutine was cancelled before draining.
      */
     fun close() {
-        runBlocking { flushNow() }
         dirtySignal.close()
+        runBlocking { flushNow() }
         scope.cancel()
     }
 

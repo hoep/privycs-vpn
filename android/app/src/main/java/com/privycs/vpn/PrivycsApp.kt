@@ -7,6 +7,10 @@ import android.graphics.Color
 import android.os.Build
 import android.util.Log
 import com.privycs.vpn.data.ConnectionRepository
+import com.privycs.vpn.data.HostnameCountryResolver
+import com.privycs.vpn.data.PoolImporter
+import com.privycs.vpn.data.PoolRepository
+import com.privycs.vpn.data.PoolStateRepository
 import com.privycs.vpn.data.SettingsRepository
 import com.privycs.vpn.data.models.VpnProtocol
 import de.blinkt.openvpn.VpnProfile
@@ -60,6 +64,18 @@ class PrivycsApp : StrongSwanApplication() {
     lateinit var settingsRepository: SettingsRepository
         private set
 
+    /** Pool runtime state (active member, slot, unreachable flags, cursors). */
+    lateinit var poolStateRepository: PoolStateRepository
+        private set
+
+    /** Pool definitions (pools.json). */
+    lateinit var poolRepository: PoolRepository
+        private set
+
+    /** Pool import pipeline. */
+    lateinit var poolImporter: PoolImporter
+        private set
+
     // Kept as a GC root for the AIDL ServiceConnection inside StatusListener;
     // losing this reference lets the OpenVPNStatusService unbind and we stop
     // receiving state/log/byte-count events from the :openvpn subprocess.
@@ -81,6 +97,9 @@ class PrivycsApp : StrongSwanApplication() {
         instance = this
         connectionRepository = ConnectionRepository(this)
         settingsRepository = SettingsRepository(this)
+        poolStateRepository = PoolStateRepository(this)
+        poolRepository = PoolRepository(this, poolStateRepository)
+        poolImporter = PoolImporter(this, HostnameCountryResolver())
         // Load persisted Always-On detection flag so the UI on first
         // frame already knows whether disconnect should go through the
         // pause-or-settings bottom-sheet rather than straight teardown.

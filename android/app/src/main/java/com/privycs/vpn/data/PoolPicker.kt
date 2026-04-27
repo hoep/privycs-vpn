@@ -138,6 +138,22 @@ object PoolPicker {
             return picked
         }
 
+        // First-pass region pick. May return null if the chosen
+        // region's member-set ended up empty (race with eligible
+        // changing under us, or the region key shifted). Fallback
+        // sequence walks the regions array.
+        suspend fun pickWithFallback(preferredRegion: String?): PoolMember? {
+            // 1. Try the preferred region.
+            if (preferredRegion != null && preferredRegion in byRegion) {
+                pickFromRegion(preferredRegion)?.let { return it }
+            }
+            // 2. Walk the alphabetically-sorted regions in order.
+            for (r in regions) {
+                pickFromRegion(r)?.let { return it }
+            }
+            return null
+        }
+
         // Single-region pool: cursor-rotate within the only region.
         if (regions.size == 1) {
             return pickFromRegion(regions[0])
@@ -145,31 +161,20 @@ object PoolPicker {
 
         // First-time pick: home-region first when known.
         if (lastMemberId.isEmpty()) {
-            if (userCountry.isNotEmpty()) {
-                val homeRegion = regionForCountry(userCountry)
-                if (homeRegion in byRegion) {
-                    return pickFromRegion(homeRegion)
-                }
-            }
-            return pickFromRegion(regions[0])
+            val home = if (userCountry.isNotEmpty()) regionForCountry(userCountry) else null
+            return pickWithFallback(home)
         }
 
         // Find lastMember's region and advance to next alphabetically.
         val lastRegion = eligible.firstOrNull { it.id == lastMemberId }?.region ?: ""
         if (lastRegion.isEmpty()) {
-            // Stale lastMemberID. Restart from home region.
-            if (userCountry.isNotEmpty()) {
-                val homeRegion = regionForCountry(userCountry)
-                if (homeRegion in byRegion) {
-                    return pickFromRegion(homeRegion)
-                }
-            }
-            return pickFromRegion(regions[0])
+            val home = if (userCountry.isNotEmpty()) regionForCountry(userCountry) else null
+            return pickWithFallback(home)
         }
 
         val idx = regions.indexOf(lastRegion)
         val nextRegion = regions[(idx + 1) % regions.size]
-        return pickFromRegion(nextRegion)
+        return pickWithFallback(nextRegion)
     }
 
     /**

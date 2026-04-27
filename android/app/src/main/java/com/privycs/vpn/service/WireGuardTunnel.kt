@@ -117,6 +117,27 @@ class WireGuardTunnel(
     }
 
     /**
+     * True if the tunnel is currently up. Convenience for callers
+     * (notably PoolConnector) that don't need full status.
+     */
+    fun isConnected(): Boolean = getState() == Tunnel.State.UP
+
+    /**
+     * Sums rxBytes across all peers. 0 if tunnel is down or stats
+     * unavailable. Used by Layer-B-V2 health check after the
+     * trigger packet to verify the peer responded.
+     */
+    fun bytesReceived(): Long {
+        val stats = getStatistics() ?: return 0L
+        var total = 0L
+        for (peer in config?.peers ?: emptyList()) {
+            val peerStats = stats.peer(peer.publicKey)
+            if (peerStats != null) total += peerStats.rxBytes
+        }
+        return total
+    }
+
+    /**
      * Build a VpnStatus from current tunnel state.
      */
     fun getStatus(connectionName: String, connectionId: String): VpnStatus {

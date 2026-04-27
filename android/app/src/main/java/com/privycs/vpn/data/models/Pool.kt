@@ -62,34 +62,42 @@ data class PoolRotation(
  * this struct. Reading it here would tempt direct mutation — see
  * desktop's v0.9.11.39 commit notes for why we burnt that bridge.
  */
+/**
+ * One config in a Pool. All fields are immutable - use
+ * PoolRepository.renameMember() to change the display name; the
+ * repository handles persistence + StateFlow notification.
+ */
 @Serializable
 data class PoolMember(
     val id: String,
-    var name: String,
+    val name: String,
     val config: ProtocolConfig,
     val country: String = "",                           // ISO 3166-1 alpha-2
     val region: String = "",                            // continent-level
     @SerialName("active")
-    val active: Boolean = true                          // future Pro-tier cap; default true
+    val active: Boolean = true                          // future Pro-tier cap
 )
 
 /**
- * A virtual connection wrapping multiple PoolMembers. The picker
- * runs the policy at connect-time / rotation-time to choose one.
+ * A virtual connection wrapping multiple PoolMembers. All fields
+ * immutable - mutations go through PoolRepository.update() which
+ * receives a copy() with the modified fields. This makes Compose's
+ * structural-equality recomposition reliable; in-place mutation
+ * was the source of UI staleness in earlier drafts.
  */
 @Serializable
 data class Pool(
     val id: String,
-    var name: String,
+    val name: String,
     @SerialName("created_at")
     val createdAt: String = "",                         // RFC3339 timestamp
-    var policy: PoolPolicy,
-    var rotation: PoolRotation = PoolRotation.default(),
+    val policy: PoolPolicy,
+    val rotation: PoolRotation = PoolRotation.default(),
     val members: MutableList<PoolMember> = mutableListOf(),
     @SerialName("country_override")
-    var countryOverride: String = "",                   // "" = auto-detect
+    val countryOverride: String = "",
     @SerialName("restrict_regions")
-    var restrictRegions: List<String> = emptyList()     // [] = no restriction
+    val restrictRegions: List<String> = emptyList()
 ) {
     /** O(n) member lookup. Repository caches per-pool index for O(1). */
     fun memberById(id: String): PoolMember? = members.firstOrNull { it.id == id }

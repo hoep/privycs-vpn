@@ -17,6 +17,7 @@ import com.privycs.vpn.widget.VpnWidget
 import com.wireguard.android.backend.GoBackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -473,6 +474,53 @@ class PrivycsVpnService : VpnService() {
                 }
             }
 
+            ACTION_POOL_CONNECT -> {
+                // User-triggered pool activation. Picks a member via
+                // policy and brings up the tunnel. Re-arms the
+                // rotation scheduler for round-robin pools.
+                val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
+                if (poolId.isEmpty()) {
+                    Log.w(TAG, "ACTION_POOL_CONNECT without pool id")
+                    return START_NOT_STICKY
+                }
+                startForeground(
+                    PrivycsApp.NOTIFICATION_ID_VPN,
+                    buildNotification("Connecting to pool...")
+                )
+                handlePoolConnect(poolId)
+            }
+
+            ACTION_POOL_PRE_WARM -> {
+                // AlarmManager-fired pre-warm 60s before rotation.
+                // Picks the next member, runs probe, persists as
+                // pendingMemberId. The actual rotation happens in
+                // ACTION_POOL_ROTATE one minute later.
+                val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
+                if (poolId.isEmpty()) {
+                    Log.w(TAG, "ACTION_POOL_PRE_WARM without pool id")
+                    return START_NOT_STICKY
+                }
+                // Pre-warm fires while a tunnel is up; the existing
+                // foreground notification stays. We DON'T call
+                // startForeground again because the service is
+                // already in the foreground and the receiver only
+                // needs the work done.
+                handlePoolPreWarm(poolId)
+            }
+
+            ACTION_POOL_ROTATE -> {
+                // AlarmManager-fired rotation tick. Disconnect +
+                // reconnect via the pool's policy (or pre-warmed
+                // pendingMemberId if pre-warm ran). Re-arm the
+                // scheduler for the NEXT cycle.
+                val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
+                if (poolId.isEmpty()) {
+                    Log.w(TAG, "ACTION_POOL_ROTATE without pool id")
+                    return START_NOT_STICKY
+                }
+                handlePoolRotate(poolId)
+            }
+
             else -> {
                 // Always-on VPN restart: try to reconnect with last active connection
                 startForeground(
@@ -484,6 +532,119 @@ class PrivycsVpnService : VpnService() {
         }
 
         return START_STICKY
+    }
+
+    // ========================================================================
+    // POOL FEATURE — handlers for ACTION_POOL_*. Delegates to PoolConnector
+    // which owns the picker/probe/health-check logic.
+    // ========================================================================
+
+    private val poolConnector: PoolConnector by lazy {
+        PoolConnector(
+            context = this,
+            pools = PrivycsApp.instance.poolRepository,
+            tunnelOps = poolTunnelOps
+        )
+    }
+
+    private val poolScheduler: PoolRotationScheduler by lazy {
+        PoolRotationScheduler(this)
+    }
+
+    private val poolTunnelOps = object : PoolConnector.PoolTunnelOps {
+        override suspend fun bringUp(member: com.privycs.vpn.data.models.PoolMember): Boolean {
+            // Kick off the existing connect-path for the chosen
+            // protocol. handleConnect drives the existing state
+            // machine; success/failure is observed via Layer-B
+            // (WireGuard handshake check) for WG members and
+            // implicitly via no-exception for OpenVPN/IPSec.
+            return try {
+                handleConnect(
+                    connectionId = "pool:${member.id}",
+                    protocolStr = member.config.protocol.name.lowercase(),
+                    configContent = member.config.configContent,
+                    connectionName = member.name
+                )
+                // Brief settle window before Layer-B's check
+                // queries the kernel. handleConnect returns when
+                // the tunnel install was kicked off; a few hundred
+                // ms later the WG device is registered and stats
+                // are queryable.
+                kotlinx.coroutines.delay(300)
+                // For WireGuard we trust the handshake check to
+                // verify; for other protocols we trust handleConnect
+                // not to throw.
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "pool bringUp failed: ${e.message}", e)
+                false
+            }
+        }
+
+        override suspend fun bringDown(): Boolean = try {
+            handleDisconnect()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "pool bringDown failed: ${e.message}", e)
+            false
+        }
+
+        override suspend fun bytesReceived(): Long = withContext(Dispatchers.IO) {
+            try {
+                wireGuardTunnel?.bytesReceived() ?: 0L
+            } catch (e: Exception) {
+                0L
+            }
+        }
+
+        override suspend fun userCountry(): String {
+            // No live Geo-IP detection on Android (no MMDB bundled).
+            // The HostnameCountryResolver provides per-member country
+            // tags for region filtering at import time. Geo-Nearest's
+            // home-region branch needs this method to return the
+            // user's country code; without it, Geo-Nearest falls back
+            // to Random within the unfiltered set. For most users
+            // that's the right behaviour anyway since the home
+            // region defaults to whatever's geo-IP-detected by their
+            // ISP, which is what the picker would do too.
+            return ""
+        }
+    }
+
+    private fun handlePoolConnect(poolId: String) {
+        scope.launch {
+            val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: run {
+                Log.e(TAG, "pool $poolId not found")
+                return@launch
+            }
+            val picked = poolConnector.pickAndConnect(pool)
+            if (picked == null) {
+                Log.e(TAG, "pool ${pool.name}: all connect attempts failed")
+                handleDisconnect()
+                return@launch
+            }
+            // Re-arm scheduler for the next rotation cycle (Round-Robin only).
+            if (pool.policy == com.privycs.vpn.data.models.PoolPolicy.ROUND_ROBIN) {
+                poolScheduler.arm(poolId, pool.rotation.intervalMin)
+            }
+        }
+    }
+
+    private fun handlePoolPreWarm(poolId: String) {
+        scope.launch {
+            val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: return@launch
+            poolConnector.preWarm(pool)
+        }
+    }
+
+    private fun handlePoolRotate(poolId: String) {
+        scope.launch {
+            val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: return@launch
+            val picked = poolConnector.pickAndConnect(pool)
+            if (picked != null && pool.policy == com.privycs.vpn.data.models.PoolPolicy.ROUND_ROBIN) {
+                poolScheduler.arm(poolId, pool.rotation.intervalMin)
+            }
+        }
     }
 
     override fun onDestroy() {
