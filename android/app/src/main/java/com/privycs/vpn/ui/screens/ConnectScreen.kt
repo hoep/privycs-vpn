@@ -190,6 +190,16 @@ fun ConnectScreen(
         return
     }
 
+    // Pool indicator wiring. When a pool is active (poolRegistry's
+    // activeId is set) the card replaces the visual position the
+    // single-connection name takes, displaying current member +
+    // countdown to next rotation.
+    val poolRepoForIndicator = remember { PrivycsApp.instance.poolRepository }
+    val poolRegistryState by poolRepoForIndicator.registry.collectAsState()
+    val activePool = remember(poolRegistryState.activeId, poolRegistryState.pools) {
+        poolRegistryState.pools.firstOrNull { it.id == poolRegistryState.activeId }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -198,6 +208,58 @@ fun ConnectScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(24.dp))
+
+        // Pool indicator card — only when a pool is the active selection.
+        if (activePool != null) {
+            val activeMemberId by androidx.compose.runtime.produceState(
+                "", activePool.id
+            ) {
+                while (true) {
+                    value = poolRepoForIndicator.activeMemberId(activePool.id)
+                    delay(1000)
+                }
+            }
+            val pendingMemberId by androidx.compose.runtime.produceState(
+                "", activePool.id
+            ) {
+                while (true) {
+                    value = poolRepoForIndicator.pendingMemberId(activePool.id)
+                    delay(1000)
+                }
+            }
+            val activeMember = activePool.memberById(activeMemberId)
+            val pendingMember = activePool.memberById(pendingMemberId)
+            val item = remember(activePool, activeMemberId, pendingMemberId) {
+                com.privycs.vpn.data.models.PoolListItem(
+                    id = activePool.id,
+                    name = activePool.name,
+                    policy = activePool.policy,
+                    memberCount = activePool.members.size,
+                    activeMemberId = activeMemberId,
+                    activeMemberName = activeMember?.name.orEmpty(),
+                    activeMemberCountry = activeMember?.country.orEmpty(),
+                    pendingMemberId = pendingMemberId,
+                    pendingMemberName = pendingMember?.name.orEmpty(),
+                    pendingMemberCountry = pendingMember?.country.orEmpty(),
+                    isActive = true
+                )
+            }
+            // Round-Robin → countdown driven from rotation interval
+            // (rough — actual scheduler-side drift is not exposed
+            // through any state flow yet; UI shows configured value).
+            val countdownMs: Long? = if (activePool.policy == com.privycs.vpn.data.models.PoolPolicy.ROUND_ROBIN) {
+                (activePool.rotation.intervalMin * 60 * 1000L)
+            } else null
+
+            com.privycs.vpn.ui.components.PoolIndicatorCard(
+                pool = item,
+                nextRotationInMs = countdownMs,
+                pendingMemberName = pendingMember?.name,
+                pendingMemberCountry = pendingMember?.country,
+                onClick = { onNavigateToConnections() }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         // Connect button
         // Prefer the live-status protocol (reflects what the tunnel is

@@ -85,14 +85,19 @@ import java.time.Instant
 @Composable
 fun ConnectionsScreen(
     onNavigateToAdd: (connectionId: String?) -> Unit,
-    onNavigateToConnect: () -> Unit
+    onNavigateToConnect: () -> Unit,
+    onNavigateToPoolAdd: () -> Unit = {},
+    onNavigateToPoolDetail: (poolId: String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val connectionRepo = remember { PrivycsApp.instance.connectionRepository }
     val settingsRepo = remember { PrivycsApp.instance.settingsRepository }
+    val poolRepo = remember { PrivycsApp.instance.poolRepository }
     val registry by connectionRepo.registry.collectAsState()
+    val poolRegistry by poolRepo.registry.collectAsState()
     val settings by settingsRepo.settingsFlow.collectAsState(initial = settingsRepo.defaultSettings())
     val connections = registry.connections
+    val pools = poolRegistry.pools
     val scope = rememberCoroutineScope()
 
     var deleteTarget by remember { mutableStateOf<VpnConnection?>(null) }
@@ -401,25 +406,67 @@ fun ConnectionsScreen(
                 )
             }
 
-            if (connections.isEmpty()) {
+            if (connections.isEmpty() && pools.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(32.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No connections yet.\nTap + to add one.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "No connections yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        TextButton(onClick = onNavigateToPoolAdd) {
+                            Icon(Icons.Filled.Add, contentDescription = null)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Add Pool")
+                        }
+                        Text(
+                            "or tap + to add a single connection",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Pools section - shown above the singles list.
+                    // Tappable cards open the pool detail. The
+                    // header carries an "Add Pool" affordance.
+                    item {
+                        PoolsSectionHeader(
+                            poolCount = pools.size,
+                            onAddPool = onNavigateToPoolAdd
+                        )
+                    }
+                    items(pools, key = { "pool:${it.id}" }) { p ->
+                        PoolListCard(
+                            pool = p,
+                            isActive = p.id == poolRegistry.activeId,
+                            onClick = { onNavigateToPoolDetail(p.id) }
+                        )
+                    }
+                    if (pools.isNotEmpty()) {
+                        item {
+                            // Visual separator between pools and singles.
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Connections",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                            )
+                        }
+                    }
+
                     items(connections, key = { it.id }) { connection ->
                         ConnectionCard(
                             connection = connection,
@@ -464,6 +511,84 @@ fun ConnectionsScreen(
                     }
 
                     item { Spacer(modifier = Modifier.height(80.dp)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PoolsSectionHeader(
+    poolCount: Int,
+    onAddPool: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            if (poolCount == 0) "Pools" else "Pools ($poolCount)",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onAddPool) {
+            Icon(Icons.Filled.Add, contentDescription = null,
+                modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Add Pool")
+        }
+    }
+}
+
+@Composable
+private fun PoolListCard(
+    pool: com.privycs.vpn.data.models.Pool,
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isActive)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                androidx.compose.material.icons.Icons.Filled.Hub,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    pool.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "${pool.policy.displayName} · ${pool.members.size} servers",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (isActive) {
+                androidx.compose.material3.Badge(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Text("ACTIVE",
+                        style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

@@ -14,9 +14,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.privycs.vpn.ui.components.BottomNavBar
 import com.privycs.vpn.ui.screens.AddConnectionScreen
+import com.privycs.vpn.ui.screens.AddPoolHost
 import com.privycs.vpn.ui.screens.ConnectScreen
 import com.privycs.vpn.ui.screens.ConnectionsScreen
 import com.privycs.vpn.ui.screens.LogsScreen
+import com.privycs.vpn.ui.screens.PoolDetailHost
 import com.privycs.vpn.ui.screens.SettingsScreen
 import com.privycs.vpn.ui.screens.PerAppVpnScreen
 
@@ -31,8 +33,17 @@ object Routes {
     const val LOGS = "logs"
     const val PER_APP_VPN = "per_app_vpn"
 
+    // Pool routes. POOL_ADD reuses the "Add" tab via a flag so the
+    // BottomNavBar's Add button surfaces a chooser between Single
+    // Connection and Pool. POOL_DETAIL is a deep link from the
+    // ConnectionsScreen pool list.
+    const val POOL_ADD = "pool/add"
+    const val POOL_DETAIL = "pool/{poolId}"
+
     fun addForConnection(connectionId: String? = null): String =
         if (connectionId.isNullOrBlank()) "add" else "add?connectionId=$connectionId"
+
+    fun poolDetail(poolId: String): String = "pool/$poolId"
 }
 
 @Composable
@@ -85,6 +96,12 @@ fun AppNavigation(
                         navController.navigate(Routes.CONNECT) {
                             popUpTo(Routes.CONNECT) { inclusive = true }
                         }
+                    },
+                    onNavigateToPoolAdd = {
+                        navController.navigate(Routes.POOL_ADD)
+                    },
+                    onNavigateToPoolDetail = { poolId ->
+                        navController.navigate(Routes.poolDetail(poolId))
                     }
                 )
             }
@@ -136,6 +153,45 @@ fun AppNavigation(
                 LogsScreen(
                     onBack = {
                         navController.popBackStack()
+                    }
+                )
+            }
+
+            // Pool: import + create flow.
+            composable(Routes.POOL_ADD) {
+                AddPoolHost(
+                    onCancel = { navController.popBackStack() },
+                    onCreated = {
+                        navController.navigate(Routes.CONNECTIONS) {
+                            popUpTo(Routes.CONNECT) { inclusive = false }
+                        }
+                    }
+                )
+            }
+
+            // Pool: detail screen with member list, settings, activate.
+            composable(
+                route = Routes.POOL_DETAIL,
+                arguments = listOf(
+                    navArgument("poolId") {
+                        type = NavType.StringType
+                        nullable = false
+                    }
+                )
+            ) { backStackEntry ->
+                val poolId = backStackEntry.arguments?.getString("poolId").orEmpty()
+                PoolDetailHost(
+                    poolId = poolId,
+                    onBack = { navController.popBackStack() },
+                    onActivated = {
+                        navController.navigate(Routes.CONNECT) {
+                            popUpTo(Routes.CONNECT) { inclusive = true }
+                        }
+                    },
+                    onDeleted = {
+                        navController.navigate(Routes.CONNECTIONS) {
+                            popUpTo(Routes.CONNECTIONS) { inclusive = true }
+                        }
                     }
                 )
             }
