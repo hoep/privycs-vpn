@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os/exec"
+	"runtime"
 	"time"
 )
 
@@ -12,27 +14,31 @@ import (
 // VPN endpoint 60 s before the rotation tick would have switched to
 // it, so the rotator can pick a different member silently.
 //
-// Tradeoff space (see decision in v0.9.11.33 commit):
-//   * ICMP ping: needs admin on Windows, often blocked by VPN providers.
-//   * Real WireGuard handshake: 200+ LoC of crypto. Overkill for a
-//     pre-warm hint - the rotation-time handshake check (B) catches
-//     these cases definitively.
-//   * TCP-Dial to a related port: cheap, cross-platform, no privileges.
-//     False-negative rate (provider blocks both :443 and :80) is
-//     acceptable - pre-warm is a HINT, not authoritative.
+// History: v0.9.11.33-36 included a TCP-Dial against :443 and :80 as
+// a second-stage probe. This produced a class of FALSE POSITIVES on
+// dedicated VPN servers (the typical commercial provider's WireGuard
+// fleet runs only the wg UDP socket and nothing else - no web server,
+// no SSH, nothing on TCP). Those servers were wrongly flagged dead,
+// shrinking the pool's effective size until the 30-min TTL cleared
+// them. Reported by user against a Mullvad-style provider archive.
 //
-// Strategy: DNS resolve, then sequential TCP-Dial against :443 and :80
-// with short timeouts. If DNS fails the host is genuinely unreachable.
-// If both TCP probes fail we report "suspect" rather than "dead" via
-// the returned error - caller decides how to weight that.
+// v0.9.11.37 simplified to DNS-only. Reasoning:
+//   * DNS failure is unambiguous: the hostname does not resolve.
+//   * DNS success says "this host could exist". Whether the wg
+//     daemon on the (UDP-only) endpoint is healthy cannot be tested
+//     in user-mode without sending a real WireGuard handshake (~200
+//     LoC of crypto) or having raw-socket privileges. The actual
+//     authoritative health check happens at rotation time anyway:
+//       Layer A retries on Up()-failure
+//       Layer B verifies via packet-trigger + bytes_rx after Up()
+//   * Pre-warm is a HINT, not authoritative. False-positives in the
+//     hint hurt more than the marginal benefit of a successful TCP
+//     probe.
 //
-// Total worst-case latency: 2 s DNS + 1 s :443 + 1 s :80 = ~4 s. Pre-
-// warm fires 60 s ahead of rotation so even three sequential probes
-// of three members fit comfortably (~12 s).
+// Worst-case latency now: 2 s DNS only (was 4 s before).
 
 const (
 	probeDNSTimeout = 2 * time.Second
-	probeTCPTimeout = 1 * time.Second
 )
 
 // probeMember tests whether the member's endpoint is likely reachable.
@@ -48,45 +54,56 @@ func probeMember(m *PoolMember) error {
 		return fmt.Errorf("probe: empty host after strip from %q", m.Config.ServerAddress)
 	}
 
-	// Step 1: DNS resolve. Bare IPs short-circuit (LookupHost is fast
-	// for them but we save a syscall). DNS failure is definitive -
-	// the member cannot be reached.
-	if ip := net.ParseIP(host); ip == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), probeDNSTimeout)
-		defer cancel()
-		ips, err := net.DefaultResolver.LookupHost(ctx, host)
-		if err != nil {
-			return fmt.Errorf("probe: dns %s: %w", host, err)
-		}
-		if len(ips) == 0 {
-			return fmt.Errorf("probe: dns %s: no addresses", host)
-		}
-	}
-
-	// Step 2: TCP-Dial common service ports. Either succeeding means
-	// the host is alive at L3/L4; we cannot tell if the VPN daemon
-	// itself is healthy from here, but the rotation-time handshake
-	// check (B) catches that.
-	if err := dialOK(host, "443"); err == nil {
+	// DNS resolve. Bare IPs short-circuit (no DNS to do). DNS failure
+	// is definitive - the member cannot be reached at any layer.
+	if ip := net.ParseIP(host); ip != nil {
 		return nil
 	}
-	if err := dialOK(host, "80"); err == nil {
-		return nil
+	ctx, cancel := context.WithTimeout(context.Background(), probeDNSTimeout)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupHost(ctx, host)
+	if err != nil {
+		return fmt.Errorf("probe: dns %s: %w", host, err)
 	}
-
-	return fmt.Errorf("probe: %s unreachable on tcp:443 and tcp:80", host)
+	if len(ips) == 0 {
+		return fmt.Errorf("probe: dns %s: no addresses", host)
+	}
+	return nil
 }
 
-// dialOK attempts a TCP connect with the probe timeout and closes
-// immediately on success. Returns nil if the dial succeeded.
-func dialOK(host, port string) error {
-	d := net.Dialer{Timeout: probeTCPTimeout}
-	conn, err := d.Dial("tcp", net.JoinHostPort(host, port))
-	if err != nil {
-		return err
-	}
-	_ = conn.Close()
-	return nil
+// flushOSDNSCache invokes the platform's user-mode DNS cache flush
+// after a successful pool rotation. The new tunnel typically routes
+// through a different exit IP, which means CDN-resolved hostnames in
+// the OS resolver cache (e.g. "cdn.example.com → 1.2.3.4") were
+// chosen for the OLD exit's geolocation. After rotation those entries
+// are still valid but suboptimal - apps continue to hit the old
+// CDN edge instead of one closer to the new exit. Flushing forces
+// re-resolution on the next lookup.
+//
+// Best-effort and silent on failure - a missing/locked-down resolver
+// service should not be a rotation-failing condition. Runs as a
+// goroutine so the rotation thread is not blocked on the syscall.
+func flushOSDNSCache() {
+	go func() {
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "windows":
+			cmd = execHidden("ipconfig", "/flushdns")
+		case "linux":
+			// resolvectl is the systemd-resolved API; falls back
+			// silently if not present.
+			cmd = exec.Command("resolvectl", "flush-caches")
+		case "darwin":
+			cmd = exec.Command("dscacheutil", "-flushcache")
+		default:
+			return
+		}
+		if cmd == nil {
+			return
+		}
+		_ = cmd.Run()
+		log.Printf("Pool: OS DNS cache flushed")
+	}()
 }
 
 // markMemberUnreachable flips the unreachable bit and timestamps it.

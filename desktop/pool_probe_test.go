@@ -25,8 +25,8 @@ func TestProbeMember_NilOrEmpty(t *testing.T) {
 // TestProbeMember_DNSFailure feeds an invalid hostname guaranteed to
 // fail DNS lookup and confirms the probe surfaces a "dns" error.
 // Skipped when the host resolves random labels (some captive WiFi
-// rewrites all NXDOMAIN to a portal IP, which would let TCP-Dial
-// succeed against the wrong target).
+// rewrites all NXDOMAIN to a portal IP, which would still pass DNS
+// resolution and make this test pointless).
 func TestProbeMember_DNSFailure(t *testing.T) {
 	bad := "this-host-does-not-exist-" + randHex(16) + ".invalid"
 	if ips, err := net.LookupHost(bad); err == nil && len(ips) > 0 {
@@ -46,34 +46,19 @@ func TestProbeMember_DNSFailure(t *testing.T) {
 	}
 }
 
-// TestProbeMember_ReachableLocalhost spins up a local TCP listener on
-// :443-equivalent and confirms the probe finds it. We listen on
-// 127.0.0.1:0 (random port) and rewrite the test hostname to point
-// dialOK at the right port. Since dialOK is hardcoded to :443/:80
-// we instead test the lower-level dialOK helper directly.
-func TestDialOK_ReachableLocalhost(t *testing.T) {
-	// Bind a TCP listener on 127.0.0.1:0 (any free port).
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen failed: %v", err)
+// TestProbeMember_BareIPSucceeds confirms the bare-IP short-circuit:
+// if the endpoint is a literal IPv4, no DNS lookup is needed and the
+// probe must accept it. This is the typical case for VPN providers
+// that ship configs with hardcoded IP endpoints (no hostname to
+// resolve) - earlier TCP-Dial probe wrongly rejected these.
+func TestProbeMember_BareIPSucceeds(t *testing.T) {
+	m := &PoolMember{
+		ID:     "test",
+		Name:   "test",
+		Config: &ProtocolConfig{ServerAddress: "203.0.113.1:51820"},
 	}
-	defer ln.Close()
-
-	_, port, err := net.SplitHostPort(ln.Addr().String())
-	if err != nil {
-		t.Fatalf("split addr failed: %v", err)
-	}
-
-	if err := dialOK("127.0.0.1", port); err != nil {
-		t.Errorf("dialOK to local listener failed: %v", err)
-	}
-}
-
-func TestDialOK_UnreachablePort(t *testing.T) {
-	// Pick a port that very-likely has no listener. 1 is reserved/
-	// privileged on Linux; a non-listener there gives a fast ECONNREFUSED.
-	if err := dialOK("127.0.0.1", "1"); err == nil {
-		t.Errorf("dialOK to unreachable port should fail")
+	if err := probeMember(m); err != nil {
+		t.Errorf("bare-IP probe should succeed without network calls, got: %v", err)
 	}
 }
 

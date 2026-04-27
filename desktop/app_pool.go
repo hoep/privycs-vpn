@@ -1001,24 +1001,36 @@ func (a *App) PickAndConnectActivePool() error {
 	// must NOT proceed - the old tunnel is still up at the OS level
 	// and overwriting .conf would corrupt its state. Bail with an
 	// error so the user knows the rotation did not happen.
+	// Step-timing: log how long each phase of the rotation takes so
+	// the user-perceived "switch took 12-15 s" narrative can be
+	// decomposed. Phases reported: disconnect, connect, peer-verify,
+	// total. The OS-level switch is typically ~1 s; the rest is
+	// upper-layer (TCP retransmits, DNS cache invalidation, browser
+	// session pools) which is invisible to us but dominant in the
+	// user's experience.
+	rotationStart := time.Now()
+
 	a.mu.RLock()
 	wasConnected := a.connected
 	a.mu.RUnlock()
 	if wasConnected {
+		discStart := time.Now()
 		a.mu.Lock()
 		err := a.disconnectInternal()
 		a.mu.Unlock()
+		log.Printf("Pool %s timing: disconnect=%dms",
+			pool.Name, time.Since(discStart).Milliseconds())
 		if err != nil {
 			return fmt.Errorf("pool rotate: disconnect failed, refusing to overwrite config: %w", err)
 		}
 	}
 
 	// Retry loop: up to maxConnectAttempts members per rotation. Each
-	// failure (Up error OR no-handshake-after-5s) marks the member
-	// Unreachable+timestamp, picks the next, and tries again. Silent
-	// per user choice in v0.9.11.33 - we do NOT toast intermediate
-	// failures; only the final all-failed state surfaces (as a
-	// disconnected app state, not a popup).
+	// failure (Up error OR peer-silent) marks the member Unreachable
+	// +timestamp, picks the next, and tries again. Silent per user
+	// choice in v0.9.11.33 - we do NOT toast intermediate failures;
+	// only the final all-failed state surfaces (as a disconnected
+	// app state, not a popup).
 	//
 	// First-iteration preference: if the rotator's pre-warm already
 	// picked PendingMemberID, honour that (deterministic with the
@@ -1054,13 +1066,17 @@ func (a *App) PickAndConnectActivePool() error {
 			pool.Name, pool.Policy, attempt+1, maxConnectAttempts,
 			member.Name, member.Country, member.Region)
 
+		connectStart := time.Now()
 		if err := a.connectToPoolMember(member); err != nil {
 			lastErr = err
 			a.markMemberUnreachable(pool, member, err.Error())
-			log.Printf("Pool %s: connect to %s failed (%v) - retrying with next member",
-				pool.Name, member.Name, err)
+			log.Printf("Pool %s: connect to %s failed after %dms (%v) - retrying with next member",
+				pool.Name, member.Name, time.Since(connectStart).Milliseconds(), err)
 			continue
 		}
+		connectDur := time.Since(connectStart)
+		log.Printf("Pool %s timing: connect=%dms (member %s)",
+			pool.Name, connectDur.Milliseconds(), member.Name)
 
 		// Layer-B-V2: peer-health verification by traffic-counter.
 		// WireGuard handshakes are lazy - they only fire when the
@@ -1081,17 +1097,29 @@ func (a *App) PickAndConnectActivePool() error {
 		// Only WireGuard. OpenVPN/IPSec have their own auth flows
 		// that fail-fast on dead peers via Up().
 		if member.Config != nil && member.Config.Protocol == "wireguard" {
+			verifyStart := time.Now()
 			if !a.verifyWireGuardPeerHealth(member, peerHealthTimeout) {
 				lastErr = fmt.Errorf("peer did not respond to triggered traffic within %s", peerHealthTimeout)
 				a.markMemberUnreachable(pool, member, lastErr.Error())
-				log.Printf("Pool %s: %s up but peer silent (no rx) - marking unreachable, retrying",
-					pool.Name, member.Name)
+				log.Printf("Pool %s: %s up but peer silent (no rx after %dms) - marking unreachable, retrying",
+					pool.Name, member.Name, time.Since(verifyStart).Milliseconds())
 				a.mu.Lock()
 				_ = a.disconnectInternal()
 				a.mu.Unlock()
 				continue
 			}
+			log.Printf("Pool %s timing: peer-verify=%dms (rx confirmed)",
+				pool.Name, time.Since(verifyStart).Milliseconds())
 		}
+
+		log.Printf("Pool %s timing: TOTAL switch=%dms (disconnect+connect+verify)",
+			pool.Name, time.Since(rotationStart).Milliseconds())
+
+		// Flush OS DNS cache so apps re-resolve hostnames through
+		// the new tunnel's geolocation (different exit IP = often
+		// different CDN edge). Background goroutine - the rotation
+		// thread is not blocked on it.
+		flushOSDNSCache()
 
 		// Healthy connect. Fire the rotated event so the UI refreshes
 		// the active-member line, and we are done.
