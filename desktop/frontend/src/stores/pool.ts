@@ -24,6 +24,7 @@ import {
   PickAndConnectActivePool,
   PoolRotatorStatus,
   SelfIPCountry,
+  BootstrapState,
 } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 
@@ -80,34 +81,72 @@ export const usePoolStore = defineStore('pool', () => {
   const error = ref<string | null>(null)
 
   /** Refresh everything pool-related. Cheap (no member lists).
-   *  All four Wails calls fire in parallel via Promise.all instead of
-   *  sequentially - earlier serial form was 4x slower because each
-   *  Wails IPC adds ~10-30ms per round-trip and the user-perceived
-   *  lag on connection-picker switches added up to ~150ms+. */
+   *  Each IPC fires independently and writes its own ref as soon as
+   *  it resolves - so the fastest call (ListPools/ActivePoolID, ~10ms
+   *  each, in-memory on the Go side) populates the pool card on the
+   *  first frame instead of waiting for the slowest call to land.
+   *  Earlier `Promise.all` form blocked rendering until ALL four
+   *  resolved - cold-start UX showed an empty pool slot for ~80-150ms
+   *  even though the data was already in memory.
+   *
+   *  Returns when ALL calls have settled so callers that await it
+   *  (auto-restore, post-rotation refresh) keep their previous
+   *  semantics. UI rendering does not wait. */
   async function refresh() {
     loading.value = true
     error.value = null
-    try {
-      const [poolsList, activeId, rotStatus, country] = await Promise.all([
-        ListPools(),
-        ActivePoolID(),
-        PoolRotatorStatus(),
-        SelfIPCountry(),
-      ])
-      pools.value = (poolsList as PoolListItem[]) || []
-      activePoolId.value = (activeId as string) || ''
-      rotatorStatus.value = rotStatus as RotatorStatus
-      userCountry.value = (country as string) || ''
-    } catch (e: any) {
-      error.value = e?.toString() || 'failed to load pools'
-    } finally {
-      loading.value = false
+    const results = await Promise.allSettled([
+      ListPools().then((v) => { pools.value = (v as PoolListItem[]) || [] }),
+      ActivePoolID().then((v) => { activePoolId.value = (v as string) || '' }),
+      PoolRotatorStatus().then((v) => { rotatorStatus.value = v as RotatorStatus }),
+      SelfIPCountry().then((v) => { userCountry.value = (v as string) || '' }),
+    ])
+    const firstReject = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined
+    if (firstReject) {
+      error.value = firstReject.reason?.toString?.() || 'failed to load pools'
     }
+    loading.value = false
   }
 
   /** Pull the full member list for a single pool. Heavier than refresh. */
   async function detail(poolId: string) {
     return await GetPoolDetail(poolId)
+  }
+
+  /** Hydrate the store from the synchronous BootstrapState snapshot.
+   *  Called from main.ts before any view mounts AND as a fallback
+   *  inside ConnectionView.onMounted in case the event arrives before
+   *  the listener was wired (cold-start race).
+   *
+   *  We only OVERWRITE refs that are still empty - if a refresh()
+   *  has already populated them, bootstrap should not regress to a
+   *  smaller snapshot (active pool only vs full list). */
+  async function bootstrap() {
+    try {
+      const snap: any = await BootstrapState()
+      if (!snap) return
+      if (snap.active_pool_id && !activePoolId.value) {
+        activePoolId.value = snap.active_pool_id
+      }
+      if (snap.active_pool && pools.value.length === 0) {
+        pools.value = [snap.active_pool as PoolListItem]
+      }
+    } catch {
+      // bootstrap is a best-effort warm-up; refresh() is the
+      // authoritative path. Silently swallow.
+    }
+  }
+
+  /** Apply a pool:bootstrap event payload (same shape as
+   *  BootstrapState). Same overwrite semantics as bootstrap(). */
+  function applyBootstrap(snap: any) {
+    if (!snap) return
+    if (snap.active_pool_id && !activePoolId.value) {
+      activePoolId.value = snap.active_pool_id
+    }
+    if (snap.active_pool && pools.value.length === 0) {
+      pools.value = [snap.active_pool as PoolListItem]
+    }
   }
 
   async function create(name: string, policy: PoolPolicy, paths: string[]) {
@@ -195,6 +234,8 @@ export const usePoolStore = defineStore('pool', () => {
     loading,
     error,
     refresh,
+    bootstrap,
+    applyBootstrap,
     detail,
     create,
     createFromUploads,

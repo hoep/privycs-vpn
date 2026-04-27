@@ -904,6 +904,14 @@ let rotatorCountdownInterval: ReturnType<typeof setInterval> | null = null
 let stopPoolRotatedListener: (() => void) | null = null
 
 onMounted(() => {
+  // Bootstrap-first: pull the synchronous BootstrapState snapshot
+  // (in-memory on the Go side, single ~10ms IPC) so the pool card
+  // renders on the very first frame instead of waiting for the
+  // 4-IPC poolStore.refresh round-trip. The pool:bootstrap event
+  // fired from App.startup() handles the race where main.ts already
+  // hydrated; this is the fallback for late-mount + cold-start.
+  poolStore.bootstrap()
+
   // Critical: gate Welcome rendering on BOTH lists landing. Until
   // dataLoaded flips, showWelcome returns false even if the
   // currently-empty refs would otherwise satisfy "no data" - that

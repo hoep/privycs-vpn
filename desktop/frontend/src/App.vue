@@ -28,6 +28,11 @@
          a 600-server provider ZIP is resolving. -->
     <PoolImportToast />
 
+    <!-- App-startup loading toast: surfaces background tasks (SelfIP
+         DoH probe, MMDB country backfill) that would otherwise look
+         like the app is frozen for a few seconds at cold start. -->
+    <AppLoadingToast />
+
     <!-- Bottom Navigation -->
     <nav class="flex items-center justify-around py-2 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700/50">
       <router-link
@@ -49,6 +54,7 @@ import { ref, onMounted, onUnmounted, markRaw } from 'vue'
 import { useRoute } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
 import PoolImportToast from '@/components/PoolImportToast.vue'
+import AppLoadingToast from '@/components/AppLoadingToast.vue'
 import {
   ShieldCheckIcon,
   Cog6ToothIcon,

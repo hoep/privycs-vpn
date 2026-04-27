@@ -219,13 +219,20 @@ func (a *App) startup(ctx context.Context) {
 	// cold cache before the first endpoint responds). By the time
 	// the user clicks anything, a.selfIPDetector.Cached() returns
 	// a populated result and downstream paths read it instantly.
+	//
+	// Frontend toast: emit app:loading begin/done so the user sees
+	// "Detecting your location..." instead of staring at a blank-ish
+	// screen for the few seconds the DoH chain takes on cold cache.
 	if a.selfIPDetector != nil {
 		go func() {
+			a.emitLoading("geo-detect", 0, 0, "")
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
-			if c := a.selfIPDetector.CountryFor(ctx); c != "" {
+			c := a.selfIPDetector.CountryFor(ctx)
+			if c != "" {
 				log.Printf("App: SelfIP pre-warm complete, country=%s", c)
 			}
+			a.emitLoading("geo-detect-done", 0, 0, c)
 		}()
 	}
 
@@ -317,6 +324,17 @@ func (a *App) startup(ctx context.Context) {
 			// KS on but no connections configured. Nothing to protect
 			// against; leave at IDLE until the user adds a connection.
 		}
+	}
+
+	// Emit the bootstrap snapshot so the frontend renders pool /
+	// connection state on its very first frame, without waiting for
+	// the four-IPC poolStore.refresh() round-trip. Both ConnectionView
+	// and the early-mount listener in main.ts subscribe to this -
+	// stale-event safety: BootstrapState() is also exposed as a
+	// callable so a late-mounted view that missed the event fetches
+	// the same payload synchronously.
+	if a.ctx != nil {
+		wailsRuntime.EventsEmit(a.ctx, "pool:bootstrap", a.BootstrapState())
 	}
 
 	log.Println("Privycs VPN ready")

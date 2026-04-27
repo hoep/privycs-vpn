@@ -270,6 +270,84 @@ func (a *App) ActivePoolID() string {
 	return a.activePoolID
 }
 
+// emitLoading is a small helper used by the startup goroutines to
+// surface progress on long-running background tasks (SelfIP DoH probe
+// chain, MMDB backfill) as app:loading events. ConnectionView shows
+// these in a transient toast - users get visible feedback during the
+// few-seconds window where the screen would otherwise look frozen.
+//
+// stage values:
+//   - "geo-detect"        SelfIP probe started
+//   - "geo-detect-done"   SelfIP probe finished (extra carries CC or "")
+//   - "backfill"          MMDB backfill in progress (current/total set)
+//   - "backfill-done"     MMDB backfill finished
+//
+// Safe to call before a.ctx is set (silent no-op).
+func (a *App) emitLoading(stage string, current, total int, extra string) {
+	if a.ctx == nil {
+		return
+	}
+	wailsRuntime.EventsEmit(a.ctx, "app:loading", map[string]any{
+		"stage":   stage,
+		"current": current,
+		"total":   total,
+		"extra":   extra,
+	})
+}
+
+// BootstrapStateInfo is the synchronous startup snapshot the frontend
+// reads to render the connection screen on its very first frame -
+// before any of the heavier refresh() IPC calls have round-tripped.
+//
+// Carrying the active pool's display fields here means the pool card
+// is visible the instant ConnectionView mounts: name, policy, member
+// count, and the active member's "Currently:" line all populate from
+// the same in-memory state that ListPools would return - just shaped
+// for the single pool we actually need at boot.
+type BootstrapStateInfo struct {
+	ActivePoolID     string `json:"active_pool_id"`
+	ActivePool       *PoolListItem `json:"active_pool,omitempty"`
+	HasActiveSingle  bool   `json:"has_active_single"`
+	ActiveSingleName string `json:"active_single_name,omitempty"`
+}
+
+// BootstrapState returns the minimum data the connection screen needs
+// to render meaningfully on the first paint. Cheap (in-memory only,
+// no DNS / no MMDB / no network) so it's safe to call synchronously
+// during ConnectionView setup.
+func (a *App) BootstrapState() *BootstrapStateInfo {
+	a.mu.RLock()
+	activePoolID := a.activePoolID
+	a.mu.RUnlock()
+
+	info := &BootstrapStateInfo{ActivePoolID: activePoolID}
+
+	if activePoolID != "" && a.pools != nil {
+		if p := a.pools.Get(activePoolID); p != nil {
+			item := &PoolListItem{
+				ID:             p.ID,
+				Name:           p.Name,
+				Policy:         string(p.Policy),
+				MemberCount:    len(p.Members),
+				ActiveMemberID: p.ActiveMemberID,
+				IsActive:       true,
+			}
+			if m := p.MemberByID(p.ActiveMemberID); m != nil {
+				item.ActiveMemberName = m.Name
+				item.ActiveMemberCC = m.Country
+			}
+			info.ActivePool = item
+		}
+	}
+
+	if c := a.connections.Active(); c != nil {
+		info.HasActiveSingle = true
+		info.ActiveSingleName = c.Name
+	}
+
+	return info
+}
+
 // ActivatePool marks a pool as the active "virtual connection".
 // Subsequent Connect() calls will run the pool's policy to pick a
 // member. Calling with empty id deactivates any active pool.
@@ -756,6 +834,27 @@ func (a *App) backfillPoolCountries() {
 		return
 	}
 	pools := a.pools.List()
+
+	// Count how many members actually need backfill so the toast
+	// progress is meaningful (no progress for already-correct pools).
+	var pending int
+	for _, pool := range pools {
+		for _, m := range pool.Members {
+			if m.Country == "" && m.Config != nil && m.Config.ServerAddress != "" {
+				pending++
+			}
+		}
+	}
+	if pending == 0 {
+		return
+	}
+	a.emitLoading("backfill", 0, pending, "")
+
+	processed := 0
+	// Throttle progress events: every 10 members or 250ms, whichever
+	// fires first. Emitting on every member would saturate the
+	// frontend with hundreds of events for a 600-member pool.
+	lastEmit := time.Now()
 	for _, pool := range pools {
 		changed := false
 		for _, m := range pool.Members {
@@ -763,6 +862,7 @@ func (a *App) backfillPoolCountries() {
 				continue
 			}
 			ip := resolveHostToIP(stripPortIfPresent(m.Config.ServerAddress))
+			processed++
 			if ip == nil {
 				continue
 			}
@@ -773,6 +873,10 @@ func (a *App) backfillPoolCountries() {
 			m.Country = cc
 			m.Region = geoip.Region(cc)
 			changed = true
+			if processed%10 == 0 || time.Since(lastEmit) > 250*time.Millisecond {
+				a.emitLoading("backfill", processed, pending, "")
+				lastEmit = time.Now()
+			}
 		}
 		if changed {
 			if err := a.pools.Update(pool); err == nil {
@@ -780,6 +884,7 @@ func (a *App) backfillPoolCountries() {
 			}
 		}
 	}
+	a.emitLoading("backfill-done", pending, pending, "")
 }
 
 // mostRecentlyUsedConnection returns the connection with the newest

@@ -6,16 +6,52 @@ export function ActivateConnection(arg1, arg2) {
   return window['go']['main']['App']['ActivateConnection'](arg1, arg2);
 }
 
+export function ActivatePool(arg1) {
+  return window['go']['main']['App']['ActivatePool'](arg1);
+}
+
+export function ActivePoolID() {
+  return window['go']['main']['App']['ActivePoolID']();
+}
+
+export function BootstrapState() {
+  return window['go']['main']['App']['BootstrapState']();
+}
+
 export function CancelPause() {
   return window['go']['main']['App']['CancelPause']();
 }
 
-export function GetConnectOnDemandStatus() {
-  return window['go']['main']['App']['GetConnectOnDemandStatus']();
-}
-
 export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
+}
+
+export function Connect(arg1) {
+  return window['go']['main']['App']['Connect'](arg1);
+}
+
+export function CreatePoolFromPaths(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreatePoolFromPaths'](arg1, arg2, arg3);
+}
+
+export function CreatePoolFromUploads(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreatePoolFromUploads'](arg1, arg2, arg3);
+}
+
+export function DeleteConnection(arg1) {
+  return window['go']['main']['App']['DeleteConnection'](arg1);
+}
+
+export function DeletePool(arg1) {
+  return window['go']['main']['App']['DeletePool'](arg1);
+}
+
+export function DeletePoolMember(arg1, arg2) {
+  return window['go']['main']['App']['DeletePoolMember'](arg1, arg2);
+}
+
+export function Disconnect() {
+  return window['go']['main']['App']['Disconnect']();
 }
 
 export function DownloadAndImportConfig(arg1, arg2, arg3, arg4) {
@@ -38,112 +74,20 @@ export function FetchMyProfile() {
   return window['go']['main']['App']['FetchMyProfile']();
 }
 
-export function GetHelperStatus() {
-  return window['go']['main']['App']['GetHelperStatus']();
-}
-
-export function ImportBackup(arg1, arg2) {
-  return window['go']['main']['App']['ImportBackup'](arg1, arg2);
-}
-
-export function InstallPrivilegedHelper() {
-  return window['go']['main']['App']['InstallPrivilegedHelper']();
-}
-
-export function PickBackupOpenPath() {
-  return window['go']['main']['App']['PickBackupOpenPath']();
-}
-
-export function PickBackupSavePath() {
-  return window['go']['main']['App']['PickBackupSavePath']();
-}
-
-export function UninstallPrivilegedHelper() {
-  return window['go']['main']['App']['UninstallPrivilegedHelper']();
-}
-
-export function ListPools() {
-  return window['go']['main']['App']['ListPools']();
-}
-
-export function GetPoolDetail(arg1) {
-  return window['go']['main']['App']['GetPoolDetail'](arg1);
-}
-
-export function CreatePoolFromPaths(arg1, arg2, arg3) {
-  return window['go']['main']['App']['CreatePoolFromPaths'](arg1, arg2, arg3);
-}
-
-export function CreatePoolFromUploads(arg1, arg2, arg3) {
-  return window['go']['main']['App']['CreatePoolFromUploads'](arg1, arg2, arg3);
-}
-
-export function UpdatePool(arg1, arg2) {
-  return window['go']['main']['App']['UpdatePool'](arg1, arg2);
-}
-
-export function DeletePool(arg1) {
-  return window['go']['main']['App']['DeletePool'](arg1);
-}
-
-export function DeletePoolMember(arg1, arg2) {
-  return window['go']['main']['App']['DeletePoolMember'](arg1, arg2);
-}
-
-export function RenamePoolMember(arg1, arg2, arg3) {
-  return window['go']['main']['App']['RenamePoolMember'](arg1, arg2, arg3);
-}
-
-export function ActivePoolID() {
-  return window['go']['main']['App']['ActivePoolID']();
-}
-
-export function ActivatePool(arg1) {
-  return window['go']['main']['App']['ActivatePool'](arg1);
-}
-
-export function SwitchPoolMember(arg1) {
-  return window['go']['main']['App']['SwitchPoolMember'](arg1);
-}
-
-export function PickAndConnectActivePool() {
-  return window['go']['main']['App']['PickAndConnectActivePool']();
-}
-
-export function PoolRotatorStatus() {
-  return window['go']['main']['App']['PoolRotatorStatus']();
-}
-
-export function SelfIPCountry() {
-  return window['go']['main']['App']['SelfIPCountry']();
-}
-
-export function PauseFor(arg1) {
-  return window['go']['main']['App']['PauseFor'](arg1);
-}
-
-export function SwitchActiveConnection(arg1, arg2) {
-  return window['go']['main']['App']['SwitchActiveConnection'](arg1, arg2);
-}
-
-export function Connect(arg1) {
-  return window['go']['main']['App']['Connect'](arg1);
-}
-
-export function DeleteConnection(arg1) {
-  return window['go']['main']['App']['DeleteConnection'](arg1);
-}
-
-export function Disconnect() {
-  return window['go']['main']['App']['Disconnect']();
-}
-
 export function GetActiveConfigContent() {
   return window['go']['main']['App']['GetActiveConfigContent']();
 }
 
 export function GetAvailableProtocols() {
   return window['go']['main']['App']['GetAvailableProtocols']();
+}
+
+export function GetConnectOnDemandStatus() {
+  return window['go']['main']['App']['GetConnectOnDemandStatus']();
+}
+
+export function GetHelperStatus() {
+  return window['go']['main']['App']['GetHelperStatus']();
 }
 
 export function GetLogs() {
@@ -154,6 +98,10 @@ export function GetPlatformFeatures() {
   return window['go']['main']['App']['GetPlatformFeatures']();
 }
 
+export function GetPoolDetail(arg1) {
+  return window['go']['main']['App']['GetPoolDetail'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
@@ -162,12 +110,44 @@ export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
 
+export function ImportBackup(arg1, arg2) {
+  return window['go']['main']['App']['ImportBackup'](arg1, arg2);
+}
+
 export function ImportConfig(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['ImportConfig'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function InstallPrivilegedHelper() {
+  return window['go']['main']['App']['InstallPrivilegedHelper']();
+}
+
 export function ListConnections() {
   return window['go']['main']['App']['ListConnections']();
+}
+
+export function ListPools() {
+  return window['go']['main']['App']['ListPools']();
+}
+
+export function PauseFor(arg1) {
+  return window['go']['main']['App']['PauseFor'](arg1);
+}
+
+export function PickAndConnectActivePool() {
+  return window['go']['main']['App']['PickAndConnectActivePool']();
+}
+
+export function PickBackupOpenPath() {
+  return window['go']['main']['App']['PickBackupOpenPath']();
+}
+
+export function PickBackupSavePath() {
+  return window['go']['main']['App']['PickBackupSavePath']();
+}
+
+export function PoolRotatorStatus() {
+  return window['go']['main']['App']['PoolRotatorStatus']();
 }
 
 export function RemoveProtocolFromConnection(arg1, arg2) {
@@ -178,12 +158,20 @@ export function RenameConnection(arg1, arg2) {
   return window['go']['main']['App']['RenameConnection'](arg1, arg2);
 }
 
+export function RenamePoolMember(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RenamePoolMember'](arg1, arg2, arg3);
+}
+
 export function SaveActiveConfigContent(arg1) {
   return window['go']['main']['App']['SaveActiveConfigContent'](arg1);
 }
 
 export function SelectProtocol(arg1) {
   return window['go']['main']['App']['SelectProtocol'](arg1);
+}
+
+export function SelfIPCountry() {
+  return window['go']['main']['App']['SelfIPCountry']();
 }
 
 export function SetKillSwitch(arg1) {
@@ -198,8 +186,24 @@ export function Status() {
   return window['go']['main']['App']['Status']();
 }
 
+export function SwitchActiveConnection(arg1, arg2) {
+  return window['go']['main']['App']['SwitchActiveConnection'](arg1, arg2);
+}
+
 export function SwitchConnectionProtocol(arg1) {
   return window['go']['main']['App']['SwitchConnectionProtocol'](arg1);
+}
+
+export function SwitchPoolMember(arg1) {
+  return window['go']['main']['App']['SwitchPoolMember'](arg1);
+}
+
+export function UninstallPrivilegedHelper() {
+  return window['go']['main']['App']['UninstallPrivilegedHelper']();
+}
+
+export function UpdatePool(arg1, arg2) {
+  return window['go']['main']['App']['UpdatePool'](arg1, arg2);
 }
 
 export function UpdateSettings(arg1) {

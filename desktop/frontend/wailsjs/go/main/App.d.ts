@@ -4,102 +4,104 @@ import {main} from '../models';
 
 export function ActivateConnection(arg1:string,arg2:string):Promise<void>;
 
-export function CancelPause():Promise<void>;
-
-export function Connect(arg1:string):Promise<main.StatusResponse>;
-
-export function DeleteConnection(arg1:string):Promise<void>;
-
-export function Disconnect():Promise<void>;
-
-export function GetActiveConfigContent():Promise<string>;
-
-export function GetConnectOnDemandStatus():Promise<{[key: string]: any}>;
-
-export function ClearLogs():Promise<void>;
-
-export function DownloadAndImportConfig(arg1:string, arg2:number, arg3:string, arg4:string):Promise<void>;
-
-export function EnsurePrivilegedHelper():Promise<void>;
-
-export function ExportBackup(arg1:string, arg2:string):Promise<void>;
-
-export function FetchMyConfig(arg1:string, arg2:number):Promise<string>;
-
-export function FetchMyProfile():Promise<{[key: string]: any}>;
-
-export function GetHelperStatus():Promise<{[key: string]: any}>;
-
-export function ImportBackup(arg1:string, arg2:string):Promise<void>;
-
-export function InstallPrivilegedHelper():Promise<void>;
-
-export function PickBackupOpenPath():Promise<string>;
-
-export function PickBackupSavePath():Promise<string>;
-
-export function UninstallPrivilegedHelper():Promise<void>;
-
-export function ListPools():Promise<Array<{[key: string]: any}>>;
-
-export function GetPoolDetail(arg1:string):Promise<{[key: string]: any}>;
-
-export function CreatePoolFromPaths(arg1:string, arg2:string, arg3:Array<string>):Promise<{[key: string]: any}>;
-
-export function CreatePoolFromUploads(arg1:string, arg2:string, arg3:Array<{filename:string;content:string}>):Promise<{[key: string]: any}>;
-
-export function UpdatePool(arg1:string, arg2:{[key: string]: any}):Promise<{[key: string]: any}>;
-
-export function DeletePool(arg1:string):Promise<void>;
-
-export function DeletePoolMember(arg1:string, arg2:string):Promise<void>;
-
-export function RenamePoolMember(arg1:string, arg2:string, arg3:string):Promise<void>;
+export function ActivatePool(arg1:string):Promise<void>;
 
 export function ActivePoolID():Promise<string>;
 
-export function ActivatePool(arg1:string):Promise<void>;
+export function BootstrapState():Promise<main.BootstrapStateInfo>;
 
-export function SwitchPoolMember(arg1:string):Promise<void>;
+export function CancelPause():Promise<void>;
 
-export function PickAndConnectActivePool():Promise<void>;
+export function ClearLogs():Promise<void>;
 
-export function PoolRotatorStatus():Promise<{[key: string]: any}>;
+export function Connect(arg1:string):Promise<main.StatusResponse>;
 
-export function SelfIPCountry():Promise<string>;
+export function CreatePoolFromPaths(arg1:string,arg2:string,arg3:Array<string>):Promise<main.Pool>;
+
+export function CreatePoolFromUploads(arg1:string,arg2:string,arg3:Array<main.PoolUpload>):Promise<main.Pool>;
+
+export function DeleteConnection(arg1:string):Promise<void>;
+
+export function DeletePool(arg1:string):Promise<void>;
+
+export function DeletePoolMember(arg1:string,arg2:string):Promise<void>;
+
+export function Disconnect():Promise<void>;
+
+export function DownloadAndImportConfig(arg1:string,arg2:number,arg3:string,arg4:string):Promise<void>;
+
+export function EnsurePrivilegedHelper():Promise<void>;
+
+export function ExportBackup(arg1:string,arg2:string):Promise<void>;
+
+export function FetchMyConfig(arg1:string,arg2:number):Promise<string>;
+
+export function FetchMyProfile():Promise<main.RemoteProfile>;
+
+export function GetActiveConfigContent():Promise<string>;
 
 export function GetAvailableProtocols():Promise<Array<main.ProtocolInfo>>;
+
+export function GetConnectOnDemandStatus():Promise<Record<string, any>>;
+
+export function GetHelperStatus():Promise<main.HelperStatus>;
 
 export function GetLogs():Promise<Array<string>>;
 
 export function GetPlatformFeatures():Promise<main.PlatformFeatures>;
 
+export function GetPoolDetail(arg1:string):Promise<main.PoolDetail>;
+
 export function GetSettings():Promise<main.AppSettings>;
 
 export function GetVersion():Promise<string>;
 
+export function ImportBackup(arg1:string,arg2:string):Promise<void>;
+
 export function ImportConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
+export function InstallPrivilegedHelper():Promise<void>;
+
 export function ListConnections():Promise<Array<main.SavedConnection>>;
+
+export function ListPools():Promise<Array<main.PoolListItem>>;
+
+export function PauseFor(arg1:number):Promise<void>;
+
+export function PickAndConnectActivePool():Promise<void>;
+
+export function PickBackupOpenPath():Promise<string>;
+
+export function PickBackupSavePath():Promise<string>;
+
+export function PoolRotatorStatus():Promise<main.RotatorStatus>;
 
 export function RemoveProtocolFromConnection(arg1:string,arg2:string):Promise<void>;
 
 export function RenameConnection(arg1:string,arg2:string):Promise<void>;
 
+export function RenamePoolMember(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function SaveActiveConfigContent(arg1:string):Promise<void>;
 
 export function SelectProtocol(arg1:string):Promise<void>;
 
+export function SelfIPCountry():Promise<string>;
+
 export function SetKillSwitch(arg1:boolean):Promise<void>;
 
 export function SetProtocol(arg1:string):Promise<void>;
-
-export function PauseFor(arg1:number):Promise<void>;
 
 export function Status():Promise<main.StatusResponse>;
 
 export function SwitchActiveConnection(arg1:string,arg2:string):Promise<boolean>;
 
 export function SwitchConnectionProtocol(arg1:string):Promise<void>;
+
+export function SwitchPoolMember(arg1:string):Promise<void>;
+
+export function UninstallPrivilegedHelper():Promise<void>;
+
+export function UpdatePool(arg1:string,arg2:main.UpdatePoolRequest):Promise<main.Pool>;
 
 export function UpdateSettings(arg1:main.AppSettings):Promise<void>;
