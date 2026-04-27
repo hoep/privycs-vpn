@@ -309,10 +309,11 @@ class PoolStateRepository(private val context: Context) {
                     file.writeText(data)
                     tmp.delete()
                 }
+                Unit  // Force the withLock block to return Unit
+                      // explicitly. Without this, Kotlin's inferrer
+                      // tries to make the if-expression the block's
+                      // value and complains about the missing else.
             } catch (e: Exception) {
-                // Loud log only — runtime state self-heals on next
-                // rotation. We do NOT crash the process for a write
-                // failure.
                 android.util.Log.e(TAG, "flush failed: ${e.message}", e)
             }
         }

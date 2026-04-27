@@ -3,6 +3,7 @@ package com.privycs.vpn.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -113,28 +114,23 @@ fun PoolIndicatorCard(
                 )
             }
 
-            // Next member (pre-warm) — amber pill to signal the
-            // upcoming-but-not-yet-active state. Distinctly louder
-            // than the "Currently:" line so the user notices the
-            // change ahead of the rotation tick.
+            // Next member (pre-warm) — tertiary-colored pill via
+            // Surface so the @Composable scope flows correctly and
+            // the color/shape APIs work without Modifier.background
+            // inference issues.
             if (!pendingMemberName.isNullOrEmpty()) {
-                Spacer(Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            "Next: $pendingMemberName" +
-                                    (if (!pendingMemberCountry.isNullOrEmpty()) " ($pendingMemberCountry)" else ""),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
-                    }
+                Spacer(Modifier.height(4.dp))
+                androidx.compose.material3.Surface(
+                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(4.dp),
+                    contentColor = MaterialTheme.colorScheme.tertiary
+                ) {
+                    Text(
+                        "Next: $pendingMemberName" +
+                                (if (!pendingMemberCountry.isNullOrEmpty()) " ($pendingMemberCountry)" else ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
                 }
             }
 
