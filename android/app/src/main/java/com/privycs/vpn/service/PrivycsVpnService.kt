@@ -33,10 +33,17 @@ class PrivycsVpnService : VpnService() {
         const val ACTION_KILL_SWITCH_RETRY = "com.privycs.vpn.KILL_SWITCH_RETRY"
         const val ACTION_ENGAGE_SINKHOLE = "com.privycs.vpn.ENGAGE_SINKHOLE"
 
+        // Pool actions — fired by PoolAlarmReceiver via AlarmManager
+        // and by direct user-tap on a pool-activate button.
+        const val ACTION_POOL_CONNECT = "com.privycs.vpn.POOL_CONNECT"
+        const val ACTION_POOL_PRE_WARM = "com.privycs.vpn.POOL_PRE_WARM"
+        const val ACTION_POOL_ROTATE = "com.privycs.vpn.POOL_ROTATE"
+
         const val EXTRA_CONNECTION_ID = "connection_id"
         const val EXTRA_PROTOCOL = "protocol"
         const val EXTRA_CONFIG_CONTENT = "config_content"
         const val EXTRA_CONNECTION_NAME = "connection_name"
+        const val EXTRA_POOL_ID = "pool_id"
 
         private const val STATUS_POLL_INTERVAL_MS = 2000L
     }

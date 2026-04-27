@@ -60,6 +60,19 @@
             </intent-filter>
         </receiver>
 
+        <!-- Pool rotation alarms — fired by AlarmManager from
+             PoolRotationScheduler. Not exported (only the system's
+             AlarmManager triggers it via the registered PendingIntent). -->
+        <receiver
+            android:name=".receiver.PoolAlarmReceiver"
+            android:exported="false"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.privycs.vpn.action.POOL_PRE_WARM" />
+                <action android:name="com.privycs.vpn.action.POOL_ROTATE" />
+            </intent-filter>
+        </receiver>
+
         <!-- Quick Settings Tile -->
         <service
             android:name=".tile.VpnQuickSettingsTile"
