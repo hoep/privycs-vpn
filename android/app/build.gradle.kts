@@ -59,6 +59,26 @@ android {
         }
     }
 
+    // APK output naming: produce "privycs-vpn-<version>.apk" for release
+    // and "privycs-vpn-<version>-debug.apk" for debug. The Gradle default
+    // ("app-release.apk" / "app-debug.apk") is fine for local module
+    // output but useless for distribution - users download the file and
+    // see a generic name with no app identity. Industry pattern (Signal,
+    // Telegram, Bitwarden) is <app>-<version>[-variant].apk.
+    //
+    // Asymmetric suffix: release has none (it is the implicit default);
+    // debug carries "-debug" because it is a meaningfully different
+    // artifact (debuggable=true, no minification, .debug applicationId).
+    applicationVariants.all {
+        val variantName = this.buildType.name
+        val versionStr = this.versionName
+        outputs.all {
+            val suffix = if (variantName == "debug") "-debug" else ""
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl)
+                .outputFileName = "privycs-vpn-${versionStr}${suffix}.apk"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
