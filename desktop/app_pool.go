@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1061,17 +1062,30 @@ func (a *App) PickAndConnectActivePool() error {
 			continue
 		}
 
-		// Connect succeeded at the OS layer. Now verify the remote
-		// peer actually responded - only WireGuard exposes a usable
-		// handshake signal; OpenVPN/IPSec have their own auth flows
-		// that fail fast if the peer is dead, so we trust their Up().
+		// Layer-B-V2: peer-health verification by traffic-counter.
+		// WireGuard handshakes are lazy - they only fire when the
+		// first packet attempts to traverse the tunnel. The naïve
+		// "poll latest-handshake after Up" check used in v0.9.11.33-35
+		// returned zero on every healthy connect where the user had
+		// not yet generated traffic, killing rotation with false-
+		// positives (issue reported in v0.9.11.36).
+		//
+		// V2 fixes this by ACTIVELY triggering a packet through the
+		// tunnel (a 1-byte UDP write to a target derived from the
+		// member's AllowedIPs) and then polling `bytes_rx` from
+		// `wg show`. A non-zero rx counter means the remote peer
+		// completed the handshake and sent something back - the
+		// strongest "peer is alive" signal we can read locally
+		// without admin/raw-socket privileges.
+		//
+		// Only WireGuard. OpenVPN/IPSec have their own auth flows
+		// that fail-fast on dead peers via Up().
 		if member.Config != nil && member.Config.Protocol == "wireguard" {
-			if !a.waitForWireGuardHandshake(handshakeWaitTimeout) {
-				lastErr = fmt.Errorf("no handshake within %s", handshakeWaitTimeout)
+			if !a.verifyWireGuardPeerHealth(member, peerHealthTimeout) {
+				lastErr = fmt.Errorf("peer did not respond to triggered traffic within %s", peerHealthTimeout)
 				a.markMemberUnreachable(pool, member, lastErr.Error())
-				log.Printf("Pool %s: %s up but no handshake - marking unreachable, retrying",
+				log.Printf("Pool %s: %s up but peer silent (no rx) - marking unreachable, retrying",
 					pool.Name, member.Name)
-				// Tear down the half-connected tunnel before next try.
 				a.mu.Lock()
 				_ = a.disconnectInternal()
 				a.mu.Unlock()
@@ -1099,34 +1113,126 @@ func (a *App) PickAndConnectActivePool() error {
 		pool.Name, len(attempted), lastErr)
 }
 
-// handshakeWaitTimeout is how long we wait after Up before declaring
-// the remote peer unreachable. WireGuard's initial handshake is one
-// round-trip (typically <300 ms); 5 s is generous but still fast
-// enough that the user does not perceive a stall on the rare retry.
-const handshakeWaitTimeout = 5 * time.Second
+// peerHealthTimeout is the budget for verifyWireGuardPeerHealth.
+// 5 s is generous: a healthy WireGuard handshake completes in well
+// under 1 s, so the typical-case verification finishes in 500-800 ms
+// (one trigger + one poll). The full timeout only burns on a genuinely
+// dead peer where we never see rx.
+const peerHealthTimeout = 5 * time.Second
 
-// waitForWireGuardHandshake polls the helper for a non-zero
-// latest-handshake timestamp until the timeout. Returns true on the
-// first non-zero reading. The poll interval is 500 ms which keeps
-// average detection latency under a second on healthy peers without
-// hammering the helper.
-func (a *App) waitForWireGuardHandshake(timeout time.Duration) bool {
+// verifyWireGuardPeerHealth triggers a small packet through the new
+// tunnel and polls until rx bytes show up. Returns true on first
+// non-zero rx reading, false on timeout. Read-only with respect to
+// app state - safe to call without taking app.mu.
+//
+// Why "trigger then poll" instead of just polling latest-handshake:
+// WireGuard handshakes are lazy; the kernel only fires them when a
+// packet needs to traverse the tunnel. Without traffic, an idle
+// tunnel sits forever showing latest-handshake=0 even though the
+// peer is alive and responsive. By firing a 1-byte UDP write to a
+// destination routed through the tunnel, we force the kernel to
+// initiate the handshake. The peer's handshake-response packet
+// counts as bytes_rx; if it never arrives, the peer is genuinely
+// silent.
+func (a *App) verifyWireGuardPeerHealth(member *PoolMember, timeout time.Duration) bool {
 	proto, ok := a.protocols["wireguard"]
 	if !ok {
-		return false
+		return true // protocol not loaded - cannot verify, accept connect
 	}
-	wg, ok := proto.(*WireGuardProtocol)
-	if !ok {
-		return false
+
+	// Find a target IP routed through the tunnel. Parsed once from the
+	// member's AllowedIPs. If no usable target exists (IPv6-only or
+	// malformed), we skip the trigger and fall back to "trust Up" -
+	// no false-positive risk because we never assert "dead".
+	target := parseAllowedIPsTarget(member.Config.ConfigContent)
+	if target != "" {
+		triggerWGTraffic(target)
+	} else {
+		log.Printf("Pool: peer-health: no IPv4 target in AllowedIPs, skipping trigger - trusting Up()")
+		return true
 	}
+
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if !wg.LatestHandshake().IsZero() {
+		s := proto.Status()
+		if s.BytesRx > 0 {
 			return true
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return false
+}
+
+// parseAllowedIPsTarget extracts a single routable IPv4 destination
+// from a WireGuard config's AllowedIPs line. Strategy:
+//   - 0.0.0.0/0 present -> use 1.1.1.1 (Cloudflare DNS, well-known
+//     benign target; the actual response does not matter, only that
+//     the kernel routes the packet through the wg interface)
+//   - Else the first IPv4 CIDR yields network-address + 1 (the
+//     typical gateway IP in private VPN networks; even if no host
+//     answers, the kernel still routes the packet through wg and
+//     fires the handshake)
+//   - IPv6-only or unparseable -> "" (caller falls back to no-trigger)
+//
+// Returns "" rather than picking a non-routable address - silently
+// triggering through eth0 instead of wg would defeat the purpose.
+func parseAllowedIPsTarget(content string) string {
+	for _, rawLine := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if !strings.HasPrefix(line, "AllowedIPs") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		cidrs := strings.Split(parts[1], ",")
+		for _, c := range cidrs {
+			c = strings.TrimSpace(c)
+			if c == "" || strings.Contains(c, ":") {
+				continue // skip IPv6
+			}
+			if c == "0.0.0.0/0" {
+				return "1.1.1.1"
+			}
+			_, ipnet, err := net.ParseCIDR(c)
+			if err != nil {
+				continue
+			}
+			ip := ipnet.IP.To4()
+			if ip == nil {
+				continue
+			}
+			// network-address + 1: typical gateway. Make a copy so
+			// we do not mutate the parsed CIDR's net.IP slice.
+			out := make(net.IP, 4)
+			copy(out, ip)
+			out[3]++
+			return out.String()
+		}
+		return "" // AllowedIPs line found but no IPv4 entry usable
+	}
+	return ""
+}
+
+// triggerWGTraffic sends a single 1-byte UDP packet to the given
+// target on port 53. The packet is malformed for any DNS server but
+// the response is irrelevant - the only purpose is to force the
+// kernel to route through the wg interface, which triggers the
+// WireGuard handshake. Fire-and-forget on a goroutine so a slow
+// allocation never blocks the rotator.
+func triggerWGTraffic(targetIP string) {
+	if targetIP == "" {
+		return
+	}
+	go func() {
+		conn, err := net.DialTimeout("udp", net.JoinHostPort(targetIP, "53"), 500*time.Millisecond)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = conn.Write([]byte{0})
+	}()
 }
 
 // preWarmActivePool runs 60 s before the next scheduled rotation. It

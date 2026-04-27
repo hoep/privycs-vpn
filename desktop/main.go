@@ -31,9 +31,9 @@ func main() {
 
 	err := wails.Run(&options.App{
 		Title:     "Privycs VPN",
-		Width:     420,
+		Width:     490, // +70 over previous 420 - earlier dimensions felt cramped, especially with pool indicator + unreachable badges + truncated tunnel-names
 		Height:    945, // sized for pool indicator (icon + name + policy + member + countdown badge + at-line) + COD banner + connect button + protocol pills + traffic stats + pause + tray
-		MinWidth:  380,
+		MinWidth:  450, // bumped together with default Width so the cramped state is no longer the floor
 		MinHeight: 820,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
