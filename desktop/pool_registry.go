@@ -55,7 +55,19 @@ type PoolMember struct {
 	Active      bool            `json:"active"`       // future Pro-tier cap; default true
 	Unreachable bool            `json:"unreachable"`  // last connect attempt failed
 	LastError   string          `json:"last_error,omitempty"`
+	// LastUnreachable is when the failure happened. PickMember lazily
+	// clears Unreachable once the timestamp is older than the TTL
+	// (UnreachableTTL) so transient outages do not kill members
+	// permanently. Zero-value means "never failed" - a fresh import
+	// starts here regardless of Unreachable boolean.
+	LastUnreachable time.Time `json:"last_unreachable,omitempty"`
 }
+
+// UnreachableTTL is how long after a connect/probe failure we keep a
+// member out of rotation. 30 min strikes a balance: long enough that
+// an immediately-following retry skips it (no thrash), short enough
+// that a real provider outage clears within the same user session.
+const UnreachableTTL = 30 * time.Minute
 
 // Pool is a virtual connection that wraps multiple PoolMembers and
 // picks one of them at connect-time using its policy.
@@ -118,15 +130,54 @@ func (p *Pool) ActiveMembers() []*PoolMember {
 // EligibleMembers returns active members that are not flagged
 // unreachable AND match the RestrictRegions filter (if any). This is
 // the set the policies pick from at connect-time.
+//
+// Lazy TTL clear: a member with Unreachable=true whose LastUnreachable
+// is older than UnreachableTTL gets re-eligible AND has its flag
+// cleared in place. Cheaper than a periodic sweeper goroutine - any
+// pick attempt naturally rehabilitates stale flags.
+//
+// All-unreachable reset: if every member is filtered out by the
+// Unreachable check (and there ARE matching members ignoring the
+// flag), we treat that as "local network is broken, not all servers
+// genuinely dead", clear flags, and return everyone matching the
+// region filter. This keeps the pool usable when the user toggles
+// WiFi off/on or the system wakes from sleep.
 func (p *Pool) EligibleMembers() []*PoolMember {
 	out := make([]*PoolMember, 0, len(p.Members))
+	now := time.Now()
 	for _, m := range p.Members {
-		if !m.Active || m.Unreachable {
+		if !m.Active {
+			continue
+		}
+		if m.Unreachable && !m.LastUnreachable.IsZero() && now.Sub(m.LastUnreachable) > UnreachableTTL {
+			m.Unreachable = false
+			m.LastError = ""
+		}
+		if m.Unreachable {
 			continue
 		}
 		if len(p.RestrictRegions) > 0 && !containsString(p.RestrictRegions, m.Region) {
 			continue
 		}
+		out = append(out, m)
+	}
+
+	if len(out) > 0 {
+		return out
+	}
+
+	// All-unreachable reset path: count region-matching members
+	// ignoring the Unreachable flag. If there's at least one, we
+	// flip every Unreachable to false and return them.
+	for _, m := range p.Members {
+		if !m.Active {
+			continue
+		}
+		if len(p.RestrictRegions) > 0 && !containsString(p.RestrictRegions, m.Region) {
+			continue
+		}
+		m.Unreachable = false
+		m.LastError = ""
 		out = append(out, m)
 	}
 	return out

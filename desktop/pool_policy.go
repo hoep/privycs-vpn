@@ -19,10 +19,37 @@ import (
 // touch network state, does not log. The caller (App) is responsible
 // for those.
 func PickMember(p *Pool, userCountry string, lastMemberID string) *PoolMember {
+	return PickMemberExcluding(p, userCountry, lastMemberID, nil)
+}
+
+// PickMemberExcluding runs the policy and returns the next member,
+// skipping any whose ID is in excludeIDs. The retry loop in
+// PickAndConnectActivePool uses this to walk the pool without picking
+// the same already-failed member twice in the same rotation cycle.
+//
+// excludeIDs is intentionally a slice (not a set) because the typical
+// retry budget is 3 - linear scan beats map allocation overhead.
+func PickMemberExcluding(p *Pool, userCountry string, lastMemberID string, excludeIDs []string) *PoolMember {
 	if p == nil {
 		return nil
 	}
 	eligible := p.EligibleMembers()
+	if len(excludeIDs) > 0 {
+		filtered := make([]*PoolMember, 0, len(eligible))
+		for _, m := range eligible {
+			skip := false
+			for _, id := range excludeIDs {
+				if m.ID == id {
+					skip = true
+					break
+				}
+			}
+			if !skip {
+				filtered = append(filtered, m)
+			}
+		}
+		eligible = filtered
+	}
 	if len(eligible) == 0 {
 		return nil
 	}

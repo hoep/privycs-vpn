@@ -949,32 +949,8 @@ func (a *App) PickAndConnectActivePool() error {
 		}
 	}
 
-	// If pre-warm already picked next member, reuse it - keeps the
-	// rotation deterministic with what the UI advertised as "Next:".
-	// Falls back to PickMember if pre-warm did not run (manual
-	// trigger, brand-new pool, pool changed since pre-warm).
-	var member *PoolMember
-	if pool.PendingMemberID != "" {
-		member = pool.MemberByID(pool.PendingMemberID)
-	}
-	if member == nil {
-		member = PickMember(pool, userCountry, pool.ActiveMemberID)
-	}
-	if member == nil {
-		return fmt.Errorf("pool %s: no eligible member to pick", pool.Name)
-	}
-
-	pool.ActiveMemberID = member.ID
-	pool.PendingMemberID = "" // Clear pre-warm hint now that rotation happens.
-	if err := a.pools.Update(pool); err != nil {
-		log.Printf("Pool: persist active-member failed: %v", err)
-	}
-
-	log.Printf("Pool %s policy=%s picked member %s (%s, %s)",
-		pool.Name, pool.Policy, member.Name, member.Country, member.Region)
-
-	// CRITICAL: tear down the existing tunnel before the new one's
-	// config is written. Two reasons:
+	// CRITICAL: tear down the existing tunnel ONCE before the retry
+	// loop starts. Two reasons:
 	//
 	//   1. Connect short-circuits on "tunnel already running" so a
 	//      Configure-then-Connect without disconnect does not actually
@@ -1002,24 +978,122 @@ func (a *App) PickAndConnectActivePool() error {
 			return fmt.Errorf("pool rotate: disconnect failed, refusing to overwrite config: %w", err)
 		}
 	}
-	if err := a.connectToPoolMember(member); err != nil {
-		return err
+
+	// Retry loop: up to maxConnectAttempts members per rotation. Each
+	// failure (Up error OR no-handshake-after-5s) marks the member
+	// Unreachable+timestamp, picks the next, and tries again. Silent
+	// per user choice in v0.9.11.33 - we do NOT toast intermediate
+	// failures; only the final all-failed state surfaces (as a
+	// disconnected app state, not a popup).
+	//
+	// First-iteration preference: if the rotator's pre-warm already
+	// picked PendingMemberID, honour that (deterministic with the
+	// "Next:" UI line). Subsequent iterations re-pick via the policy
+	// excluding everything already attempted.
+	const maxConnectAttempts = 3
+	var attempted []string
+	var lastErr error
+
+	for attempt := 0; attempt < maxConnectAttempts; attempt++ {
+		var member *PoolMember
+		if attempt == 0 && pool.PendingMemberID != "" {
+			candidate := pool.MemberByID(pool.PendingMemberID)
+			if candidate != nil && !candidate.Unreachable {
+				member = candidate
+			}
+		}
+		if member == nil {
+			member = PickMemberExcluding(pool, userCountry, pool.ActiveMemberID, attempted)
+		}
+		if member == nil {
+			break
+		}
+		attempted = append(attempted, member.ID)
+
+		pool.ActiveMemberID = member.ID
+		pool.PendingMemberID = "" // Clear pre-warm hint - decision is now made.
+		if err := a.pools.Update(pool); err != nil {
+			log.Printf("Pool: persist active-member failed: %v", err)
+		}
+
+		log.Printf("Pool %s policy=%s attempt %d/%d: trying member %s (%s, %s)",
+			pool.Name, pool.Policy, attempt+1, maxConnectAttempts,
+			member.Name, member.Country, member.Region)
+
+		if err := a.connectToPoolMember(member); err != nil {
+			lastErr = err
+			a.markMemberUnreachable(pool, member, err.Error())
+			log.Printf("Pool %s: connect to %s failed (%v) - retrying with next member",
+				pool.Name, member.Name, err)
+			continue
+		}
+
+		// Connect succeeded at the OS layer. Now verify the remote
+		// peer actually responded - only WireGuard exposes a usable
+		// handshake signal; OpenVPN/IPSec have their own auth flows
+		// that fail fast if the peer is dead, so we trust their Up().
+		if member.Config != nil && member.Config.Protocol == "wireguard" {
+			if !a.waitForWireGuardHandshake(handshakeWaitTimeout) {
+				lastErr = fmt.Errorf("no handshake within %s", handshakeWaitTimeout)
+				a.markMemberUnreachable(pool, member, lastErr.Error())
+				log.Printf("Pool %s: %s up but no handshake - marking unreachable, retrying",
+					pool.Name, member.Name)
+				// Tear down the half-connected tunnel before next try.
+				a.mu.Lock()
+				_ = a.disconnectInternal()
+				a.mu.Unlock()
+				continue
+			}
+		}
+
+		// Healthy connect. Fire the rotated event so the UI refreshes
+		// the active-member line, and we are done.
+		if a.ctx != nil {
+			wailsRuntime.EventsEmit(a.ctx, "pool:rotated", map[string]interface{}{
+				"pool_id":            pool.ID,
+				"active_member_id":   member.ID,
+				"active_member_name": member.Name,
+				"country":            member.Country,
+			})
+		}
+		return nil
 	}
 
-	// Notify the frontend that the active member changed so the
-	// "Currently: ..." line on the Connect screen and the active-
-	// member-display in the picker refresh without waiting for the
-	// next 5-second pollRotator tick. The frontend listens on
-	// "pool:rotated" and re-runs poolStore.refresh().
-	if a.ctx != nil {
-		wailsRuntime.EventsEmit(a.ctx, "pool:rotated", map[string]interface{}{
-			"pool_id":           pool.ID,
-			"active_member_id":  member.ID,
-			"active_member_name": member.Name,
-			"country":           member.Country,
-		})
+	if lastErr == nil {
+		return fmt.Errorf("pool %s: no eligible member to pick", pool.Name)
 	}
-	return nil
+	return fmt.Errorf("pool %s: all %d connect attempts failed; last error: %w",
+		pool.Name, len(attempted), lastErr)
+}
+
+// handshakeWaitTimeout is how long we wait after Up before declaring
+// the remote peer unreachable. WireGuard's initial handshake is one
+// round-trip (typically <300 ms); 5 s is generous but still fast
+// enough that the user does not perceive a stall on the rare retry.
+const handshakeWaitTimeout = 5 * time.Second
+
+// waitForWireGuardHandshake polls the helper for a non-zero
+// latest-handshake timestamp until the timeout. Returns true on the
+// first non-zero reading. The poll interval is 500 ms which keeps
+// average detection latency under a second on healthy peers without
+// hammering the helper.
+func (a *App) waitForWireGuardHandshake(timeout time.Duration) bool {
+	proto, ok := a.protocols["wireguard"]
+	if !ok {
+		return false
+	}
+	wg, ok := proto.(*WireGuardProtocol)
+	if !ok {
+		return false
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !wg.LatestHandshake().IsZero() {
+			return true
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return false
 }
 
 // preWarmActivePool runs 60 s before the next scheduled rotation. It
@@ -1049,8 +1123,33 @@ func (a *App) preWarmActivePool() {
 		}
 	}
 
-	member := PickMember(pool, userCountry, pool.ActiveMemberID)
+	// Pre-warm probe: pick → DNS+TCP probe → if fail mark unreachable
+	// and pick another. Up to 3 picks per pre-warm cycle so a single
+	// dead server cannot stall rotation indefinitely. Probe failures
+	// here are HINTS - the rotation tick's connect+handshake is the
+	// authoritative gate, but doing this work 60 s ahead means most
+	// dead servers are filtered before they ever cause a user-visible
+	// connect failure.
+	const maxPreWarmAttempts = 3
+	var attempted []string
+	var member *PoolMember
+	for i := 0; i < maxPreWarmAttempts; i++ {
+		candidate := PickMemberExcluding(pool, userCountry, pool.ActiveMemberID, attempted)
+		if candidate == nil {
+			break
+		}
+		attempted = append(attempted, candidate.ID)
+		if err := probeMember(candidate); err != nil {
+			log.Printf("Pool %s pre-warm: probe %s failed (%v) - marking unreachable",
+				pool.Name, candidate.Name, err)
+			a.markMemberUnreachable(pool, candidate, err.Error())
+			continue
+		}
+		member = candidate
+		break
+	}
 	if member == nil {
+		log.Printf("Pool %s pre-warm: no probe-passing member after %d tries", pool.Name, len(attempted))
 		return
 	}
 	pool.PendingMemberID = member.ID

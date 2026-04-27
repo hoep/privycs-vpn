@@ -104,6 +104,39 @@ func (w *WireGuardProtocol) Status() ProtocolStatus {
 	return status
 }
 
+// LatestHandshake returns the timestamp of the most recent peer
+// handshake on this tunnel, or zero time if no handshake has happened
+// yet (or the tunnel is not up). Used by the rotator's post-connect
+// health check (B): if 5s after Up the handshake is still zero, the
+// remote endpoint is dead and we mark the member unreachable.
+//
+// Goes through the privileged helper because `wg show` requires
+// CAP_NET_ADMIN on Linux. On Windows wg.exe runs unprivileged for
+// reading state, but we use the same path for consistency.
+func (w *WireGuardProtocol) LatestHandshake() time.Time {
+	if w.ifaceName == "" {
+		return time.Time{}
+	}
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		return time.Time{}
+	}
+	resp, err := client.SendCommand("wg_handshake", map[string]string{
+		"interface": w.ifaceName,
+	})
+	if err != nil || !resp.Success {
+		return time.Time{}
+	}
+	var ts int64
+	if _, err := fmt.Sscan(strings.TrimSpace(resp.Output), &ts); err != nil {
+		return time.Time{}
+	}
+	if ts == 0 {
+		return time.Time{}
+	}
+	return time.Unix(ts, 0)
+}
+
 // SetTunnelName sets the tunnel/interface name and updates the config file path.
 // On Windows, the WireGuard tunnel service name is derived from the config filename.
 func (w *WireGuardProtocol) SetTunnelName(name string) {

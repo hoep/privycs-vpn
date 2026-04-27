@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 )
 
 func atVie() *PoolMember { return &PoolMember{ID: "at1", Name: "AT-vie-1", Country: "AT", Region: "Europe", Active: true} }
@@ -178,12 +179,81 @@ func TestPickMember_EmptyPool(t *testing.T) {
 	}
 }
 
-func TestPickMember_AllUnreachable(t *testing.T) {
+func TestPickMember_AllUnreachableTriggersReset(t *testing.T) {
+	// All-unreachable reset: when every region-eligible member has
+	// Unreachable=true the pool is treated as "local network broken,
+	// not all servers genuinely dead". EligibleMembers clears the
+	// flags and returns the members. Without this, a pool would
+	// permanently shrink to zero after a brief connectivity blip.
 	m := atVie()
 	m.Unreachable = true
+	m.LastUnreachable = time.Now()
+	p := &Pool{Policy: PolicyRandom, Members: []*PoolMember{m}}
+	got := PickMember(p, "", "")
+	if got == nil {
+		t.Fatal("all-unreachable pool should reset flags and return a member, got nil")
+	}
+	if got.Unreachable {
+		t.Errorf("returned member still has Unreachable=true after reset")
+	}
+}
+
+func TestPickMember_UnreachableInactiveStaysOut(t *testing.T) {
+	// Active=false is a hard skip - reset only flips Unreachable, not
+	// Active. Confirms the all-unreachable-reset path does not
+	// over-reach.
+	m := atVie()
+	m.Active = false
 	p := &Pool{Policy: PolicyRandom, Members: []*PoolMember{m}}
 	if got := PickMember(p, "", ""); got != nil {
-		t.Errorf("all-unreachable pool should return nil, got %+v", got)
+		t.Errorf("inactive-only pool should return nil, got %+v", got)
+	}
+}
+
+func TestPickMember_UnreachableTTLExpiry(t *testing.T) {
+	// Member flagged Unreachable but timestamp older than the TTL
+	// gets lazily re-eligible without manual intervention. Provider
+	// outages clear within the same user session.
+	m := atVie()
+	m.Unreachable = true
+	m.LastUnreachable = time.Now().Add(-2 * UnreachableTTL)
+	healthy := usNyc()
+	p := &Pool{Policy: PolicyRandom, Members: []*PoolMember{m, healthy}}
+	// Both should be eligible after the TTL clear; just confirming
+	// PickMember does not refuse the stale-flagged member.
+	picked := false
+	for i := 0; i < 30; i++ {
+		got := PickMember(p, "", "")
+		if got == nil {
+			t.Fatal("PickMember returned nil despite TTL-expired member + healthy member")
+		}
+		if got.ID == m.ID {
+			picked = true
+			if got.Unreachable {
+				t.Errorf("TTL-expired member still flagged Unreachable=true")
+			}
+			break
+		}
+	}
+	if !picked {
+		t.Errorf("TTL-expired member never picked across 30 random draws")
+	}
+}
+
+func TestPickMemberExcluding_SkipsAttempted(t *testing.T) {
+	// The retry loop in PickAndConnectActivePool feeds attempted IDs
+	// to PickMemberExcluding so the same dead member is not picked
+	// twice in one rotation cycle.
+	a := atVie()
+	b := usNyc()
+	p := &Pool{Policy: PolicyRandom, Members: []*PoolMember{a, b}}
+	got := PickMemberExcluding(p, "", "", []string{a.ID})
+	if got == nil || got.ID != b.ID {
+		t.Errorf("excluding %s should yield %s, got %+v", a.Name, b.Name, got)
+	}
+	got = PickMemberExcluding(p, "", "", []string{a.ID, b.ID})
+	if got != nil {
+		t.Errorf("excluding both should yield nil, got %+v", got)
 	}
 }
 

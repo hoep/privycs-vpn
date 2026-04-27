@@ -256,6 +256,8 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdStatus(cmd)
 	case "wg_install_config":
 		return h.cmdWGInstallConfig(cmd)
+	case "wg_handshake":
+		return h.cmdWGHandshake(cmd)
 	case "ipsec_configure":
 		return h.cmdIPSecConfigure(cmd)
 	case "remove_legacy_sudoers":
@@ -739,6 +741,47 @@ func (h *PrivilegedHelper) cmdWGInstallConfig(cmd HelperCommand) HelperResponse 
 		return HelperResponse{Success: false, Error: fmt.Sprintf("write %s: %v", dst, err)}
 	}
 	return HelperResponse{Success: true, Output: "wg config installed at " + dst}
+}
+
+// cmdWGHandshake returns the most recent peer-handshake timestamp on
+// the named WireGuard interface. Output format: a single Unix-epoch
+// integer in seconds (the max across all peers). Zero means "no
+// handshake yet". Used by the rotator's post-connect health check
+// (B) to detect dead remote endpoints that accepted the tunnel
+// install but never actually responded to a handshake.
+//
+// `wg show <iface> latest-handshakes` is a stable interface across
+// Linux and Windows wg.exe; it prints "<pubkey>\t<unix_secs>" per
+// peer. We keep the parsing dumb: max int across the second column.
+func (h *PrivilegedHelper) cmdWGHandshake(cmd HelperCommand) HelperResponse {
+	if cmd.Interface == "" {
+		return HelperResponse{Success: false, Error: "interface name required"}
+	}
+	var binary string
+	if runtime.GOOS == "windows" {
+		binary = findWireGuardExe()
+		if binary == "" {
+			return HelperResponse{Success: false, Error: "wg.exe not found"}
+		}
+	} else {
+		binary = "wg"
+	}
+	out, err := exec.Command(binary, "show", cmd.Interface, "latest-handshakes").CombinedOutput()
+	if err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("wg show: %v", err), Output: string(out)}
+	}
+	var maxTs int64
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		var ts int64
+		if _, err := fmt.Sscan(fields[1], &ts); err == nil && ts > maxTs {
+			maxTs = ts
+		}
+	}
+	return HelperResponse{Success: true, Output: fmt.Sprintf("%d", maxTs)}
 }
 
 // cmdIPSecConfigure sets up the IPSec connection for the platform:
