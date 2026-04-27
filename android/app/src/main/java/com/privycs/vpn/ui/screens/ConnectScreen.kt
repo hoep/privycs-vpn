@@ -420,10 +420,27 @@ fun ConnectScreen(
                     )
                 }
 
+                // The picker now lists single connections AND pools.
+                // Previously it only listed connections, so users with
+                // a configured pool could not switch into pool mode
+                // from this screen — a pool only became active via the
+                // ConnectionsScreen + tap-into-pool-detail flow. We
+                // expand whenever the user has more than one selectable
+                // target across both kinds (1 conn + 1 pool counts).
+                val poolEntries = poolRegistryState.pools
+                val totalSelectable = connections.size + poolEntries.size
                 DropdownMenu(
-                    expanded = showConnectionPicker && connections.size > 1,
+                    expanded = showConnectionPicker && totalSelectable > 1,
                     onDismissRequest = { showConnectionPicker = false }
                 ) {
+                    if (connections.isNotEmpty()) {
+                        Text(
+                            text = "Connections",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
                     connections.forEach { conn ->
                         DropdownMenuItem(
                             text = {
@@ -433,7 +450,8 @@ fun ConnectScreen(
                                             .size(6.dp)
                                             .clip(CircleShape)
                                             .background(
-                                                if (conn.id == registry.activeId)
+                                                if (conn.id == registry.activeId &&
+                                                    poolRegistryState.activeId.isEmpty())
                                                     MaterialTheme.colorScheme.primary
                                                 else MaterialTheme.colorScheme.outline
                                             )
@@ -453,15 +471,15 @@ fun ConnectScreen(
                             },
                             onClick = {
                                 showConnectionPicker = false
+                                // If a pool was active, deselect it so
+                                // the picked single connection becomes
+                                // the actual active target.
+                                if (poolRegistryState.activeId.isNotEmpty()) {
+                                    coroutineScope.launch {
+                                        poolRepoForIndicator.setActiveId("")
+                                    }
+                                }
                                 if (conn.id != registry.activeId) {
-                                    // switchActiveConnection returns true iff
-                                    // a reconnect will actually be attempted
-                                    // (either because a tunnel was up, or
-                                    // because COD wants one up on this
-                                    // network). Only in that case can the
-                                    // hardcore-lock sinkhole block the
-                                    // reconnect, so the toast is gated on
-                                    // both the return value AND KS state.
                                     val willReconnect = vpnManager.switchActiveConnection(conn.id)
                                     if (willReconnect &&
                                         com.privycs.vpn.util.KillSwitchManager.isArmed()
@@ -475,6 +493,68 @@ fun ConnectScreen(
                                 }
                             }
                         )
+                    }
+                    if (poolEntries.isNotEmpty()) {
+                        if (connections.isNotEmpty()) {
+                            androidx.compose.material3.HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
+                        Text(
+                            text = "Pools",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                        poolEntries.forEach { p ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (p.id == poolRegistryState.activeId)
+                                                        MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.outline
+                                                )
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = p.name,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Text(
+                                            text = "${p.policy.displayName} · ${p.members.size}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    showConnectionPicker = false
+                                    if (p.id != poolRegistryState.activeId) {
+                                        coroutineScope.launch {
+                                            poolRepoForIndicator.setActiveId(p.id)
+                                        }
+                                        // Kick the service to pick a
+                                        // member and connect (mirrors
+                                        // PoolDetailHost.onActivate).
+                                        val intent = Intent(context, com.privycs.vpn.service.PrivycsVpnService::class.java).apply {
+                                            action = com.privycs.vpn.service.PrivycsVpnService.ACTION_POOL_CONNECT
+                                            putExtra(com.privycs.vpn.service.PrivycsVpnService.EXTRA_POOL_ID, p.id)
+                                        }
+                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                            context.startForegroundService(intent)
+                                        } else {
+                                            context.startService(intent)
+                                        }
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }

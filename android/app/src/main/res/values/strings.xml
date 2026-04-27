@@ -21,6 +21,7 @@
     <string name="widget_sparkline_tx_description">Upload speed chart</string>
     <string name="widget_endpoint_not_connected">Not connected</string>
     <string name="widget_toast_no_active_connection">No active connection</string>
+    <string name="widget_pool_label_disconnected">Pool: %1$s</string>
     <string name="widget_toast_toggle_failed">Toggle failed</string>
     <string name="widget_toast_unknown_protocol">Unknown protocol</string>
     <string name="widget_toast_protocol_missing">%1$s not configured in this connection</string>

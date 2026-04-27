@@ -245,9 +245,39 @@ class VpnWidget : AppWidgetProvider() {
                     }
                 }
             } else {
+                // Pool mode wins over single-connection mode when both
+                // are configured. The user explicitly chose a pool as
+                // the active target on the Connect screen, so the
+                // widget tap must trigger the pool's pick-and-connect
+                // path - NOT the legacy single connection. Falls back
+                // to the single connection only when no pool is active.
+                val poolRegistry = com.privycs.vpn.PrivycsApp.instance
+                    .poolRepository.registry.value
+                val activePoolId = poolRegistry.activeId
+                if (activePoolId.isNotEmpty() &&
+                    poolRegistry.pools.any { it.id == activePoolId }
+                ) {
+                    val intent = Intent(
+                        context,
+                        com.privycs.vpn.service.PrivycsVpnService::class.java
+                    ).apply {
+                        action = com.privycs.vpn.service.PrivycsVpnService.ACTION_POOL_CONNECT
+                        putExtra(
+                            com.privycs.vpn.service.PrivycsVpnService.EXTRA_POOL_ID,
+                            activePoolId
+                        )
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        context.startForegroundService(intent)
+                    } else {
+                        context.startService(intent)
+                    }
+                    return
+                }
+
                 val connection = com.privycs.vpn.PrivycsApp.instance.connectionRepository.getActive()
                 if (connection == null) {
-                    Log.w(TAG, "Widget toggle: no active connection to connect to")
+                    Log.w(TAG, "Widget toggle: no active connection or pool to connect to")
                     showToast(context, context.getString(R.string.widget_toast_no_active_connection))
                     return
                 }
@@ -383,10 +413,29 @@ class VpnWidget : AppWidgetProvider() {
         views.setTextColor(R.id.widget_uptime, statusColor)
 
         // --- Section 3: Connection name (+ chevron is in XML, decorative) ---
-        views.setTextViewText(
-            R.id.widget_connection_name,
-            connectionName.ifBlank { context.getString(R.string.app_name) },
-        )
+        // Pool-aware label. When a pool is the active selection the
+        // widget should communicate that explicitly - both so the user
+        // understands a tap will go through the pool pick-and-connect
+        // path AND so they don't get confused by an unfamiliar member
+        // hostname when the round-robin scheduler has rotated.
+        // Connected:    "<member-name> · <pool-name>"
+        // Disconnected: "Pool: <pool-name>"
+        // Single-conn:  unchanged
+        val poolRegistry = com.privycs.vpn.PrivycsApp.instance
+            .poolRepository.registry.value
+        val activePool = poolRegistry.pools.firstOrNull { it.id == poolRegistry.activeId }
+        val displayName = when {
+            activePool != null && connected && connectionName.isNotBlank() ->
+                "$connectionName · ${activePool.name}"
+            activePool != null ->
+                context.getString(
+                    R.string.widget_pool_label_disconnected,
+                    activePool.name
+                )
+            connectionName.isNotBlank() -> connectionName
+            else -> context.getString(R.string.app_name)
+        }
+        views.setTextViewText(R.id.widget_connection_name, displayName)
 
         // --- Section 4: Protocol pills ---
         setProtocolPillState(

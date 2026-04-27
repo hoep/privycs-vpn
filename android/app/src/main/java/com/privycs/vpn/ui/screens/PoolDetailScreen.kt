@@ -27,6 +27,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,9 +79,13 @@ fun PoolDetailScreen(
                     IconButton(onClick = onEdit) {
                         Icon(Icons.Filled.Settings, contentDescription = "Edit pool")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(
             modifier = Modifier
@@ -91,7 +96,10 @@ fun PoolDetailScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("${pool.policy.displayName} · ${pool.members.size} servers",
@@ -107,9 +115,14 @@ fun PoolDetailScreen(
 
             // Coverage breakdown
             if (coverage.isNotEmpty()) {
-                Card(modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Coverage", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(8.dp))
@@ -165,9 +178,14 @@ fun PoolDetailScreen(
                 }
             }
 
+            // Members list. weight(1f) so the LazyColumn shares
+            // remaining vertical space with the Delete button below
+            // it instead of consuming all of it (which previously
+            // pushed the Delete button off the screen on tall pools).
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f)
                     .padding(horizontal = 16.dp)
             ) {
                 items(visibleMembers, key = { it.id }) { m ->
@@ -179,14 +197,36 @@ fun PoolDetailScreen(
                 }
             }
 
-            // Delete (bottom)
+            // Delete (bottom) - always visible, dialog-confirmed.
+            var showConfirmDelete by remember { mutableStateOf(false) }
             TextButton(
-                onClick = onDelete,
+                onClick = { showConfirmDelete = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
             ) {
                 Text("Delete pool", color = MaterialTheme.colorScheme.error)
+            }
+            if (showConfirmDelete) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showConfirmDelete = false },
+                    title = { Text("Delete pool?") },
+                    text = { Text("This removes the pool and all its imported configs. " +
+                            "Cannot be undone.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showConfirmDelete = false
+                            onDelete()
+                        }) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showConfirmDelete = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
             }
         }
     }

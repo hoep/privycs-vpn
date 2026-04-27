@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -32,6 +33,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -91,9 +93,13 @@ fun AddPoolScreen(
                     IconButton(onClick = onCancel) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Cancel")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(
             modifier = Modifier
@@ -102,7 +108,12 @@ fun AddPoolScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             // Step 1: file picker
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("1. Pick configs", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(8.dp))
@@ -131,7 +142,12 @@ fun AddPoolScreen(
             Spacer(Modifier.height(12.dp))
 
             // Step 2: settings
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("2. Pool settings", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(8.dp))
@@ -205,10 +221,34 @@ fun AddPoolScreen(
 
             Spacer(Modifier.height(20.dp))
 
+            // Validation hint shown above the Create button when it
+            // is disabled. Previously the button just visually faded
+            // out via Material's disabled state, which several users
+            // misread as "the button disappeared". An explicit hint
+            // keeps the button anchored and tells the user what's
+            // missing.
+            val missingFiles = pickedUris.isEmpty()
+            val missingName = name.isBlank()
+            val isImporting = progress.stage == PoolImportProgress.Stage.RESOLVING ||
+                    progress.stage == PoolImportProgress.Stage.PARSING
+            val canCreate = !missingFiles && !missingName && !isImporting
+
+            if (!canCreate && !isImporting) {
+                val hint = when {
+                    missingFiles && missingName -> "Pick configs and enter a pool name to continue."
+                    missingFiles -> "Pick configs to continue."
+                    else -> "Enter a pool name to continue."
+                }
+                Text(
+                    text = hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+
             Button(
-                enabled = pickedUris.isNotEmpty() && name.isNotBlank() &&
-                        progress.stage != PoolImportProgress.Stage.RESOLVING &&
-                        progress.stage != PoolImportProgress.Stage.PARSING,
+                enabled = canCreate,
                 onClick = {
                     val rotationInterval = intervalMin.toIntOrNull() ?: 30
                     scope.launch {
