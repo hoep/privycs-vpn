@@ -548,19 +548,19 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 		if wg, ok := proto.(*WireGuardProtocol); ok {
 			if err := wg.AdoptExistingConfig(); err != nil {
 				// Fallback: pre-written file vanished or unreadable.
-				if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
+				if err := proto.Configure(a.applyDnsOverride([]byte(m.Config.ConfigContent), proto.Name())); err != nil {
 					a.mu.Unlock()
 					return fmt.Errorf("invalid pool-member config: %w", err)
 				}
 			}
 		} else {
-			if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
+			if err := proto.Configure(a.applyDnsOverride([]byte(m.Config.ConfigContent), proto.Name())); err != nil {
 				a.mu.Unlock()
 				return fmt.Errorf("invalid pool-member config: %w", err)
 			}
 		}
 	} else {
-		if err := proto.Configure([]byte(m.Config.ConfigContent)); err != nil {
+		if err := proto.Configure(a.applyDnsOverride([]byte(m.Config.ConfigContent), proto.Name())); err != nil {
 			a.mu.Unlock()
 			return fmt.Errorf("invalid pool-member config: %w", err)
 		}

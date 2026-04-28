@@ -202,7 +202,7 @@ func (a *App) startup(ctx context.Context) {
 		if cfg := conn.GetActiveConfig(); cfg != nil {
 			if proto, ok := a.protocols[cfg.Protocol]; ok {
 				setTunnelName(proto, sanitizeTunnelName(conn.Name))
-				proto.Configure([]byte(cfg.ConfigContent))
+				proto.Configure(a.applyDnsOverride([]byte(cfg.ConfigContent), proto.Name()))
 				a.activeProtocol = cfg.Protocol
 				log.Printf("Restored active connection: %s (%s, tunnel: %s)", conn.Name, cfg.Protocol, sanitizeTunnelName(conn.Name))
 			}
@@ -889,7 +889,7 @@ func (a *App) SelectProtocol(protocol string) error {
 	if configContent != nil {
 		if proto, ok := a.protocols[protocol]; ok {
 			setTunnelName(proto, tunnelName)
-			proto.Configure(configContent)
+			proto.Configure(a.applyDnsOverride(configContent, proto.Name()))
 		}
 	}
 
@@ -978,7 +978,7 @@ func (a *App) ImportConfig(protocol string, content string, filename string, con
 	setTunnelName(proto, tunnelName)
 
 	// Validate config by configuring the protocol handler
-	if err := proto.Configure([]byte(content)); err != nil {
+	if err := proto.Configure(a.applyDnsOverride([]byte(content), proto.Name())); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
@@ -1085,7 +1085,7 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 
 	setTunnelName(protoHandler, sanitizeTunnelName(conn.Name))
 
-	if err := protoHandler.Configure([]byte(cfg.ConfigContent)); err != nil {
+	if err := protoHandler.Configure(a.applyDnsOverride([]byte(cfg.ConfigContent), protoHandler.Name())); err != nil {
 		return fmt.Errorf("failed to configure: %w", err)
 	}
 
@@ -1295,7 +1295,7 @@ func (a *App) SwitchConnectionProtocol(protocol string) error {
 
 	setTunnelName(protoHandler, sanitizeTunnelName(conn.Name))
 
-	if err := protoHandler.Configure([]byte(cfg.ConfigContent)); err != nil {
+	if err := protoHandler.Configure(a.applyDnsOverride([]byte(cfg.ConfigContent), protoHandler.Name())); err != nil {
 		return fmt.Errorf("failed to configure: %w", err)
 	}
 
@@ -1690,7 +1690,7 @@ func (a *App) SaveActiveConfigContent(content string) error {
 
 	// Re-configure the protocol handler with new content
 	if proto, ok := a.protocols[cfg.Protocol]; ok {
-		if err := proto.Configure([]byte(content)); err != nil {
+		if err := proto.Configure(a.applyDnsOverride([]byte(content), proto.Name())); err != nil {
 			a.mu.Unlock()
 			return fmt.Errorf("invalid config: %w", err)
 		}

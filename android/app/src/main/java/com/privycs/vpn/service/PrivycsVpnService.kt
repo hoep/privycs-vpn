@@ -1050,23 +1050,92 @@ class PrivycsVpnService : VpnService() {
         val tunnel = WireGuardTunnel(backend)
         wireGuardTunnel = tunnel
 
-        // Per-App VPN: the WireGuard tunnel library owns its own
-        // VpnService.Builder inside GoBackend, so we can't attach
-        // addAllowedApplication / addDisallowedApplication externally
-        // like we do for IPSec. But the Config parser reads
-        // IncludedApplications / ExcludedApplications lines in the
-        // [Interface] section and forwards them into the Builder,
-        // so injecting these lines into the config text before
-        // parsing is the supported path. This closes the v0.9.8.0
-        // gap where Per-App VPN selections had no effect on
-        // WireGuard (the most-used protocol).
-        val patchedConfig = patchWireGuardPerAppVpn(configContent)
+        // Two text-level patches before the WG parser sees the
+        // config: Per-App VPN allow/exclude (existing) and the
+        // user's manual DNS override (added in v0.9.11.53). Both
+        // work the same way - patch the [Interface] section so
+        // the parser builds a VpnService.Builder that honours them.
+        val perAppPatched = patchWireGuardPerAppVpn(configContent)
+        val patchedConfig = patchWireGuardDnsOverride(perAppPatched)
         tunnel.connect(patchedConfig, "privycs0")
 
         connectStartTime = System.currentTimeMillis()
         updateNotification("Connected to $currentConnectionName")
         sendWidgetUpdate(connected = true)
         startStatusPolling()
+    }
+
+    /**
+     * Reads Settings.dnsOverride and parses it into individual IPs.
+     * Accepts comma-, space-, or whitespace-separated input. Empty
+     * strings are filtered out so the user can paste lazy whitespace
+     * without breaking the protocol-specific formatters downstream.
+     */
+    private fun resolveDnsOverrideServers(): List<String> {
+        val raw = try {
+            PrivycsApp.instance.settingsRepository.getSettingsBlocking().dnsOverride
+        } catch (e: Exception) {
+            Log.w(TAG, "DNS override read failed: ${e.message}")
+            return emptyList()
+        }
+        if (raw.isBlank()) return emptyList()
+        return raw.split(',', ' ', '\t', '\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    /**
+     * Replaces (or inserts) the `DNS = ...` line in the
+     * [Interface] section of a WireGuard config with the user's
+     * manual DNS-server override from Settings. No-op when the
+     * override is empty - the config's own DNS line wins.
+     *
+     * Earlier the override field was only persisted to DataStore
+     * and never reached any tunnel - the v0.9.11.52 audit found
+     * zero callers in the connect path. v0.9.11.53 closes that
+     * gap for all three protocols, this is the WireGuard arm.
+     */
+    private fun patchWireGuardDnsOverride(configContent: String): String {
+        val servers = resolveDnsOverrideServers()
+        if (servers.isEmpty()) return configContent
+        val newLine = "DNS = ${servers.joinToString(", ")}"
+
+        val lines = configContent.lines().toMutableList()
+        var interfaceStart = -1
+        var interfaceEnd = lines.size
+        for (i in lines.indices) {
+            val trimmed = lines[i].trim()
+            if (trimmed.equals("[Interface]", ignoreCase = true)) {
+                interfaceStart = i
+            } else if (interfaceStart >= 0 && trimmed.startsWith("[")) {
+                interfaceEnd = i
+                break
+            }
+        }
+        if (interfaceStart < 0) {
+            Log.w(TAG, "DNS override (WG): [Interface] section not found, override skipped")
+            return configContent
+        }
+
+        // Replace existing DNS line if present, else insert at end
+        // of [Interface] section (just before next section header or
+        // end of file).
+        var replaced = false
+        for (i in (interfaceStart + 1) until interfaceEnd) {
+            val trimmed = lines[i].trim()
+            if (trimmed.startsWith("DNS", ignoreCase = true) &&
+                trimmed.replaceBefore('=', "").startsWith("=")
+            ) {
+                lines[i] = newLine
+                replaced = true
+                break
+            }
+        }
+        if (!replaced) {
+            lines.add(interfaceEnd, newLine)
+        }
+        Log.i(TAG, "DNS override (WG): applied ${servers.joinToString(",")} (${if (replaced) "replaced" else "inserted"})")
+        return lines.joinToString("\n")
     }
 
     /**
@@ -1153,12 +1222,22 @@ class PrivycsVpnService : VpnService() {
             sendWidgetUpdate(connected = connected)
         }
 
+        // DNS override: prepend two directives at the top of the
+        // config so they take effect before any server-pushed
+        // values arrive. `pull-filter ignore "dhcp-option DNS"`
+        // drops the server's DNS push; `dhcp-option DNS X.X.X.X`
+        // emits one line per override IP. ics-openvpn's parser
+        // recognises both directives; the resulting profile has
+        // mDns1/mDns2 set from our override instead of the
+        // server's value.
+        val patchedConfigOvpn = patchOpenVpnDnsOverride(configContent)
+
         // Pass currentConnectionId (the stable VpnConnection.id we hand
         // through from VpnServiceManager) so OpenVpnTunnel forces the
         // same deterministic UUID PrivycsApp.preloadOpenVpnProfiles()
         // used at app boot - this closes the pre-load <-> connect UUID
         // race.
-        tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService, currentConnectionId)
+        tunnel.connect(patchedConfigOvpn, currentConnectionName, this@PrivycsVpnService, currentConnectionId)
 
         connectStartTime = System.currentTimeMillis()
         sendWidgetUpdate(connected = false)
@@ -1167,6 +1246,26 @@ class PrivycsVpnService : VpnService() {
         // periodic poll for parity with WireGuard/IPSec so the UI refresh
         // cadence is uniform across protocols.
         startStatusPolling()
+    }
+
+    /**
+     * Prepends `pull-filter ignore "dhcp-option DNS"` plus one
+     * `dhcp-option DNS <ip>` directive per override server to an
+     * OpenVPN config. The ignore-filter drops the server-pushed
+     * DNS value so our explicit dhcp-option lines win.
+     *
+     * No-op when the override is empty - server-pushed DNS keeps
+     * its original behavior.
+     */
+    private fun patchOpenVpnDnsOverride(configContent: String): String {
+        val servers = resolveDnsOverrideServers()
+        if (servers.isEmpty()) return configContent
+        val sb = StringBuilder()
+        sb.appendLine("pull-filter ignore \"dhcp-option DNS\"")
+        for (s in servers) sb.appendLine("dhcp-option DNS $s")
+        sb.append(configContent)
+        Log.i(TAG, "DNS override (OVPN): applied ${servers.joinToString(",")}")
+        return sb.toString()
     }
 
     private suspend fun connectIpSec(configContent: String) {
@@ -1195,7 +1294,12 @@ class PrivycsVpnService : VpnService() {
             sendWidgetUpdate(connected = connected)
         }
 
-        tunnel.connect(configContent, currentConnectionName, this@PrivycsVpnService)
+        tunnel.connect(
+            configContent,
+            currentConnectionName,
+            this@PrivycsVpnService,
+            dnsOverrideServers = resolveDnsOverrideServers()
+        )
 
         connectStartTime = System.currentTimeMillis()
         sendWidgetUpdate(connected = false)

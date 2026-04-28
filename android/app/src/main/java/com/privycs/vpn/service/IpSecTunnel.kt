@@ -192,7 +192,8 @@ class IpSecTunnel(private val context: Context) {
     suspend fun connect(
         configContent: String,
         name: String = "privycs-ipsec",
-        @Suppress("UNUSED_PARAMETER") vpnService: android.net.VpnService
+        @Suppress("UNUSED_PARAMETER") vpnService: android.net.VpnService,
+        dnsOverrideServers: List<String> = emptyList()
     ) = withContext(Dispatchers.IO) {
         if (state == State.CONNECTED || state == State.CONNECTING) {
             Log.w(TAG, "Already connected/connecting; ignoring")
@@ -200,7 +201,20 @@ class IpSecTunnel(private val context: Context) {
         }
         state = State.CONNECTING
 
-        val cfg = parseConfig(configContent)
+        val parsedCfg = parseConfig(configContent)
+        // DNS override from Settings: replace the .sswan profile's
+        // dns-servers list. strongSwan's profile.setDnsServers takes
+        // a space-separated string and propagates the value through
+        // CharonVpnService into the VpnService.Builder.addDnsServer
+        // call. Earlier versions ignored the user's Settings
+        // dnsOverride entirely - the .sswan file's "dns-servers"
+        // always won. v0.9.11.53 closes that gap.
+        val cfg = if (dnsOverrideServers.isNotEmpty()) {
+            Log.i(TAG, "DNS override (IPSec): applied ${dnsOverrideServers.joinToString(",")}")
+            parsedCfg.copy(dnsServers = dnsOverrideServers)
+        } else {
+            parsedCfg
+        }
         val alias = getInstalledAlias()
             ?: throw IllegalStateException(
                 "PKCS#12 not yet installed into Android KeyChain. " +
