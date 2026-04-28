@@ -405,8 +405,25 @@ fun ConnectScreen(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        // Connection name with picker
-        if (activeConnection != null) {
+        // Connection name with picker.
+        //
+        // Earlier draft was `if (activeConnection != null)` which
+        // hid the entire dropdown trigger when a pool was the active
+        // selection (single-connection's activeId was cleared on
+        // pool activate, so getActive() returned null). The dropdown
+        // content already supports both connections AND pools - we
+        // just need to render it whenever EITHER is present.
+        val hasAnySelection = activeConnection != null || activePool != null
+        if (hasAnySelection) {
+            // Label preference order:
+            //   1. tunnel-reported status.connectionName (live, e.g.
+            //      pool name pushed by broadcastPoolStatus)
+            //   2. active pool name (when pool is selected but
+            //      connect has not yet broadcast)
+            //   3. active single-connection name
+            val labelText = status.connectionName.ifBlank {
+                activePool?.name ?: activeConnection?.name.orEmpty()
+            }
             Box {
                 Row(
                     modifier = Modifier
@@ -415,7 +432,7 @@ fun ConnectScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = status.connectionName.ifBlank { activeConnection.name },
+                        text = labelText,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

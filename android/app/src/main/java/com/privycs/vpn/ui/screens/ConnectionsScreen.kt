@@ -452,7 +452,40 @@ fun ConnectionsScreen(
                         PoolListCard(
                             pool = p,
                             isActive = p.id == poolRegistry.activeId,
-                            onClick = { onNavigateToPoolDetail(p.id) }
+                            // Card body tap = activate + connect.
+                            // Mirrors single-connection card UX where
+                            // tapping the row makes that connection
+                            // the active target. Edit / detail view
+                            // is reachable via the small chevron
+                            // icon on the right side of the card.
+                            onTap = {
+                                scope.launch {
+                                    // Clearing the single-connection
+                                    // active id so the Connect screen
+                                    // does not show stale single-name
+                                    // while pool spins up.
+                                    connectionRepo.setActive("")
+                                    PrivycsApp.instance.poolRepository
+                                        .setActiveId(p.id)
+                                    val intent = android.content.Intent(
+                                        context,
+                                        com.privycs.vpn.service.PrivycsVpnService::class.java
+                                    ).apply {
+                                        action = com.privycs.vpn.service.PrivycsVpnService.ACTION_POOL_CONNECT
+                                        putExtra(
+                                            com.privycs.vpn.service.PrivycsVpnService.EXTRA_POOL_ID,
+                                            p.id
+                                        )
+                                    }
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        context.startForegroundService(intent)
+                                    } else {
+                                        context.startService(intent)
+                                    }
+                                    onNavigateToConnect()
+                                }
+                            },
+                            onEdit = { onNavigateToPoolDetail(p.id) }
                         )
                     }
                     if (pools.isNotEmpty()) {
@@ -548,12 +581,13 @@ private fun PoolsSectionHeader(
 private fun PoolListCard(
     pool: com.privycs.vpn.data.models.Pool,
     isActive: Boolean,
-    onClick: () -> Unit
+    onTap: () -> Unit,
+    onEdit: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(onClick = onTap),
         colors = CardDefaults.cardColors(
             containerColor = if (isActive)
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
@@ -591,6 +625,21 @@ private fun PoolListCard(
                     Text("ACTIVE",
                         style = MaterialTheme.typography.labelSmall)
                 }
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            // Edit / detail icon - small, right side. Card-body tap
+            // activates the pool; this icon opens the pool detail
+            // for editing without firing connect.
+            IconButton(
+                onClick = onEdit,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Edit,
+                    contentDescription = "Edit pool",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }

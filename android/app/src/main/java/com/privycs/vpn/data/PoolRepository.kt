@@ -122,6 +122,25 @@ class PoolRepository(
         }
 
     /**
+     * Adds a pool with its existing ID (no UUID regeneration).
+     * Used by the backup-restore path: pools were saved with their
+     * original IDs and should reappear with the same IDs so any
+     * external references survive (e.g. activeId pointers in the
+     * backup payload, scheduled-rotation alarms keyed by pool id).
+     *
+     * Returns true if the pool was added, false if a pool with
+     * the same ID already exists (caller decides whether to update
+     * or skip - by default we skip, mirroring the connection-merge
+     * semantics in importAndMerge).
+     */
+    suspend fun restorePool(pool: Pool): Boolean = mutex.withLock {
+        if (poolByID[pool.id] != null) return@withLock false
+        val current = _registry.value
+        emitNewState(current.copy(pools = current.pools + pool))
+        true
+    }
+
+    /**
      * Persists definition-level changes to a pool the caller
      * mutated in place (name, policy, rotation, restrict-regions,
      * country-override).

@@ -36,8 +36,15 @@ class CloudBackupManager(private val context: Context) {
         // v2: plaintext = BackupPayload (connections + AppSettings, so
         //     gateway URL + API key + kill-switch + theme + on-demand
         //     rules + DNS override round-trip through a backup).
-        // Import accepts both for backward compatibility.
-        private const val BACKUP_VERSION = 2
+        // v3: plaintext = BackupPayload (connections + AppSettings +
+        //     pools). Pool DEFINITIONS only (members, policy,
+        //     rotation params, restrict-regions). Runtime state
+        //     (active-member, pending-member, region-cursors,
+        //     unreachable-flags) is intentionally NOT backed up - on
+        //     a fresh device the user activates the pool which
+        //     regenerates state cleanly.
+        // Import accepts all three for backward compatibility.
+        private const val BACKUP_VERSION = 3
     }
 
     private val json = Json {
@@ -64,7 +71,12 @@ class CloudBackupManager(private val context: Context) {
     @Serializable
     data class BackupPayload(
         val connections: ConnectionRegistry = ConnectionRegistry(),
-        val settings: AppSettings = AppSettings()
+        val settings: AppSettings = AppSettings(),
+        // v3+: pool definitions. Nullable so v2 backups (which don't
+        // carry the field) deserialize cleanly with the default
+        // value. PoolFile shape is the same on-disk format used by
+        // PoolRepository so import is a single repository write.
+        val pools: com.privycs.vpn.data.PoolFile? = null
     )
 
     /**
@@ -87,7 +99,17 @@ class CloudBackupManager(private val context: Context) {
         // block here because this export operation is itself blocking.
         val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
 
-        val payload = BackupPayload(connections = registry, settings = settings)
+        // Pool definitions snapshot from the in-memory registry.
+        // Same rationale as for connections above: prefer the live
+        // value over the on-disk pools.json which may not be
+        // fsynced if the user just edited a pool.
+        val poolFile = PrivycsApp.instance.poolRepository.registry.value
+
+        val payload = BackupPayload(
+            connections = registry,
+            settings = settings,
+            pools = poolFile
+        )
         val plaintext = json.encodeToString(BackupPayload.serializer(), payload)
 
         val salt = ByteArray(SALT_LENGTH).also { SecureRandom().nextBytes(it) }
@@ -147,7 +169,8 @@ class CloudBackupManager(private val context: Context) {
     private data class DecodedBackup(
         val connections: ConnectionRegistry,
         val settings: AppSettings,
-        val hasSettings: Boolean
+        val hasSettings: Boolean,
+        val pools: com.privycs.vpn.data.PoolFile?
     )
 
     private fun importBackupPayload(password: String, inputUri: Uri): DecodedBackup {
@@ -197,15 +220,16 @@ class CloudBackupManager(private val context: Context) {
 
         val decoded = if (hasSettings) {
             val p = json.decodeFromString(BackupPayload.serializer(), plaintext)
-            DecodedBackup(p.connections, p.settings, hasSettings = true)
+            DecodedBackup(p.connections, p.settings, hasSettings = true, pools = p.pools)
         } else {
             val registry = json.decodeFromString(ConnectionRegistry.serializer(), plaintext)
-            DecodedBackup(registry, AppSettings(), hasSettings = false)
+            DecodedBackup(registry, AppSettings(), hasSettings = false, pools = null)
         }
 
         Log.d(
             TAG,
             "Backup imported: ${decoded.connections.connections.size} connections, " +
+                "${decoded.pools?.pools?.size ?: 0} pools, " +
                 "settingsRestored=${decoded.hasSettings}"
         )
         return decoded
@@ -247,6 +271,36 @@ class CloudBackupManager(private val context: Context) {
             )
         } else {
             Log.d(TAG, "Backup has no settings block (v1 legacy); settings left unchanged")
+        }
+
+        // Pool definitions (v3+ backups). Skip-on-existing-ID merge
+        // semantics matching the connections branch: pools that
+        // already exist on this device are left alone; pools whose
+        // IDs are new get added with the original ID preserved so
+        // the backup's activeId pointer still resolves.
+        var addedPools = 0
+        decoded.pools?.let { poolFile ->
+            val poolRepo = PrivycsApp.instance.poolRepository
+            runBlocking {
+                for (p in poolFile.pools) {
+                    if (poolRepo.restorePool(p)) addedPools++
+                }
+                // Restore activeId only if (a) it points to a pool
+                // we restored OR an existing pool with that id, AND
+                // (b) the user has no current single-connection
+                // active selection - we do not silently switch the
+                // user's current connection to a pool on import.
+                val targetPoolId = poolFile.activeId
+                val activeSinglePresent = PrivycsApp.instance
+                    .connectionRepository.activeId.isNotEmpty()
+                if (targetPoolId.isNotEmpty() &&
+                    !activeSinglePresent &&
+                    poolRepo.get(targetPoolId) != null
+                ) {
+                    poolRepo.setActiveId(targetPoolId)
+                }
+            }
+            Log.d(TAG, "Merged $addedPools new pools from backup")
         }
 
         Log.d(TAG, "Merged $addedCount new connections from backup")

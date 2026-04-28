@@ -7,8 +7,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -180,7 +183,19 @@ private fun EditPoolSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+        // Scrollable column so the Save / Cancel buttons remain
+        // reachable even when (a) the soft keyboard is open and
+        // (b) the Round-Robin policy expands the interval field.
+        // Without this scroll the buttons end up below the visible
+        // sheet area on small / split-screen devices and the user
+        // cannot save edits. Adding imePadding prevents the keyboard
+        // from obscuring the active input field.
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+        ) {
             Text("Edit pool", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(16.dp))
 
