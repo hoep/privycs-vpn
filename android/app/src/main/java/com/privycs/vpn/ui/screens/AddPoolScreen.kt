@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -106,6 +108,17 @@ fun AddPoolScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
+                // Scrollable so the Create button stays reachable
+                // even when Round-Robin policy expands the rotation-
+                // interval field and the < 5min battery warning.
+                // Without scroll, on small screens the button got
+                // pushed off the bottom and looked "greyed out /
+                // disappeared" - reported by the user as "wird
+                // import wieder ausgegraut" after switching to
+                // Round-Robin. The button is fine; it was just
+                // invisible.
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .imePadding()
         ) {
             // Step 1: file picker
             Card(

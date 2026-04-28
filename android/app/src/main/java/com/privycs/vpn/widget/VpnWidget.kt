@@ -476,11 +476,44 @@ class VpnWidget : AppWidgetProvider() {
         }
 
         // --- Section 5: Endpoint (centered below pills) ---
-        views.setTextViewText(
-            R.id.widget_endpoint_center,
-            if (connected && serverEndpoint.isNotBlank()) serverEndpoint
-            else context.getString(R.string.widget_endpoint_not_connected),
-        )
+        // Compose a richer location line: "<flag> <ip> · <city>, <country>"
+        // when we have all the pieces, falling back gracefully to
+        // just the IP, then to "not connected".
+        //
+        // We read VpnStatus directly here to pick up the pool-aware
+        // fields (activeMemberCountry / activeMemberName) without
+        // having to extend updateWidgetWithStatus's signature.
+        // SingleConnection path: country/member name come empty so
+        // we parse them from connectionName which often follows the
+        // same "<cc>-<city3>-<n>" pattern (Mullvad-style).
+        val endpointText = if (connected && serverEndpoint.isNotBlank()) {
+            val st = try {
+                VpnServiceManager.getInstance(context).status.value
+            } catch (_: Exception) { null }
+            val cc = st?.activeMemberCountry.orEmpty().ifBlank {
+                // Fallback for single-connection path: parse cc
+                // from the connection name's first segment.
+                connectionName.split("-").firstOrNull().orEmpty()
+            }
+            val nameForCity = st?.activeMemberName.orEmpty().ifBlank { connectionName }
+            val flag = com.privycs.vpn.data.PoolHostnameLabels.flagEmojiFromCode(cc)
+            val city = com.privycs.vpn.data.PoolHostnameLabels.cityFromHostname(nameForCity)
+            val country = com.privycs.vpn.data.PoolHostnameLabels.countryNameFromCode(cc)
+            buildString {
+                if (flag.isNotEmpty()) append(flag).append("  ")
+                append(serverEndpoint)
+                val locTail = when {
+                    city.isNotEmpty() && country.isNotEmpty() -> "$city, $country"
+                    city.isNotEmpty() -> city
+                    country.isNotEmpty() -> country
+                    else -> ""
+                }
+                if (locTail.isNotEmpty()) append(" · ").append(locTail)
+            }
+        } else {
+            context.getString(R.string.widget_endpoint_not_connected)
+        }
+        views.setTextViewText(R.id.widget_endpoint_center, endpointText)
 
         // --- Section 6: Traffic cards (Download / Upload) ---
         val rxHistory = SpeedTracker.rxSpeedHistory.value

@@ -625,6 +625,39 @@ fun ConnectScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
+
+                // Country flag + city + country line. Pool path uses
+                // VpnStatus.activeMemberCountry + activeMemberName
+                // (broadcast by the service after pickAndConnect).
+                // Single-connection path falls back to parsing the
+                // connection name (which often follows the same
+                // "<cc>-<city3>-<n>" pattern when imported from a
+                // commercial provider).
+                val cc = status.activeMemberCountry.ifBlank { "" }
+                val labelName = status.activeMemberName.ifBlank {
+                    status.connectionName.ifBlank { activeConnection?.name.orEmpty() }
+                }
+                val flag = com.privycs.vpn.data.PoolHostnameLabels.flagEmojiFromCode(cc)
+                val city = com.privycs.vpn.data.PoolHostnameLabels.cityFromHostname(labelName)
+                val country = com.privycs.vpn.data.PoolHostnameLabels.countryNameFromCode(cc)
+                val locationLine = buildString {
+                    if (flag.isNotEmpty()) append(flag).append("  ")
+                    when {
+                        city.isNotEmpty() && country.isNotEmpty() ->
+                            append("$city, $country")
+                        city.isNotEmpty() -> append(city)
+                        country.isNotEmpty() -> append(country)
+                    }
+                }.trim()
+                if (locationLine.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = locationLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
