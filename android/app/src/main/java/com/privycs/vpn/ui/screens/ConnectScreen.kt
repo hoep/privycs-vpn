@@ -591,20 +591,32 @@ fun ConnectScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Protocol badges
-            ProtocolBadges(
-                availableProtocols = activeConnection.availableProtocols(),
-                activeProtocol = status.activeProtocol ?: activeConnection.activeProtocol,
-                onSelect = { protocol ->
-                    vpnManager.switchProtocol(protocol)
-                }
-            )
+            // Protocol badges. Single-connection only: pools mix
+            // members with potentially different protocols, so a
+            // single-protocol picker UI is meaningless. When a pool
+            // is active (activeConnection == null), skip the badges
+            // entirely. The pool indicator card above already shows
+            // policy/member info in the appropriate framing.
+            if (activeConnection != null) {
+                ProtocolBadges(
+                    availableProtocols = activeConnection.availableProtocols(),
+                    activeProtocol = status.activeProtocol ?: activeConnection.activeProtocol,
+                    onSelect = { protocol ->
+                        vpnManager.switchProtocol(protocol)
+                    }
+                )
 
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
-            // Server endpoint
+            // Server endpoint. Source preference:
+            //   1. status.serverEndpoint (live tunnel push - works
+            //      for both pool members AND single connections)
+            //   2. single-connection's stored config endpoint
+            //   3. blank (pool with no broadcast yet - the pool
+            //      indicator card carries the member info instead)
             val endpoint = status.serverEndpoint.ifBlank {
-                activeConnection.getActiveConfig()?.serverAddress ?: ""
+                activeConnection?.getActiveConfig()?.serverAddress.orEmpty()
             }
             if (endpoint.isNotBlank()) {
                 Text(
