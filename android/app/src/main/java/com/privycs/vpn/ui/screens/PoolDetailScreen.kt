@@ -87,52 +87,89 @@ fun PoolDetailScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        Column(
+        // Single-LazyColumn layout: header card, coverage card,
+        // action row, member rows, and delete button are all
+        // items in the SAME LazyColumn. This makes the entire page
+        // scrollable as a unit (user complaint v0.9.11.50: member
+        // list was tiny and only its own scroll viewport scrolled).
+        // Previously the outer Column had fixed-size cards on top
+        // and a weight(1f) LazyColumn for members, so the member
+        // viewport was whatever vertical space was left over after
+        // the cards - on small phones with a long restrict-regions
+        // line that was almost nothing.
+        var showConfirmDelete by remember { mutableStateOf(false) }
+        val visibleMembers = remember(memberFilter, pool.members) {
+            if (memberFilter.isEmpty()) pool.members
+            else pool.members.filter {
+                it.name.contains(memberFilter, ignoreCase = true) ||
+                        it.country.contains(memberFilter, ignoreCase = true) ||
+                        it.region.contains(memberFilter, ignoreCase = true)
+            }
+        }
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                horizontal = 16.dp,
+                vertical = 8.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Header summary
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("${pool.policy.displayName} · ${pool.members.size} servers",
-                        style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(4.dp))
-                    if (pool.restrictRegions.isNotEmpty()) {
-                        Text("Restricted to: ${pool.restrictRegions.joinToString(", ")}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-
-            // Coverage breakdown
-            if (coverage.isNotEmpty()) {
+            // Header summary card
+            item {
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface
                     )
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Coverage", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(8.dp))
-                        for (c in coverage) {
-                            Row(modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp)) {
-                                Text(c.region, modifier = Modifier.weight(1f))
-                                Text("${c.servers} servers · ${c.countries} countries",
-                                    style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "${pool.policy.displayName} · ${pool.members.size} servers",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        if (pool.restrictRegions.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Restricted to: ${pool.restrictRegions.joinToString(", ")}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Coverage breakdown card
+            if (coverage.isNotEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Coverage", style = MaterialTheme.typography.titleSmall)
+                            Spacer(Modifier.height(8.dp))
+                            for (c in coverage) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        c.region,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        "${c.servers} servers · ${c.countries} countries",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -140,104 +177,128 @@ fun PoolDetailScreen(
             }
 
             // Action row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TextButton(onClick = onActivate, modifier = Modifier.weight(1f)) {
-                    Text("Use this pool")
-                }
-                if (unreachableIds.isNotEmpty()) {
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                resetting = true
-                                onResetUnreachable()
-                                resetting = false
-                            }
-                        },
-                        enabled = !resetting,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = null,
-                            modifier = Modifier.padding(end = 4.dp))
-                        Text(if (resetting) "Resetting..." else "Reset (${unreachableIds.size})")
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = onActivate, modifier = Modifier.weight(1f)) {
+                        Text("Use this pool", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (unreachableIds.isNotEmpty()) {
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    resetting = true
+                                    onResetUnreachable()
+                                    resetting = false
+                                }
+                            },
+                            enabled = !resetting,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Filled.Refresh, contentDescription = null,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                            Text(if (resetting) "Resetting..." else "Reset (${unreachableIds.size})")
+                        }
                     }
                 }
             }
 
-            // Members list
-            val visibleMembers = remember(memberFilter, pool.members) {
-                if (memberFilter.isEmpty()) pool.members
-                else pool.members.filter {
-                    it.name.contains(memberFilter, ignoreCase = true) ||
-                            it.country.contains(memberFilter, ignoreCase = true) ||
-                            it.region.contains(memberFilter, ignoreCase = true)
-                }
+            // Members header row
+            item {
+                Text(
+                    "Servers (${visibleMembers.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                )
             }
 
-            // Members list. weight(1f) so the LazyColumn shares
-            // remaining vertical space with the Delete button below
-            // it instead of consuming all of it (which previously
-            // pushed the Delete button off the screen on tall pools).
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 16.dp)
-            ) {
-                items(visibleMembers, key = { it.id }) { m ->
-                    MemberRow(
-                        member = m,
-                        isActive = m.id == activeMemberId,
-                        isUnreachable = m.id in unreachableIds
-                    )
-                }
+            items(visibleMembers, key = { it.id }) { m ->
+                MemberRow(
+                    member = m,
+                    isActive = m.id == activeMemberId,
+                    isUnreachable = m.id in unreachableIds
+                )
             }
 
             // Delete (bottom) - always visible, dialog-confirmed.
-            var showConfirmDelete by remember { mutableStateOf(false) }
-            TextButton(
-                onClick = { showConfirmDelete = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text("Delete pool", color = MaterialTheme.colorScheme.error)
+            item {
+                Spacer(Modifier.height(8.dp))
+                TextButton(
+                    onClick = { showConfirmDelete = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        "Delete pool",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             }
-            if (showConfirmDelete) {
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = { showConfirmDelete = false },
-                    title = { Text("Delete pool?") },
-                    text = { Text("This removes the pool and all its imported configs. " +
-                            "Cannot be undone.") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            showConfirmDelete = false
-                            onDelete()
-                        }) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showConfirmDelete = false }) {
-                            Text("Cancel")
-                        }
+        }
+        if (showConfirmDelete) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showConfirmDelete = false },
+                title = { Text("Delete pool?") },
+                text = {
+                    Text(
+                        "This removes the pool and all its imported configs. " +
+                                "Cannot be undone."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showConfirmDelete = false
+                        onDelete()
+                    }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
                     }
-                )
-            }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showConfirmDelete = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }
 
 @Composable
 private fun MemberRow(member: PoolMember, isActive: Boolean, isUnreachable: Boolean) {
+    // Bigger row: titleSmall name (was bodyMedium), bodyMedium for
+    // the location subtitle (was bodySmall), and 14.dp vertical
+    // padding (was 8.dp). The combined effect is roughly 1.4x the
+    // visual height and ~30% larger text — addresses the user
+    // complaint that pool member rows were "viel zu klein" on
+    // v0.9.11.50. Also enriches the subtitle from cryptic "AT ·
+    // Europe" to readable "🇦🇹 Vienna, Austria · Europe" using the
+    // shared PoolHostnameLabels helper.
+    val flag = com.privycs.vpn.data.PoolHostnameLabels.flagEmojiFromCode(member.country)
+    val city = com.privycs.vpn.data.PoolHostnameLabels.cityFromHostname(member.name)
+    val countryName = com.privycs.vpn.data.PoolHostnameLabels.countryNameFromCode(member.country)
+    val regionLabel = member.region.ifEmpty { "Other" }
+    val locationLine = buildString {
+        if (flag.isNotEmpty()) append(flag).append("  ")
+        when {
+            city.isNotEmpty() && countryName.isNotEmpty() ->
+                append("$city, $countryName")
+            city.isNotEmpty() -> append(city)
+            countryName.isNotEmpty() -> append(countryName)
+            member.country.isNotEmpty() -> append(member.country)
+            else -> append("—")
+        }
+        append(" · ").append(regionLabel)
+    }
+
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = when {
                 isUnreachable -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
@@ -247,7 +308,7 @@ private fun MemberRow(member: PoolMember, isActive: Boolean, isUnreachable: Bool
         )
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -258,17 +319,20 @@ private fun MemberRow(member: PoolMember, isActive: Boolean, isUnreachable: Bool
                             contentDescription = "Unreachable",
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier
-                                .padding(end = 6.dp)
-                                .height(16.dp).width(16.dp)
+                                .padding(end = 8.dp)
+                                .height(20.dp).width(20.dp)
                         )
                     }
-                    Text(member.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace)
+                    Text(
+                        member.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    "${member.country.ifEmpty { "—" }} · ${member.region.ifEmpty { "Other" }}",
-                    style = MaterialTheme.typography.bodySmall,
+                    locationLine,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
