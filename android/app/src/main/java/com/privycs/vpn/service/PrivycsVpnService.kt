@@ -553,11 +553,25 @@ class PrivycsVpnService : VpnService() {
 
     private val poolTunnelOps = object : PoolConnector.PoolTunnelOps {
         override suspend fun bringUp(member: com.privycs.vpn.data.models.PoolMember): Boolean {
-            // Kick off the existing connect-path for the chosen
-            // protocol. handleConnect drives the existing state
-            // machine; success/failure is observed via Layer-B
-            // (WireGuard handshake check) for WG members and
-            // implicitly via no-exception for OpenVPN/IPSec.
+            // handleConnect is fire-and-forget — it launches its own
+            // scope.launch { ... } that internally awaits
+            // teardownAllProtocols() (~1500ms) and only THEN calls
+            // connectWireGuard/connectOpenVpn/connectIpSec which set
+            // the protocol-specific tunnel field. The previous fixed
+            // 300ms delay before returning beat the tunnel reliably,
+            // so Layer-B's bytesReceived() poll always saw a null
+            // tunnel, returned 0L, timed out after 5s, and marked the
+            // member unreachable — making pool connect fail
+            // systematically.
+            //
+            // Fix: kick off handleConnect, then POLL for the
+            // protocol-specific tunnel reference to appear. Returns
+            // true as soon as the tunnel object is in place (which
+            // means establish() has been called and Layer-B can
+            // meaningfully query bytesReceived()). Returns false if
+            // the tunnel never appeared within the budget — usually
+            // a sign that handleConnect bailed (KS sinkhole, no
+            // network, parse failure, etc).
             return try {
                 handleConnect(
                     connectionId = "pool:${member.id}",
@@ -565,16 +579,25 @@ class PrivycsVpnService : VpnService() {
                     configContent = member.config.configContent,
                     connectionName = member.name
                 )
-                // Brief settle window before Layer-B's check
-                // queries the kernel. handleConnect returns when
-                // the tunnel install was kicked off; a few hundred
-                // ms later the WG device is registered and stats
-                // are queryable.
-                kotlinx.coroutines.delay(300)
-                // For WireGuard we trust the handshake check to
-                // verify; for other protocols we trust handleConnect
-                // not to throw.
-                true
+                val budgetMs = 8_000L
+                val pollIntervalMs = 200L
+                val deadline = System.currentTimeMillis() + budgetMs
+                while (System.currentTimeMillis() < deadline) {
+                    val tunnelReady = when (member.config.protocol) {
+                        VpnProtocol.WIREGUARD -> wireGuardTunnel != null
+                        VpnProtocol.OPENVPN -> openVpnTunnel != null
+                        VpnProtocol.IPSEC -> ipSecTunnel != null
+                    }
+                    if (tunnelReady) {
+                        Log.d(TAG, "pool bringUp: ${member.config.protocol} tunnel ready " +
+                                "after ${System.currentTimeMillis() - (deadline - budgetMs)}ms")
+                        return true
+                    }
+                    kotlinx.coroutines.delay(pollIntervalMs)
+                }
+                Log.w(TAG, "pool bringUp: ${member.config.protocol} tunnel did not appear " +
+                        "within ${budgetMs}ms - handleConnect likely bailed")
+                false
             } catch (e: Exception) {
                 Log.e(TAG, "pool bringUp failed: ${e.message}", e)
                 false
@@ -972,6 +995,19 @@ class PrivycsVpnService : VpnService() {
     }
 
     private fun handleDisconnect() {
+        // Cancel any armed pool-rotation alarms first. Without this
+        // a user-initiated disconnect leaves the AlarmManager schedule
+        // intact: 60s before the next rotation tick PoolAlarmReceiver
+        // wakes, fires ACTION_POOL_PRE_WARM, and shortly after
+        // ACTION_POOL_ROTATE — which restarts the service and brings
+        // the tunnel back up against the user's stated intent. The
+        // alarms are scoped to whatever poolId was last armed, so a
+        // blanket cancelAll() is sufficient.
+        try {
+            poolScheduler.cancelAll()
+        } catch (e: Exception) {
+            Log.w(TAG, "pool alarm cancel failed: ${e.message}")
+        }
         scope.launch {
             try {
                 when (currentProtocol) {

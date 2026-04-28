@@ -46,6 +46,7 @@ class VpnServiceManager private constructor(private val context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val connectionRepo = PrivycsApp.instance.connectionRepository
+    private val poolRepo = PrivycsApp.instance.poolRepository
 
     private val _status = MutableStateFlow(VpnStatus())
     val status: StateFlow<VpnStatus> = _status.asStateFlow()
@@ -98,6 +99,40 @@ class VpnServiceManager private constructor(private val context: Context) {
      * watches isConnecting keeps working without changes.
      */
     fun connect(connectionId: String? = null) {
+        // Pool mode wins. When a pool is the active selection the
+        // user expects the connect button to bring up *the pool* —
+        // i.e. pick a member via the pool's policy and connect to
+        // that member, not to whatever single connection happens
+        // to be in connectionRepo.activeId. The previous version
+        // ignored poolRepository entirely and either errored with
+        // "No connection selected" (when only a pool was set up)
+        // or silently connected to the wrong target (when both a
+        // pool and a connection were configured).
+        //
+        // We honor an explicit connectionId override (e.g. the
+        // dropdown picker's switchActiveConnection path) by
+        // skipping pool routing in that case — explicit beats
+        // implicit.
+        if (connectionId == null) {
+            val activePoolId = poolRepo.registry.value.activeId
+            if (activePoolId.isNotEmpty() &&
+                poolRepo.registry.value.pools.any { it.id == activePoolId }
+            ) {
+                PrivycsLogger.i(TAG, "connect() routing to pool path (poolId=$activePoolId)")
+                com.privycs.vpn.util.AlwaysOnDetector.clearPause(context)
+                val intent = Intent(context, PrivycsVpnService::class.java).apply {
+                    action = PrivycsVpnService.ACTION_POOL_CONNECT
+                    putExtra(PrivycsVpnService.EXTRA_POOL_ID, activePoolId)
+                }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                return
+            }
+        }
+
         val connId = connectionId ?: connectionRepo.activeId
         val connection = connectionRepo.getById(connId)
         if (connection == null) {

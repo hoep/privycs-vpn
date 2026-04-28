@@ -535,22 +535,26 @@ fun ConnectScreen(
                                 },
                                 onClick = {
                                     showConnectionPicker = false
-                                    if (p.id != poolRegistryState.activeId) {
-                                        coroutineScope.launch {
-                                            poolRepoForIndicator.setActiveId(p.id)
-                                        }
-                                        // Kick the service to pick a
-                                        // member and connect (mirrors
-                                        // PoolDetailHost.onActivate).
-                                        val intent = Intent(context, com.privycs.vpn.service.PrivycsVpnService::class.java).apply {
-                                            action = com.privycs.vpn.service.PrivycsVpnService.ACTION_POOL_CONNECT
-                                            putExtra(com.privycs.vpn.service.PrivycsVpnService.EXTRA_POOL_ID, p.id)
-                                        }
-                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                            context.startForegroundService(intent)
-                                        } else {
-                                            context.startService(intent)
-                                        }
+                                    // Always set + connect, even if
+                                    // the pool was already the active
+                                    // selection. Re-tapping a pool is
+                                    // explicitly a "retry" gesture —
+                                    // the previous attempt may have
+                                    // failed silently and the user
+                                    // wants another go. The previous
+                                    // skip-if-same guard made the
+                                    // retry path unreachable.
+                                    coroutineScope.launch {
+                                        poolRepoForIndicator.setActiveId(p.id)
+                                    }
+                                    val intent = Intent(context, com.privycs.vpn.service.PrivycsVpnService::class.java).apply {
+                                        action = com.privycs.vpn.service.PrivycsVpnService.ACTION_POOL_CONNECT
+                                        putExtra(com.privycs.vpn.service.PrivycsVpnService.EXTRA_POOL_ID, p.id)
+                                    }
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        context.startForegroundService(intent)
+                                    } else {
+                                        context.startService(intent)
                                     }
                                 }
                             )
