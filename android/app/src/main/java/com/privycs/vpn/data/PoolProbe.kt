@@ -114,21 +114,20 @@ object PoolProbe {
         // suffix "%zone". Strip zone for the literal check.
         if (':' in s) {
             val withoutZone = s.substringBefore('%')
-            // Lightweight: hex digits + colons only, at least one ::
-            // or 7 colons (full form). Comprehensive RFC 5952 parsing
-            // would be overkill - the strict case where this matters
-            // is "user typed an IP literal", not malformed input.
-            val isV6Like = withoutZone.toCharArray().all { c ->
+            // Lightweight: hex digits + colons only, with at least
+            // one colon. We DO NOT call InetAddress.getByName as a
+            // sanity check because for malformed input (e.g.
+            // "fe80::gggg") it falls through to a hostname resolution
+            // that takes 3+ seconds to time out — defeating the
+            // whole point of a synchronous "is this a literal"
+            // check. The regex-style filter below is sufficient for
+            // pool config validation; if the user typed something
+            // that LOOKS like IPv6 but isn't, the actual connect
+            // step (or DNS probe) will surface the error within its
+            // own timeout budget.
+            return withoutZone.toCharArray().all { c ->
                 c.isDigit() || c in 'a'..'f' || c in 'A'..'F' || c == ':'
             } && withoutZone.contains(':')
-            if (!isV6Like) return false
-            // Final sanity check via InetAddress on the zone-stripped form.
-            return try {
-                InetAddress.getByName(withoutZone)
-                true
-            } catch (e: Exception) {
-                false
-            }
         }
         return false
     }

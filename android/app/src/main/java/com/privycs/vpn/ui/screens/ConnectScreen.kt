@@ -211,22 +211,25 @@ fun ConnectScreen(
 
         // Pool indicator card — only when a pool is the active selection.
         if (activePool != null) {
-            val activeMemberId by androidx.compose.runtime.produceState(
-                "", activePool.id
+            // Consolidated single-poll: previously two separate
+            // produceState blocks each polled the state-repo every
+            // 1s, producing 2 lock acquisitions per second per
+            // recomposition cycle. The PoolListItem below is keyed
+            // on (activeMemberId, pendingMemberId) so a unified
+            // poll keeps the recompose semantics identical while
+            // halving the lock-contention rate.
+            val poolMemberIds by androidx.compose.runtime.produceState(
+                "" to "", activePool.id
             ) {
                 while (true) {
-                    value = poolRepoForIndicator.activeMemberId(activePool.id)
+                    val a = poolRepoForIndicator.activeMemberId(activePool.id)
+                    val p = poolRepoForIndicator.pendingMemberId(activePool.id)
+                    value = a to p
                     delay(1000)
                 }
             }
-            val pendingMemberId by androidx.compose.runtime.produceState(
-                "", activePool.id
-            ) {
-                while (true) {
-                    value = poolRepoForIndicator.pendingMemberId(activePool.id)
-                    delay(1000)
-                }
-            }
+            val activeMemberId = poolMemberIds.first
+            val pendingMemberId = poolMemberIds.second
             val activeMember = activePool.memberById(activeMemberId)
             val pendingMember = activePool.memberById(pendingMemberId)
             val item = remember(activePool, activeMemberId, pendingMemberId) {

@@ -137,24 +137,42 @@ class PoolRepository(
         true
     }
 
-    suspend fun delete(id: String): Boolean = mutex.withLock {
-        val current = _registry.value
-        if (current.pools.none { it.id == id }) return@withLock false
-        val newActive = if (current.activeId == id) "" else current.activeId
-        emitNewState(current.copy(
-            pools = current.pools.filterNot { it.id == id },
-            activeId = newActive
-        ))
-        // State cleanup happens AFTER the lock is released -
-        // state repo has its own mutex.
-        true.also {
-            // Defer the state-repo call out of this lock scope.
+    /**
+     * Returns true if the pool was found and deleted.
+     *
+     * Side effects (run AFTER the registry mutex is released, in
+     * order):
+     *   1. state.deletePool() to clean runtime state.
+     *   2. If the deleted pool was active: cancel rotation alarms.
+     *      Without this, AlarmManager fires zombie PRE_WARM/ROTATE
+     *      intents for the gone pool. handlePoolRotate's null-safe
+     *      get() avoids crashes, but wasted CPU wakeups, foreground
+     *      service starts, and log noise are worth avoiding.
+     */
+    suspend fun delete(id: String): Boolean {
+        var wasActive = false
+        val deleted: Boolean = mutex.withLock {
+            val current = _registry.value
+            if (current.pools.none { it.id == id }) return@withLock false
+            wasActive = current.activeId == id
+            val newActive = if (wasActive) "" else current.activeId
+            emitNewState(current.copy(
+                pools = current.pools.filterNot { it.id == id },
+                activeId = newActive
+            ))
+            true
         }
-    }.also { ok ->
-        // Outside our mutex now. State repo coordination is its
-        // own concern; we don't await here either because state
-        // changes are debounced anyway.
-        if (ok) state.deletePool(id)
+        if (deleted) {
+            state.deletePool(id)
+            if (wasActive) {
+                try {
+                    com.privycs.vpn.service.PoolRotationScheduler(context).cancelAll()
+                } catch (e: Exception) {
+                    android.util.Log.w(TAG, "scheduler cancel after delete failed: ${e.message}")
+                }
+            }
+        }
+        return deleted
     }
 
     suspend fun deleteMember(poolId: String, memberId: String): Boolean = mutex.withLock {
@@ -208,7 +226,19 @@ class PoolRepository(
         }
         if (out.isNotEmpty()) return out
 
-        // All-unreachable reset path.
+        // All-unreachable reset path. ONLY clear flags if we have
+        // plausible connectivity — otherwise the reset is wasted.
+        // Without this guard a global outage (no internet, captive
+        // portal, airplane mode toggle) traps the pool in a 30-min
+        // re-mark loop: every rotation tries each member, fails,
+        // re-marks unreachable, rotation timer re-fires, repeat. By
+        // keeping the marks when we know the world isn't reachable,
+        // we let the genuine recovery path (network returns, then
+        // user-triggered reconnect) start from clean state instead.
+        if (!hasPlausibleConnectivity()) {
+            android.util.Log.w(TAG, "all members unreachable AND no connectivity - keeping marks")
+            return out
+        }
         state.clearAllMembersUnreachable(pool.id)
         for (m in pool.members) {
             if (!m.active) continue
@@ -216,6 +246,27 @@ class PoolRepository(
             out.add(m)
         }
         return out
+    }
+
+    /**
+     * Quick-and-cheap connectivity check via ConnectivityManager.
+     * Returns true if there is any active non-VPN network with the
+     * INTERNET capability. Does NOT validate captive-portal status
+     * (that requires a probe round-trip). Bias is "yes, try" — on
+     * error or unknown, return true so we don't accidentally lock
+     * users out of the all-unreachable reset path.
+     */
+    private fun hasPlausibleConnectivity(): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as android.net.ConnectivityManager
+            val net = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(net) ?: return false
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+        } catch (e: Exception) {
+            true
+        }
     }
 
     /**

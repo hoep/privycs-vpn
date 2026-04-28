@@ -1,8 +1,16 @@
 package com.privycs.vpn.data
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -41,6 +49,7 @@ import java.util.concurrent.TimeUnit
  * for country lookup (Geo-Nearest hint, not authentication).
  */
 class SelfIpDetector(
+    private val context: Context,
     private val mmdb: MmdbCountryResolver
 ) {
 
@@ -53,6 +62,52 @@ class SelfIpDetector(
 
     private val mutex = Mutex()
     private var cached: Result? = null
+
+    /**
+     * Internal scope for the network-change-driven invalidate
+     * coroutine. Tied to the application lifetime; never cancelled
+     * because the detector is a process-singleton owned by
+     * PrivycsApp.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        registerNetworkCallback()
+    }
+
+    /**
+     * Watches for underlying-network changes (WiFi roam, mobile↔WiFi
+     * handoff). When the network handle changes, the cached country
+     * is invalidated so the next countryFor() probes a fresh IP.
+     *
+     * Without this hook, a user moving from WiFi-in-Germany to
+     * mobile-in-France keeps the German country cached for up to
+     * 1 hour. Geo-Nearest then picks German servers on a French
+     * connection — measurable privacy/perf regression.
+     */
+    private fun registerNetworkCallback() {
+        try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as ConnectivityManager
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build()
+            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+                private var lastHandle: Long = -1L
+                override fun onAvailable(network: Network) {
+                    val h = network.networkHandle
+                    if (lastHandle != -1L && lastHandle != h) {
+                        Log.d(TAG, "underlying network changed - invalidating SelfIp cache")
+                        scope.launch { invalidate() }
+                    }
+                    lastHandle = h
+                }
+            })
+        } catch (e: SecurityException) {
+            Log.w(TAG, "network callback register failed: ${e.message}")
+        }
+    }
 
     /**
      * Returns the cached country if fresh, else triggers a probe.

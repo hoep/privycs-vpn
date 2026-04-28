@@ -116,7 +116,7 @@ class PrivycsApp : StrongSwanApplication() {
         mmdbResolver = MmdbCountryResolver(this)
         val combinedResolver = CombinedCountryResolver(mmdbResolver, HostnameCountryResolver())
         poolImporter = PoolImporter(this, combinedResolver)
-        selfIpDetector = SelfIpDetector(mmdbResolver)
+        selfIpDetector = SelfIpDetector(applicationContext, mmdbResolver)
         // Load persisted Always-On detection flag so the UI on first
         // frame already knows whether disconnect should go through the
         // pause-or-settings bottom-sheet rather than straight teardown.

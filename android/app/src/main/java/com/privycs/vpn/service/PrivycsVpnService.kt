@@ -491,31 +491,33 @@ class PrivycsVpnService : VpnService() {
             }
 
             ACTION_POOL_PRE_WARM -> {
-                // AlarmManager-fired pre-warm 60s before rotation.
-                // Picks the next member, runs probe, persists as
-                // pendingMemberId. The actual rotation happens in
-                // ACTION_POOL_ROTATE one minute later.
                 val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
                 if (poolId.isEmpty()) {
                     Log.w(TAG, "ACTION_POOL_PRE_WARM without pool id")
                     return START_NOT_STICKY
                 }
-                // Pre-warm fires while a tunnel is up; the existing
-                // foreground notification stays. We DON'T call
-                // startForeground again because the service is
-                // already in the foreground and the receiver only
-                // needs the work done.
+                // Sequence-guard: drop intents from older arm()
+                // calls that got queued before a fresher arm()
+                // bumped the sequence. Without this guard, a
+                // user-triggered manual rotation racing a queued
+                // scheduled rotation would run pickAndConnect
+                // twice in quick succession on the same pool,
+                // tearing down the just-set-up tunnel.
+                if (!isFreshAlarmSeq(intent)) {
+                    Log.d(TAG, "dropping stale PRE_WARM (seq mismatch)")
+                    return START_NOT_STICKY
+                }
                 handlePoolPreWarm(poolId)
             }
 
             ACTION_POOL_ROTATE -> {
-                // AlarmManager-fired rotation tick. Disconnect +
-                // reconnect via the pool's policy (or pre-warmed
-                // pendingMemberId if pre-warm ran). Re-arm the
-                // scheduler for the NEXT cycle.
                 val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
                 if (poolId.isEmpty()) {
                     Log.w(TAG, "ACTION_POOL_ROTATE without pool id")
+                    return START_NOT_STICKY
+                }
+                if (!isFreshAlarmSeq(intent)) {
+                    Log.d(TAG, "dropping stale ROTATE (seq mismatch)")
                     return START_NOT_STICKY
                 }
                 handlePoolRotate(poolId)
@@ -632,6 +634,24 @@ class PrivycsVpnService : VpnService() {
             // RestrictRegions filter.
             return PrivycsApp.instance.selfIpDetector.countryFor()
         }
+    }
+
+    /**
+     * Returns true if the alarm-seq carried by `intent` is the
+     * latest armed sequence (i.e. this intent is the freshest
+     * fire of its kind, not a stale leftover that got queued
+     * before a more recent arm() bumped the sequence).
+     *
+     * Intents missing the EXTRA_ARM_SEQ extra (older app version
+     * still sending alarms after upgrade) are accepted — this is
+     * the conservative fallback so we don't drop legitimate
+     * intents during the upgrade window.
+     */
+    private fun isFreshAlarmSeq(intent: Intent): Boolean {
+        if (!intent.hasExtra(PoolRotationScheduler.EXTRA_ARM_SEQ)) return true
+        val seq = intent.getLongExtra(PoolRotationScheduler.EXTRA_ARM_SEQ, 0L)
+        val latest = PoolRotationScheduler.latestArmSequence.get()
+        return seq >= latest
     }
 
     private fun handlePoolConnect(poolId: String) {

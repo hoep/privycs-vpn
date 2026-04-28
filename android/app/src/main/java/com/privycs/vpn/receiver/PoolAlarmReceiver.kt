@@ -37,9 +37,11 @@ class PoolAlarmReceiver : BroadcastReceiver() {
             }
         }
 
+        val armSeq = intent.getLongExtra(PoolRotationScheduler.EXTRA_ARM_SEQ, 0L)
         val serviceIntent = Intent(context, PrivycsVpnService::class.java).apply {
             action = serviceAction
             putExtra(PoolRotationScheduler.EXTRA_POOL_ID, poolId)
+            putExtra(PoolRotationScheduler.EXTRA_ARM_SEQ, armSeq)
         }
 
         // From Android 8.0+, background services can only be started

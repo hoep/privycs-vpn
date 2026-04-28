@@ -84,6 +84,18 @@ class PoolConnector(
      * if all attempts failed.
      */
     suspend fun pickAndConnect(pool: Pool): PoolMember? {
+        // GUARD: Kill Switch sinkhole. If KS is engaged, every
+        // bringUp will hit handleConnect's GUARD 0 and refuse.
+        // Without this guard the retry loop would mark every member
+        // unreachable in turn, leaving the pool in an "all members
+        // dead" state that persists past the user disabling KS.
+        // Bail without touching member-state so re-enabling pool
+        // after KS disable starts from a clean slate.
+        if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
+            Log.w(tag, "Kill Switch sinkhole active - aborting pool connect (no member marks)")
+            return null
+        }
+
         val userCountry = tunnelOps.userCountry()
 
         // Tear down current tunnel ONCE before the retry loop.
@@ -100,9 +112,21 @@ class PoolConnector(
             return null
         }
 
+        // Soft de-prioritisation: members that failed within the
+        // last RECENT_FAILURE_WINDOW_MS are excluded from the
+        // initial pick so a freshly-flapping member doesn't get
+        // re-tried immediately on every cycle. If exclusion
+        // empties the candidate pool we relax it inside the loop
+        // and pick from the full eligible set as a fallback.
+        val recentlyFailedIds = pools.state
+            .membersWithRecentFailure(pool.id, RECENT_FAILURE_WINDOW_MS)
         val attempted = mutableListOf<String>()
+        if (recentlyFailedIds.isNotEmpty()) {
+            attempted.addAll(recentlyFailedIds)
+        }
         val lastActiveMember = pools.activeMemberId(pool.id)
         var lastErr: String? = null
+        var relaxedRecentExclusion = false
 
         for (attempt in 0 until MAX_CONNECT_ATTEMPTS) {
             // First-attempt preference: honor the pre-warm pick if
@@ -122,8 +146,20 @@ class PoolConnector(
                 member = PoolPicker.pickExcluding(pools, pool, userCountry, lastActiveMember, attempted)
             }
             if (member == null) {
-                Log.w(tag, "no candidate after $attempt attempt(s)")
-                break
+                // No candidate left. If we still have the recent-
+                // failure exclusion in effect, drop it once and
+                // retry — better to retry a recently-failed member
+                // than fail the whole rotation.
+                if (!relaxedRecentExclusion && recentlyFailedIds.isNotEmpty()) {
+                    Log.i(tag, "no fresh candidate - relaxing recent-failure exclusion")
+                    attempted.removeAll(recentlyFailedIds.toSet())
+                    relaxedRecentExclusion = true
+                    member = PoolPicker.pickExcluding(pools, pool, userCountry, lastActiveMember, attempted)
+                }
+                if (member == null) {
+                    Log.w(tag, "no candidate after $attempt attempt(s)")
+                    break
+                }
             }
             attempted.add(member.id)
 
@@ -162,6 +198,14 @@ class PoolConnector(
         }
 
         Log.e(tag, "all ${attempted.size} attempts failed (last: $lastErr)")
+        // CRITICAL: clear the pre-warm cache. If a pre-warmed
+        // member was the source of the failure, leaving it in
+        // pendingMemberId means every subsequent rotation tick
+        // tries that same dead member first (line above where
+        // attempt==0 reads pendingId). The pool stays effectively
+        // blackout-ed for 30 minutes (TTL) until the unreachable
+        // flag clears. Wiping pending forces a fresh policy pick.
+        pools.setPendingMember(pool.id, "")
         return null
     }
 
@@ -174,6 +218,21 @@ class PoolConnector(
      * pick, mark unreachable and try another. Up to 3 attempts.
      */
     suspend fun preWarm(pool: Pool) {
+        // Top-level timeout: each probeMember has a 2s DNS timeout
+        // and we attempt up to 3 members, so worst case is 6s. Add
+        // safety margin for slow geo-resolver lookups, then bound
+        // the whole call so a stalled DNS server can't keep the
+        // service scope busy after the user disconnected.
+        try {
+            kotlinx.coroutines.withTimeout(PRE_WARM_TOTAL_TIMEOUT_MS) {
+                preWarmInternal(pool)
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Log.w(tag, "preWarm exceeded ${PRE_WARM_TOTAL_TIMEOUT_MS}ms - giving up this cycle")
+        }
+    }
+
+    private suspend fun preWarmInternal(pool: Pool) {
         val userCountry = tunnelOps.userCountry()
         val attempted = mutableListOf<String>()
         val lastActiveMember = pools.activeMemberId(pool.id)
@@ -231,5 +290,13 @@ class PoolConnector(
         private const val MAX_CONNECT_ATTEMPTS = 3
         private const val MAX_PRE_WARM_ATTEMPTS = 3
         private const val PEER_HEALTH_TIMEOUT_MS = 5_000L
+        // 12s budget for the whole pre-warm: 3 attempts x 2s DNS
+        // = 6s nominal, + slack for slow MMDB lookups and DNS
+        // retries on flaky networks.
+        private const val PRE_WARM_TOTAL_TIMEOUT_MS = 12_000L
+        // Members that failed within the last 5 minutes are
+        // soft-deprioritised. After this window they're treated
+        // as fresh again.
+        private const val RECENT_FAILURE_WINDOW_MS = 5 * 60 * 1000L
     }
 }

@@ -129,7 +129,24 @@ object PoolPicker {
             }
             val startIdx = if (cursor.isNotEmpty()) {
                 val idx = members.indexOfFirst { it.id == cursor }
-                if (idx >= 0) (idx + 1) % members.size else 0
+                if (idx >= 0) {
+                    (idx + 1) % members.size
+                } else {
+                    // Cursor ID is no longer in the members list
+                    // (member deleted or marked unreachable mid-cycle).
+                    // Falling back to index 0 would silently break
+                    // the round-robin invariant: the next picks would
+                    // re-visit the early IDs out of order, leaking
+                    // the same exit IP within fewer-than-N rotations.
+                    //
+                    // Fix: find the position where the cursor ID
+                    // would have lived in the sorted-by-id list and
+                    // resume from the next stable ID after it. This
+                    // preserves rotation order even across member
+                    // deletions and unreachable-flag changes.
+                    val insertion = -members.binarySearch { it.id.compareTo(cursor) } - 1
+                    insertion.coerceAtLeast(0) % members.size
+                }
             } else {
                 0
             }
@@ -189,23 +206,31 @@ object PoolPicker {
         "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL",
         "PT", "RO", "SK", "SI", "ES", "SE", "GB", "UK", "CH", "NO",
         "IS", "AL", "BA", "MK", "ME", "RS", "MD", "UA", "BY", "RU",
-        "TR", "XK" -> "Europe"
+        "TR", "XK", "LI", "MC", "SM", "VA", "AD", "FO", "GI", "IM",
+        "JE", "GG" -> "Europe"
 
         // North America
         "US", "CA", "MX" -> "North America"
 
         // Asia-Pacific
-        "JP", "KR", "CN", "TW", "HK", "MO", "MN",
+        "JP", "KR", "KP", "CN", "TW", "HK", "MO", "MN",
         "TH", "VN", "PH", "ID", "MY", "SG", "BN", "KH", "LA", "MM", "TL",
         "IN", "PK", "BD", "LK", "NP", "BT", "MV", "AF",
-        "AU", "NZ", "FJ", "PG", "SB", "VU", "NC", "PF", "WS", "TO" -> "Asia-Pacific"
+        "AU", "NZ", "FJ", "PG", "SB", "VU", "NC", "PF", "WS", "TO",
+        "KI", "TV", "NR", "MH", "FM", "PW", "CK", "NU", "AS", "GU",
+        "MP", "UM" -> "Asia-Pacific"
 
         // South America
-        "BR", "AR", "CL", "CO", "PE", "VE", "EC", "BO", "PY", "UY", "GY", "SR", "GF" -> "South America"
+        "BR", "AR", "CL", "CO", "PE", "VE", "EC", "BO", "PY", "UY",
+        "GY", "SR", "GF", "FK" -> "South America"
 
         // Africa
         "ZA", "EG", "NG", "KE", "MA", "DZ", "TN", "GH", "ET", "TZ", "UG",
-        "AO", "ZW", "ZM", "MZ", "BW", "NA", "MU", "MG", "RW", "SN", "CI" -> "Africa"
+        "AO", "ZW", "ZM", "MZ", "BW", "NA", "MU", "MG", "RW", "SN", "CI",
+        "SS", "SD", "LY", "ER", "DJ", "SO", "BI", "MW", "LS", "SZ",
+        "CD", "CG", "CM", "CF", "TD", "GA", "GQ", "GM", "GN", "GW",
+        "LR", "ML", "MR", "NE", "BF", "BJ", "TG", "SL", "ST", "CV",
+        "KM", "SC", "RE", "YT", "SH", "EH" -> "Africa"
 
         // Middle East
         "AE", "SA", "IL", "QA", "KW", "BH", "OM", "JO", "LB", "IR", "IQ",
@@ -213,7 +238,14 @@ object PoolPicker {
 
         // Central America / Caribbean
         "CR", "PA", "GT", "HN", "NI", "SV", "BZ", "DO", "JM", "BS",
-        "BB", "TT", "CU", "HT", "PR" -> "Central America"
+        "BB", "TT", "CU", "HT", "PR", "AG", "DM", "GD", "KN", "LC",
+        "VC", "AI", "AW", "BM", "BQ", "CW", "GP", "KY", "MQ", "MS",
+        "SX", "TC", "VG", "VI", "BL", "MF" -> "Central America"
+
+        // Central Asia / Caucasus — folded into Asia-Pacific by
+        // mass-market geo databases that don't break out a separate
+        // region; group here for explicit coverage.
+        "KZ", "UZ", "TM", "TJ", "KG", "AZ", "AM", "GE" -> "Asia-Pacific"
 
         else -> "Other"
     }

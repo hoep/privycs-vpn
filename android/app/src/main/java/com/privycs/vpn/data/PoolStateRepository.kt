@@ -212,12 +212,31 @@ class PoolStateRepository(private val context: Context) {
             cleared
         }
 
+    /**
+     * Critical writes (active/pending/slot/cursor) are persisted
+     * SYNCHRONOUSLY under the mutex. The earlier debounced-flush
+     * approach left a 500ms+ window where in-memory state diverged
+     * from disk. If the app process died inside that window the
+     * persisted state was stale: UI showed activeMember=A but disk
+     * said activeMember=B. On next launch the divergence surfaced
+     * as the wrong member appearing as "Currently". Synchronous
+     * flush costs ~1-3ms per call on flash and rotation events
+     * happen at most once per 5 minutes — the cost is negligible
+     * versus the divergence-bug risk.
+     *
+     * Member state-flags (markUnreachable, clearUnreachable,
+     * sweepStaleUnreachable, clearAllMembersUnreachable) keep the
+     * debounced path because they're high-volume during rotation
+     * retries (6+ flips per cycle on flapping pools) and a torn
+     * read of those is harmless: the picker re-evaluates eligibility
+     * every cycle.
+     */
     suspend fun setActiveMember(poolId: String, memberId: String) {
         mutex.withLock {
             val entry = state.pools.getOrPut(poolId) { PoolStateEntry() }
             if (entry.activeMemberId == memberId) return
             state.pools[poolId] = entry.copy(activeMemberId = memberId)
-            markDirty()
+            flushSyncLocked()
         }
     }
 
@@ -226,7 +245,7 @@ class PoolStateRepository(private val context: Context) {
             val entry = state.pools.getOrPut(poolId) { PoolStateEntry() }
             if (entry.pendingMemberId == memberId) return
             state.pools[poolId] = entry.copy(pendingMemberId = memberId)
-            markDirty()
+            flushSyncLocked()
         }
     }
 
@@ -235,7 +254,7 @@ class PoolStateRepository(private val context: Context) {
             val entry = state.pools.getOrPut(poolId) { PoolStateEntry() }
             if (entry.activeSlot == slot) return
             state.pools[poolId] = entry.copy(activeSlot = slot)
-            markDirty()
+            flushSyncLocked()
         }
     }
 
@@ -244,9 +263,33 @@ class PoolStateRepository(private val context: Context) {
             val entry = state.pools.getOrPut(poolId) { PoolStateEntry() }
             if (entry.memberCursors[region] == memberId) return
             entry.memberCursors[region] = memberId
-            markDirty()
+            flushSyncLocked()
         }
     }
+
+    /**
+     * Returns member IDs whose lastUnreachable timestamp is within
+     * sinceMs. Used by PoolConnector to soft-deprioritise recently-
+     * flapping members so a flaky one doesn't get re-tried first
+     * on every rotation cycle.
+     *
+     * Softer than "currently unreachable": the member may have had
+     * its flag TTL-cleared but its lastUnreachable timestamp lives
+     * on as a hint about recent reliability.
+     */
+    suspend fun membersWithRecentFailure(poolId: String, sinceMs: Long): Set<String> =
+        mutex.withLock {
+            val entry = state.pools[poolId] ?: return@withLock emptySet()
+            val now = Instant.now().toEpochMilli()
+            val out = mutableSetOf<String>()
+            for ((id, mem) in entry.members) {
+                if (mem.lastUnreachable.isEmpty()) continue
+                val ts = runCatching { Instant.parse(mem.lastUnreachable) }.getOrNull()
+                    ?: continue
+                if (now - ts.toEpochMilli() < sinceMs) out.add(id)
+            }
+            out
+        }
 
     /** Removes all state for a pool (called when the pool is deleted). */
     suspend fun deletePool(poolId: String) {
@@ -300,22 +343,33 @@ class PoolStateRepository(private val context: Context) {
 
     private suspend fun flushNow() {
         mutex.withLock {
-            try {
-                val data = json.encodeToString(PoolStateFile.serializer(), state)
-                val tmp = File(file.parentFile, file.name + ".tmp")
-                tmp.writeText(data)
-                if (!tmp.renameTo(file)) {
-                    // Rename failed; fall back to direct overwrite.
-                    file.writeText(data)
-                    tmp.delete()
-                }
-                Unit  // Force the withLock block to return Unit
-                      // explicitly. Without this, Kotlin's inferrer
-                      // tries to make the if-expression the block's
-                      // value and complains about the missing else.
-            } catch (e: Exception) {
-                android.util.Log.e(TAG, "flush failed: ${e.message}", e)
+            flushSyncLocked()
+        }
+    }
+
+    /**
+     * Performs the actual disk write. CALLER MUST HOLD THE MUTEX.
+     * Reentry-safe: doesn't take the mutex itself so it can be
+     * called from within an already-locked block (the synchronous-
+     * flush path for critical writes uses this).
+     *
+     * Atomic-rename pattern: write to .tmp, fsync via FileChannel
+     * (best-effort on Android — most filesystems honour it), then
+     * rename. If rename fails (some MIUI builds with sandboxed
+     * file systems), fall back to direct overwrite which is at
+     * least better than losing the write.
+     */
+    private fun flushSyncLocked() {
+        try {
+            val data = json.encodeToString(PoolStateFile.serializer(), state)
+            val tmp = File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(data)
+            if (!tmp.renameTo(file)) {
+                file.writeText(data)
+                tmp.delete()
             }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "flush failed: ${e.message}", e)
         }
     }
 

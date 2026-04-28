@@ -314,7 +314,14 @@ class PoolImporter(
 
     companion object {
         private const val TAG = "PoolImporter"
-        private const val DNS_CONCURRENCY = 20
+        // 8 instead of the original 20: large pool imports (600+
+        // members) on low-end devices saw memory pressure with 20
+        // concurrent DNS lookups when the OkHttp connection pool
+        // and per-coroutine context allocations stacked up. 8 is
+        // still well above the typical 1-2 inflight on healthy
+        // resolvers and below the Android NetworkSecurityPolicy
+        // soft cap that some MIUI/EMUI builds enforce.
+        private const val DNS_CONCURRENCY = 8
         private const val MAX_CONFIG_BYTES = 1L * 1024 * 1024
     }
 }
