@@ -101,7 +101,35 @@ fun PoolDetailHost(
             app.poolRepository.clearAllMembersUnreachable(poolId)
         },
         onActivate = {
-            kotlinx.coroutines.runBlocking { app.poolRepository.setActiveId(poolId) }
+            kotlinx.coroutines.runBlocking {
+                // Activating a pool clears the active single-connection
+                // selection so the Connect screen does not show stale
+                // "Currently:" text from a previously-selected single
+                // while the pool boots. Mirrors desktop's
+                // app_pool.go:407 `a.connections.SetActive("")`.
+                app.connectionRepository.setActive("")
+                app.poolRepository.setActiveId(poolId)
+            }
+            // Warm the SelfIp cache in the background so the next
+            // pickAndConnect (about to fire via the service intent
+            // below) gets the user's country from cache instead of
+            // probing synchronously in the connect critical path.
+            // Mirrors desktop's app_pool.go:434 `go autoRestrictRoundRobinToHomeRegion(p)`
+            // which is what populates the cache for the connect-time
+            // pick.
+            //
+            // 3-second budget here; if probing takes longer the picker
+            // still completes (degraded to RestrictRegions-only) and a
+            // later background call will repopulate the cache.
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    app.selfIpDetector.countryFor(timeoutMs = 3_000L)
+                } catch (e: Exception) {
+                    // Probe failed (no internet, captive portal).
+                    // Picker tier-1+2 short-circuit; tier-3 random pick
+                    // (within RestrictRegions) still works.
+                }
+            }
             val intent = Intent(ctx, PrivycsVpnService::class.java).apply {
                 action = PrivycsVpnService.ACTION_POOL_CONNECT
                 putExtra(PrivycsVpnService.EXTRA_POOL_ID, poolId)

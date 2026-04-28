@@ -247,16 +247,22 @@ fun ConnectScreen(
                     isActive = true
                 )
             }
-            // Round-Robin → countdown driven from rotation interval
-            // (rough — actual scheduler-side drift is not exposed
-            // through any state flow yet; UI shows configured value).
-            val countdownMs: Long? = if (activePool.policy == com.privycs.vpn.data.models.PoolPolicy.ROUND_ROBIN) {
-                (activePool.rotation.intervalMin * 60 * 1000L)
-            } else null
-
+            // Round-Robin → countdown anchored to the actual scheduled
+            // rotation timestamp from VpnStatus, set authoritatively
+            // by PrivycsVpnService.broadcastPoolStatus on every
+            // pool connect / rotation / pre-warm. Zero means no
+            // active rotation (non-RR pool, or pool not yet
+            // connected via the service path).
+            //
+            // Earlier draft passed `intervalMin * 60 * 1000` as a
+            // delta - a constant value that remember() never saw
+            // change, so the countdown stuck at 00:00 after the
+            // first tick reached zero. The fix is the timestamp:
+            // each rotation pushes a fresh `nextRotationAt`,
+            // remember() invalidates, the countdown restarts.
             com.privycs.vpn.ui.components.PoolIndicatorCard(
                 pool = item,
-                nextRotationInMs = countdownMs,
+                nextRotationAt = status.nextRotationAt,
                 pendingMemberName = pendingMember?.name,
                 pendingMemberCountry = pendingMember?.country,
                 onClick = { onNavigateToConnections() }

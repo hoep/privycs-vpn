@@ -115,11 +115,29 @@ class VpnServiceManager private constructor(private val context: Context) {
         // implicit.
         if (connectionId == null) {
             val activePoolId = poolRepo.registry.value.activeId
-            if (activePoolId.isNotEmpty() &&
-                poolRepo.registry.value.pools.any { it.id == activePoolId }
-            ) {
+            val activePool = poolRepo.registry.value.pools.firstOrNull { it.id == activePoolId }
+            if (activePoolId.isNotEmpty() && activePool != null) {
                 PrivycsLogger.i(TAG, "connect() routing to pool path (poolId=$activePoolId)")
                 com.privycs.vpn.util.AlwaysOnDetector.clearPause(context)
+
+                // Tentative pool status so the UI has pool-name +
+                // policy to render while the picker runs and the
+                // tunnel establishes. The full status (active member
+                // name, country, server endpoint, scheduled rotation
+                // timestamp) is filled in by the service-side
+                // broadcastPoolStatus call once pickAndConnect
+                // succeeds. Mirrors the single-connection branch
+                // below which also pre-fills a tentative status
+                // before kicking off the connect intent.
+                _status.value = VpnStatus(
+                    connected = false,
+                    connectionName = activePool.name,
+                    connectionId = "pool:${activePool.id}",
+                    poolId = activePool.id,
+                    poolName = activePool.name,
+                    poolPolicy = activePool.policy.name
+                )
+
                 val intent = Intent(context, PrivycsVpnService::class.java).apply {
                     action = PrivycsVpnService.ACTION_POOL_CONNECT
                     putExtra(PrivycsVpnService.EXTRA_POOL_ID, activePoolId)
@@ -395,8 +413,56 @@ class VpnServiceManager private constructor(private val context: Context) {
             com.privycs.vpn.util.SpeedTracker.record(0L, 0L, connected = false)
             return
         }
+
+        // Pool overlay. Underlying tunnel pollers (WG GoBackend, OVPN
+        // management thread, strongSwan listener) build a fresh
+        // VpnStatus from their own state and pass it here without any
+        // pool-context awareness. If we just stored that fresh status
+        // it would blow away poolName/activeMember/nextRotationAt on
+        // every poll tick.
+        //
+        // Two-rule overlay:
+        //   1. Caller supplied pool fields (status.poolId.isNotEmpty()):
+        //      authoritative push from PrivycsVpnService's
+        //      broadcastPoolStatus - store as-is. Don't read prevPool
+        //      because it's STALE (we're about to replace it).
+        //   2. Caller did NOT supply pool fields (typical tunnel-
+        //      poller path): if a pool is active, overlay the pool
+        //      fields from the previous status so live tunnel data
+        //      (connected, uptime, rx/tx, endpoint) flows through
+        //      while pool framing is preserved.
+        val activePoolId = poolRepo.registry.value.activeId
+        val finalStatus = when {
+            // Authoritative pool push from service-side broadcast.
+            status.poolId.isNotEmpty() -> status
+
+            // Tunnel-poller push while a pool is active: overlay
+            // pool fields from previous status.
+            activePoolId.isNotEmpty() -> {
+                val prevPool = _status.value
+                status.copy(
+                    connectionName = if (prevPool.poolName.isNotEmpty())
+                        prevPool.poolName
+                    else status.connectionName,
+                    connectionId = if (prevPool.poolId.isNotEmpty())
+                        "pool:${prevPool.poolId}"
+                    else status.connectionId,
+                    poolId = prevPool.poolId,
+                    poolName = prevPool.poolName,
+                    poolPolicy = prevPool.poolPolicy,
+                    activeMemberName = prevPool.activeMemberName,
+                    activeMemberCountry = prevPool.activeMemberCountry,
+                    pendingMemberName = prevPool.pendingMemberName,
+                    pendingMemberCountry = prevPool.pendingMemberCountry,
+                    nextRotationAt = prevPool.nextRotationAt
+                )
+            }
+
+            // No pool active: store as-is (single-connection path).
+            else -> status
+        }
         val prev = _status.value
-        _status.value = status
+        _status.value = finalStatus
         // Feed the sparkline tracker so the upload/download cards have
         // a speed history to render. Non-connected samples reset the
         // tracker so the sparkline flatlines immediately on disconnect

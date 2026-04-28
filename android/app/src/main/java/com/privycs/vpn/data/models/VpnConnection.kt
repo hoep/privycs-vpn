@@ -83,7 +83,29 @@ data class VpnStatus(
     val serverEndpoint: String = "",
     val localAddress: String = "",
     val lastHandshake: String = "",
-    val error: String? = null
+    val error: String? = null,
+    // Pool context. Set when the active "connection" is actually a
+    // pool member (instead of a single saved connection). The UI uses
+    // these to render the pool indicator card with current member,
+    // upcoming pre-warmed member, and round-robin countdown.
+    //
+    // Mirrors the flat pool fields desktop carries in its VpnStatus
+    // struct - kept flat (not a nested object) so existing copy()
+    // call sites that only update a few fields don't accidentally
+    // wipe pool context.
+    val poolId: String = "",
+    val poolName: String = "",
+    val poolPolicy: String = "",
+    val activeMemberName: String = "",
+    val activeMemberCountry: String = "",
+    val pendingMemberName: String = "",
+    val pendingMemberCountry: String = "",
+    // Epoch-ms timestamp of the next scheduled rotation. UI reads
+    // this and computes "now -> nextRotationAt" live so the
+    // countdown ticks down without a fresh status push every second.
+    // Zero means no rotation scheduled (non-RR pool, or no pool
+    // active).
+    val nextRotationAt: Long = 0L
 )
 
 @Serializable

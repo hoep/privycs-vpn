@@ -64,7 +64,19 @@ data class PoolStateEntry(
      * a few rotations.
      */
     @SerialName("member_cursors")
-    val memberCursors: MutableMap<String, String> = mutableMapOf()
+    val memberCursors: MutableMap<String, String> = mutableMapOf(),
+    /**
+     * Epoch-ms timestamp of the next scheduled rotation. Updated on
+     * every successful pool connect / rotation by the service. The UI
+     * subscribes to VpnStatus.nextRotationAt (mirrored from this
+     * field) and computes "now -> nextRotationAt" delta live so the
+     * countdown ticks down without a fresh status push every second.
+     *
+     * Mirror of desktop's `pool_rotator.go:53 scheduledRotation`. Zero
+     * means no rotation scheduled (non-RR pool, or no pool active).
+     */
+    @SerialName("scheduled_rotation_at")
+    val scheduledRotationAt: Long = 0L
 )
 
 @Serializable
@@ -263,6 +275,37 @@ class PoolStateRepository(private val context: Context) {
             val entry = state.pools.getOrPut(poolId) { PoolStateEntry() }
             if (entry.memberCursors[region] == memberId) return
             entry.memberCursors[region] = memberId
+            flushSyncLocked()
+        }
+    }
+
+    /**
+     * Reads the scheduled-rotation timestamp (epoch-ms). Zero means
+     * no rotation scheduled - either the pool is non-RR or it has not
+     * been activated since process start.
+     */
+    suspend fun scheduledRotationAt(poolId: String): Long =
+        mutex.withLock { state.pools[poolId]?.scheduledRotationAt ?: 0L }
+
+    /**
+     * Synchronous variant for the VpnServiceManager status push path
+     * (which is on a worker thread already, but not in a coroutine
+     * context). Same lock semantics as the suspend version.
+     */
+    fun scheduledRotationAtBlocking(poolId: String): Long =
+        runBlocking { scheduledRotationAt(poolId) }
+
+    /**
+     * Sets the rotation deadline (epoch-ms). Called by the service
+     * after every successful pool connect/rotation. Persisted
+     * synchronously: a process kill mid-rotation that lost this
+     * write would leave the UI countdown showing stale time.
+     */
+    suspend fun setScheduledRotationAt(poolId: String, atMs: Long) {
+        mutex.withLock {
+            val entry = state.pools.getOrPut(poolId) { PoolStateEntry() }
+            if (entry.scheduledRotationAt == atMs) return
+            state.pools[poolId] = entry.copy(scheduledRotationAt = atMs)
             flushSyncLocked()
         }
     }

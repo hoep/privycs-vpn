@@ -623,16 +623,22 @@ class PrivycsVpnService : VpnService() {
         }
 
         override suspend fun userCountry(): String {
-            // Live Geo-IP detection: probe public IP via plain
-            // HTTPS to a chain of well-known endpoints, then look
-            // up country in the bundled MMDB. Cached for 1 hour
-            // and invalidated on network change.
+            // CACHED-ONLY in the connect critical path. Mirrors
+            // desktop's app_pool.go:899-902 which reads only
+            // selfIPDetector.Cached(). A cold cache here would force
+            // a 9s synchronous probe inline, freezing the picker
+            // and pushing wrong-country picks (S2/S3) when the probe
+            // times out. App startup + ActivatePool background
+            // goroutines warm the cache - if neither has run, we
+            // accept "" and let the picker degrade to home-region-
+            // unbiased pick (with RestrictRegions still applying).
             //
-            // Returns "" if all probes fail (no internet, captive
-            // portal). Geo-Nearest's tier 1+2 then short-circuit
-            // and the picker falls back to Random within the
-            // RestrictRegions filter.
-            return PrivycsApp.instance.selfIpDetector.countryFor()
+            // The cache is invalidated on network roam, refreshed
+            // by the next non-critical-path call (UI fields, About
+            // screen). The 30-min Geo-Nearest "wrong country" window
+            // observed in v0.9.11.46 came from this method calling
+            // the live probe synchronously and timing out.
+            return PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty()
         }
     }
 
@@ -666,10 +672,7 @@ class PrivycsVpnService : VpnService() {
                 handleDisconnect()
                 return@launch
             }
-            // Re-arm scheduler for the next rotation cycle (Round-Robin only).
-            if (pool.policy == com.privycs.vpn.data.models.PoolPolicy.ROUND_ROBIN) {
-                poolScheduler.arm(poolId, pool.rotation.intervalMin)
-            }
+            onPoolMemberConnected(pool, picked, isRotation = false)
         }
     }
 
@@ -677,6 +680,11 @@ class PrivycsVpnService : VpnService() {
         scope.launch {
             val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: return@launch
             poolConnector.preWarm(pool)
+            // After pre-warm picks pendingMember (or fails), broadcast
+            // the updated status so the UI shows "Next: <name>" 60s
+            // ahead of rotation. Without this, the user sees no
+            // pre-warm signal and assumes nothing is happening (S6).
+            broadcastPoolStatus(pool)
         }
     }
 
@@ -684,10 +692,104 @@ class PrivycsVpnService : VpnService() {
         scope.launch {
             val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: return@launch
             val picked = poolConnector.pickAndConnect(pool)
-            if (picked != null && pool.policy == com.privycs.vpn.data.models.PoolPolicy.ROUND_ROBIN) {
-                poolScheduler.arm(poolId, pool.rotation.intervalMin)
+            if (picked != null) {
+                onPoolMemberConnected(pool, picked, isRotation = true)
+            } else {
+                Log.e(TAG, "pool ${pool.name}: rotation - all attempts failed")
+                handleDisconnect()
             }
         }
+    }
+
+    /**
+     * Common post-connect bookkeeping for pool members. Called from
+     * BOTH handlePoolConnect (initial activate) and handlePoolRotate
+     * (subsequent rotations) so the same status-broadcast +
+     * scheduler re-arm + scheduledRotationAt logic runs in one place.
+     *
+     * Mirrors desktop's app_pool.go:1062-1070 + the rotator's
+     * fireRotationLocked which re-schedules itself via
+     * `r.scheduledRotation = time.Now().Add(intervalMin*Min)`.
+     *
+     * Three side effects, in this exact order:
+     *   1. Persist scheduledRotationAt = now + effectiveInterval. The
+     *      UI countdown reads this from VpnStatus.nextRotationAt.
+     *   2. Re-arm the AlarmManager pre-warm + rotate alarms for the
+     *      next cycle (Round-Robin only).
+     *   3. Broadcast the pool-aware VpnStatus so the Connect screen
+     *      renders pool name, current member, country, and the live
+     *      countdown anchor.
+     */
+    private suspend fun onPoolMemberConnected(
+        pool: com.privycs.vpn.data.models.Pool,
+        member: com.privycs.vpn.data.models.PoolMember,
+        @Suppress("UNUSED_PARAMETER") isRotation: Boolean
+    ) {
+        val pools = PrivycsApp.instance.poolRepository
+
+        // Step 1: scheduledRotationAt. For non-RR pools we keep zero
+        // so the UI hides the countdown.
+        val rotationAt: Long = if (pool.policy == com.privycs.vpn.data.models.PoolPolicy.ROUND_ROBIN) {
+            val intervalMs = poolScheduler.effectiveIntervalMs(pool.rotation.intervalMin)
+            System.currentTimeMillis() + intervalMs
+        } else {
+            0L
+        }
+        pools.state.setScheduledRotationAt(pool.id, rotationAt)
+
+        // Step 2: re-arm the alarm chain for the next rotation cycle.
+        // Pool member-state writes inside arm() use the scheduler's
+        // effectiveIntervalMs, which already applies the battery-saver
+        // doubling so step 1's value matches.
+        if (pool.policy == com.privycs.vpn.data.models.PoolPolicy.ROUND_ROBIN) {
+            poolScheduler.arm(pool.id, pool.rotation.intervalMin)
+        }
+
+        // Step 3: enrich and push the VpnStatus. Single source of
+        // truth: poolName / activeMember / pendingMember / countdown
+        // anchor all flow through manager.updateStatus(). Compose
+        // observers (ConnectScreen, PoolIndicatorCard) collect the
+        // resulting StateFlow and recompose live.
+        broadcastPoolStatus(pool)
+    }
+
+    /**
+     * Reads the latest pool runtime state and pushes a VpnStatus
+     * carrying the pool context into VpnServiceManager. Called after
+     * connect, rotation, AND pre-warm (so the "Next: X" line lights
+     * up 60s ahead of the rotation tick).
+     *
+     * Reuses the current VpnStatus's connected/uptime/rxBytes/txBytes
+     * values when available — those come from the underlying tunnel's
+     * own poll loop, we just overlay the pool-level fields on top.
+     * Without the overlay step, the WG/OVPN/IPSec status pushers
+     * blow away the pool fields on every poll tick.
+     */
+    private suspend fun broadcastPoolStatus(pool: com.privycs.vpn.data.models.Pool) {
+        val pools = PrivycsApp.instance.poolRepository
+        val activeMemId = pools.state.activeMemberId(pool.id)
+        val pendingMemId = pools.state.pendingMemberId(pool.id)
+        val activeMember = pool.members.firstOrNull { it.id == activeMemId }
+        val pendingMember = pool.members.firstOrNull { it.id == pendingMemId }
+        val rotationAt = pools.state.scheduledRotationAt(pool.id)
+
+        val manager = com.privycs.vpn.service.VpnServiceManager.getInstance(this)
+        val current = manager.status.value
+        manager.updateStatus(
+            current.copy(
+                connectionName = pool.name,
+                connectionId = "pool:${pool.id}",
+                poolId = pool.id,
+                poolName = pool.name,
+                poolPolicy = pool.policy.name,
+                activeMemberName = activeMember?.name.orEmpty(),
+                activeMemberCountry = activeMember?.country.orEmpty(),
+                pendingMemberName = pendingMember?.name.orEmpty(),
+                pendingMemberCountry = pendingMember?.country.orEmpty(),
+                nextRotationAt = rotationAt,
+                serverEndpoint = activeMember?.config?.serverAddress.orEmpty()
+            )
+        )
     }
 
     override fun onDestroy() {
@@ -1027,6 +1129,22 @@ class PrivycsVpnService : VpnService() {
             poolScheduler.cancelAll()
         } catch (e: Exception) {
             Log.w(TAG, "pool alarm cancel failed: ${e.message}")
+        }
+
+        // Clear scheduledRotationAt for the active pool so the UI
+        // countdown immediately stops ticking. Without this clear,
+        // VpnStatus.nextRotationAt still carries a future epoch
+        // value that the PoolIndicatorCard would happily count down
+        // against - showing a phantom "Next rotation in 4:32" on a
+        // disconnected tunnel. Mirrors desktop's
+        // pool_rotator.go:213-215 where Status() returns Active=false
+        // when getIsActive() reports tunnel down.
+        scope.launch {
+            val activePoolId = PrivycsApp.instance.poolRepository.registry.value.activeId
+            if (activePoolId.isNotEmpty()) {
+                PrivycsApp.instance.poolRepository.state
+                    .setScheduledRotationAt(activePoolId, 0L)
+            }
         }
         scope.launch {
             try {

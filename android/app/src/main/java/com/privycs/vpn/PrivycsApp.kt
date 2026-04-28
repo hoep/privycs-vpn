@@ -117,6 +117,36 @@ class PrivycsApp : StrongSwanApplication() {
         val combinedResolver = CombinedCountryResolver(mmdbResolver, HostnameCountryResolver())
         poolImporter = PoolImporter(this, combinedResolver)
         selfIpDetector = SelfIpDetector(applicationContext, mmdbResolver)
+
+        // Warm the SelfIp cache on a background coroutine. Pool
+        // activation reads this cache synchronously in the connect
+        // critical path (PoolTunnelOps.userCountry); without a warm
+        // cache the first activation falls through to "" and
+        // Geo-Nearest degrades to random within the alphabetically-
+        // first region (Africa for an Austrian user, hence the
+        // Nigeria/Tokyo picks observed in v0.9.11.46).
+        //
+        // 9-second timeout matches the in-detector default. Network
+        // probes happen sequentially (Cloudflare → ipify →
+        // ifconfig.me) with 3-second per-probe timeouts; the worst
+        // case is all three failing serially. The cache is also
+        // refreshed on network change via the detector's network
+        // callback, so this single warmup is enough for normal
+        // app sessions.
+        appScope.launch {
+            try {
+                val country = selfIpDetector.countryFor()
+                com.privycs.vpn.util.PrivycsLogger.i(
+                    "PrivycsApp",
+                    "SelfIp warm complete: country=${country.ifEmpty { "<unknown>" }}"
+                )
+            } catch (e: Exception) {
+                com.privycs.vpn.util.PrivycsLogger.w(
+                    "PrivycsApp", "SelfIp warm failed: ${e.message}"
+                )
+            }
+        }
+
         // Load persisted Always-On detection flag so the UI on first
         // frame already knows whether disconnect should go through the
         // pause-or-settings bottom-sheet rather than straight teardown.

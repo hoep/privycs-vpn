@@ -46,26 +46,33 @@ import kotlin.math.max
 @Composable
 fun PoolIndicatorCard(
     pool: PoolListItem,
-    nextRotationInMs: Long?,           // null if not round-robin or no next-rotation set
+    nextRotationAt: Long,              // epoch-ms; 0 = no countdown (non-RR or not connected)
     pendingMemberName: String?,
     pendingMemberCountry: String?,
     onClick: () -> Unit
 ) {
-    // Countdown source-of-truth: the upstream nextRotationInMs is
-    // re-emitted whenever the service refreshes. We base our local
-    // tick on a wall-clock anchor captured at every emission so the
-    // display stays in sync even after Doze deferrals.
-    val anchor = remember(nextRotationInMs) {
-        if (nextRotationInMs == null) null
-        else System.currentTimeMillis() + nextRotationInMs
+    // Countdown source-of-truth: an epoch-ms timestamp from the
+    // service's authoritative VpnStatus. The service rewrites this
+    // on every successful pool connect / rotation (including
+    // pre-warm), so a fresh value invalidates the remember() block
+    // below and the local countdown restarts cleanly.
+    //
+    // Earlier draft used `nextRotationInMs: Long?` (a delta). That
+    // failed because `intervalMin * 60 * 1000` is the SAME number
+    // before and after a rotation - remember() saw equal keys, never
+    // invalidated, the countdown ticked once down to zero and stayed
+    // stuck (the "00:00 forever" symptom).
+    val showCountdown = nextRotationAt > 0L
+    var localCountdownMs by remember(nextRotationAt) {
+        mutableStateOf(
+            if (showCountdown) max(0L, nextRotationAt - System.currentTimeMillis())
+            else 0L
+        )
     }
-    var localCountdownMs by remember(anchor) {
-        mutableStateOf(nextRotationInMs ?: 0L)
-    }
-    LaunchedEffect(anchor) {
-        if (anchor == null) return@LaunchedEffect
+    LaunchedEffect(nextRotationAt) {
+        if (!showCountdown) return@LaunchedEffect
         while (true) {
-            val remaining = anchor - System.currentTimeMillis()
+            val remaining = nextRotationAt - System.currentTimeMillis()
             localCountdownMs = max(0L, remaining)
             if (remaining <= 0) break
             delay(500L)
@@ -134,8 +141,9 @@ fun PoolIndicatorCard(
                 }
             }
 
-            // Countdown (round-robin only)
-            if (nextRotationInMs != null && nextRotationInMs > 0) {
+            // Countdown (round-robin only — non-zero nextRotationAt
+            // signals a scheduled rotation)
+            if (showCountdown) {
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
