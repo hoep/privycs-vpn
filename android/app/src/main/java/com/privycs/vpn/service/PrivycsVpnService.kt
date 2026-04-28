@@ -600,6 +600,19 @@ class PrivycsVpnService : VpnService() {
                 Log.w(TAG, "pool bringUp: ${member.config.protocol} tunnel did not appear " +
                         "within ${budgetMs}ms - handleConnect likely bailed")
                 false
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Re-throw cancellation so the picker's retry loop
+                // also dies. Without this re-throw, the service
+                // could be in mid-destruction and the caught
+                // CancellationException made the outer for-loop
+                // try the next member - which then saw the previous
+                // member's still-orphaned wireGuardTunnel reference
+                // and falsely returned "tunnel ready after 0ms"
+                // (the v0.9.11.47 death-loop observed in 20:42-20:44
+                // logs: cl-scl → co-bog → us-dal → za-jnb → au-syd
+                // → jp-osa, all "tunnel ready after 0ms", no actual
+                // tunnel matched the picked member).
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "pool bringUp failed: ${e.message}", e)
                 false
@@ -607,8 +620,24 @@ class PrivycsVpnService : VpnService() {
         }
 
         override suspend fun bringDown(): Boolean = try {
-            handleDisconnect()
+            // Direct teardown WITHOUT stopSelf. Earlier version
+            // called handleDisconnect() which at line 1250-1251
+            // unconditionally calls stopForeground +stopSelf. The
+            // service died ~150ms after every pool connect attempt,
+            // cancelling pickAndConnect's coroutine mid-run, and
+            // the WireGuard tunnel that handleConnect had just
+            // brought up was orphaned in the GoBackend JNI process
+            // (kept logging "Failed to write packet to TUN device:
+            // input/output error" until the next pool tap created
+            // a fresh service that ran into the same death spiral).
+            //
+            // Mirrors desktop's PickAndConnectActivePool which does
+            // a wasConnected-gated disconnectInternal() that does
+            // NOT terminate the surrounding goroutine.
+            teardownAllProtocols()
             true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "pool bringDown failed: ${e.message}", e)
             false
@@ -662,14 +691,32 @@ class PrivycsVpnService : VpnService() {
 
     private fun handlePoolConnect(poolId: String) {
         scope.launch {
-            val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: run {
+            val raw = PrivycsApp.instance.poolRepository.get(poolId) ?: run {
                 Log.e(TAG, "pool $poolId not found")
                 return@launch
             }
+
+            // Just-in-time auto-restrict: if the pool has no
+            // RestrictRegions and we know the user's country (cache
+            // populated by the app-boot warm or PoolDetailHost's
+            // pre-activate warm), apply the home region in memory
+            // BEFORE the picker runs. Mirrors desktop's
+            // app_pool.go:909-915. Without this, Round-Robin pinballs
+            // across all continents (cl-scl → co-bog → us-dal → ...
+            // observed in v0.9.11.47 logs).
+            val pool = applyHomeRegionRestrictIfMissing(raw)
+
             val picked = poolConnector.pickAndConnect(pool)
             if (picked == null) {
+                // All attempts failed. Direct tunnel teardown only -
+                // do NOT call handleDisconnect because that ends
+                // with stopSelf and would have killed us mid-flow.
                 Log.e(TAG, "pool ${pool.name}: all connect attempts failed")
-                handleDisconnect()
+                teardownAllProtocols()
+                val mgr = com.privycs.vpn.service.VpnServiceManager.getInstance(this@PrivycsVpnService)
+                mgr.updateStatus(com.privycs.vpn.data.models.VpnStatus(
+                    error = "Pool ${pool.name}: no member could connect"
+                ))
                 return@launch
             }
             onPoolMemberConnected(pool, picked, isRotation = false)
@@ -690,15 +737,59 @@ class PrivycsVpnService : VpnService() {
 
     private fun handlePoolRotate(poolId: String) {
         scope.launch {
-            val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: return@launch
+            val raw = PrivycsApp.instance.poolRepository.get(poolId) ?: return@launch
+            val pool = applyHomeRegionRestrictIfMissing(raw)
             val picked = poolConnector.pickAndConnect(pool)
             if (picked != null) {
                 onPoolMemberConnected(pool, picked, isRotation = true)
             } else {
+                // All attempts failed mid-rotation. Tear down the
+                // tunnel cleanly but do NOT stopSelf - the next
+                // rotation tick (or a manual retry) needs the
+                // service alive to act on it.
                 Log.e(TAG, "pool ${pool.name}: rotation - all attempts failed")
-                handleDisconnect()
+                teardownAllProtocols()
+                val mgr = com.privycs.vpn.service.VpnServiceManager.getInstance(this@PrivycsVpnService)
+                mgr.updateStatus(com.privycs.vpn.data.models.VpnStatus(
+                    error = "Pool ${pool.name}: rotation failed"
+                ))
             }
         }
+    }
+
+    /**
+     * Just-in-time home-region auto-restrict. Returns the pool with
+     * RestrictRegions populated when:
+     *   - the input pool has no restriction set yet
+     *   - the SelfIp cache contains a known country code
+     *
+     * Otherwise returns the input unchanged. The persisted-update
+     * side-effect runs only when the auto-restrict actually applied.
+     *
+     * Mirrors desktop's app_pool.go:909-915. Without this,
+     * Round-Robin pools without an explicit user-set region hammer
+     * through ALL continents in alphabetical order (the cl-scl →
+     * co-bog → us-dal → za-jnb → au-syd → jp-osa pattern observed
+     * in v0.9.11.47).
+     */
+    private suspend fun applyHomeRegionRestrictIfMissing(
+        pool: com.privycs.vpn.data.models.Pool
+    ): com.privycs.vpn.data.models.Pool {
+        if (pool.restrictRegions.isNotEmpty()) return pool
+        val country = PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty()
+        if (country.isEmpty()) {
+            Log.d(TAG, "auto-restrict skip: SelfIp cache cold for pool ${pool.name}")
+            return pool
+        }
+        val homeRegion = com.privycs.vpn.data.PoolPicker.regionForCountry(country)
+        if (homeRegion.isEmpty() || homeRegion == "Other") {
+            Log.d(TAG, "auto-restrict skip: country=$country maps to '$homeRegion'")
+            return pool
+        }
+        Log.i(TAG, "auto-restrict pool ${pool.name} to $homeRegion (user country=$country)")
+        val updated = pool.copy(restrictRegions = listOf(homeRegion))
+        PrivycsApp.instance.poolRepository.update(updated)
+        return updated
     }
 
     /**
