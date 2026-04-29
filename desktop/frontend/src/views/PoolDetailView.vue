@@ -230,7 +230,7 @@
           enter-to="opacity-100"
           leave="ease-in duration-150"
           leave-from="opacity-100"
-          leave-to="opacity-0"
+          leave-to="opacity-0 pointer-events-none"
         >
           <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" />
         </TransitionChild>
