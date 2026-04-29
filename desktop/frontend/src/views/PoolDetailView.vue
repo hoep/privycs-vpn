@@ -421,14 +421,15 @@
                     <textarea
                       v-model="editBypassCidrsText"
                       rows="4"
+                      spellcheck="false"
                       placeholder="203.0.113.0/24&#10;2001:db8::/32&#10;198.51.100.42"
-                      class="w-full px-2 py-1.5 text-xs font-mono
-                             bg-white dark:bg-gray-800
-                             border border-gray-300 dark:border-gray-700
-                             rounded-md
-                             text-gray-900 dark:text-gray-100
-                             focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    ></textarea>
+                      class="w-full bg-gray-50 dark:bg-gray-800
+                             text-gray-800 dark:text-gray-200
+                             text-xs font-mono p-3 rounded-lg
+                             border border-gray-200 dark:border-gray-700
+                             focus:outline-none focus:ring-2 focus:ring-primary-500
+                             resize-none"
+                    />
                     <p
                       v-if="bypassValidation.total === 0"
                       class="text-[10px] text-gray-500 mt-1"
@@ -437,13 +438,13 @@
                     </p>
                     <p
                       v-else-if="bypassValidation.invalidCount === 0"
-                      class="text-[10px] text-primary-600 mt-1"
+                      class="text-[10px] text-green-400 mt-1"
                     >
                       {{ bypassValidation.total }} CIDR{{ bypassValidation.total === 1 ? '' : 's' }} valid
                     </p>
                     <p
                       v-else
-                      class="text-[10px] text-red-500 mt-1"
+                      class="text-[10px] text-red-400 mt-1"
                     >
                       {{ bypassValidation.invalidCount }} of {{ bypassValidation.total }} invalid:
                       {{ bypassValidation.invalidSample.join(', ') }}

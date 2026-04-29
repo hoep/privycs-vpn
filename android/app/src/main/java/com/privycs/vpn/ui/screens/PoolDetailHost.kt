@@ -270,14 +270,15 @@ private fun EditPoolSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(8.dp))
+            // Switch + label-column matches the rest of the app's
+            // toggle pattern (SettingsScreen, PerAppVpnScreen). Earlier
+            // draft used Checkbox which is consistent with no other
+            // toggle in the codebase - swapped for visual coherence
+            // with the existing UI surface.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                androidx.compose.material3.Checkbox(
-                    checked = excludePrivate,
-                    onCheckedChange = { excludePrivate = it }
-                )
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Exclude private networks",
                         style = MaterialTheme.typography.bodyMedium)
@@ -288,6 +289,14 @@ private fun EditPoolSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                androidx.compose.material3.Switch(
+                    checked = excludePrivate,
+                    onCheckedChange = { excludePrivate = it },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                )
             }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
