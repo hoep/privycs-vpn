@@ -64,7 +64,7 @@ There's no shortage of VPN apps. There IS a shortage of VPN apps that:
 - **Multi-protocol per connection** — same connection with WG + OVPN + IPSec
 - **Multiple connections** — unlimited
 - **Connect-on-Demand** — auto-connect on WiFi SSID, mobile data, app start
-- **Gateway sync** — pull config updates from your Privycs gateway via API key
+- **Gateway sync** — pull config updates from your Privycs server via API key
 - **Connection Pools** — import 600-config archives, three rotation policies, pre-warm + slot alternation, dead-server recovery
 - **Per-Pool Split Tunnel** — bypass-CIDR list with RFC1918 toggle, IPv4+IPv6 dual-stack
 
@@ -78,11 +78,11 @@ Works with any VPN server speaking standard protocols:
 
 | Protocol | Tested with |
 |----------|-------------|
-| WireGuard | wg-quick, Mullvad, ProtonVPN, AzireVPN, IVPN, Privycs Gateway, Synology, OPNsense, OpenWrt |
+| WireGuard | wg-quick, Mullvad, ProtonVPN, AzireVPN, IVPN, Privycs, Synology, OPNsense, OpenWrt |
 | OpenVPN | OpenVPN Community, OpenVPN Access Server, pfSense, OPNsense, Synology, QNAP, AirVPN |
 | IPSec/IKEv2 | strongSwan, Cisco AnyConnect (IKEv2), Fortinet, native macOS/iOS profiles, Mikrotik |
 
-Plus first-class support for the [Privycs Gateway](https://github.com/hoep/privycs) for users running their own self-hosted infrastructure.
+Plus first-class support for [Privycs](https://github.com/hoep/privycs) — the companion self-hosted VPN management server — for users running their own infrastructure.
 
 ---
 
@@ -180,7 +180,7 @@ iOS IPSec uses Apple's native NEVPNProtocolIKEv2 API (no third-party dep).
 
 ## Related projects
 
-- [Privycs Gateway](https://github.com/hoep/privycs) — self-hosted VPN management server (the optional companion server-side this client speaks to)
+- [Privycs](https://github.com/hoep/privycs) — self-hosted VPN management server (the optional companion server-side this client speaks to)
 - [Privycs website + docs](https://www.privycs.com)
 
 ---
