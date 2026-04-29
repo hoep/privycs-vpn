@@ -177,6 +177,23 @@ private fun EditPoolSheet(
     var intervalMin by remember(pool.id) {
         mutableStateOf(pool.rotation.intervalMin.toString())
     }
+    var excludePrivate by remember(pool.id) {
+        mutableStateOf(pool.splitTunnel.excludePrivateNetworks)
+    }
+    // Bypass CIDRs as a multi-line String for the textfield so the
+    // user can edit freely. Persisted-list <-> textfield-string
+    // round-trip happens at Save time.
+    var bypassCidrsText by remember(pool.id) {
+        mutableStateOf(pool.splitTunnel.bypassCidrs.joinToString("\n"))
+    }
+    // Per-line validation tally so the UI can surface "3 lines, 1
+    // invalid". Recomputed on every keystroke (cheap: parse is
+    // microseconds + the list is short).
+    val bypassValidation = remember(bypassCidrsText) {
+        val lines = bypassCidrsText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+        val invalid = lines.filter { com.privycs.vpn.data.CidrMath.parse(it) == null }
+        Triple(lines.size, invalid.size, invalid)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -235,6 +252,71 @@ private fun EditPoolSheet(
                 )
             }
 
+            // Split-tunnel section. CIDRs entered here are excluded
+            // from the tunnel (traffic to those ranges goes via the
+            // local default gateway). WireGuard + OpenVPN supported;
+            // IPSec pool members ignore this and log a warning.
+            Spacer(Modifier.height(20.dp))
+            androidx.compose.material3.HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
+            Text("Split tunnel (bypass)",
+                style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Traffic to these IP ranges goes around the VPN. " +
+                        "WireGuard + OpenVPN; IPSec members are skipped " +
+                        "(server-side traffic-selector negotiation).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.Checkbox(
+                    checked = excludePrivate,
+                    onCheckedChange = { excludePrivate = it }
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Exclude private networks",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "RFC1918 (10/8, 172.16/12, 192.168/16) + " +
+                                "IPv6 ULA fc00::/7 + link-local",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = bypassCidrsText,
+                onValueChange = { bypassCidrsText = it },
+                label = { Text("Custom bypass CIDRs (one per line)") },
+                placeholder = { Text("203.0.113.0/24\n2001:db8::/32\n198.51.100.42") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+                supportingText = {
+                    val (total, invalidCount, invalidLines) = bypassValidation
+                    when {
+                        total == 0 -> Text(
+                            "Empty = no custom CIDRs (private-networks toggle still applies)"
+                        )
+                        invalidCount == 0 -> Text(
+                            "$total CIDR${if (total == 1) "" else "s"} valid",
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        else -> Text(
+                            "$invalidCount of $total invalid: " +
+                                    invalidLines.take(3).joinToString(", "),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            )
+
             Spacer(Modifier.height(20.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -246,10 +328,26 @@ private fun EditPoolSheet(
                     enabled = name.isNotBlank(),
                     onClick = {
                         val intMin = intervalMin.toIntOrNull()?.coerceAtLeast(1) ?: 30
+                        // Save only valid CIDRs - silently drop
+                        // malformed entries. The UI surfaced the
+                        // count above so the user already knew
+                        // some lines were bad; saving with bad
+                        // ones included would just have them
+                        // stripped at injection time anyway.
+                        val cidrLines = bypassCidrsText.split("\n")
+                            .map { it.trim() }
+                            .filter {
+                                it.isNotEmpty() &&
+                                        com.privycs.vpn.data.CidrMath.parse(it) != null
+                            }
                         val updated = pool.copy(
                             name = name.trim(),
                             policy = policy,
-                            rotation = pool.rotation.copy(intervalMin = intMin)
+                            rotation = pool.rotation.copy(intervalMin = intMin),
+                            splitTunnel = com.privycs.vpn.data.models.PoolSplitTunnel(
+                                bypassCidrs = cidrLines,
+                                excludePrivateNetworks = excludePrivate
+                            )
                         )
                         scope.launch { onSave(updated) }
                     }

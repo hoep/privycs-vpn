@@ -97,10 +97,59 @@ data class Pool(
     @SerialName("country_override")
     val countryOverride: String = "",
     @SerialName("restrict_regions")
-    val restrictRegions: List<String> = emptyList()
+    val restrictRegions: List<String> = emptyList(),
+    /**
+     * Per-pool client-side split-tunnel configuration. When set,
+     * the listed CIDRs (plus RFC1918+IPv6-ULA if the toggle is on)
+     * are excluded from the pool member's tunnel. Empty bypass
+     * list + toggle off = feature disabled, member config passes
+     * through unchanged.
+     *
+     * Default-on field: existing pools persisted before v0.9.11.55
+     * deserialise with the default (disabled), so behaviour stays
+     * identical for any pool that hasn't opted in.
+     */
+    @SerialName("split_tunnel")
+    val splitTunnel: PoolSplitTunnel = PoolSplitTunnel()
 ) {
     /** O(n) member lookup. Repository caches per-pool index for O(1). */
     fun memberById(id: String): PoolMember? = members.firstOrNull { it.id == id }
+}
+
+/**
+ * Client-side split-tunnel config attached to each pool. Bypass
+ * means "this traffic goes around the VPN" - the CIDRs land on
+ * the local network's default route instead of the tunnel.
+ *
+ * Algorithm (in CidrMath + SplitTunnelInjector):
+ *   AllowedIPs becomes (0.0.0.0/0 + ::/0) MINUS bypass set.
+ *   ~30-50 output CIDRs for typical 5-10 bypass entries.
+ *
+ * IPSec is unsupported because traffic selectors require server
+ * cooperation; the injector logs a warning and leaves IPSec pool
+ * members untouched.
+ */
+@Serializable
+data class PoolSplitTunnel(
+    /**
+     * User-typed CIDRs to bypass the VPN. Each entry is parsed by
+     * CidrMath.parse() at injection time; invalid entries are
+     * dropped silently (the UI surfaces a per-line validation hint
+     * before saving so this should be rare).
+     */
+    @SerialName("bypass_cidrs")
+    val bypassCidrs: List<String> = emptyList(),
+    /**
+     * Convenience toggle: include the standard private-network
+     * CIDRs (RFC1918 IPv4 + IPv6 ULA + link-local on both
+     * families) in the bypass set without making the user type
+     * them. Default off so existing pools are unaffected.
+     */
+    @SerialName("exclude_private_networks")
+    val excludePrivateNetworks: Boolean = false
+) {
+    /** True if this config has any effect at injection time. */
+    fun isActive(): Boolean = bypassCidrs.isNotEmpty() || excludePrivateNetworks
 }
 
 /**

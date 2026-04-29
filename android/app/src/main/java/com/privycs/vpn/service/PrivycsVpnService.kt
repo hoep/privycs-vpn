@@ -554,7 +554,10 @@ class PrivycsVpnService : VpnService() {
     }
 
     private val poolTunnelOps = object : PoolConnector.PoolTunnelOps {
-        override suspend fun bringUp(member: com.privycs.vpn.data.models.PoolMember): Boolean {
+        override suspend fun bringUp(
+            member: com.privycs.vpn.data.models.PoolMember,
+            splitTunnel: com.privycs.vpn.data.models.PoolSplitTunnel?
+        ): Boolean {
             // handleConnect is fire-and-forget — it launches its own
             // scope.launch { ... } that internally awaits
             // teardownAllProtocols() (~1500ms) and only THEN calls
@@ -574,11 +577,32 @@ class PrivycsVpnService : VpnService() {
             // the tunnel never appeared within the budget — usually
             // a sign that handleConnect bailed (KS sinkhole, no
             // network, parse failure, etc).
+            // Split-tunnel injection: when the pool has a split-
+            // tunnel config (bypass CIDRs and/or "exclude private
+            // networks" toggle), patch the member's config text
+            // BEFORE handing it to handleConnect so the WG tunnel
+            // / OpenVPN profile sees the modified AllowedIPs /
+            // route directives. Disabled / inapplicable configs
+            // pass through unchanged with a log message.
+            val effectiveConfig = if (splitTunnel != null && splitTunnel.isActive()) {
+                val result = com.privycs.vpn.data.SplitTunnelInjector.inject(
+                    configContent = member.config.configContent,
+                    protocol = member.config.protocol,
+                    splitTunnel = splitTunnel
+                )
+                if (!result.applied && result.skippedReason != null) {
+                    Log.i(TAG, "pool ${member.name}: split-tunnel skipped (${result.skippedReason})")
+                }
+                result.patched
+            } else {
+                member.config.configContent
+            }
+
             return try {
                 handleConnect(
                     connectionId = "pool:${member.id}",
                     protocolStr = member.config.protocol.name.lowercase(),
-                    configContent = member.config.configContent,
+                    configContent = effectiveConfig,
                     connectionName = member.name
                 )
                 val budgetMs = 8_000L

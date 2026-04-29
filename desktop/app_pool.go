@@ -216,6 +216,9 @@ func (a *App) UpdatePool(id string, patch UpdatePoolRequest) (*Pool, error) {
 	if patch.CountryOverride != nil {
 		p.CountryOverride = *patch.CountryOverride
 	}
+	if patch.SplitTunnel != nil {
+		p.SplitTunnel = *patch.SplitTunnel
+	}
 
 	if err := a.pools.Update(p); err != nil {
 		return nil, err
@@ -237,11 +240,12 @@ func (a *App) UpdatePool(id string, patch UpdatePoolRequest) (*Pool, error) {
 // frontend. Pointer fields disambiguate "not in patch" from
 // "explicitly cleared" (e.g. setting CountryOverride back to "").
 type UpdatePoolRequest struct {
-	Name            string        `json:"name"`
-	Policy          string        `json:"policy"`
-	Rotation        *PoolRotation `json:"rotation,omitempty"`
-	RestrictRegions *[]string     `json:"restrict_regions,omitempty"`
-	CountryOverride *string       `json:"country_override,omitempty"`
+	Name            string           `json:"name"`
+	Policy          string           `json:"policy"`
+	Rotation        *PoolRotation    `json:"rotation,omitempty"`
+	RestrictRegions *[]string        `json:"restrict_regions,omitempty"`
+	CountryOverride *string          `json:"country_override,omitempty"`
+	SplitTunnel     *PoolSplitTunnel `json:"split_tunnel,omitempty"`
 }
 
 // DeletePool removes a pool and clears any active-pool reference. If
@@ -532,10 +536,23 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 	tunnelName := "privycs-pool-" + suffix + "-" + slot
 	setTunnelName(proto, tunnelName)
 
+	// Pool-level split-tunnel config. Read upfront so the pre-write
+	// shortcut + the fresh-Configure path both see the same value.
+	// Active pool may be nil if the user just deleted it mid-rotate;
+	// treat as no split tunnel in that case.
+	var poolSplitTunnel PoolSplitTunnel
+	if pool := a.pools.Get(a.activePoolID); pool != nil {
+		poolSplitTunnel = pool.SplitTunnel
+	}
+
 	// Was this slot's .conf pre-written 60 s ago? If yes, adopt it
 	// (read-only) instead of writing again with identical content.
+	// Pre-write is bypassed when split tunnel is active because the
+	// pre-write code path does NOT apply the split-tunnel patch -
+	// adopting it would skip the AllowedIPs rewrite and leak full-
+	// tunnel routes for the bypass CIDRs.
 	preWritten := false
-	if m.Config.Protocol == "wireguard" {
+	if m.Config.Protocol == "wireguard" && !poolSplitTunnel.IsActive() {
 		if pendingID := a.pools.PendingMemberID(a.activePoolID); pendingID == m.ID {
 			confPath := filepath.Join(appDataDir(), tunnelName+".conf")
 			if _, err := os.Stat(confPath); err == nil {
@@ -544,23 +561,33 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 		}
 	}
 
+	// applyAllPatches: split-tunnel first (structural - rewrites
+	// AllowedIPs / adds route directives), DNS override second
+	// (adds DNS = lines or pull-filter for DNS push). Both
+	// transforms compose because they touch disjoint parts of the
+	// config. Empty/disabled config short-circuits to identity.
+	applyAllPatches := func(raw []byte) []byte {
+		patched, _, _ := SplitTunnelInject(string(raw), proto.Name(), poolSplitTunnel)
+		return a.applyDnsOverride([]byte(patched), proto.Name())
+	}
+
 	if preWritten {
 		if wg, ok := proto.(*WireGuardProtocol); ok {
 			if err := wg.AdoptExistingConfig(); err != nil {
 				// Fallback: pre-written file vanished or unreadable.
-				if err := proto.Configure(a.applyDnsOverride([]byte(m.Config.ConfigContent), proto.Name())); err != nil {
+				if err := proto.Configure(applyAllPatches([]byte(m.Config.ConfigContent))); err != nil {
 					a.mu.Unlock()
 					return fmt.Errorf("invalid pool-member config: %w", err)
 				}
 			}
 		} else {
-			if err := proto.Configure(a.applyDnsOverride([]byte(m.Config.ConfigContent), proto.Name())); err != nil {
+			if err := proto.Configure(applyAllPatches([]byte(m.Config.ConfigContent))); err != nil {
 				a.mu.Unlock()
 				return fmt.Errorf("invalid pool-member config: %w", err)
 			}
 		}
 	} else {
-		if err := proto.Configure(a.applyDnsOverride([]byte(m.Config.ConfigContent), proto.Name())); err != nil {
+		if err := proto.Configure(applyAllPatches([]byte(m.Config.ConfigContent))); err != nil {
 			a.mu.Unlock()
 			return fmt.Errorf("invalid pool-member config: %w", err)
 		}

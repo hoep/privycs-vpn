@@ -124,14 +124,15 @@ const UnreachableTTL = 30 * time.Minute
 // Legacy fields (legacyActiveMemberID etc.) preserve old pools.json
 // values for one-time migration into state.json.
 type Pool struct {
-	ID              string        `json:"id"`
-	Name            string        `json:"name"`
-	CreatedAt       time.Time     `json:"created_at"`
-	Policy          PoolPolicy    `json:"policy"`
-	Rotation        PoolRotation  `json:"rotation"`
-	Members         []*PoolMember `json:"members"`
-	CountryOverride string        `json:"country_override,omitempty"`
-	RestrictRegions []string      `json:"restrict_regions,omitempty"`
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	CreatedAt       time.Time        `json:"created_at"`
+	Policy          PoolPolicy       `json:"policy"`
+	Rotation        PoolRotation     `json:"rotation"`
+	Members         []*PoolMember    `json:"members"`
+	CountryOverride string           `json:"country_override,omitempty"`
+	RestrictRegions []string         `json:"restrict_regions,omitempty"`
+	SplitTunnel     PoolSplitTunnel  `json:"split_tunnel,omitempty"`
 
 	// memberByID is a parallel index for O(1) MemberByID lookups.
 	// Built on load + Create + DeleteMember + RenameMember. NOT
@@ -155,17 +156,18 @@ type Pool struct {
 // runtime fields.
 func (p *Pool) UnmarshalJSON(data []byte) error {
 	type wireFormat struct {
-		ID              string        `json:"id"`
-		Name            string        `json:"name"`
-		CreatedAt       time.Time     `json:"created_at"`
-		Policy          PoolPolicy    `json:"policy"`
-		Rotation        PoolRotation  `json:"rotation"`
-		Members         []*PoolMember `json:"members"`
-		CountryOverride string        `json:"country_override"`
-		RestrictRegions []string      `json:"restrict_regions"`
-		ActiveMemberID  string        `json:"active_member_id"`
-		PendingMemberID string        `json:"pending_member_id"`
-		ActiveSlot      string        `json:"active_slot"`
+		ID              string           `json:"id"`
+		Name            string           `json:"name"`
+		CreatedAt       time.Time        `json:"created_at"`
+		Policy          PoolPolicy       `json:"policy"`
+		Rotation        PoolRotation     `json:"rotation"`
+		Members         []*PoolMember    `json:"members"`
+		CountryOverride string           `json:"country_override"`
+		RestrictRegions []string         `json:"restrict_regions"`
+		SplitTunnel     PoolSplitTunnel  `json:"split_tunnel"`
+		ActiveMemberID  string           `json:"active_member_id"`
+		PendingMemberID string           `json:"pending_member_id"`
+		ActiveSlot      string           `json:"active_slot"`
 	}
 	var w wireFormat
 	if err := json.Unmarshal(data, &w); err != nil {
@@ -179,11 +181,26 @@ func (p *Pool) UnmarshalJSON(data []byte) error {
 	p.Members = w.Members
 	p.CountryOverride = w.CountryOverride
 	p.RestrictRegions = w.RestrictRegions
+	p.SplitTunnel = w.SplitTunnel
 	p.legacyActiveMemberID = w.ActiveMemberID
 	p.legacyPendingMemberID = w.PendingMemberID
 	p.legacyActiveSlot = w.ActiveSlot
 	p.rebuildMemberIndex()
 	return nil
+}
+
+// PoolSplitTunnel is the per-pool client-side split-tunnel config.
+// Mirrors Android's data.models.PoolSplitTunnel; same on-disk JSON
+// shape so backups round-trip across platforms.
+type PoolSplitTunnel struct {
+	BypassCidrs             []string `json:"bypass_cidrs,omitempty"`
+	ExcludePrivateNetworks  bool     `json:"exclude_private_networks,omitempty"`
+}
+
+// IsActive reports whether this config affects the connect path.
+// Empty bypass list + toggle off = no-op.
+func (s PoolSplitTunnel) IsActive() bool {
+	return len(s.BypassCidrs) > 0 || s.ExcludePrivateNetworks
 }
 
 // rebuildMemberIndex rebuilds memberByID from Members. Called on

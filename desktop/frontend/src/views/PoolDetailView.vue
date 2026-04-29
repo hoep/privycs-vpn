@@ -374,6 +374,83 @@
                   </div>
                 </div>
 
+                <!--
+                  Split Tunnel section. Per-pool client-side bypass:
+                  CIDRs entered here are excluded from the tunnel
+                  (traffic to those ranges goes via the local default
+                  gateway). WireGuard + OpenVPN supported; IPSec pool
+                  members are skipped silently and a log warning
+                  surfaces in the daemon logs.
+                -->
+                <div class="px-5 py-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
+                  <div>
+                    <h3 class="text-xs font-semibold text-gray-700 dark:text-gray-300">Split tunnel (bypass)</h3>
+                    <p class="text-[11px] text-gray-500 mt-0.5">
+                      Traffic to these IP ranges goes around the VPN.
+                      WireGuard + OpenVPN; IPSec members skipped
+                      (server-side traffic-selector negotiation).
+                    </p>
+                  </div>
+                  <SwitchGroup as="div" class="flex items-start justify-between gap-3">
+                    <div class="flex-1">
+                      <SwitchLabel as="span" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                        Exclude private networks
+                      </SwitchLabel>
+                      <p class="text-[10px] text-gray-500 mt-0.5">
+                        RFC1918 (10/8, 172.16/12, 192.168/16) + IPv6 ULA fc00::/7 + link-local
+                      </p>
+                    </div>
+                    <Switch
+                      v-model="editExcludePrivateNetworks"
+                      :class="editExcludePrivateNetworks ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-700'"
+                      class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full
+                             transition-colors duration-200 ease-in-out
+                             focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                    >
+                      <span
+                        :class="editExcludePrivateNetworks ? 'translate-x-4' : 'translate-x-0'"
+                        class="pointer-events-none inline-block h-5 w-5 transform rounded-full
+                               bg-white shadow ring-0 transition-transform duration-200 ease-in-out"
+                      />
+                    </Switch>
+                  </SwitchGroup>
+                  <div>
+                    <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                      Custom bypass CIDRs (one per line)
+                    </label>
+                    <textarea
+                      v-model="editBypassCidrsText"
+                      rows="4"
+                      placeholder="203.0.113.0/24&#10;2001:db8::/32&#10;198.51.100.42"
+                      class="w-full px-2 py-1.5 text-xs font-mono
+                             bg-white dark:bg-gray-800
+                             border border-gray-300 dark:border-gray-700
+                             rounded-md
+                             text-gray-900 dark:text-gray-100
+                             focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    ></textarea>
+                    <p
+                      v-if="bypassValidation.total === 0"
+                      class="text-[10px] text-gray-500 mt-1"
+                    >
+                      Empty = no custom CIDRs (private-networks toggle still applies)
+                    </p>
+                    <p
+                      v-else-if="bypassValidation.invalidCount === 0"
+                      class="text-[10px] text-primary-600 mt-1"
+                    >
+                      {{ bypassValidation.total }} CIDR{{ bypassValidation.total === 1 ? '' : 's' }} valid
+                    </p>
+                    <p
+                      v-else
+                      class="text-[10px] text-red-500 mt-1"
+                    >
+                      {{ bypassValidation.invalidCount }} of {{ bypassValidation.total }} invalid:
+                      {{ bypassValidation.invalidSample.join(', ') }}
+                    </p>
+                  </div>
+                </div>
+
                 <div class="flex justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/30">
                   <button
                     @click="showSettingsModal = false"
@@ -531,6 +608,29 @@ const editIntervalMin = ref(30)
 const editIntervalChoice = ref<string>('30')
 const editIdleAware = ref(false)
 const editForceAfterMin = ref(30)
+// Split-tunnel edit state. Bypass CIDRs are edited as a single
+// multi-line textarea string; round-trip to the backend's
+// string array happens at saveSettings time.
+const editExcludePrivateNetworks = ref(false)
+const editBypassCidrsText = ref('')
+// Per-line validation: counts valid + invalid entries so the UI
+// can surface "3 valid, 1 invalid" as a hint. Pure regex here -
+// the backend re-parses with the canonical CidrMath at inject
+// time and silently drops anything it can't match, so edge cases
+// the regex misses don't cause runtime breakage.
+const cidrLineRegex = /^(?:(?:\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F:]+)(?:\/\d{1,3})?$/
+const bypassValidation = computed(() => {
+  const lines = editBypassCidrsText.value
+    .split('\n')
+    .map((s: string) => s.trim())
+    .filter((s: string) => s.length > 0)
+  const invalid = lines.filter((s: string) => !cidrLineRegex.test(s))
+  return {
+    total: lines.length,
+    invalidCount: invalid.length,
+    invalidSample: invalid.slice(0, 3),
+  }
+})
 
 // AppSelect uses string-typed v-model. Bridge the numeric edit refs
 // to/from string proxies so the dropdown options match without losing
@@ -637,6 +737,13 @@ async function load() {
       editIdleAware.value = pool.value.rotation?.idle_aware ?? true
       editForceAfterMin.value = pool.value.rotation?.force_after_min || 60
       restrictedRegions.value = [...(pool.value.restrict_regions || [])]
+      // Split-tunnel state: pull from the persisted pool struct.
+      // Default safe values when the field is missing (older pools
+      // pre-v0.9.11.55 won't have it).
+      editExcludePrivateNetworks.value =
+        pool.value.split_tunnel?.exclude_private_networks ?? false
+      editBypassCidrsText.value =
+        (pool.value.split_tunnel?.bypass_cidrs ?? []).join('\n')
     }
   } catch (e) {
     console.error(e)
@@ -659,6 +766,15 @@ watch(editIntervalChoice, (choice: string) => {
 async function saveSettings() {
   if (!pool.value) return
   try {
+    // Strip empty + whitespace lines from the bypass-CIDR textarea
+    // before sending. Backend parses canonically and silently drops
+    // anything it can't match - we don't filter by regex here so
+    // the user's typed strings round-trip to the user even if they
+    // include something unusual the regex doesn't anticipate.
+    const cidrLines = editBypassCidrsText.value
+      .split('\n')
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0)
     await poolStore.update(pool.value.id, {
       name: editName.value,
       policy: editPolicy.value,
@@ -667,6 +783,10 @@ async function saveSettings() {
         interval_min: editIntervalMin.value,
         idle_aware: editIdleAware.value,
         force_after_min: editForceAfterMin.value,
+      },
+      split_tunnel: {
+        bypass_cidrs: cidrLines,
+        exclude_private_networks: editExcludePrivateNetworks.value,
       },
     })
     showSettingsModal.value = false

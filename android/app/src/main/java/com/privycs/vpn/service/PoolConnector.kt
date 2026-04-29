@@ -49,8 +49,17 @@ class PoolConnector(
          * Suspending: caller can await. Implementer is responsible
          * for dispatching to Dispatchers.IO if blocking work is
          * involved.
+         *
+         * [splitTunnel] - per-pool client-side split-tunnel config.
+         * Implementer applies it via SplitTunnelInjector before
+         * handing the member's config to the protocol-specific
+         * connect path. Disabled / null = pass config through
+         * unchanged.
          */
-        suspend fun bringUp(member: PoolMember): Boolean
+        suspend fun bringUp(
+            member: PoolMember,
+            splitTunnel: com.privycs.vpn.data.models.PoolSplitTunnel? = null
+        ): Boolean
 
         /**
          * Tears down the current tunnel synchronously.
@@ -194,7 +203,7 @@ class PoolConnector(
 
             Log.i(tag, "attempt ${attempt + 1}/$MAX_CONNECT_ATTEMPTS member=${member.name}")
 
-            val ok = tunnelOps.bringUp(member)
+            val ok = tunnelOps.bringUp(member, pool.splitTunnel)
             if (!ok) {
                 lastErr = "Up() failed"
                 pools.markMemberUnreachable(pool.id, member.id, lastErr)
