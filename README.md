@@ -2,12 +2,22 @@
 
 **One app, three protocols, your servers.** A multi-protocol VPN management client for Android, iOS (planned), and Desktop (Windows / macOS / Linux). Works with any VPN server — not tied to a single provider.
 
-[![Latest Release](https://img.shields.io/github/v/release/hoep/privycs-vpn?label=release&color=blue)](https://github.com/hoep/privycs-vpn/releases/latest)
-[![Android Build](https://img.shields.io/github/actions/workflow/status/hoep/privycs-vpn/android-build.yml?branch=main&label=android%20build)](https://github.com/hoep/privycs-vpn/actions/workflows/android-build.yml)
-[![Desktop Build](https://img.shields.io/github/actions/workflow/status/hoep/privycs-vpn/desktop-build.yml?branch=main&label=desktop%20build)](https://github.com/hoep/privycs-vpn/actions/workflows/desktop-build.yml)
-[![Downloads](https://img.shields.io/github/downloads/hoep/privycs-vpn/total?label=downloads)](https://github.com/hoep/privycs-vpn/releases)
+<!--
+  Static badges only while this repo is private — shields.io's
+  dynamic GitHub-API queries can't authenticate against private
+  repos, so they render as "no release found" / "repo or workflow
+  not found" until the repo is made public. When that happens,
+  switch back to the dynamic versions:
+    https://img.shields.io/github/v/release/hoep/privycs-vpn
+    https://img.shields.io/github/actions/workflow/status/hoep/privycs-vpn/android-release.yml?branch=main
+    https://img.shields.io/github/actions/workflow/status/hoep/privycs-vpn/desktop-release.yml?branch=main
+    https://img.shields.io/github/downloads/hoep/privycs-vpn/total
+    https://img.shields.io/github/stars/hoep/privycs-vpn?style=social
+-->
+
+[![Latest Release](https://img.shields.io/badge/release-v0.9.11.56-blue)](https://github.com/hoep/privycs-vpn/releases/latest)
+[![Platforms](https://img.shields.io/badge/platforms-Android%20%7C%20Desktop-green)](https://github.com/hoep/privycs-vpn/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0-orange)](#license)
-[![Stars](https://img.shields.io/github/stars/hoep/privycs-vpn?style=social)](https://github.com/hoep/privycs-vpn/stargazers)
 
 <p align="center">
   <img src="screenshots/connect.png" alt="Privycs Connect screen" width="280"/>
