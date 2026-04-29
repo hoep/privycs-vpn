@@ -251,6 +251,34 @@ class PoolRotationScheduler(private val context: Context) {
         }
     }
 
+    /**
+     * Tear down the battery-saver receiver if it was registered.
+     * Idempotent. Called from PrivycsVpnService.onDestroy so the
+     * receiver doesn't leak across service-respawn cycles - Android
+     * logs IntentReceiverLeaked when a service is destroyed without
+     * unregistering all receivers it registered.
+     *
+     * Earlier comment in this file claimed "we don't unregister
+     * because the receiver is cheap to keep around" - that was wrong:
+     * the leak is loud (visible in logcat as a stack trace + warning)
+     * AND the receiver references the Service via its closure-over
+     * `this@PoolRotationScheduler`, so the dead Service instance
+     * can't be GC'd until the Application process exits.
+     */
+    fun unregisterBatterySaverReceiver() {
+        val r = batterySaverReceiver ?: return
+        try {
+            context.unregisterReceiver(r)
+        } catch (e: Exception) {
+            // Already-unregistered or never-fully-registered are
+            // both expected race outcomes. Don't crash the service
+            // teardown for it.
+            Log.d(TAG, "battery-saver unregister: ${e.message}")
+        } finally {
+            batterySaverReceiver = null
+        }
+    }
+
     companion object {
         private const val TAG = "PoolScheduler"
 

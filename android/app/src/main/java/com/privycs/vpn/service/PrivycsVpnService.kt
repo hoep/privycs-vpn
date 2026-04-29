@@ -985,6 +985,18 @@ class PrivycsVpnService : VpnService() {
         // semantics explicit for code review, (c) matches the
         // pattern in exitSinkholeMode for symmetry.
         exitSinkholeMode()
+        // Unregister the battery-saver receiver that
+        // PoolRotationScheduler.arm() registers via
+        // ensureBatterySaverReceiverRegistered. Without this, every
+        // service-destroy cycle leaks an IntentReceiver
+        // (visible as IntentReceiverLeaked in logcat) AND prevents
+        // the dying Service instance from being GC'd because the
+        // receiver closure references it.
+        try {
+            poolScheduler.unregisterBatterySaverReceiver()
+        } catch (e: Exception) {
+            Log.d(TAG, "battery-saver unregister failed: ${e.message}")
+        }
         scope.cancel()
         super.onDestroy()
         Log.d(TAG, "VPN service destroyed")
