@@ -138,14 +138,30 @@ class VpnServiceManager private constructor(private val context: Context) {
                     poolPolicy = activePool.policy.name
                 )
 
-                val intent = Intent(context, PrivycsVpnService::class.java).apply {
-                    action = PrivycsVpnService.ACTION_POOL_CONNECT
-                    putExtra(PrivycsVpnService.EXTRA_POOL_ID, activePoolId)
-                }
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
+                // Pool now goes through ConnectCoordinator like
+                // single-connection. The Coordinator fires
+                // ACTION_POOL_CONNECT for us and applies the same
+                // gates (Kill Switch sinkhole, system-revoke
+                // cooldown, Always-On pause, manual pause) +
+                // serialisation as the single path. Without this
+                // unification, COD never fired for pool users
+                // (NetworkMonitor's Coordinator handoff routed only
+                // single connections) and the always-on / manual
+                // pause flags were silently bypassed when the user
+                // had a Pool selected.
+                scope.launch {
+                    val result = com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                        context,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                        activePoolId,
+                        activePool.name,
+                    )
+                    if (result is com.privycs.vpn.util.ConnectCoordinator.Result.Error ||
+                        result is com.privycs.vpn.util.ConnectCoordinator.Result.Gated
+                    ) {
+                        PrivycsLogger.w(TAG, "connect() pool rejected by coordinator: $result")
+                        _status.value = _status.value.copy(error = "Pool connect rejected: $result")
+                    }
                 }
                 return
             }

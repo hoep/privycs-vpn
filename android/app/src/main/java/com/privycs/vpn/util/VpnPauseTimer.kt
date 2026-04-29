@@ -121,6 +121,27 @@ object VpnPauseTimer {
                 val manager = VpnServiceManager.getInstance(appContext)
                 if (manager.isConnected) return@launch
 
+                // Pool-active wins. After manual pause expiry the
+                // selected target may be a pool; if we only ever
+                // checked connectionRepository.getActive() the
+                // pause-expiry COD resume would silently no-op for
+                // pool users (the same dead-end that broke
+                // NetworkMonitor's COD path before pool support).
+                val poolReg = com.privycs.vpn.PrivycsApp.instance
+                    .poolRepository.registry.value
+                val activePoolId = poolReg.activeId
+                val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
+                if (activePoolId.isNotEmpty() && activePool != null) {
+                    Log.i(TAG, "Pause expired, on-demand pool resume (${ns.ruleMatch})")
+                    ConnectCoordinator.requestPoolConnect(
+                        appContext,
+                        ConnectCoordinator.IntentSource.ON_DEMAND,
+                        activePoolId,
+                        activePool.name,
+                    )
+                    return@launch
+                }
+
                 val conn = com.privycs.vpn.PrivycsApp.instance
                     .connectionRepository.getActive() ?: return@launch
 

@@ -339,16 +339,50 @@ class NetworkMonitor private constructor(private val context: Context) {
                     return@launch
                 }
 
-                // All gating + serialisation now happens inside
-                // ConnectCoordinator: system-revoke cooldown, always-on
-                // pause flag, preemption by USER-source intents,
-                // duplicate-connect guard while Connecting is in
-                // flight. We just hand off the intent with the
-                // ON_DEMAND source tag and trust the coordinator's
-                // decision.
+                // Pool-active wins. When the user's active selection
+                // is a Pool we have explicitly cleared
+                // connectionRepository.activeId (so the Connect
+                // screen does not show a stale single-connection
+                // name underneath the pool card). That means
+                // getActive() returns null in the pool case, and
+                // before this branch existed COD silently early-
+                // returned with "no active connection, skipping"
+                // for pool users.
+                //
+                // Pool now flows through ConnectCoordinator
+                // .requestPoolConnect() with the same gate set as
+                // single-connection: Kill Switch sinkhole, system-
+                // revoke cooldown, Always-On pause, manual pause,
+                // and the manual-disconnect cooldown above. The
+                // Coordinator fires ACTION_POOL_CONNECT internally
+                // when accepted.
+                val poolReg = PrivycsApp.instance.poolRepository.registry.value
+                val activePoolId = poolReg.activeId
+                val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
+                if (activePoolId.isNotEmpty() && activePool != null) {
+                    val poolResult = com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                        context,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
+                        activePoolId,
+                        activePool.name,
+                    )
+                    Log.d(
+                        TAG,
+                        "on-demand requestPoolConnect -> $poolResult (poolId=$activePoolId rules=$ruleMatch)"
+                    )
+                    return@launch
+                }
+
+                // Single-connection path. All gating + serialisation
+                // happens inside ConnectCoordinator: system-revoke
+                // cooldown, always-on pause flag, preemption by
+                // USER-source intents, duplicate-connect guard
+                // while Connecting is in flight. We just hand off
+                // the intent with the ON_DEMAND source tag and
+                // trust the coordinator's decision.
                 val connection = PrivycsApp.instance.connectionRepository.getActive()
                 if (connection == null) {
-                    Log.d(TAG, "Rules match but no active connection, skipping")
+                    Log.d(TAG, "Rules match but no active connection or pool, skipping")
                     return@launch
                 }
                 val result = com.privycs.vpn.util.ConnectCoordinator.requestConnect(

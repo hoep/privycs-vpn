@@ -396,6 +396,24 @@ class PrivycsVpnService : VpnService() {
                 Log.d(TAG, "Post-sinkhole: COD rules do not match current network, not auto-reconnecting (${ns.ruleMatch})")
                 return
             }
+            // Pool-active wins. If the user's selection is a Pool
+            // we reconnect via the pool path - same dead-end fix
+            // as in NetworkMonitor / VpnPauseTimer: getActive()
+            // returns null for pool users, so without this branch
+            // post-sinkhole COD resume would silently no-op.
+            val poolReg = PrivycsApp.instance.poolRepository.registry.value
+            val activePoolId = poolReg.activeId
+            val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
+            if (activePoolId.isNotEmpty() && activePool != null) {
+                Log.i(TAG, "Post-sinkhole: COD rules match, auto-reconnecting to pool ${activePool.name}")
+                com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                    this,
+                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                    activePoolId,
+                    activePool.name,
+                )
+                return
+            }
             val active = PrivycsApp.instance.connectionRepository.getActive() ?: return
             Log.i(TAG, "Post-sinkhole: COD rules match, auto-reconnecting to ${active.name}")
             com.privycs.vpn.util.ConnectCoordinator.requestConnect(
@@ -430,13 +448,26 @@ class PrivycsVpnService : VpnService() {
 
             ACTION_KILL_SWITCH_RETRY -> {
                 // Notification "Retry Connect" tap. Fire a fresh
-                // USER-source connect at the active connection so
-                // the coordinator's gate accepts it and the sinkhole
-                // is replaced by a real tunnel on success.
+                // USER-source connect at the active target (pool or
+                // single connection) so the coordinator's gate
+                // accepts it and the sinkhole is replaced by a real
+                // tunnel on success.
                 scope.launch {
+                    val poolReg = PrivycsApp.instance.poolRepository.registry.value
+                    val activePoolId = poolReg.activeId
+                    val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
+                    if (activePoolId.isNotEmpty() && activePool != null) {
+                        com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                            this@PrivycsVpnService,
+                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                            activePoolId,
+                            activePool.name,
+                        )
+                        return@launch
+                    }
                     val active = PrivycsApp.instance.connectionRepository.getActive()
                     if (active == null) {
-                        Log.w(TAG, "Kill Switch retry: no active connection to reconnect to")
+                        Log.w(TAG, "Kill Switch retry: no active connection or pool to reconnect to")
                         return@launch
                     }
                     com.privycs.vpn.util.ConnectCoordinator.requestConnect(

@@ -64,9 +64,30 @@ class BootReceiver : BroadcastReceiver() {
                     return@launch
                 }
 
+                // Pool-active wins. Without this branch boot-time
+                // auto-connect would silently no-op for pool users
+                // (getActive() returns null when a pool owns the
+                // user-selected slot). Coordinator's BOOT-source
+                // gate set is identical for pool and single, so
+                // boot-time double-tunnel races against System
+                // Always-On stay prevented.
+                val poolReg = app.poolRepository.registry.value
+                val activePoolId = poolReg.activeId
+                val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
+                if (activePoolId.isNotEmpty() && activePool != null) {
+                    Log.d(TAG, "Auto-connecting to pool ${activePool.name}")
+                    com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                        context,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.BOOT,
+                        activePoolId,
+                        activePool.name,
+                    )
+                    return@launch
+                }
+
                 val activeConn = app.connectionRepository.getActive()
                 if (activeConn == null) {
-                    Log.d(TAG, "No active connection configured, skipping")
+                    Log.d(TAG, "No active connection or pool configured, skipping")
                     return@launch
                 }
 

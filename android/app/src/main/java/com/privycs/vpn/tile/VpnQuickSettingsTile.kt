@@ -80,9 +80,28 @@ class VpnQuickSettingsTile : TileService() {
                 Log.w(TAG, "VPN permission not granted, cannot connect from tile")
                 return
             }
+            // Pool-active wins. Same dead-end fix as everywhere
+            // else - pool users have getActive() == null on the
+            // single-connection repo because the active pool card
+            // takes ownership of activeId.
+            val poolReg = com.privycs.vpn.PrivycsApp.instance
+                .poolRepository.registry.value
+            val activePoolId = poolReg.activeId
+            val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
+            if (activePoolId.isNotEmpty() && activePool != null) {
+                scope?.launch {
+                    com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                        applicationContext,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.TILE,
+                        activePoolId,
+                        activePool.name,
+                    )
+                }
+                return
+            }
             val connection = com.privycs.vpn.PrivycsApp.instance.connectionRepository.getActive()
             if (connection == null) {
-                Log.w(TAG, "Tile tap: no active connection")
+                Log.w(TAG, "Tile tap: no active connection or pool")
                 return
             }
             scope?.launch {

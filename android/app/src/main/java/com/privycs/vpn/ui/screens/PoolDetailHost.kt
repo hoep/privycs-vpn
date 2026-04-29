@@ -1,6 +1,5 @@
 package com.privycs.vpn.ui.screens
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,7 +40,6 @@ import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.data.models.Pool
 import com.privycs.vpn.data.models.PoolPolicy
 import com.privycs.vpn.data.models.RegionCoverage
-import com.privycs.vpn.service.PrivycsVpnService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -133,14 +131,27 @@ fun PoolDetailHost(
                     // (within RestrictRegions) still works.
                 }
             }
-            val intent = Intent(ctx, PrivycsVpnService::class.java).apply {
-                action = PrivycsVpnService.ACTION_POOL_CONNECT
-                putExtra(PrivycsVpnService.EXTRA_POOL_ID, poolId)
-            }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                ctx.startForegroundService(intent)
-            } else {
-                ctx.startService(intent)
+            // Route the activate-tap through ConnectCoordinator so
+            // the same gates (Kill Switch sinkhole, system-revoke
+            // cooldown, Always-On / manual pause) and serialisation
+            // apply to pool activations as to single-connection
+            // taps. Pre-Coordinator-pool-aware code fired
+            // ACTION_POOL_CONNECT here directly which bypassed every
+            // gate.
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                try {
+                    com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                        ctx,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                        poolId,
+                        pool.name,
+                    )
+                } catch (e: Exception) {
+                    // Coordinator already logs internally; UI just
+                    // proceeds to onActivated() so the navigation
+                    // still happens even if the connect intent was
+                    // gated (e.g. Kill Switch lock).
+                }
             }
             onActivated()
         },

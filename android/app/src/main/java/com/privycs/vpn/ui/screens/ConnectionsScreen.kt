@@ -467,21 +467,16 @@ fun ConnectionsScreen(
                                     connectionRepo.setActive("")
                                     PrivycsApp.instance.poolRepository
                                         .setActiveId(p.id)
-                                    val intent = android.content.Intent(
+                                    // Route through Coordinator so
+                                    // the same gates apply as for
+                                    // single-connection taps. See
+                                    // ConnectCoordinator.requestPoolConnect.
+                                    com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
                                         context,
-                                        com.privycs.vpn.service.PrivycsVpnService::class.java
-                                    ).apply {
-                                        action = com.privycs.vpn.service.PrivycsVpnService.ACTION_POOL_CONNECT
-                                        putExtra(
-                                            com.privycs.vpn.service.PrivycsVpnService.EXTRA_POOL_ID,
-                                            p.id
-                                        )
-                                    }
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                        context.startForegroundService(intent)
-                                    } else {
-                                        context.startService(intent)
-                                    }
+                                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                                        p.id,
+                                        p.name,
+                                    )
                                     onNavigateToConnect()
                                 }
                             },

@@ -293,7 +293,7 @@ func (a *App) startup(ctx context.Context) {
 		// is wanted (rules match) or tear it down (rules do not match).
 		a.startOnDemandMonitoring()
 	} else if a.settings.AutoConnectOnStart && !a.connected {
-		a.autoConnect.Start(func() { a.Connect(a.activeProtocol) }, func() bool {
+		a.autoConnect.Start(func() { a.connectActiveTarget() }, func() bool {
 			a.mu.RLock()
 			defer a.mu.RUnlock()
 			return a.connected
@@ -1232,9 +1232,7 @@ func (a *App) pauseExpiryReconnectWatcher(pauseDuration time.Duration) {
 		return
 	}
 	log.Println("Pause expired - auto-reconnecting (was connected at pause start)")
-	if _, err := a.Connect(""); err != nil {
-		log.Printf("Pause-expiry reconnect failed: %v", err)
-	}
+	a.connectActiveTarget()
 }
 
 // CancelPause clears any active pause. If the user invoked this via
@@ -1256,12 +1254,10 @@ func (a *App) CancelPause() error {
 		return nil
 	}
 	// Resume Now intent: reconnect immediately. Detached so the
-	// IPC call returns fast.
-	go func() {
-		if _, err := a.Connect(""); err != nil {
-			log.Printf("Resume-now reconnect failed: %v", err)
-		}
-	}()
+	// IPC call returns fast. Routes through connectActiveTarget so
+	// pool-active users come back to their pool, not to a stale
+	// single connection.
+	go a.connectActiveTarget()
 	return nil
 }
 
@@ -1452,6 +1448,41 @@ func (a *App) SetKillSwitch(enabled bool) error {
 	return nil
 }
 
+// connectActiveTarget routes a "connect whatever the user has
+// selected" intent to the right path. Pool-active wins: if the user
+// has a Pool selected, the call goes through PickAndConnectActivePool
+// (which runs the pool policy + connectToPoolMember). Otherwise it
+// falls through to the single-connection Connect with the saved
+// active protocol.
+//
+// Why this helper exists: every auto-reconnect path on desktop
+// (Connect-on-Demand, pause expiry, Resume Now, autostart, system-
+// tray reconnect) used to call a.Connect(activeProtocol) directly,
+// which is pool-blind. When the user activated a Pool, ActivatePool
+// clears connections.SetActive("") so the single-connection slot
+// returns nil; without this routing the auto-reconnect would either
+// no-op (no active connection) or revive a stale single tunnel
+// instead of the pool the user actually selected.
+//
+// Mirrors Android's pool-vs-single branch in NetworkMonitor /
+// VpnPauseTimer / BootReceiver / Tile / Widget after the pool-aware
+// Coordinator refactor in v0.9.11.57.
+func (a *App) connectActiveTarget() {
+	a.mu.RLock()
+	poolID := a.activePoolID
+	proto := a.activeProtocol
+	a.mu.RUnlock()
+	if poolID != "" {
+		if err := a.PickAndConnectActivePool(); err != nil {
+			log.Printf("connectActiveTarget: pool connect failed: %v", err)
+		}
+		return
+	}
+	if _, err := a.Connect(proto); err != nil {
+		log.Printf("connectActiveTarget: connect failed: %v", err)
+	}
+}
+
 // startOnDemandMonitoring builds the connect/disconnect/isConnected
 // closures that the network monitor needs and starts the monitor
 // against the current ConnectOnDemand settings.
@@ -1465,7 +1496,7 @@ func (a *App) SetKillSwitch(enabled bool) error {
 // platform network events plus a 60s safety poll.
 func (a *App) startOnDemandMonitoring() {
 	connectFn := func() {
-		a.Connect(a.activeProtocol)
+		a.connectActiveTarget()
 	}
 	disconnectFn := func() {
 		// Detach: proto.Down can take seconds (especially IPSec) and

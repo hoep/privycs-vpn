@@ -198,6 +198,30 @@ class VpnWidget : AppWidgetProvider() {
             // it through (see Gate 3 there).
             if (com.privycs.vpn.util.VpnPauseTimer.isPausedNow()) {
                 com.privycs.vpn.util.VpnPauseTimer.cancel()
+                // Pool-active wins; same dead-end fix as everywhere
+                // else: getActive() is null when a pool is the
+                // user's selection, so without this branch the
+                // widget's resume-now would silently no-op for
+                // pool users.
+                val poolReg = com.privycs.vpn.PrivycsApp.instance
+                    .poolRepository.registry.value
+                val activePoolId = poolReg.activeId
+                val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
+                if (activePoolId.isNotEmpty() && activePool != null) {
+                    scope.launch {
+                        try {
+                            com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                                context,
+                                com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                                activePoolId,
+                                activePool.name,
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Resume-now pool connect failed", e)
+                        }
+                    }
+                    return
+                }
                 val conn = com.privycs.vpn.PrivycsApp.instance.connectionRepository.getActive()
                 if (conn == null) {
                     showToast(context, context.getString(R.string.widget_toast_no_active_connection))
@@ -273,23 +297,28 @@ class VpnWidget : AppWidgetProvider() {
                 val poolRegistry = com.privycs.vpn.PrivycsApp.instance
                     .poolRepository.registry.value
                 val activePoolId = poolRegistry.activeId
-                if (activePoolId.isNotEmpty() &&
-                    poolRegistry.pools.any { it.id == activePoolId }
-                ) {
-                    val intent = Intent(
-                        context,
-                        com.privycs.vpn.service.PrivycsVpnService::class.java
-                    ).apply {
-                        action = com.privycs.vpn.service.PrivycsVpnService.ACTION_POOL_CONNECT
-                        putExtra(
-                            com.privycs.vpn.service.PrivycsVpnService.EXTRA_POOL_ID,
-                            activePoolId
-                        )
-                    }
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        context.startForegroundService(intent)
-                    } else {
-                        context.startService(intent)
+                val activePool = poolRegistry.pools.firstOrNull { it.id == activePoolId }
+                if (activePoolId.isNotEmpty() && activePool != null) {
+                    // Route pool through ConnectCoordinator so that
+                    // the same gates (Kill Switch sinkhole, system-
+                    // revoke cooldown, Always-On / manual pause)
+                    // and serialisation apply as for single
+                    // connection. Pre-Coordinator-pool-aware code
+                    // fired ACTION_POOL_CONNECT here directly,
+                    // which silently bypassed every gate and was
+                    // the same kind of dead-end as the COD-pool
+                    // bug NetworkMonitor used to have.
+                    scope.launch {
+                        try {
+                            com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                                context,
+                                com.privycs.vpn.util.ConnectCoordinator.IntentSource.WIDGET,
+                                activePoolId,
+                                activePool.name,
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Widget pool connect failed", e)
+                        }
                     }
                     return
                 }

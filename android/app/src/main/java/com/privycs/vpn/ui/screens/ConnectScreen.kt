@@ -572,15 +572,18 @@ fun ConnectScreen(
                                     // retry path unreachable.
                                     coroutineScope.launch {
                                         poolRepoForIndicator.setActiveId(p.id)
-                                    }
-                                    val intent = Intent(context, com.privycs.vpn.service.PrivycsVpnService::class.java).apply {
-                                        action = com.privycs.vpn.service.PrivycsVpnService.ACTION_POOL_CONNECT
-                                        putExtra(com.privycs.vpn.service.PrivycsVpnService.EXTRA_POOL_ID, p.id)
-                                    }
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                        context.startForegroundService(intent)
-                                    } else {
-                                        context.startService(intent)
+                                        // Route through Coordinator
+                                        // so KS sinkhole / pause /
+                                        // cooldown gates apply to
+                                        // pool taps from the picker
+                                        // the same way they do to
+                                        // single-connection taps.
+                                        com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                                            context,
+                                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                                            p.id,
+                                            p.name,
+                                        )
                                     }
                                 }
                             )

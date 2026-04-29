@@ -115,14 +115,62 @@ object ConnectCoordinator {
     private var watchdog: Job? = null
 
     /**
-     * External-source connect request. Fires the Service Intent when
-     * accepted. Callers: user taps, NetworkMonitor, BootReceiver,
-     * Widget toggle, Tile click.
+     * Internal target abstraction so the gate + state machine code
+     * is shared between single-connection and pool intents. Both
+     * fire intents at PrivycsVpnService but with different action +
+     * payload; the Coordinator holds onto whichever target was
+     * accepted so preemption fires the right re-connect intent.
+     */
+    private sealed class InternalTarget {
+        abstract val targetId: String
+        data class Single(val connection: VpnConnection) : InternalTarget() {
+            override val targetId: String get() = connection.id
+        }
+        data class Pool(val poolId: String, val poolName: String) : InternalTarget() {
+            // Pool target IDs are namespaced "pool:" so they cannot
+            // collide with single-connection IDs in markConnected /
+            // status broadcasts. VpnServiceManager already uses the
+            // same convention for its tentative pool status.
+            override val targetId: String get() = "pool:$poolId"
+        }
+    }
+
+    /**
+     * External-source connect request for a single VPN connection.
+     * Fires the Service Intent when accepted. Callers: user taps,
+     * NetworkMonitor (single-connection branch), BootReceiver,
+     * Widget toggle, Tile click, post-sinkhole auto-reconnect.
      */
     suspend fun requestConnect(
         context: Context,
         source: IntentSource,
         connection: VpnConnection,
+    ): Result = requestConnectInternal(context, source, InternalTarget.Single(connection))
+
+    /**
+     * External-source connect request for a Pool. Fires
+     * ACTION_POOL_CONNECT at the Service when accepted. Callers:
+     * user taps on a pool card, NetworkMonitor (pool branch),
+     * post-pause auto-resume.
+     *
+     * Identical gate behaviour to requestConnect() so that Always-
+     * On pause, manual pause, system-revoke cooldown and Kill
+     * Switch sinkhole apply uniformly to pool intents - this is
+     * what closes the COD-pool dead-end and the manual-disconnect
+     * cooldown bypass on pool that existed when pool routing went
+     * direct-to-Service.
+     */
+    suspend fun requestPoolConnect(
+        context: Context,
+        source: IntentSource,
+        poolId: String,
+        poolName: String,
+    ): Result = requestConnectInternal(context, source, InternalTarget.Pool(poolId, poolName))
+
+    private suspend fun requestConnectInternal(
+        context: Context,
+        source: IntentSource,
+        target: InternalTarget,
     ): Result {
         return mutex.withLock {
             // Gate 0: hardcore Kill Switch lock. When the sinkhole is
@@ -138,7 +186,7 @@ object ConnectCoordinator {
             // post-sinkhole COD reconnect inside forceTeardownAfter
             // Sinkhole then proceeds normally.
             if (KillSwitchManager.isSinkholeActive()) {
-                PrivycsLogger.w(TAG, "requestConnect($source) refused: sinkhole active - manual KS toggle off required")
+                PrivycsLogger.w(TAG, "requestConnect($source, ${target.targetId}) refused: sinkhole active - manual KS toggle off required")
                 return@withLock Result.Gated("kill switch sinkhole active")
             }
 
@@ -146,7 +194,7 @@ object ConnectCoordinator {
             // service down; give the teardown time to settle before
             // firing a new connect that would collide.
             if (AlwaysOnDetector.isInSystemRevokeCooldown(context)) {
-                PrivycsLogger.d(TAG, "requestConnect($source): gated by system-revoke cooldown")
+                PrivycsLogger.d(TAG, "requestConnect($source, ${target.targetId}): gated by system-revoke cooldown")
                 return@withLock Result.Gated("system-revoke cooldown")
             }
 
@@ -156,7 +204,7 @@ object ConnectCoordinator {
             // Connect signals they want it back on); everything else
             // yields.
             if (source != IntentSource.USER && AlwaysOnDetector.isPausedNow(context)) {
-                PrivycsLogger.d(TAG, "requestConnect($source): gated by always-on pause flag")
+                PrivycsLogger.d(TAG, "requestConnect($source, ${target.targetId}): gated by always-on pause flag")
                 return@withLock Result.Gated("always-on pause active")
             }
 
@@ -166,26 +214,26 @@ object ConnectCoordinator {
             // (NetworkMonitor, widget auto-retry, etc.) yields.
             // A fresh USER tap cancels the pause and reconnects.
             if (source != IntentSource.USER && VpnPauseTimer.isPausedNow()) {
-                PrivycsLogger.d(TAG, "requestConnect($source): gated by manual pause flag")
+                PrivycsLogger.d(TAG, "requestConnect($source, ${target.targetId}): gated by manual pause flag")
                 return@withLock Result.Gated("manual pause active")
             }
 
             when (val s = _state.value) {
                 is State.Connected -> {
-                    PrivycsLogger.d(TAG, "requestConnect($source): already connected")
+                    PrivycsLogger.d(TAG, "requestConnect($source, ${target.targetId}): already connected")
                     Result.AlreadyConnected
                 }
                 is State.Connecting -> {
                     // Priority preemption: USER taps beat all automated
                     // sources. Otherwise, first-come-first-served.
                     if (source == IntentSource.USER && s.source != IntentSource.USER) {
-                        PrivycsLogger.i(TAG, "requestConnect(USER) preempting ${s.source}")
-                        fireConnectIntent(context, connection)
-                        _state.value = State.Connecting(System.currentTimeMillis(), source, connection.id)
+                        PrivycsLogger.i(TAG, "requestConnect(USER, ${target.targetId}) preempting ${s.source}")
+                        fireConnectIntent(context, target)
+                        _state.value = State.Connecting(System.currentTimeMillis(), source, target.targetId)
                         startWatchdog()
                         Result.Accepted
                     } else {
-                        PrivycsLogger.d(TAG, "requestConnect($source): already connecting (owner=${s.source})")
+                        PrivycsLogger.d(TAG, "requestConnect($source, ${target.targetId}): already connecting (owner=${s.source})")
                         Result.AlreadyConnecting
                     }
                 }
@@ -193,13 +241,13 @@ object ConnectCoordinator {
                     // Don't queue. Let the caller retry after the
                     // disconnect settles (NetworkMonitor will re-evaluate
                     // on next network callback tick; user will tap again).
-                    PrivycsLogger.d(TAG, "requestConnect($source): disconnect in progress, reject")
+                    PrivycsLogger.d(TAG, "requestConnect($source, ${target.targetId}): disconnect in progress, reject")
                     Result.Gated("disconnect in progress")
                 }
                 is State.Idle -> {
-                    PrivycsLogger.i(TAG, "requestConnect($source): accepted -> Connecting")
-                    fireConnectIntent(context, connection)
-                    _state.value = State.Connecting(System.currentTimeMillis(), source, connection.id)
+                    PrivycsLogger.i(TAG, "requestConnect($source, ${target.targetId}): accepted -> Connecting")
+                    fireConnectIntent(context, target)
+                    _state.value = State.Connecting(System.currentTimeMillis(), source, target.targetId)
                     startWatchdog()
                     Result.Accepted
                 }
@@ -341,7 +389,14 @@ object ConnectCoordinator {
         return _state.value is State.Connected
     }
 
-    private fun fireConnectIntent(context: Context, connection: VpnConnection) {
+    private fun fireConnectIntent(context: Context, target: InternalTarget) {
+        when (target) {
+            is InternalTarget.Single -> fireSingleConnectIntent(context, target.connection)
+            is InternalTarget.Pool -> firePoolConnectIntent(context, target.poolId)
+        }
+    }
+
+    private fun fireSingleConnectIntent(context: Context, connection: VpnConnection) {
         val config = connection.getActiveConfig() ?: run {
             PrivycsLogger.w(TAG, "fireConnectIntent: no active config for ${connection.id}")
             return
@@ -356,7 +411,24 @@ object ConnectCoordinator {
         try {
             context.startForegroundService(intent)
         } catch (e: Exception) {
-            PrivycsLogger.e(TAG, "fireConnectIntent failed: ${e.message}")
+            PrivycsLogger.e(TAG, "fireSingleConnectIntent failed: ${e.message}")
+        }
+    }
+
+    private fun firePoolConnectIntent(context: Context, poolId: String) {
+        // PoolPicker / PoolConnector own the actual member-pick +
+        // tunnel setup once the service receives this intent. We
+        // only need to hand off the pool id; the service-side
+        // ACTION_POOL_CONNECT handler reads pool state from
+        // PoolRepository to find the active pool config.
+        val intent = Intent(context, PrivycsVpnService::class.java).apply {
+            action = PrivycsVpnService.ACTION_POOL_CONNECT
+            putExtra(PrivycsVpnService.EXTRA_POOL_ID, poolId)
+        }
+        try {
+            context.startForegroundService(intent)
+        } catch (e: Exception) {
+            PrivycsLogger.e(TAG, "firePoolConnectIntent failed: ${e.message}")
         }
     }
 
