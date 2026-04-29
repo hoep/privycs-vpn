@@ -116,17 +116,20 @@ class PoolRotationScheduler(private val context: Context) {
      * draining the user's last 5%.
      */
     fun arm(poolId: String, intervalMin: Int) {
-        // Bump sequence FIRST so the intent we put on the queue
-        // carries the new value. Stale intents queued before this
-        // arm carry an older value and the handler drops them.
-        armSequence += 1
-        val seq = armSequence
-        latestArmSequence.set(seq)
-        // Track the current rotation pool so the battery-saver
-        // BroadcastReceiver knows which pool to re-arm when the
-        // saver state toggles.
-        currentPoolId = poolId
-        currentIntervalMin = intervalMin
+        val seq: Long
+        // Single critical section for the seq + currentPoolId +
+        // currentIntervalMin tuple so the battery-saver receiver
+        // (which reads them) cannot observe a partial update where
+        // armSequence already shows the new value but currentPoolId
+        // still points at the previous pool. @Volatile alone gives
+        // per-field visibility but not multi-field atomicity.
+        synchronized(this) {
+            armSequence += 1
+            seq = armSequence
+            latestArmSequence.set(seq)
+            currentPoolId = poolId
+            currentIntervalMin = intervalMin
+        }
         ensureBatterySaverReceiverRegistered()
 
         var effectiveInterval = intervalMin.toLong() * 60 * 1000L
@@ -200,16 +203,30 @@ class PoolRotationScheduler(private val context: Context) {
      * around and re-arming when a future pool starts).
      */
     private var batterySaverReceiver: android.content.BroadcastReceiver? = null
-    private var currentPoolId: String? = null
-    private var currentIntervalMin: Int = 0
+    // Volatile so the battery-saver BroadcastReceiver thread sees
+    // the latest values written by arm() (which runs on whichever
+    // coroutine called it). Without volatile, JIT could keep these
+    // in a register on the writer thread and the reader sees
+    // stale "" / 0 from the previous boot, re-arming with empty
+    // poolId or zero interval.
+    @Volatile private var currentPoolId: String? = null
+    @Volatile private var currentIntervalMin: Int = 0
 
     private fun ensureBatterySaverReceiverRegistered() {
         if (batterySaverReceiver != null) return
         batterySaverReceiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(c: android.content.Context, i: Intent) {
-                val pool = currentPoolId ?: return
+                // Snapshot both fields under the same lock arm()
+                // uses so the pair is consistent (no torn read of
+                // poolId from cycle N + interval from cycle N+1).
+                val pool: String
+                val interval: Int
+                synchronized(this@PoolRotationScheduler) {
+                    pool = currentPoolId ?: return
+                    interval = currentIntervalMin
+                }
                 Log.i(TAG, "battery-saver state changed - re-arming pool=$pool")
-                arm(pool, currentIntervalMin)
+                arm(pool, interval)
             }
         }
         try {

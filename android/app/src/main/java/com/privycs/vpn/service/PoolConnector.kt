@@ -132,13 +132,37 @@ class PoolConnector(
             // First-attempt preference: honor the pre-warm pick if
             // valid. Subsequent attempts pick fresh excluding all
             // previously-tried members.
+            //
+            // Three guards on the pre-warmed pick:
+            //   1. The candidate still exists in the pool (not
+            //      deleted between pre-warm and rotate).
+            //   2. The candidate is not currently flagged
+            //      unreachable (some other path may have failed
+            //      with it in the meantime).
+            //   3. The candidate was not recently failed (within
+            //      RECENT_FAILURE_WINDOW_MS). Pre-warm did a
+            //      DNS-only probe at T-60 which can't catch a
+            //      "DNS works but WG handshake broken" member.
+            //      If such a member failed the actual rotation
+            //      a few minutes ago, the pre-warm window may
+            //      not have elapsed yet, and honoring pendingId
+            //      would re-pick it. Falling through to the
+            //      policy picker (which respects recently-failed
+            //      exclusion) avoids that re-trial loop.
             var member: PoolMember? = null
             if (attempt == 0) {
                 val pendingId = pools.pendingMemberId(pool.id)
                 if (pendingId.isNotEmpty()) {
                     val candidate = pool.memberById(pendingId)
-                    if (candidate != null && !pools.isMemberUnreachable(pool.id, candidate.id)) {
+                    if (candidate != null &&
+                        !pools.isMemberUnreachable(pool.id, candidate.id) &&
+                        candidate.id !in recentlyFailedIds
+                    ) {
                         member = candidate
+                    } else if (candidate != null) {
+                        Log.d(tag, "pre-warm pick ${candidate.name} stale " +
+                                "(unreachable=${pools.isMemberUnreachable(pool.id, candidate.id)}, " +
+                                "recentlyFailed=${candidate.id in recentlyFailedIds}) - falling through to policy pick")
                     }
                 }
             }

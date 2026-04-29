@@ -118,6 +118,17 @@ object PoolPicker {
             val members = byRegion[region]?.sortedBy { it.id } ?: return null
             if (members.isEmpty()) return null
 
+            // Single-member region short-circuit. With one member the
+            // cursor advancement (idx+1)%1 = 0 always re-picks the
+            // same member; persisting the cursor is wasted I/O. Plus
+            // the user's "rotation" is degenerate anyway — there is
+            // nowhere else to rotate to. Return the member without
+            // touching the cursor so subsequent rotation ticks don't
+            // accumulate state-flush noise.
+            if (members.size == 1) {
+                return members[0]
+            }
+
             // Cursor priority: state-registry's persisted cursor →
             // lastMemberID arg if it's in this region → empty (start
             // at index 0).

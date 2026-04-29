@@ -74,6 +74,26 @@ object AlwaysOnDetector {
     }
 
     /**
+     * Returns true if the user manually disconnected within
+     * [cooldownMs] of now. NetworkMonitor checks this before
+     * issuing an on-demand reconnect so a tap-Disconnect doesn't
+     * get instantly undone by the next network-change event when
+     * the rule still matches the current network.
+     *
+     * Without this gate, the user-perceived sequence was:
+     *   tap Disconnect -> VPN goes down -> 100-500ms later it
+     *   comes back up automatically. The on-demand auto-reconnect
+     *   was correct from a rule-matching perspective but ignored
+     *   user intent.
+     */
+    fun wasRecentlyManuallyDisconnected(ctx: Context, cooldownMs: Long): Boolean {
+        val prefs = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val lastUserDc = prefs.getLong(KEY_LAST_USER_DISCONNECT, 0L)
+        if (lastUserDc <= 0L) return false
+        return (System.currentTimeMillis() - lastUserDc) < cooldownMs
+    }
+
+    /**
      * Called from PrivycsVpnService.handleAlwaysOnReconnect. If a user
      * disconnect happened within DETECTION_WINDOW_MS, we are on
      * Always-On. Persists the flag and flips the StateFlow for any

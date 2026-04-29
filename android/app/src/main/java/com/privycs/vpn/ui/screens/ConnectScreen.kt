@@ -699,16 +699,30 @@ fun ConnectScreen(
             )
         }
 
-        // Error
+        // Error display. Card with errorContainer background gives
+        // pool-related failures (which can be long messages like
+        // "Pool X: all members marked unreachable - tap Reset...")
+        // enough visual weight that the user notices them. Earlier
+        // bodySmall + plain text was easy to miss when buried below
+        // the transfer cards.
         if (!status.error.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = status.error!!,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
+            androidx.compose.material3.Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Text(
+                    text = status.error!!,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))

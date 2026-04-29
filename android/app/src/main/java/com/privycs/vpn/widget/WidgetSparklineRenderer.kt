@@ -33,6 +33,28 @@ import android.graphics.Shader
 object WidgetSparklineRenderer {
 
     /**
+     * Per-bucket bitmap + last-input hash. Two buckets (RX, TX) so
+     * concurrent calls from the widget update path don't thrash the
+     * cache. When the new call's hash matches the cached one (idle
+     * tunnel: same all-zero samples for many ticks, or same numbers
+     * because no traffic since last sample), we return the cached
+     * bitmap without re-running the spline math or allocating a
+     * new bitmap. Tunnel-idle widget refreshes drop from
+     * "render+allocate" to "lookup" - typical idle phone saves
+     * ~99% of sparkline-related GC pressure.
+     *
+     * Cache invalidation: dimension change OR hash change forces a
+     * fresh allocation. We don't try to mutate the cached bitmap
+     * in place (RemoteViews may have copied it via Parcel/ashmem
+     * already; in-place mutation could be visible to the launcher
+     * mid-frame).
+     */
+    private val cachedBitmaps = arrayOfNulls<Bitmap>(2)
+    private val cachedHashes = LongArray(2) { Long.MIN_VALUE }
+    const val BUCKET_RX = 0
+    const val BUCKET_TX = 1
+
+    /**
      * @param samples rolling window of non-negative samples. <2
      *   elements or an all-zero buffer returns an empty transparent
      *   bitmap (visually correct for an idle tunnel).
@@ -41,13 +63,31 @@ object WidgetSparklineRenderer {
      * @param widthPx pixel width of the output. Caller converts dp
      *   via `displayMetrics.density`.
      * @param heightPx pixel height of the output.
+     * @param cacheBucket BUCKET_RX or BUCKET_TX. Determines which
+     *   slot to consult for the cached bitmap.
      */
     fun render(
         samples: List<Float>,
         lineColor: Int,
         widthPx: Int,
         heightPx: Int,
+        cacheBucket: Int = BUCKET_RX,
     ): Bitmap {
+        val bucket = cacheBucket.coerceIn(0, cachedBitmaps.size - 1)
+        // Fast path: same dimensions + same input → return cached.
+        // Hash mixes lineColor + widthPx + heightPx + samples so any
+        // change forces a re-render.
+        val hash = computeHash(samples, lineColor, widthPx, heightPx)
+        val cached = cachedBitmaps[bucket]
+        if (cached != null &&
+            !cached.isRecycled &&
+            cached.width == widthPx &&
+            cached.height == heightPx &&
+            cachedHashes[bucket] == hash
+        ) {
+            return cached
+        }
+
         val bitmap = Bitmap.createBitmap(
             widthPx.coerceAtLeast(1),
             heightPx.coerceAtLeast(1),
@@ -125,6 +165,40 @@ object WidgetSparklineRenderer {
         }
         canvas.drawPath(linePath, linePaint)
 
+        // Write through to the cache for the next render() call's
+        // fast-path. Recycle the previous cached bitmap if it had
+        // mismatched dimensions; same-dim ones get GC'd naturally
+        // since RemoteViews already copied the data.
+        cachedBitmaps[bucket]?.takeIf { !it.isRecycled }?.let {
+            if (it.width != widthPx || it.height != heightPx) {
+                try { it.recycle() } catch (_: Exception) { }
+            }
+        }
+        cachedBitmaps[bucket] = bitmap
+        cachedHashes[bucket] = hash
+
         return bitmap
+    }
+
+    /**
+     * Hash mixing all inputs that affect the rendered pixels. Used
+     * by the cache fast-path; collisions just cause an unnecessary
+     * re-render, not visual artifacts.
+     */
+    private fun computeHash(
+        samples: List<Float>,
+        lineColor: Int,
+        widthPx: Int,
+        heightPx: Int,
+    ): Long {
+        var h = 1125899906842597L  // FNV-style seed
+        h = 31L * h + lineColor
+        h = 31L * h + widthPx
+        h = 31L * h + heightPx
+        h = 31L * h + samples.size
+        for (s in samples) {
+            h = 31L * h + java.lang.Float.floatToRawIntBits(s).toLong()
+        }
+        return h
     }
 }

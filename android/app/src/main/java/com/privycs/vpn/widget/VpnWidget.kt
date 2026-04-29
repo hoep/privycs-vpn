@@ -72,8 +72,15 @@ class VpnWidget : AppWidgetProvider() {
         // Sparkline bitmap logical resolution. ImageView scaleType
         // fitXY scales it to the actual on-screen size; render at a
         // size that stays crisp without being wasteful.
-        private const val SPARKLINE_WIDTH_PX = 360
-        private const val SPARKLINE_HEIGHT_PX = 60
+        // Half the resolution we used to use (was 360x60). The
+        // launcher upscales the bitmap to fit the ImageView's
+        // actual pixel size, and at typical widget sizes (~80-120
+        // dp wide for the sparkline cell) 180x30 is already at or
+        // above 1:1 pixel mapping. Halving cuts bitmap memory by
+        // 75% (4 bytes per pixel x 4x fewer pixels) and trims the
+        // Catmull-Rom spline math by the same factor on each tick.
+        private const val SPARKLINE_WIDTH_PX = 180
+        private const val SPARKLINE_HEIGHT_PX = 30
 
         // Brand colours for the two traffic curves - green down,
         // blue up. Chosen to stay legible against both light and
@@ -196,12 +203,24 @@ class VpnWidget : AppWidgetProvider() {
                     showToast(context, context.getString(R.string.widget_toast_no_active_connection))
                     return
                 }
-                kotlinx.coroutines.runBlocking<Unit> {
-                    com.privycs.vpn.util.ConnectCoordinator.requestConnect(
-                        context,
-                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
-                        conn,
-                    )
+                // Coordinator.requestConnect is suspend and may
+                // perform DataStore reads + service intents that
+                // can take 100s of ms. Running it via runBlocking
+                // on the BroadcastReceiver thread risked an ANR
+                // when the coordinator's mutex was held by an
+                // ongoing service operation - the receiver only
+                // has a 10s budget. Dispatch on the app-level
+                // scope so onReceive returns immediately.
+                scope.launch {
+                    try {
+                        com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                            context,
+                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                            conn,
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Resume-now connect failed", e)
+                    }
                 }
                 return
             }
@@ -281,12 +300,19 @@ class VpnWidget : AppWidgetProvider() {
                     showToast(context, context.getString(R.string.widget_toast_no_active_connection))
                     return
                 }
-                kotlinx.coroutines.runBlocking {
-                    com.privycs.vpn.util.ConnectCoordinator.requestConnect(
-                        context,
-                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.WIDGET,
-                        connection,
-                    )
+                // Same rationale as above: dispatch on app scope
+                // instead of runBlocking on the receiver thread to
+                // avoid ANR.
+                scope.launch {
+                    try {
+                        com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                            context,
+                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.WIDGET,
+                            connection,
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Widget connect failed", e)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -522,12 +548,14 @@ class VpnWidget : AppWidgetProvider() {
             R.id.widget_sparkline_rx,
             WidgetSparklineRenderer.render(
                 rxHistory, SPARKLINE_RX_COLOR, SPARKLINE_WIDTH_PX, SPARKLINE_HEIGHT_PX,
+                cacheBucket = WidgetSparklineRenderer.BUCKET_RX,
             ),
         )
         views.setImageViewBitmap(
             R.id.widget_sparkline_tx,
             WidgetSparklineRenderer.render(
                 txHistory, SPARKLINE_TX_COLOR, SPARKLINE_WIDTH_PX, SPARKLINE_HEIGHT_PX,
+                cacheBucket = WidgetSparklineRenderer.BUCKET_TX,
             ),
         )
         views.setTextViewText(R.id.widget_rx_total, formatBytes(rxBytes))

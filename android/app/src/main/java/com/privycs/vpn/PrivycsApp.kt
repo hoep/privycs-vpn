@@ -134,6 +134,19 @@ class PrivycsApp : StrongSwanApplication() {
         // callback, so this single warmup is enough for normal
         // app sessions.
         appScope.launch {
+            // Pre-warm MMDB FIRST so the SelfIp probe's
+            // countryCodeBlocking call finds the reader already open
+            // instead of doing the synchronous extract+open inline
+            // (~50-200ms + I/O on the IO dispatcher). Without this
+            // pre-warm the first pool connect blocked the connect
+            // path's first geo lookup.
+            try {
+                mmdbResolver.prewarm()
+            } catch (e: Exception) {
+                com.privycs.vpn.util.PrivycsLogger.w(
+                    "PrivycsApp", "MMDB prewarm failed: ${e.message}"
+                )
+            }
             try {
                 val country = selfIpDetector.countryFor()
                 com.privycs.vpn.util.PrivycsLogger.i(

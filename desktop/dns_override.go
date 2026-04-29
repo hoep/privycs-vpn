@@ -22,12 +22,16 @@ import (
 //              The pull-filter drops the server-pushed DNS push
 //              so our explicit lines win.
 //
-//   ipsec:     no config-text patch (the .sswan / .mobileconfig
-//              format is binary/JSON and gets parsed by strongSwan
-//              or the macOS NetworkExtension API). Returns the
-//              config unchanged and logs a notice. IPSec DNS
-//              override on Desktop would require setting the
-//              charon-side dns-servers on the SA - separate fix.
+//   ipsec:     config text is binary/JSON (.sswan or .mobileconfig)
+//              so we cannot patch it like WG/OpenVPN. Instead we
+//              forward the override to the IPSecProtocol handler
+//              via SetDnsOverride; on Up() the privileged helper
+//              writes /etc/resolv.conf with backup, on Down() it
+//              restores. Linux only - macOS DNS lives in the
+//              .mobileconfig that's installed via prefctl, and
+//              Windows IPSec uses rasdial which has no per-tunnel
+//              DNS API. macOS / Windows currently log a notice
+//              instead of applying.
 //
 // Empty override is a no-op (returns the input unchanged).
 func (a *App) applyDnsOverride(cfg []byte, protocol string) []byte {
@@ -36,10 +40,19 @@ func (a *App) applyDnsOverride(cfg []byte, protocol string) []byte {
 	}
 	override := strings.TrimSpace(a.settings.DNSOverride)
 	if override == "" {
+		// Even with empty override, we should clear any stale
+		// IPSec dns-override so a previous override doesn't
+		// linger after the user removed it from Settings.
+		if protocol == "ipsec" {
+			a.applyIPSecDnsOverride(nil)
+		}
 		return cfg
 	}
 	servers := parseDnsServers(override)
 	if len(servers) == 0 {
+		if protocol == "ipsec" {
+			a.applyIPSecDnsOverride(nil)
+		}
 		return cfg
 	}
 
@@ -53,10 +66,35 @@ func (a *App) applyDnsOverride(cfg []byte, protocol string) []byte {
 		log.Printf("DNS override (OVPN): applied %s", strings.Join(servers, ","))
 		return []byte(patched)
 	case "ipsec":
-		log.Printf("DNS override (IPSec): not applied - .sswan/.mobileconfig DNS override requires charon-side fix (deferred)")
+		a.applyIPSecDnsOverride(servers)
 		return cfg
 	default:
 		return cfg
+	}
+}
+
+// applyIPSecDnsOverride finds the IPSecProtocol handler in the App's
+// protocol map and stores the override server list on it via
+// SetDnsOverride. On Up() the handler forwards this list to the
+// privileged helper which manages /etc/resolv.conf around the
+// tunnel lifecycle. Logs and returns silently if the IPSec handler
+// is absent (e.g. swanctl not installed).
+func (a *App) applyIPSecDnsOverride(servers []string) {
+	if a == nil || a.protocols == nil {
+		return
+	}
+	proto, ok := a.protocols["ipsec"]
+	if !ok {
+		return
+	}
+	ipsec, ok := proto.(*IPSecProtocol)
+	if !ok {
+		return
+	}
+	ipsec.SetDnsOverride(servers)
+	if len(servers) > 0 {
+		log.Printf("DNS override (IPSec): forwarded to handler %s",
+			strings.Join(servers, ","))
 	}
 }
 

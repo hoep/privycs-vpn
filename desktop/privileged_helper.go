@@ -532,7 +532,76 @@ func (h *PrivilegedHelper) connectIPSec(cmd HelperCommand) HelperResponse {
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --initiate failed: %s", string(out)), Output: string(out)}
 	}
+
+	// DNS override (Linux-only path). User's Settings.DNSOverride
+	// reaches us via cmd.Args["dns_servers"] (space-separated IPs).
+	// Apply by backing up /etc/resolv.conf and writing a fresh
+	// nameserver-only file. The helper holds the backup for the
+	// disconnect path to restore; if the helper crashes between
+	// up/down, the backup file persists and the next disconnect
+	// (or fresh tunnel up) restores correctly.
+	if dns := cmd.Args["dns_servers"]; dns != "" {
+		if err := writeIPSecDnsOverride(dns); err != nil {
+			// DNS override failure is non-fatal: the tunnel is up,
+			// the user just won't see their override DNS in effect.
+			// Loud log so the issue is diagnosable.
+			log.Printf("ipsec dns override apply failed: %v", err)
+		} else {
+			log.Printf("ipsec dns override applied: %s", dns)
+		}
+	}
 	return HelperResponse{Success: true, Output: string(out)}
+}
+
+// writeIPSecDnsOverride backs up /etc/resolv.conf to
+// /etc/resolv.conf.privycs-bak (if no backup yet) and writes a fresh
+// resolv.conf with the user's nameservers. Only runs on Linux; the
+// caller already checked runtime.GOOS.
+//
+// We deliberately avoid systemd-resolved / resolvectl here:
+// distros vary widely (some symlink resolv.conf to a stub, some don't),
+// and per-link DNS via resolvectl assumes a network interface for
+// the tunnel which strongSwan's xfrm-mode policy SAs do not provide.
+// Direct file write is the lowest-common-denominator path that works
+// across systemd-resolved, NetworkManager, and bare resolvconf-managed
+// systems. The backup-file convention lets the user manually recover
+// if the helper crashed before disconnect.
+func writeIPSecDnsOverride(dnsList string) error {
+	const path = "/etc/resolv.conf"
+	const backup = "/etc/resolv.conf.privycs-bak"
+	// Only back up if no backup yet — preserves the original even
+	// if the helper missed a previous disconnect.
+	if _, err := os.Stat(backup); os.IsNotExist(err) {
+		if orig, rerr := os.ReadFile(path); rerr == nil {
+			_ = os.WriteFile(backup, orig, 0o644)
+		}
+	}
+	var sb strings.Builder
+	sb.WriteString("# Privycs VPN: temporary DNS override (auto-restored on disconnect)\n")
+	for _, s := range strings.Fields(dnsList) {
+		sb.WriteString("nameserver ")
+		sb.WriteString(s)
+		sb.WriteByte('\n')
+	}
+	return os.WriteFile(path, []byte(sb.String()), 0o644)
+}
+
+// restoreIPSecDnsOverride restores /etc/resolv.conf from the backup
+// the writeIPSec... function created on connect. Idempotent: if no
+// backup exists (no override was active), this is a no-op.
+func restoreIPSecDnsOverride() error {
+	const path = "/etc/resolv.conf"
+	const backup = "/etc/resolv.conf.privycs-bak"
+	data, err := os.ReadFile(backup)
+	if err != nil {
+		// No backup = no override was active; not an error.
+		return nil
+	}
+	if werr := os.WriteFile(path, data, 0o644); werr != nil {
+		return werr
+	}
+	_ = os.Remove(backup)
+	return nil
 }
 
 // disconnectIPSec terminates an IPSec connection.
@@ -556,6 +625,11 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 	out, err := exec.Command("swanctl", "--terminate", "--ike", connName).CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --terminate failed: %s", string(out)), Output: string(out)}
+	}
+	// DNS override restore. No-op when no override was active
+	// (writeIPSecDnsOverride was never called, no backup exists).
+	if rerr := restoreIPSecDnsOverride(); rerr != nil {
+		log.Printf("ipsec dns override restore failed: %v", rerr)
 	}
 	return HelperResponse{Success: true, Output: string(out)}
 }

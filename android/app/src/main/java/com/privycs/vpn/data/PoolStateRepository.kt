@@ -33,6 +33,25 @@ import java.time.Instant
  *     that takes a Mutex, with a debounced flusher coroutine writing
  *     atomically.
  *
+ * Concurrency invariant:
+ *   - Every method acquires `mutex.withLock` before reading or
+ *     mutating state. There is no lock-free fast path.
+ *   - Critical writes (active member, pending member, slot, cursor,
+ *     scheduledRotationAt) flushSyncLocked() to disk inside the
+ *     mutex section so a process kill cannot lose them.
+ *   - Member state-flag writes (unreachable, lastError) use the
+ *     debounced flusher (500ms) because rotation retries flip them
+ *     6+ times per cycle and a torn read across two sequential
+ *     reads is harmless: the picker tolerates "stale unreachable"
+ *     by retrying the next member.
+ *   - Reads return whatever the latest persisted-or-in-memory state
+ *     is. TOCTOU between read-then-act outside the lock is
+ *     acceptable for picker / rotation semantics: at worst we try
+ *     a member that was marked unreachable 50ms ago, fail, retry.
+ *     Callers that need strict atomicity (e.g. activeMember swap +
+ *     pending clear) call multiple suspend methods which serialize
+ *     through the same mutex.
+ *
  * Lifecycle:
  *   - Construct from Application class (process-scoped).
  *   - close() at process exit (Application.onTerminate isn't reliable

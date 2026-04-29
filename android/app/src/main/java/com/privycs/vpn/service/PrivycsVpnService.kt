@@ -692,7 +692,26 @@ class PrivycsVpnService : VpnService() {
     private fun handlePoolConnect(poolId: String) {
         scope.launch {
             val raw = PrivycsApp.instance.poolRepository.get(poolId) ?: run {
-                Log.e(TAG, "pool $poolId not found")
+                // Pool was deleted between the user tapping Connect
+                // and this handler running (rare but possible: tap
+                // pool, race with delete, or alarm fires for an
+                // already-deleted pool). Surface as VpnStatus.error
+                // so the UI exits the "Connecting..." state instead
+                // of hanging there forever.
+                Log.e(TAG, "pool $poolId not found - deleted while connect was queued")
+                broadcastPoolError("Pool no longer exists")
+                return@launch
+            }
+
+            // Empty pool guard. An import that produced zero valid
+            // members (all .conf files unparseable, ZIP corrupted)
+            // creates a Pool with members=[]. The picker returns
+            // null and PoolConnector logs "no candidate after 0
+            // attempts" but the user only sees a stuck UI. Catch
+            // here and surface a clearer message.
+            if (raw.members.isEmpty()) {
+                Log.e(TAG, "pool ${raw.name}: empty - no members imported")
+                broadcastPoolError("Pool ${raw.name} has no members")
                 return@launch
             }
 
@@ -711,12 +730,25 @@ class PrivycsVpnService : VpnService() {
                 // All attempts failed. Direct tunnel teardown only -
                 // do NOT call handleDisconnect because that ends
                 // with stopSelf and would have killed us mid-flow.
-                Log.e(TAG, "pool ${pool.name}: all connect attempts failed")
+                // Distinguish "all members marked unreachable" (TTL
+                // and recent-failure exclusion path exhausted) from
+                // "members eligible but actual connect failed".
+                // Precompute unreachable set upfront because
+                // isMemberUnreachable is suspend (mutex-guarded).
+                var unreachableCount = 0
+                for (m in pool.members) {
+                    if (PrivycsApp.instance.poolRepository.state
+                            .isMemberUnreachable(pool.id, m.id)
+                    ) unreachableCount++
+                }
+                val msg = if (unreachableCount == pool.members.size) {
+                    "Pool ${pool.name}: all members marked unreachable - tap Reset on the pool detail to retry"
+                } else {
+                    "Pool ${pool.name}: no member could connect (${pool.members.size - unreachableCount} eligible, all failed)"
+                }
+                Log.e(TAG, msg)
                 teardownAllProtocols()
-                val mgr = com.privycs.vpn.service.VpnServiceManager.getInstance(this@PrivycsVpnService)
-                mgr.updateStatus(com.privycs.vpn.data.models.VpnStatus(
-                    error = "Pool ${pool.name}: no member could connect"
-                ))
+                broadcastPoolError(msg)
                 return@launch
             }
             onPoolMemberConnected(pool, picked, isRotation = false)
@@ -725,7 +757,10 @@ class PrivycsVpnService : VpnService() {
 
     private fun handlePoolPreWarm(poolId: String) {
         scope.launch {
-            val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: return@launch
+            val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: run {
+                Log.d(TAG, "pre-warm: pool $poolId no longer exists - skipping")
+                return@launch
+            }
             poolConnector.preWarm(pool)
             // After pre-warm picks pendingMember (or fails), broadcast
             // the updated status so the UI shows "Next: <name>" 60s
@@ -737,7 +772,19 @@ class PrivycsVpnService : VpnService() {
 
     private fun handlePoolRotate(poolId: String) {
         scope.launch {
-            val raw = PrivycsApp.instance.poolRepository.get(poolId) ?: return@launch
+            val raw = PrivycsApp.instance.poolRepository.get(poolId) ?: run {
+                // Pool deleted between alarm fire and rotation start.
+                // Cancel any further alarms (defensive - the delete
+                // path should have done this already) and surface
+                // the error so the UI doesn't show a stale
+                // countdown.
+                Log.e(TAG, "rotate: pool $poolId deleted - cancelling alarms")
+                try {
+                    poolScheduler.cancelAll()
+                } catch (e: Exception) { /* ignore */ }
+                broadcastPoolError("Pool no longer exists")
+                return@launch
+            }
             val pool = applyHomeRegionRestrictIfMissing(raw)
             val picked = poolConnector.pickAndConnect(pool)
             if (picked != null) {
@@ -749,11 +796,24 @@ class PrivycsVpnService : VpnService() {
                 // service alive to act on it.
                 Log.e(TAG, "pool ${pool.name}: rotation - all attempts failed")
                 teardownAllProtocols()
-                val mgr = com.privycs.vpn.service.VpnServiceManager.getInstance(this@PrivycsVpnService)
-                mgr.updateStatus(com.privycs.vpn.data.models.VpnStatus(
-                    error = "Pool ${pool.name}: rotation failed"
-                ))
+                broadcastPoolError("Pool ${pool.name}: rotation failed - all members in scope unreachable")
             }
+        }
+    }
+
+    /**
+     * Surface a pool-related error via VpnStatus. Used by all the
+     * "pool-deleted" / "all-unreachable" / "rotation-failed" paths
+     * so the UI can show a single error message and exit the
+     * "Connecting..." state. Without this the service path returned
+     * silently and the user saw the spinner spin forever.
+     */
+    private fun broadcastPoolError(msg: String) {
+        try {
+            val mgr = com.privycs.vpn.service.VpnServiceManager.getInstance(this@PrivycsVpnService)
+            mgr.updateStatus(com.privycs.vpn.data.models.VpnStatus(error = msg))
+        } catch (e: Exception) {
+            Log.w(TAG, "broadcastPoolError dispatch failed: ${e.message}")
         }
     }
 
@@ -893,6 +953,14 @@ class PrivycsVpnService : VpnService() {
             }
             killSwitchNetworkCallback = null
         }
+        // Defensive: explicitly close the sinkhole fd before
+        // cancelling the scope. The OS will close any tun fd held by
+        // VpnService on destroy anyway, but releasing it ourselves
+        // (a) lets us null the field so any zombie references see
+        // null instead of a closed-fd crash, (b) makes the lifecycle
+        // semantics explicit for code review, (c) matches the
+        // pattern in exitSinkholeMode for symmetry.
+        exitSinkholeMode()
         scope.cancel()
         super.onDestroy()
         Log.d(TAG, "VPN service destroyed")
@@ -1158,6 +1226,27 @@ class PrivycsVpnService : VpnService() {
             return configContent
         }
 
+        // Degenerate-include guard: include-mode where the only
+        // selected package is our own VPN client means the user
+        // accidentally configured "tunnel nothing" (we always self-
+        // include for the handshake, so a zero-user-app include
+        // results in no user traffic going through the tunnel at
+        // all). Skip injection so the default (everything through
+        // the tunnel) takes over and log a clear warning so the
+        // user can see why their per-app picks aren't honored.
+        if (mode == "include" &&
+            packages.size == 1 &&
+            packages.first() == packageName
+        ) {
+            Log.w(
+                TAG,
+                "Per-App VPN (WG): include-mode but only our own package " +
+                "selected - skipping injection (no user apps would tunnel). " +
+                "Pick at least one user app or switch to exclude-mode."
+            )
+            return configContent
+        }
+
         val finalPackages = if (mode == "include") {
             // Critical: our own package MUST be in the allow-list or
             // the WG handshake itself gets blocked and the tunnel
@@ -1168,6 +1257,15 @@ class PrivycsVpnService : VpnService() {
         }
         val key = if (mode == "include") "IncludedApplications" else "ExcludedApplications"
         val value = finalPackages.joinToString(", ")
+        // Defensive: empty value would emit "IncludedApplications = "
+        // which the WG parser may interpret as include-nothing,
+        // routing user apps direct (= VPN leak). Should be unreachable
+        // given the guards above, but bail explicitly to avoid the
+        // injection emitting a malformed line.
+        if (value.isBlank()) {
+            Log.e(TAG, "Per-App VPN (WG): empty package list - aborting injection")
+            return configContent
+        }
         val injected = "$key = $value"
 
         val lines = configContent.lines().toMutableList()

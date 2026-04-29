@@ -141,6 +141,18 @@ class MmdbCountryResolver(private val context: Context) : PoolImporter.CountryRe
         }
     }
 
+    /**
+     * Open + cache the reader without blocking the caller. PrivycsApp
+     * calls this at boot via appScope so the first pool connect /
+     * SelfIp probe finds the reader already open instead of triggering
+     * a runBlocking inside countryCodeBlocking. ~5MB asset extract +
+     * binary tree warmup costs 50-200ms at boot, off the critical
+     * path of any user-visible action.
+     */
+    suspend fun prewarm() {
+        getReader()
+    }
+
     fun close() {
         try {
             reader?.close()

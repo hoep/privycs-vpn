@@ -41,6 +41,17 @@ class NetworkMonitor private constructor(private val context: Context) {
     companion object {
         private const val TAG = "NetworkMonitor"
 
+        /**
+         * How long after a manual user-disconnect the on-demand
+         * monitor suppresses auto-reconnect attempts. 30 seconds is
+         * enough that the user's intent ("I want to be off VPN
+         * right now") is honoured for a meaningful window without
+         * permanently disabling on-demand: a network-change event
+         * after the cooldown re-enables auto-connect on the next
+         * matching rule transition.
+         */
+        private const val MANUAL_DISCONNECT_COOLDOWN_MS = 30_000L
+
         @Volatile
         private var instance: NetworkMonitor? = null
 
@@ -175,12 +186,25 @@ class NetworkMonitor private constructor(private val context: Context) {
             }
         }
 
-        networkCallback = callback
-
+        // Register-then-store: only set networkCallback AFTER
+        // registerDefaultNetworkCallback returns successfully so a
+        // failed registration doesn't leave a stale reference that
+        // stop() would later try to unregister (system would throw
+        // IllegalArgumentException because nothing was registered).
+        // Conversely, a successful registration always pairs with
+        // a matching unregister in stop(). This closes the leak the
+        // audit flagged: failed start() left the field set but no
+        // backing registration.
         try {
             connectivityManager.registerDefaultNetworkCallback(callback)
+            networkCallback = callback
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register network callback", e)
+            // started flag must be reset too so a retry can
+            // attempt registration; otherwise started=true with
+            // no callback wedges the monitor in a half-up state.
+            started = false
+            return
         }
 
         // Evaluate current state immediately
@@ -297,6 +321,24 @@ class NetworkMonitor private constructor(private val context: Context) {
             val transitioned = prev == null || prev != shouldConnect
 
             if (shouldConnect && !vpnManager.isConnected && !vpnManager.isConnecting.value) {
+                // Manual-disconnect cooldown. If the user tapped
+                // Disconnect within MANUAL_DISCONNECT_COOLDOWN_MS,
+                // honour their intent and skip the auto-reconnect.
+                // Without this gate, on-demand fires within ~500ms
+                // of a manual disconnect and the user sees their
+                // tap silently undone.
+                if (com.privycs.vpn.util.AlwaysOnDetector
+                        .wasRecentlyManuallyDisconnected(
+                            context, MANUAL_DISCONNECT_COOLDOWN_MS
+                        )
+                ) {
+                    Log.i(
+                        TAG,
+                        "on-demand reconnect suppressed: manual disconnect within ${MANUAL_DISCONNECT_COOLDOWN_MS / 1000}s cooldown"
+                    )
+                    return@launch
+                }
+
                 // All gating + serialisation now happens inside
                 // ConnectCoordinator: system-revoke cooldown, always-on
                 // pause flag, preemption by USER-source intents,

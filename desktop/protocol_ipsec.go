@@ -21,6 +21,24 @@ type IPSecProtocol struct {
 	serverAddr  string
 	localAddr   string
 	configured  bool // true after first successful Configure()
+	// User-configured DNS-server override from Settings. Populated
+	// at Configure() time via SetDnsOverride. Forwarded to the
+	// privileged helper on Up() so /etc/resolv.conf is rewritten
+	// for the duration of the tunnel; restored on Down().
+	// Linux-only; macOS uses .mobileconfig (DNS embedded there) and
+	// Windows IPSec uses rasdial which doesn't accept DNS override
+	// directly.
+	dnsOverride []string
+}
+
+// SetDnsOverride records the user's manual DNS server list (from
+// Settings.DNSOverride) so Up()/Down() can pass it through to the
+// privileged helper. Empty list = no override (current behaviour).
+//
+// Called by App.applyDnsOverride() right after Configure() returns.
+// Pure setter, no side effects.
+func (i *IPSecProtocol) SetDnsOverride(servers []string) {
+	i.dnsOverride = servers
 }
 
 // IPSecConfig holds IPSec-specific configuration
@@ -445,11 +463,20 @@ func (i *IPSecProtocol) upLinux(ctx context.Context) error {
 	if !client.IsHelperReachable() {
 		return fmt.Errorf("privileged helper not running — install it in Settings → Privileged Helper")
 	}
-	resp, err := client.SendCommand("connect", map[string]string{
+	args := map[string]string{
 		"protocol":        "ipsec",
 		"interface":       i.connName,
 		"connection_name": i.connName,
-	})
+	}
+	// DNS override forwarding. Helper writes /etc/resolv.conf with
+	// backup before swanctl --initiate; on disconnect the backup is
+	// restored. Empty string = no override = helper skips the DNS
+	// dance.
+	if len(i.dnsOverride) > 0 {
+		args["dns_servers"] = strings.Join(i.dnsOverride, " ")
+		log.Printf("IPSec DNS override: %s", args["dns_servers"])
+	}
+	resp, err := client.SendCommand("connect", args)
 	if err != nil {
 		return fmt.Errorf("helper connect failed: %w", err)
 	}
