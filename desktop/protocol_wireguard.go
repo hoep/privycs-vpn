@@ -450,8 +450,20 @@ func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
 		if !resp.Success {
 			return fmt.Errorf("installtunnelservice failed: %s", resp.Error)
 		}
+		// v0.9.14.6: propagate the wait failure as a real Up() error
+		// instead of swallowing it and reporting success. Pre-fix, a
+		// service that installed but failed to enter RUNNING state
+		// (long AllowedIPs lists in pool configs trigger this on
+		// some Windows setups due to slow route-table updates)
+		// caused Up() to return nil — Connect then burned its 30 s
+		// status-poll budget against a tunnel that was never going
+		// to come up. Fast-failing here lets the pool retry loop
+		// move to the next member within seconds. User-visible
+		// effect: pool auto-connect actually progresses through
+		// candidates instead of stalling on the first dead service.
 		if err := waitForWGService(w.ifaceName); err != nil {
-			log.Printf("WireGuard service wait: %v", err)
+			log.Printf("WireGuard service wait: %v - failing Up()", err)
+			return fmt.Errorf("wg service did not start: %w", err)
 		}
 		w.connectedAt = time.Now()
 		log.Printf("WireGuard connected via helper (service: WireGuardTunnel$%s)", w.ifaceName)
@@ -470,8 +482,10 @@ func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("wireguard start failed: %s: %w", string(out), err)
 	}
+	// v0.9.14.6: same fast-fail propagation as the helper path.
 	if err := waitForWGService(w.ifaceName); err != nil {
-		log.Printf("WireGuard service wait: %v", err)
+		log.Printf("WireGuard service wait: %v - failing Up()", err)
+		return fmt.Errorf("wg service did not start: %w", err)
 	}
 	w.connectedAt = time.Now()
 	return nil
