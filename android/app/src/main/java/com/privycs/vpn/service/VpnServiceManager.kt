@@ -631,14 +631,37 @@ class VpnServiceManager private constructor(private val context: Context) {
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markConnected(status.connectionId)
             }
-            // Tunnel is up: start the periodic ICMP-based liveness
-            // monitor. Pings 1.1.1.1 every 60s; 3 consecutive
-            // failures fire a USER-source disconnect and let the
-            // post-disconnect path drive recovery (pool member
-            // rotation OR COD reconnect for single connections).
-            // Closes the "tunnel up but no traffic" gap that
-            // OpenVPN / IPSec cannot detect themselves.
-            TunnelHealthMonitor.start()
+            // Tunnel is up: decide whether to start the periodic
+            // ICMP-based liveness monitor based on user settings.
+            //   - mode = "off": never run
+            //   - mode = "always": always run
+            //   - mode = "auto" (default): pool=on, single=off.
+            //     Pools have a natural recovery action via member
+            //     rotation; single connections would just
+            //     disconnect-reconnect which is more disruptive
+            //     on a flaky network so we default to off.
+            val healthSettings = try {
+                com.privycs.vpn.PrivycsApp.instance.settingsRepository
+                    .getSettingsBlocking()
+            } catch (_: Exception) { null }
+            val healthMode = healthSettings?.tunnelHealthMode ?: "auto"
+            val isPool = status.poolId.isNotEmpty()
+            val shouldRun = when (healthMode) {
+                "always" -> true
+                "off" -> false
+                else -> isPool // "auto"
+            }
+            if (shouldRun) {
+                val target = healthSettings?.tunnelHealthTarget?.takeIf { it.isNotBlank() }
+                    ?: ""
+                if (target.isNotBlank()) {
+                    TunnelHealthMonitor.start(target)
+                } else {
+                    TunnelHealthMonitor.start()
+                }
+            } else {
+                TunnelHealthMonitor.stop()
+            }
         }
         // Kill Switch: defensively arm on every connected status
         // push, not only on the disconnected->connected transition.

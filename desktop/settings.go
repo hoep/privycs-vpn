@@ -40,6 +40,11 @@ type AppSettings struct {
 	LogLevel           string                  `json:"log_level"`    // debug, info, warn, error
 	GatewayURL         string                  `json:"gateway_url,omitempty"`
 	APIKey             string                  `json:"api_key,omitempty"`
+	// Tunnel-health monitoring (Phase 1 visible UX). Mode is one
+	// of "auto" / "always" / "off"; auto means pool=on, single=off.
+	// Empty target falls back to built-in default 1.1.1.1.
+	TunnelHealthMode   string                  `json:"tunnel_health_mode,omitempty"`
+	TunnelHealthTarget string                  `json:"tunnel_health_target,omitempty"`
 }
 
 // LoadSettings reads settings from disk or returns defaults

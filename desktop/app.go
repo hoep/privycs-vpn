@@ -126,6 +126,17 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// Wire tunnel-health state events to the Vue frontend so the
+	// ConnectionView traffic-light pill updates live without
+	// polling. Vue listens via wailsRuntime.EventsOn.
+	if a.tunnelHealth != nil {
+		a.tunnelHealth.SetOnStateChange(func(s TunnelHealthState) {
+			if a.ctx != nil {
+				wailsRuntime.EventsEmit(a.ctx, "tunnelHealth:state", string(s))
+			}
+		})
+	}
+
 	// Set up file logging — write to file always, stderr if available.
 	// Store handle for proper cleanup in shutdown() to prevent file handle leaks.
 	logPath := filepath.Join(appDataDir(), "privycs-vpn.log")
@@ -747,19 +758,29 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	a.connectedAt = time.Now()
 
 	// Tunnel-liveness monitor: 60s ICMP probe to a known reliable
-	// target. 3 consecutive failures fire disconnectInternal so the
-	// post-disconnect path drives recovery (COD reconnect or pool
-	// keepalive). Closes the "tunnel up but no traffic" gap that
-	// OpenVPN / IPSec do not detect on their own.
+	// target. Mode resolution (matches Android):
+	//   - "off":    never run
+	//   - "always": always run
+	//   - "auto":   pool=on, single=off (default - pool has
+	//               natural recovery via member rotation)
 	if a.tunnelHealth != nil {
-		a.tunnelHealth.Start("", func() {
-			a.mu.Lock()
-			defer a.mu.Unlock()
-			if a.connected {
-				log.Printf("TunnelHealth recovery: forcing disconnect")
-				_ = a.disconnectInternal()
-			}
-		})
+		mode := a.settings.TunnelHealthMode
+		if mode == "" {
+			mode = "auto"
+		}
+		isPool := a.activePoolID != ""
+		shouldRun := mode == "always" || (mode == "auto" && isPool)
+		if shouldRun {
+			target := a.settings.TunnelHealthTarget
+			a.tunnelHealth.Start(target, func() {
+				a.mu.Lock()
+				defer a.mu.Unlock()
+				if a.connected {
+					log.Printf("TunnelHealth recovery: forcing disconnect")
+					_ = a.disconnectInternal()
+				}
+			})
+		}
 	}
 
 	// Pool rotator: reset the rotation countdown to start fresh from
@@ -1382,6 +1403,17 @@ func (a *App) RenameConnection(id string, newName string) error {
 	a.connections.Save()
 	log.Printf("Connection renamed to: %s", newName)
 	return nil
+}
+
+// GetTunnelHealthState returns the current tunnel-health state
+// (inactive / healthy / degraded / recovering) for Vue to render
+// the indicator pill. Vue calls this on mount + listens for
+// tunnelHealth:state events for live updates.
+func (a *App) GetTunnelHealthState() string {
+	if a.tunnelHealth == nil {
+		return string(TunnelHealthInactive)
+	}
+	return string(a.tunnelHealth.State())
 }
 
 // SetConnectionDnsOverride sets the per-connection DNS override.

@@ -30,10 +30,27 @@ import (
 // universally available, exits with 0 on success, gives reliable
 // signal, and the spawn cost (5-10ms) is negligible at a 60s
 // cadence.
+// TunnelHealthState is the visible health state pushed to the
+// frontend via Wails events. Mirrors Android's TunnelHealthMonitor
+// .State enum so cross-platform users get identical UI semantics.
+type TunnelHealthState string
+
+const (
+	TunnelHealthInactive   TunnelHealthState = "inactive"
+	TunnelHealthHealthy    TunnelHealthState = "healthy"
+	TunnelHealthDegraded   TunnelHealthState = "degraded"
+	TunnelHealthRecovering TunnelHealthState = "recovering"
+)
+
 type TunnelHealthMonitor struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	target string
+	state  TunnelHealthState
+	// onStateChange fires on every transition. App wires this
+	// to wailsRuntime.EventsEmit("tunnelHealth:state", state) so
+	// the Vue ConnectionView traffic-light pill updates live.
+	onStateChange func(TunnelHealthState)
 }
 
 const (
@@ -47,7 +64,43 @@ const (
 // NewTunnelHealthMonitor creates a stopped monitor. Caller must
 // invoke Start() to begin pinging.
 func NewTunnelHealthMonitor() *TunnelHealthMonitor {
-	return &TunnelHealthMonitor{target: tunnelHealthDefaultTarget}
+	return &TunnelHealthMonitor{
+		target: tunnelHealthDefaultTarget,
+		state:  TunnelHealthInactive,
+	}
+}
+
+// SetOnStateChange registers the state-transition callback. Called
+// once at app startup so the App can forward states to the Vue
+// frontend via Wails events.
+func (m *TunnelHealthMonitor) SetOnStateChange(fn func(TunnelHealthState)) {
+	m.mu.Lock()
+	m.onStateChange = fn
+	m.mu.Unlock()
+}
+
+// State returns the current health state. Used by the Wails
+// GetTunnelHealthState method so the frontend can synchronise on
+// startup or after a panel re-render.
+func (m *TunnelHealthMonitor) State() TunnelHealthState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.state
+}
+
+func (m *TunnelHealthMonitor) setState(s TunnelHealthState) {
+	m.mu.Lock()
+	if m.state == s {
+		m.mu.Unlock()
+		return
+	}
+	m.state = s
+	cb := m.onStateChange
+	m.mu.Unlock()
+	if cb != nil {
+		// Detach so a slow Wails emit can't block the ping loop.
+		go cb(s)
+	}
 }
 
 // Start begins the ping loop. Idempotent: a running loop is
@@ -75,17 +128,23 @@ func (m *TunnelHealthMonitor) Start(target string, onDead func()) {
 	log.Printf("TunnelHealth: starting (target=%s, interval=%ds, dead=%d)",
 		target, tunnelHealthPingIntervalSec, tunnelHealthDeadThreshold)
 
+	// Start in HEALTHY-by-assumption: tunnel just came up. The
+	// first ping at T+60s either confirms or flips to DEGRADED.
+	m.setState(TunnelHealthHealthy)
+
 	go m.run(ctx, target, onDead)
 }
 
 // Stop ends the ping loop. Idempotent.
 func (m *TunnelHealthMonitor) Stop() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cancel != nil {
-		m.cancel()
-		m.cancel = nil
+	cancel := m.cancel
+	m.cancel = nil
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
+	m.setState(TunnelHealthInactive)
 }
 
 func (m *TunnelHealthMonitor) run(ctx context.Context, target string, onDead func()) {
@@ -103,6 +162,7 @@ func (m *TunnelHealthMonitor) run(ctx context.Context, target string, onDead fun
 					log.Printf("TunnelHealth: restored after %d fails", failures)
 				}
 				failures = 0
+				m.setState(TunnelHealthHealthy)
 				continue
 			}
 			failures++
@@ -111,6 +171,7 @@ func (m *TunnelHealthMonitor) run(ctx context.Context, target string, onDead fun
 			if failures >= tunnelHealthDeadThreshold {
 				log.Printf("TunnelHealth: tunnel dead, triggering recovery")
 				failures = 0
+				m.setState(TunnelHealthRecovering)
 				if onDead != nil {
 					// Detach the recovery callback so the ping
 					// loop is not blocked by a slow disconnect.
@@ -125,6 +186,8 @@ func (m *TunnelHealthMonitor) run(ctx context.Context, target string, onDead fun
 					return
 				case <-time.After(tunnelHealthRecoveryGrace):
 				}
+			} else {
+				m.setState(TunnelHealthDegraded)
 			}
 		}
 	}

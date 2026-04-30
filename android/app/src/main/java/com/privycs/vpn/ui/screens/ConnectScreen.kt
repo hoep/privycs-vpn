@@ -711,6 +711,21 @@ fun ConnectScreen(
             )
         }
 
+        // Tunnel-health pill. Visible only while the monitor is
+        // running (state != INACTIVE). Three-state traffic light:
+        //   HEALTHY (green): all recent pings ok
+        //   DEGRADED (orange): 1-2 consecutive failures
+        //   RECOVERING (red): >=3 fails, recovery just fired
+        // Gives the user inline feedback that the periodic
+        // liveness check is active without burying it in the
+        // logs - "is my VPN actually flowing traffic?" question
+        // gets a visible answer.
+        val healthState by com.privycs.vpn.service.TunnelHealthMonitor.state.collectAsState()
+        if (healthState != com.privycs.vpn.service.TunnelHealthMonitor.State.INACTIVE) {
+            Spacer(modifier = Modifier.height(8.dp))
+            HealthPill(healthState)
+        }
+
         // Error display. Card with errorContainer background gives
         // pool-related failures (which can be long messages like
         // "Pool X: all members marked unreachable - tap Reset...")
@@ -1171,6 +1186,46 @@ private fun DetailRow(label: String, value: String) {
                 )
             }
         }
+    }
+}
+
+/**
+ * Tunnel-health traffic-light pill. Three states map to icon
+ * dots + label: HEALTHY=green/"Tunnel OK", DEGRADED=orange/
+ * "Tunnel checks failing", RECOVERING=red/"Recovery in
+ * progress". Inactive state filters at the call site so this
+ * composable always renders a visible pill.
+ */
+@Composable
+private fun HealthPill(state: com.privycs.vpn.service.TunnelHealthMonitor.State) {
+    val (color, label) = when (state) {
+        com.privycs.vpn.service.TunnelHealthMonitor.State.HEALTHY ->
+            Color(0xFF10B981) to "Tunnel OK"
+        com.privycs.vpn.service.TunnelHealthMonitor.State.DEGRADED ->
+            Color(0xFFF59E0B) to "Tunnel checks failing"
+        com.privycs.vpn.service.TunnelHealthMonitor.State.RECOVERING ->
+            Color(0xFFDC2626) to "Recovery in progress"
+        else -> Color(0xFF6B7280) to ""
+    }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(color.copy(alpha = 0.12f))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(color),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+        )
     }
 }
 

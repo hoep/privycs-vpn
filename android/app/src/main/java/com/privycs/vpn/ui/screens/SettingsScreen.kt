@@ -45,6 +45,7 @@ import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -843,6 +844,81 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+
+            // -- Tunnel Health (Phase 1 visible UX) --
+            SettingsSection(title = "TUNNEL HEALTH") {
+                Text(
+                    text = "Periodic ICMP ping to verify the tunnel is " +
+                        "actually carrying traffic (not just \"connected\"). " +
+                        "Three consecutive failures trigger recovery: " +
+                        "pool member rotation or single-connection " +
+                        "disconnect/reconnect.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                val mode = settings.tunnelHealthMode
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(
+                        "auto" to "Auto (pool only)",
+                        "always" to "Always on",
+                        "off" to "Off",
+                    ).forEach { (value, label) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = mode == value,
+                                onClick = {
+                                    persistScope.launch {
+                                        settingsRepo.updateSettings(
+                                            settings.copy(tunnelHealthMode = value),
+                                        )
+                                    }
+                                },
+                            )
+                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                var pingTarget by remember(settings.tunnelHealthTarget) {
+                    mutableStateOf(settings.tunnelHealthTarget)
+                }
+                val pingTargetInvalid = remember(pingTarget) {
+                    pingTarget.isNotBlank() &&
+                        !com.privycs.vpn.util.DnsValidator.isValidIp(pingTarget)
+                }
+                OutlinedTextField(
+                    value = pingTarget,
+                    onValueChange = {
+                        pingTarget = it
+                        persistScope.launch {
+                            settingsRepo.updateSettings(
+                                settings.copy(tunnelHealthTarget = it.trim()),
+                            )
+                        }
+                    },
+                    label = { Text("Ping target (optional)") },
+                    placeholder = { Text("default: 1.1.1.1") },
+                    singleLine = true,
+                    isError = pingTargetInvalid,
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = {
+                        when {
+                            pingTargetInvalid -> Text(
+                                "Not a valid IP",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            pingTarget.isBlank() -> Text(
+                                "Empty = use default 1.1.1.1",
+                            )
+                            else -> Text("Custom probe target")
+                        }
+                    },
+                )
             }
 
             // -- Network Rules (Phase 2) --

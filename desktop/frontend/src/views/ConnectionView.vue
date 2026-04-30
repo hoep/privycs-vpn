@@ -390,6 +390,20 @@
         </div>
       </div>
 
+      <!-- Tunnel-health pill. Visible only when the periodic
+           ICMP-ping monitor is running (state != inactive).
+           Three-state traffic light driven by the
+           tunnelHealth:state Wails event. -->
+      <div v-if="tunnelHealthState !== 'inactive'" class="w-full max-w-sm mt-3 flex justify-center">
+        <span
+          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-medium"
+          :class="healthPillClass"
+        >
+          <span class="w-2 h-2 rounded-full" :class="healthDotClass"></span>
+          {{ healthPillLabel }}
+        </span>
+      </div>
+
       <!-- Edit Config Button -->
       <div class="w-full max-w-sm mt-3">
         <button
@@ -535,7 +549,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useVpnStore, formatSpeed } from '@/stores/vpn'
 import { usePoolStore, formatDuration } from '@/stores/pool'
-import { SelectProtocol, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause } from '../../wailsjs/go/main/App'
+import { SelectProtocol, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause, GetTunnelHealthState } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import SpeedSparkline from '@/components/SpeedSparkline.vue'
@@ -595,6 +609,38 @@ function splitAddresses(value: string): string[] {
   if (!value) return []
   return value.split(',').map(s => s.trim()).filter(s => s.length > 0)
 }
+
+// Tunnel-health state: synced once on mount via GetTunnelHealthState
+// then updated live via the tunnelHealth:state Wails event the Go
+// monitor emits on every state transition.
+const tunnelHealthState = ref<string>('inactive')
+
+const healthPillClass = computed(() => {
+  switch (tunnelHealthState.value) {
+    case 'healthy':    return 'bg-emerald-500/15 text-emerald-500'
+    case 'degraded':   return 'bg-amber-500/15 text-amber-500'
+    case 'recovering': return 'bg-red-500/15 text-red-500'
+    default:           return 'bg-gray-500/15 text-gray-500'
+  }
+})
+
+const healthDotClass = computed(() => {
+  switch (tunnelHealthState.value) {
+    case 'healthy':    return 'bg-emerald-500'
+    case 'degraded':   return 'bg-amber-500'
+    case 'recovering': return 'bg-red-500'
+    default:           return 'bg-gray-500'
+  }
+})
+
+const healthPillLabel = computed(() => {
+  switch (tunnelHealthState.value) {
+    case 'healthy':    return 'Tunnel OK'
+    case 'degraded':   return 'Tunnel checks failing'
+    case 'recovering': return 'Recovery in progress'
+    default:           return ''
+  }
+})
 
 function formatClockTime(ns: number): string {
   if (!ns || ns <= 0) return ''
@@ -976,6 +1022,16 @@ onMounted(() => {
   })
   EventsOn('pool:prewarm', () => {
     poolStore.refresh()
+  })
+
+  // Tunnel-health pill: initial sync via Wails method, then live
+  // updates via the tunnelHealth:state event (Go side fires on
+  // every state transition).
+  GetTunnelHealthState().then((s) => {
+    tunnelHealthState.value = (s as string) || 'inactive'
+  }).catch(() => { tunnelHealthState.value = 'inactive' })
+  EventsOn('tunnelHealth:state', (s: string) => {
+    tunnelHealthState.value = s || 'inactive'
   })
 
   rotatorCountdownInterval = setInterval(() => {

@@ -8,6 +8,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
@@ -54,6 +57,15 @@ object TunnelHealthMonitor {
     // we start counting failures again on the new tunnel.
     private const val RECOVERY_GRACE_MS = 30_000L
 
+    /**
+     * Visible health state for UI consumers. Connect-Screen shows
+     * a small traffic-light pill driven by this flow.
+     */
+    enum class State { INACTIVE, HEALTHY, DEGRADED, RECOVERING }
+
+    private val _state = MutableStateFlow(State.INACTIVE)
+    val state: StateFlow<State> = _state.asStateFlow()
+
     private var job: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -67,6 +79,10 @@ object TunnelHealthMonitor {
             job?.cancel()
             val effectiveTarget = target.ifBlank { PING_TARGET_DEFAULT }
             PrivycsLogger.i(TAG, "starting tunnel health monitor (target=$effectiveTarget)")
+            // First tick is HEALTHY-by-assumption: we just started
+            // because the tunnel just came up. The actual ping at
+            // T+60s either confirms or flips to DEGRADED.
+            _state.value = State.HEALTHY
             job = scope.launch {
                 var consecutiveFailures = 0
                 while (isActive) {
@@ -77,6 +93,7 @@ object TunnelHealthMonitor {
                             PrivycsLogger.i(TAG, "tunnel health restored after $consecutiveFailures fails")
                         }
                         consecutiveFailures = 0
+                        _state.value = State.HEALTHY
                     } else {
                         consecutiveFailures++
                         PrivycsLogger.w(
@@ -84,6 +101,7 @@ object TunnelHealthMonitor {
                             "ping to $effectiveTarget failed ($consecutiveFailures/$DEAD_THRESHOLD)"
                         )
                         if (consecutiveFailures >= DEAD_THRESHOLD) {
+                            _state.value = State.RECOVERING
                             PrivycsLogger.e(TAG, "tunnel dead - triggering recovery")
                             triggerRecovery()
                             consecutiveFailures = 0
@@ -92,6 +110,8 @@ object TunnelHealthMonitor {
                             // do not stack false-positives while the
                             // new tunnel is coming up.
                             delay(RECOVERY_GRACE_MS)
+                        } else {
+                            _state.value = State.DEGRADED
                         }
                     }
                 }
@@ -107,6 +127,7 @@ object TunnelHealthMonitor {
         synchronized(this) {
             job?.cancel()
             job = null
+            _state.value = State.INACTIVE
         }
     }
 

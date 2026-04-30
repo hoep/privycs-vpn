@@ -162,7 +162,25 @@ data class AppSettings(
     // counts as "still need to ask" - users who were never prompted
     // get the rationale dialog on the next app open.
     @SerialName("first_launch_completed")
-    val firstLaunchCompleted: Boolean = false
+    val firstLaunchCompleted: Boolean = false,
+    // Tunnel-health monitoring (Phase 1 visible UX). Mode controls
+    // whether the periodic ICMP-ping liveness check runs:
+    //   - AUTO:   on for pools, off for single connections.
+    //   - ALWAYS: on for both.
+    //   - OFF:    never run.
+    // Pools default-on because pool member rotation is the natural
+    // recovery action when a member dies silently. Single
+    // connections default-off because the recovery action is
+    // disconnect-then-reconnect which can be disruptive on a
+    // flaky network.
+    @SerialName("tunnel_health_mode")
+    val tunnelHealthMode: String = "auto",
+    // Custom ping target for tunnel-health. Empty = use built-in
+    // default 1.1.1.1. Useful for users behind networks that block
+    // ICMP to 1.1.1.1 specifically, or who prefer pinging an
+    // internal target (Pi-hole, gateway).
+    @SerialName("tunnel_health_target")
+    val tunnelHealthTarget: String = ""
 )
 
 // Gateway API models matching desktop api_client.go

@@ -316,6 +316,42 @@
         </div>
       </div>
 
+      <!-- Tunnel Health (Phase 1 visible UX) -->
+      <div class="card p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Tunnel Health</h3>
+        <p class="text-[10px] text-gray-400 mb-3">
+          Periodic ICMP ping to verify the tunnel is actually carrying traffic.
+          Three failures fire recovery: pool member rotation or single-connection disconnect/reconnect.
+        </p>
+        <div class="space-y-2 mb-3">
+          <label v-for="opt in [
+            { value: 'auto', label: 'Auto (pool only)' },
+            { value: 'always', label: 'Always on' },
+            { value: 'off', label: 'Off' },
+          ]" :key="opt.value" class="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              :value="opt.value"
+              v-model="settings.tunnel_health_mode"
+              @change="saveSettings()"
+              class="text-primary-600"
+            />
+            <span class="text-gray-700 dark:text-gray-300">{{ opt.label }}</span>
+          </label>
+        </div>
+        <label class="text-[11px] text-gray-500 block mb-1">Ping target (optional)</label>
+        <input
+          v-model="settings.tunnel_health_target"
+          @blur="saveSettings()"
+          type="text"
+          placeholder="default: 1.1.1.1"
+          class="input"
+        />
+        <p class="text-[10px] text-gray-500 mt-1">
+          Empty = use default 1.1.1.1. Useful if 1.1.1.1 is blocked or you prefer pinging an internal target.
+        </p>
+      </div>
+
       <!-- Network Rules (Phase 2) -->
       <div class="card p-4">
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network Rules</h3>
@@ -613,6 +649,8 @@ const settings = ref<any>({
     ssid_mode: 'all',
     ssid_list: [],
   },
+  tunnel_health_mode: 'auto',
+  tunnel_health_target: '',
 })
 
 // Connect on Demand state

@@ -33,6 +33,8 @@ class SettingsRepository(private val context: Context) {
         val COD_SSID_MODE = stringPreferencesKey("cod_ssid_mode")
         val COD_SSID_LIST = stringPreferencesKey("cod_ssid_list")
         val FIRST_LAUNCH_COMPLETED = booleanPreferencesKey("first_launch_completed")
+        val TUNNEL_HEALTH_MODE = stringPreferencesKey("tunnel_health_mode")
+        val TUNNEL_HEALTH_TARGET = stringPreferencesKey("tunnel_health_target")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -53,7 +55,9 @@ class SettingsRepository(private val context: Context) {
                     if (raw.isBlank()) emptyList() else raw.split(",").map { it.trim() }
                 }
             ),
-            firstLaunchCompleted = prefs[Keys.FIRST_LAUNCH_COMPLETED] ?: false
+            firstLaunchCompleted = prefs[Keys.FIRST_LAUNCH_COMPLETED] ?: false,
+            tunnelHealthMode = prefs[Keys.TUNNEL_HEALTH_MODE] ?: "auto",
+            tunnelHealthTarget = prefs[Keys.TUNNEL_HEALTH_TARGET] ?: ""
         )
     }
 
@@ -81,6 +85,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.COD_SSID_MODE] = settings.connectOnDemand.ssidMode
             prefs[Keys.COD_SSID_LIST] = settings.connectOnDemand.ssidList.joinToString(",")
             prefs[Keys.FIRST_LAUNCH_COMPLETED] = settings.firstLaunchCompleted
+            prefs[Keys.TUNNEL_HEALTH_MODE] = settings.tunnelHealthMode
+            prefs[Keys.TUNNEL_HEALTH_TARGET] = settings.tunnelHealthTarget
         }
     }
 
