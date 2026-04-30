@@ -104,6 +104,12 @@ fun ConnectionsScreen(
     var deleteTarget by remember { mutableStateOf<VpnConnection?>(null) }
     var renameTarget by remember { mutableStateOf<VpnConnection?>(null) }
     var renameDraft by remember { mutableStateOf("") }
+    // Per-connection DNS override draft. Bundled with the rename
+    // dialog (now "Edit Connection") so users have one place to
+    // tweak both name and DNS without a separate menu entry. Empty
+    // = inherit Settings global. Mirrors the per-pool DNS field on
+    // PoolDetailHost.
+    var renameDnsDraft by remember { mutableStateOf("") }
     // Per-protocol raw-config edit dialog. Desktop client has the same
     // "edit current config" affordance; on Android we open a full-height
     // text editor seeded with the existing configContent and re-parse on
@@ -119,25 +125,59 @@ fun ConnectionsScreen(
     var gatewayError by remember { mutableStateOf<String?>(null) }
     var downloadingId by remember { mutableStateOf<Int?>(null) }
 
-    // Rename dialog
+    // Edit-Connection dialog. Combines rename + per-connection DNS
+    // override. The DNS field is the single-connection equivalent
+    // of PoolDetailHost's per-pool DNS field; resolution priority
+    // is connection > pool > global.
     if (renameTarget != null) {
+        val dnsInvalid = remember(renameDnsDraft) {
+            com.privycs.vpn.util.DnsValidator.invalidEntries(renameDnsDraft)
+        }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("Rename Connection") },
+            title = { Text("Edit Connection") },
             text = {
-                OutlinedTextField(
-                    value = renameDraft,
-                    onValueChange = { renameDraft = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    OutlinedTextField(
+                        value = renameDraft,
+                        onValueChange = { renameDraft = it },
+                        label = { Text("Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = renameDnsDraft,
+                        onValueChange = { renameDnsDraft = it },
+                        label = { Text("DNS Override (optional)") },
+                        placeholder = { Text("e.g. 1.1.1.1, 2606:4700:4700::1111") },
+                        singleLine = true,
+                        isError = dnsInvalid.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                        supportingText = {
+                            when {
+                                dnsInvalid.isNotEmpty() -> Text(
+                                    "Invalid: ${dnsInvalid.joinToString(", ")}",
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                renameDnsDraft.isBlank() -> Text(
+                                    "Empty = inherit global Settings DNS"
+                                )
+                                else -> Text(
+                                    "Overrides Settings DNS for this connection only"
+                                )
+                            }
+                        }
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
-                    enabled = renameDraft.trim().isNotEmpty(),
+                    enabled = renameDraft.trim().isNotEmpty() && dnsInvalid.isEmpty(),
                     onClick = {
-                        connectionRepo.rename(renameTarget!!.id, renameDraft.trim())
+                        val target = renameTarget!!
+                        connectionRepo.rename(target.id, renameDraft.trim())
+                        connectionRepo.updateDnsOverride(target.id, renameDnsDraft.trim())
                         renameTarget = null
                     }
                 ) {
@@ -516,6 +556,7 @@ fun ConnectionsScreen(
                             onRename = {
                                 renameTarget = connection
                                 renameDraft = connection.name
+                                renameDnsDraft = connection.dnsOverride
                             },
                             onAddProtocol = { onNavigateToAdd(connection.id) },
                             onRemoveProtocol = { protocol ->

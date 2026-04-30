@@ -1219,15 +1219,33 @@ class PrivycsVpnService : VpnService() {
      * without breaking the protocol-specific formatters downstream.
      */
     private fun resolveDnsOverrideServers(): List<String> {
-        // Per-pool DNS override wins over global Settings.dnsOverride
-        // when a pool is the active selection AND its dnsOverride is
-        // non-empty. Mirrors the desktop resolvePoolDnsOverride.
+        // Resolution priority chain (most-specific wins):
+        //   1. Active pool's per-pool dnsOverride (if non-empty)
+        //   2. Active single-connection's per-connection dnsOverride
+        //      (if non-empty)
+        //   3. Global Settings.dnsOverride
+        //   4. Empty - the protocol's own DNS push wins
+        //
+        // Pool active and connection active are mutually exclusive
+        // in the data model (pool activation clears single's
+        // activeId), so these two branches don't both fire on the
+        // same connect; the chain just enumerates all possible
+        // override sources by precedence.
         val raw = try {
             val poolReg = PrivycsApp.instance.poolRepository.registry.value
             val activePool = poolReg.pools.firstOrNull { it.id == poolReg.activeId }
             val perPool = activePool?.dnsOverride.orEmpty().trim()
-            if (perPool.isNotEmpty()) perPool
-            else PrivycsApp.instance.settingsRepository.getSettingsBlocking().dnsOverride
+            if (perPool.isNotEmpty()) {
+                perPool
+            } else {
+                val activeConn = PrivycsApp.instance.connectionRepository.getActive()
+                val perConn = activeConn?.dnsOverride.orEmpty().trim()
+                if (perConn.isNotEmpty()) {
+                    perConn
+                } else {
+                    PrivycsApp.instance.settingsRepository.getSettingsBlocking().dnsOverride
+                }
+            }
         } catch (e: Exception) {
             PrivycsLogger.w(TAG, "DNS override read failed: ${e.message}")
             return emptyList()

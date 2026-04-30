@@ -30,6 +30,14 @@ type SavedConnection struct {
 	CreatedAt      time.Time         `json:"created_at"`
 	LastConnected  time.Time         `json:"last_connected,omitempty"`
 	IsFavorite     bool              `json:"is_favorite"`
+	// Per-connection DNS override. Comma- or whitespace-separated
+	// IPv4/IPv6. When non-empty, takes priority over the global
+	// Settings.DNSOverride. Empty falls back to global. Use case:
+	// "Home connection uses 192.168.1.1 (Pi-hole), Work uses
+	// corporate DNS, Public uses Cloudflare" without flipping
+	// global Settings on every switch. Mirrors Android's
+	// VpnConnection.dnsOverride.
+	DnsOverride    string            `json:"dns_override,omitempty"`
 }
 
 // GetProtocol returns the config for a specific protocol, or nil

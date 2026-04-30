@@ -156,6 +156,19 @@ class ConnectionRepository(private val context: Context) {
     }
 
     /**
+     * Set the per-connection DNS override. Empty string clears it
+     * (= inherit Settings global). Caller is responsible for IP
+     * validation; the inject pipeline silently drops malformed
+     * entries via DnsValidator.parseServers anyway.
+     */
+    fun updateDnsOverride(connectionId: String, override: String): Boolean {
+        val conn = getById(connectionId) ?: return false
+        conn.dnsOverride = override.trim()
+        save()
+        return true
+    }
+
+    /**
      * Replace obviously-bad names (raw config content that leaked through
      * a ContentProvider DISPLAY_NAME, a single non-alphanumeric glyph,
      * multi-line text) with a safe default. ConfigParser.deriveConnection-

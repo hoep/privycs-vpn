@@ -1347,6 +1347,25 @@ func (a *App) RenameConnection(id string, newName string) error {
 	return nil
 }
 
+// SetConnectionDnsOverride sets the per-connection DNS override.
+// Empty string clears it (= inherit Settings global). The connect
+// pipeline reads this via resolveDnsOverride which walks
+// pool > connection > global.
+func (a *App) SetConnectionDnsOverride(id string, dns string) error {
+	conn := a.connections.Get(id)
+	if conn == nil {
+		return fmt.Errorf("connection not found: %s", id)
+	}
+	conn.DnsOverride = strings.TrimSpace(dns)
+	a.connections.Save()
+	if conn.DnsOverride == "" {
+		log.Printf("Connection %s DNS override cleared (inherits Settings)", id)
+	} else {
+		log.Printf("Connection %s DNS override set: %s", id, conn.DnsOverride)
+	}
+	return nil
+}
+
 // DeleteConnection removes a saved connection
 func (a *App) DeleteConnection(id string) error {
 	return a.connections.Delete(id)

@@ -50,7 +50,18 @@ data class VpnConnection(
     @SerialName("last_connected")
     var lastConnected: String = "",
     @SerialName("is_favorite")
-    var isFavorite: Boolean = false
+    var isFavorite: Boolean = false,
+    /**
+     * Per-connection DNS override. Comma- or whitespace-separated
+     * IPv4/IPv6 list. When non-empty, takes priority over both
+     * Pool.dnsOverride (irrelevant for single connections) and
+     * the global Settings.dnsOverride. Empty falls back to
+     * global. Use case: "Home connection uses 192.168.1.1 (local
+     * Pi-hole), Work uses corporate DNS, Public uses Cloudflare"
+     * without flipping the global Settings field on every switch.
+     */
+    @SerialName("dns_override")
+    var dnsOverride: String = ""
 ) {
     fun getProtocol(protocol: VpnProtocol): ProtocolConfig? =
         protocols.find { it.protocol == protocol }

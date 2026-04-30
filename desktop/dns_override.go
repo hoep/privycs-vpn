@@ -41,11 +41,12 @@ func (a *App) applyDnsOverride(cfg []byte, protocol string) []byte {
 	if a == nil {
 		return cfg
 	}
-	// Per-pool override wins over global Settings.DNSOverride. Lets
-	// users have e.g. "Pool A uses Mullvad DNS, Pool B uses
-	// Cloudflare" without toggling the Settings field on every
-	// pool switch.
-	override := a.resolvePoolDnsOverride()
+	// Resolution priority chain: active-pool > active-single-
+	// connection > global. Lets users have e.g. "Pool A uses
+	// Mullvad DNS, Connection Home uses Pi-hole, everything else
+	// uses Cloudflare from Settings" without toggling fields on
+	// every switch.
+	override := a.resolveDnsOverride()
 	if override == "" {
 		// Even with empty override, we should clear any stale
 		// IPSec dns-override so a previous override doesn't
@@ -366,23 +367,36 @@ func DnsProviderForServers(servers []string) string {
 	return ""
 }
 
-// resolvePoolDnsOverride returns the per-pool DNS override when a
-// pool is the active selection AND has a non-empty override, else
-// the global Settings.DNSOverride. Mirrors the Android
-// resolveDnsOverrideServers per-pool branch. Called from
-// applyDnsOverride.
-func (a *App) resolvePoolDnsOverride() string {
+// resolveDnsOverride returns the most-specific DNS override for
+// the current selection, walking this priority chain:
+//
+//   1. Active pool's per-pool DnsOverride (if non-empty)
+//   2. Active single-connection's per-connection DnsOverride
+//      (if non-empty)
+//   3. Global Settings.DNSOverride
+//   4. Empty - the protocol's own DNS push wins
+//
+// Pool active and connection active are mutually exclusive in the
+// data model (ActivatePool clears connections.SetActive("")), so
+// the two specific branches don't fire on the same connect; the
+// chain just enumerates all possible override sources by precedence.
+//
+// Mirrors Android's resolveDnsOverrideServers chain in
+// PrivycsVpnService for cross-platform parity.
+func (a *App) resolveDnsOverride() string {
 	if a == nil {
 		return ""
 	}
 	a.mu.RLock()
 	poolID := a.activePoolID
 	a.mu.RUnlock()
-	if poolID == "" {
-		return strings.TrimSpace(a.settings.DNSOverride)
+	if poolID != "" {
+		if pool := a.pools.Get(poolID); pool != nil && strings.TrimSpace(pool.DnsOverride) != "" {
+			return strings.TrimSpace(pool.DnsOverride)
+		}
 	}
-	if pool := a.pools.Get(poolID); pool != nil && strings.TrimSpace(pool.DnsOverride) != "" {
-		return strings.TrimSpace(pool.DnsOverride)
+	if conn := a.connections.Active(); conn != nil && strings.TrimSpace(conn.DnsOverride) != "" {
+		return strings.TrimSpace(conn.DnsOverride)
 	}
 	return strings.TrimSpace(a.settings.DNSOverride)
 }

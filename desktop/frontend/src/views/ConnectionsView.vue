@@ -185,6 +185,14 @@
             >
               <PencilIcon class="w-3.5 h-3.5" />
             </button>
+            <button
+              @click="openDnsEdit(conn)"
+              class="p-1 transition-colors"
+              :class="conn.dns_override ? 'text-primary-400 hover:text-primary-300' : 'text-gray-500 hover:text-primary-400'"
+              :title="conn.dns_override ? 'DNS Override: ' + conn.dns_override + ' (click to edit)' : 'Set per-connection DNS Override'"
+            >
+              <GlobeAltIcon class="w-3.5 h-3.5" />
+            </button>
             <router-link
               :to="{ path: '/add', query: { connectionId: conn.id } }"
               class="p-1 text-gray-500 hover:text-primary-400 transition-colors"
@@ -253,6 +261,58 @@
       @scanned="handleQrScanned"
       @close="showQrScanner = false"
     />
+
+    <!-- Per-connection DNS override modal. Single textfield with
+         live invalid-entry validation. Empty = inherit Settings
+         global. Resolution priority chain at connect time:
+         active-pool > active-connection > global Settings. -->
+    <div
+      v-if="dnsEditTarget"
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+      @click.self="dnsEditTarget = null"
+    >
+      <div class="card p-4 max-w-md w-full">
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+          DNS Override
+        </h3>
+        <p class="text-[11px] text-gray-500 mb-3">
+          Per-connection DNS for "{{ dnsEditTarget.name }}". Empty inherits Settings global.
+        </p>
+        <input
+          v-model="dnsEditDraft"
+          @input="validateDnsEdit"
+          type="text"
+          spellcheck="false"
+          placeholder="e.g. 1.1.1.1, 2606:4700:4700::1111"
+          class="input mb-1"
+        />
+        <p
+          v-if="dnsEditError"
+          class="text-[10px] text-red-400 mb-2"
+        >{{ dnsEditError }}</p>
+        <p
+          v-else
+          class="text-[10px] text-gray-500 mb-2"
+        >
+          Comma-separated IPv4/IPv6. Overrides Settings DNS for this connection only.
+        </p>
+        <div class="flex justify-end gap-2">
+          <button
+            @click="dnsEditTarget = null"
+            class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+          >
+            Cancel
+          </button>
+          <button
+            @click="saveDnsEdit"
+            :disabled="!!dnsEditError"
+            class="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -261,7 +321,7 @@ import { ref, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
 import { usePoolStore } from '@/stores/pool'
-import { ListConnections, ActivateConnection, DeleteConnection, RenameConnection, FetchMyProfile, DownloadAndImportConfig, RemoveProtocolFromConnection, ImportConfig, GetSettings, UpdateSettings } from '../../wailsjs/go/main/App'
+import { ListConnections, ActivateConnection, DeleteConnection, RenameConnection, FetchMyProfile, DownloadAndImportConfig, RemoveProtocolFromConnection, ImportConfig, GetSettings, UpdateSettings, SetConnectionDnsOverride, ValidateDnsOverride } from '../../wailsjs/go/main/App'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import QrScanModal from '@/components/QrScanModal.vue'
 import { parseQrPayload } from '@/util/qrPayload'
@@ -273,6 +333,7 @@ import {
   CloudArrowDownIcon,
   QrCodeIcon,
   RectangleStackIcon,
+  GlobeAltIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -505,6 +566,42 @@ async function startRename(conn: any) {
   if (renameInput.value) {
     renameInput.value.focus()
     renameInput.value.select()
+  }
+}
+
+// Per-connection DNS override modal state. Live validation
+// against the backend ValidateDnsOverride so a typo gets
+// flagged before the user clicks Save - mirrors Settings
+// view's DNS-Override validation.
+const dnsEditTarget = ref<any>(null)
+const dnsEditDraft = ref('')
+const dnsEditError = ref('')
+
+function openDnsEdit(conn: any) {
+  dnsEditTarget.value = conn
+  dnsEditDraft.value = conn.dns_override || ''
+  dnsEditError.value = ''
+}
+
+async function validateDnsEdit() {
+  const raw = dnsEditDraft.value.trim()
+  if (!raw) { dnsEditError.value = ''; return }
+  try {
+    const bad = (await ValidateDnsOverride(raw)) as string[]
+    dnsEditError.value = bad && bad.length ? `Invalid: ${bad.join(', ')}` : ''
+  } catch (e) {
+    console.error('DNS validate failed:', e)
+  }
+}
+
+async function saveDnsEdit() {
+  if (dnsEditError.value || !dnsEditTarget.value) return
+  try {
+    await SetConnectionDnsOverride(dnsEditTarget.value.id, dnsEditDraft.value.trim())
+    await loadConnections()
+    dnsEditTarget.value = null
+  } catch (e: any) {
+    actionError.value = 'Failed to save DNS override'
   }
 }
 
