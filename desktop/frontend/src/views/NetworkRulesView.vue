@@ -104,7 +104,15 @@
               leave-from="opacity-100 scale-100"
               leave-to="opacity-0 scale-95"
             >
-              <DialogPanel class="w-full max-w-md transform overflow-hidden rounded-xl bg-white dark:bg-gray-900 shadow-2xl ring-1 ring-black/5 dark:ring-white/10">
+              <!-- overflow-visible (was overflow-hidden) so HeadlessUI
+                   Listbox dropdowns inside the dialog (Action picker
+                   especially) can extend past the dialog's bottom
+                   edge. With overflow-hidden the third action option
+                   "Use Connection" was clipped — user reported
+                   "network rules erlauben bisher nur use pool" in
+                   v0.9.14.4 because they could not see the third
+                   option through the cropped dropdown. v0.9.14.5. -->
+              <DialogPanel class="w-full max-w-md transform overflow-visible rounded-xl bg-white dark:bg-gray-900 shadow-2xl ring-1 ring-black/5 dark:ring-white/10">
                 <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-800">
                   <DialogTitle class="text-sm font-semibold text-gray-900 dark:text-white">
                     {{ editing?.id ? 'Edit Rule' : 'New Rule' }}

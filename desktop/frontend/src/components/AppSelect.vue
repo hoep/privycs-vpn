@@ -20,9 +20,19 @@
       </ListboxButton>
 
       <!-- No leave transition: 100ms fade-out felt like input lag after
-           clicking an option. Dropdown closes instantly now. -->
+           clicking an option. Dropdown closes instantly now.
+
+           min-w-full w-max (v0.9.14.5): the dropdown panel previously
+           had w-full which clamped option-text width to the BUTTON
+           width — long DNS preset labels like "Cloudflare (block
+           malware + adult)" got truncated when the button sat in a
+           narrow flex column. min-w-full guarantees at least button
+           width; w-max lets the panel grow to fit the longest option
+           label without clipping. max-w-sm caps the runaway case so
+           it does not overshoot the entire viewport on absurdly long
+           labels. -->
       <ListboxOptions
-          class="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md
+          class="absolute z-20 mt-1 max-h-60 min-w-full w-max max-w-sm overflow-auto rounded-md
                  bg-white dark:bg-gray-800 py-1 text-sm shadow-lg
                  ring-1 ring-black/5 dark:ring-white/10
                  focus:outline-none"

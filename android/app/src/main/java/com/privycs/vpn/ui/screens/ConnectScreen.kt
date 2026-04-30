@@ -395,10 +395,15 @@ fun ConnectScreen(
         }
 
         // Uptime
+        // v0.9.14.5: shrunk from headlineSmall (~24sp) to titleMedium
+        // (~16sp) so the tunnel-health pill rendered further down
+        // remains visible without scrolling. User feedback: the big
+        // uptime number was eating screen real-estate that pushed
+        // the health pill below the fold on shorter phones.
         if (isConnected && status.uptime > 0) {
             Text(
                 text = formatUptime(status.uptime),
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onBackground
             )
