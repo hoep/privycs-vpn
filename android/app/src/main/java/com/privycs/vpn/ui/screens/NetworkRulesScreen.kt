@@ -209,15 +209,21 @@ private fun ruleSummary(rule: NetworkRule): String {
         RuleMatchType.ANY -> "Any network"
     }
     val app = PrivycsApp.instance
+    // collectAsState on the pool registry so renames / additions
+    // recompose this row. .value access inside a composable is a
+    // lint-flagged StateFlowValueCalledInComposition bug because
+    // it would not subscribe to updates.
+    val poolRegistry by app.poolRepository.registry.collectAsState()
+    val connectionRegistry by app.connectionRepository.registry.collectAsState()
     val target = when (rule.action) {
         RuleAction.NO_VPN -> "→ No VPN"
         RuleAction.POOL -> {
-            val pool = app.poolRepository.registry.value.pools
-                .firstOrNull { it.id == rule.targetId }
+            val pool = poolRegistry.pools.firstOrNull { it.id == rule.targetId }
             "→ Pool: ${pool?.name ?: "(missing)"}"
         }
         RuleAction.CONNECTION -> {
-            val conn = app.connectionRepository.getById(rule.targetId)
+            val conn = connectionRegistry.connections
+                .firstOrNull { it.id == rule.targetId }
             "→ Connection: ${conn?.name ?: "(missing)"}"
         }
     }
@@ -232,8 +238,14 @@ private fun RuleEditDialog(
     onSave: (NetworkRule) -> Unit,
 ) {
     val app = PrivycsApp.instance
-    val pools = app.poolRepository.registry.value.pools
-    val connections = app.connectionRepository.connections
+    // collectAsState so the dropdown picker stays fresh if a pool /
+    // connection is added or renamed while the dialog is open.
+    // .value direct-access here triggers the
+    // StateFlowValueCalledInComposition lint rule.
+    val poolRegistry by app.poolRepository.registry.collectAsState()
+    val connectionRegistry by app.connectionRepository.registry.collectAsState()
+    val pools = poolRegistry.pools
+    val connections = connectionRegistry.connections
 
     var matchType by remember {
         mutableStateOf(initial?.matchType ?: RuleMatchType.SSID_EXACT)
