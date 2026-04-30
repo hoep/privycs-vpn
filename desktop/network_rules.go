@@ -212,6 +212,20 @@ func (r *NetworkRulesRegistry) Reorder(orderedIDs []string) error {
 	return r.saveLocked()
 }
 
+// ReplaceAll atomically replaces the rule list with a new one and
+// persists. Used by the backup-import path to restore network rules
+// from a v4+ backup. Nil input is treated as empty (clear all
+// rules). Priority is reassigned to the slice index by saveLocked.
+func (r *NetworkRulesRegistry) ReplaceAll(rules []*NetworkRule) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rules == nil {
+		rules = []*NetworkRule{}
+	}
+	r.rules = rules
+	return r.saveLocked()
+}
+
 // Resolve walks the rule list in priority order; first matching
 // rule wins. Returns RuleResolution{} (empty Action) for "no
 // rules" or "no match" - the caller falls through to legacy COD.

@@ -7,6 +7,7 @@ import android.util.Log
 import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.data.models.AppSettings
 import com.privycs.vpn.data.models.ConnectionRegistry
+import com.privycs.vpn.data.models.NetworkRule
 import com.privycs.vpn.data.models.VpnConnection
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
@@ -43,8 +44,15 @@ class CloudBackupManager(private val context: Context) {
         //     unreachable-flags) is intentionally NOT backed up - on
         //     a fresh device the user activates the pool which
         //     regenerates state cleanly.
-        // Import accepts all three for backward compatibility.
-        private const val BACKUP_VERSION = 3
+        // v4: plaintext = BackupPayload (... + networkRules). The
+        //     per-network auto-tunnel rule list (SSID/BSSID/network-
+        //     type matching from v0.9.13.0) round-trips through the
+        //     backup so a user restoring on a new device gets their
+        //     auto-tunnel routing rules back. v3 backups still load
+        //     cleanly on v4-aware clients with the field defaulting
+        //     to empty list.
+        // Import accepts all four for backward compatibility.
+        private const val BACKUP_VERSION = 4
     }
 
     private val json = Json {
@@ -76,7 +84,10 @@ class CloudBackupManager(private val context: Context) {
         // carry the field) deserialize cleanly with the default
         // value. PoolFile shape is the same on-disk format used by
         // PoolRepository so import is a single repository write.
-        val pools: com.privycs.vpn.data.PoolFile? = null
+        val pools: com.privycs.vpn.data.PoolFile? = null,
+        // v4+: per-network auto-tunnel rules. Default empty list so
+        // v3 backups deserialize without the field producing a null.
+        val networkRules: List<NetworkRule> = emptyList()
     )
 
     /**
@@ -105,10 +116,16 @@ class CloudBackupManager(private val context: Context) {
         // fsynced if the user just edited a pool.
         val poolFile = PrivycsApp.instance.poolRepository.registry.value
 
+        // v4+ network rules snapshot. The repository exposes a
+        // StateFlow whose .value is the current in-memory list; same
+        // live-state-over-disk rationale as connections + pools.
+        val networkRules = PrivycsApp.instance.networkRulesRepository.rules.value
+
         val payload = BackupPayload(
             connections = registry,
             settings = settings,
-            pools = poolFile
+            pools = poolFile,
+            networkRules = networkRules
         )
         val plaintext = json.encodeToString(BackupPayload.serializer(), payload)
 
@@ -170,7 +187,11 @@ class CloudBackupManager(private val context: Context) {
         val connections: ConnectionRegistry,
         val settings: AppSettings,
         val hasSettings: Boolean,
-        val pools: com.privycs.vpn.data.PoolFile?
+        val pools: com.privycs.vpn.data.PoolFile?,
+        // v4+: rules carried by the backup. Empty list when the
+        // backup is v1..v3 (field absent) — the import path leaves
+        // the user's existing rules untouched in that case.
+        val networkRules: List<NetworkRule>
     )
 
     private fun importBackupPayload(password: String, inputUri: Uri): DecodedBackup {
@@ -220,16 +241,29 @@ class CloudBackupManager(private val context: Context) {
 
         val decoded = if (hasSettings) {
             val p = json.decodeFromString(BackupPayload.serializer(), plaintext)
-            DecodedBackup(p.connections, p.settings, hasSettings = true, pools = p.pools)
+            DecodedBackup(
+                connections = p.connections,
+                settings = p.settings,
+                hasSettings = true,
+                pools = p.pools,
+                networkRules = p.networkRules,
+            )
         } else {
             val registry = json.decodeFromString(ConnectionRegistry.serializer(), plaintext)
-            DecodedBackup(registry, AppSettings(), hasSettings = false, pools = null)
+            DecodedBackup(
+                connections = registry,
+                settings = AppSettings(),
+                hasSettings = false,
+                pools = null,
+                networkRules = emptyList(),
+            )
         }
 
         Log.d(
             TAG,
             "Backup imported: ${decoded.connections.connections.size} connections, " +
                 "${decoded.pools?.pools?.size ?: 0} pools, " +
+                "${decoded.networkRules.size} network rules, " +
                 "settingsRestored=${decoded.hasSettings}"
         )
         return decoded
@@ -301,6 +335,21 @@ class CloudBackupManager(private val context: Context) {
                 }
             }
             Log.d(TAG, "Merged $addedPools new pools from backup")
+        }
+
+        // Network rules (v4+ backups). REPLACE semantics rather than
+        // merge: rules are a small priority-ordered list, and merging
+        // two ordered lists by ID would destroy the user's intentional
+        // priority ordering on the source machine. Symmetric with how
+        // settings import works (replace, not merge). Skipped when the
+        // backup is v1..v3 (decoded.networkRules is empty list) so we
+        // do NOT silently wipe the user's existing rules just because
+        // they imported an old backup.
+        if (decoded.networkRules.isNotEmpty()) {
+            runBlocking {
+                PrivycsApp.instance.networkRulesRepository.save(decoded.networkRules)
+            }
+            Log.d(TAG, "Restored ${decoded.networkRules.size} network rules from backup")
         }
 
         Log.d(TAG, "Merged $addedCount new connections from backup")

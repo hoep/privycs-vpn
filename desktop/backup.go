@@ -54,17 +54,22 @@ type backupEnvelope struct {
 //   v3 - adds pool_state (runtime state separated from definitions in
 //        v0.9.11.39). v1/v2 backups still load; PoolState is just nil
 //        and runtime state on the destination starts fresh.
+//   v4 - adds network_rules (per-network auto-tunnel SSID/BSSID/type
+//        rules from v0.9.13.0). v1..v3 backups still load; NetworkRules
+//        field is just nil and the user's existing rules on the
+//        destination are left untouched.
 type backupPlaintext struct {
-	Version     int                 `json:"version"`
-	AppVersion  string              `json:"app_version"`
-	Connections *ConnectionRegistry `json:"connections"`
-	Settings    *AppSettings        `json:"settings"`
-	Pools       *PoolRegistry       `json:"pools,omitempty"`
-	PoolState   json.RawMessage     `json:"pool_state,omitempty"`
+	Version      int                 `json:"version"`
+	AppVersion   string              `json:"app_version"`
+	Connections  *ConnectionRegistry `json:"connections"`
+	Settings     *AppSettings        `json:"settings"`
+	Pools        *PoolRegistry       `json:"pools,omitempty"`
+	PoolState    json.RawMessage     `json:"pool_state,omitempty"`
+	NetworkRules []*NetworkRule      `json:"network_rules,omitempty"`
 }
 
 const (
-	backupVersion       = 3
+	backupVersion       = 4
 	backupKDFIterations = 600_000
 	backupKeyLen        = 32 // 256-bit AES key
 	backupSaltLen       = 16
@@ -99,6 +104,11 @@ func (a *App) ExportBackup(path string, passphrase string) error {
 		} else {
 			log.Printf("Backup: pool-state snapshot failed: %v - excluded from backup", err)
 		}
+	}
+	// Snapshot network rules (v4+). List() returns a defensive copy
+	// so concurrent edits during the backup don't corrupt the JSON.
+	if a.networkRules != nil {
+		plain.NetworkRules = a.networkRules.List()
 	}
 	plainBytes, err := json.Marshal(&plain)
 	if err != nil {
@@ -231,6 +241,20 @@ func (a *App) ImportBackup(path string, passphrase string) error {
 			log.Printf("Backup: pool-state restore parse failed: %v - skipping", err)
 		} else {
 			a.poolStates.replaceFromSnapshot(snapshot)
+		}
+	}
+
+	// Network rules (v4+ backups). REPLACE semantics rather than
+	// merge: rules are a small priority-ordered list, and merging
+	// two ordered lists by ID destroys the user's intentional
+	// priority ordering on the source machine. The user's pre-
+	// import rules are overwritten — symmetric with how Settings
+	// import works (replace, not merge).
+	if plain.NetworkRules != nil && a.networkRules != nil {
+		if err := a.networkRules.ReplaceAll(plain.NetworkRules); err != nil {
+			log.Printf("Backup: network rules restore failed: %v - skipping", err)
+		} else {
+			log.Printf("Backup: restored %d network rules", len(plain.NetworkRules))
 		}
 	}
 	return nil
