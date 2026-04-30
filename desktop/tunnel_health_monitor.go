@@ -210,11 +210,16 @@ func pingHost(target string, timeoutSec int) bool {
 	case "windows":
 		// -n 1: count, -w timeout in milliseconds (Windows ping
 		// is the odd duck with millisecond timeout flag).
-		cmd = exec.CommandContext(ctx, "ping", "-n", "1", "-w",
+		// execHiddenContext applies CREATE_NO_WINDOW on Windows so
+		// the ping subprocess does not pop a visible console
+		// window — without it, every tunnel-health probe (every
+		// ~60s on a connected pool) flashed a black box on screen.
+		// Plain passthrough to exec.CommandContext on non-Windows.
+		cmd = execHiddenContext(ctx, "ping", "-n", "1", "-w",
 			strconv.Itoa(timeoutSec*1000), target)
 	default:
 		// Linux/macOS: -c 1 count, -W timeout in seconds.
-		cmd = exec.CommandContext(ctx, "ping", "-c", "1", "-W",
+		cmd = execHiddenContext(ctx, "ping", "-c", "1", "-W",
 			strconv.Itoa(timeoutSec), target)
 	}
 	err := cmd.Run()

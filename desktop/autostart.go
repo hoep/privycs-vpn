@@ -38,7 +38,7 @@ func IsAutostartEnabled() bool {
 		_, err := os.Stat(path)
 		return err == nil
 	case "windows":
-		out, err := exec.Command("reg", "query",
+		out, err := execHidden("reg", "query",
 			`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
 			"/v", "PrivycsVPN").CombinedOutput()
 		return err == nil && len(out) > 0
@@ -153,7 +153,7 @@ func setAutostartWindows(enable bool) error {
 	}
 
 	if !enable {
-		cmd := exec.Command("reg", "delete",
+		cmd := execHidden("reg", "delete",
 			`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
 			"/v", "PrivycsVPN", "/f")
 		if err := cmd.Run(); err != nil {
@@ -163,7 +163,7 @@ func setAutostartWindows(enable bool) error {
 		return nil
 	}
 
-	cmd := exec.Command("reg", "add",
+	cmd := execHidden("reg", "add",
 		`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
 		"/v", "PrivycsVPN",
 		"/t", "REG_SZ",
