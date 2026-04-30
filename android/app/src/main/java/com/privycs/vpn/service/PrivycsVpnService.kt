@@ -981,6 +981,17 @@ class PrivycsVpnService : VpnService() {
 
         val manager = com.privycs.vpn.service.VpnServiceManager.getInstance(this)
         val current = manager.status.value
+        // serverEndpoint AND localAddress are pulled from the active
+        // member's stored config so the Connect screen's
+        // ConnectionDetails panel (VPN IP / Endpoint / last
+        // handshake) shows the same fields for pools as it does for
+        // single connections. Pre-fix only serverEndpoint was set;
+        // localAddress was left blank, which combined with the
+        // ConnectScreen gate `if (activeConnection != null)` hid
+        // the entire detail panel for pool users. activeConnection
+        // is null when a pool is the active selection because pool
+        // activation explicitly clears the single-connection
+        // activeId.
         manager.updateStatus(
             current.copy(
                 connectionName = pool.name,
@@ -993,7 +1004,8 @@ class PrivycsVpnService : VpnService() {
                 pendingMemberName = pendingMember?.name.orEmpty(),
                 pendingMemberCountry = pendingMember?.country.orEmpty(),
                 nextRotationAt = rotationAt,
-                serverEndpoint = activeMember?.config?.serverAddress.orEmpty()
+                serverEndpoint = activeMember?.config?.serverAddress.orEmpty(),
+                localAddress = activeMember?.config?.localAddress.orEmpty(),
             )
         )
     }

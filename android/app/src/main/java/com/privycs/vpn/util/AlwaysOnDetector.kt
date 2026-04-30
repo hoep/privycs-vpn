@@ -94,6 +94,25 @@ object AlwaysOnDetector {
     }
 
     /**
+     * Clear the last-user-disconnect timestamp so the cooldown gate
+     * stops blocking evaluations from this point on. Called from
+     * NetworkMonitor whenever the COD settings flow re-emits: a
+     * user toggling Connect-on-Demand (or changing trigger / SSID
+     * rules) is an explicit fresh intent that should not be
+     * suppressed by an older "I tapped Disconnect" stamp. Without
+     * this clear, a user who manually disconnected then 5 seconds
+     * later toggled COD on would see "on-demand reconnect
+     * suppressed: manual disconnect within 30s cooldown" and
+     * silently no-op for the rest of the cooldown window.
+     */
+    fun clearUserDisconnectStamp(ctx: Context) {
+        ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_LAST_USER_DISCONNECT)
+            .apply()
+    }
+
+    /**
      * Called from PrivycsVpnService.handleAlwaysOnReconnect. If a user
      * disconnect happened within DETECTION_WINDOW_MS, we are on
      * Always-On. Persists the flag and flips the StateFlow for any

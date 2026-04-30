@@ -118,6 +118,13 @@ class NetworkMonitor private constructor(private val context: Context) {
                     // is applied immediately even if the network state is
                     // unchanged.
                     lastShouldConnect = null
+                    // Clear the manual-disconnect cooldown stamp.
+                    // Toggling COD or editing rules is an explicit
+                    // user intent in its own right; a stale "I tapped
+                    // Disconnect 5 seconds ago" stamp should not
+                    // silently suppress the evaluation that runs as
+                    // a direct consequence of the new settings.
+                    AlwaysOnDetector.clearUserDisconnectStamp(context)
                     evaluateCurrentNetwork()
                 }
         }

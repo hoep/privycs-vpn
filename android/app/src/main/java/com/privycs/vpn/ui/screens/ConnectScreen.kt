@@ -691,8 +691,19 @@ fun ConnectScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Connection details
-        if (activeConnection != null) {
+        // Connection details (VPN IP / Endpoint / last handshake).
+        // Pre-fix this was gated on `activeConnection != null`,
+        // which is null for pools because pool activation clears
+        // the single-connection activeId. Result: the detail panel
+        // disappeared entirely on the Connect screen for pool
+        // users, even when the tunnel was up. Now we render the
+        // panel when EITHER a single connection or a pool is the
+        // active selection. The DetailRow components inside
+        // ConnectionDetails are individually conditional on their
+        // value being non-blank, so empty fields stay hidden -
+        // e.g. lastHandshake stays out of view for OpenVPN/IPSec
+        // protocols that don't track it.
+        if (activeConnection != null || activePool != null) {
             ConnectionDetails(
                 localAddress = status.localAddress,
                 serverAddress = status.serverEndpoint,
