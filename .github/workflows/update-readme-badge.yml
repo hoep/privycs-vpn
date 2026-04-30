@@ -1,0 +1,68 @@
+name: Update README badge
+
+# Bumps the "release-vX.Y.Z" shields.io badge in README.md to match
+# the latest pushed tag. Static badges are used (instead of dynamic
+# shields.io GitHub-API queries) because the repo is private and
+# shields.io can't authenticate against the GitHub API for private
+# repos. Switch back to the dynamic ones when the repo is public
+# and this workflow can be deleted.
+
+on:
+  push:
+    tags: ['v*']
+
+# Need contents:write to commit the README update back to main.
+permissions:
+  contents: write
+
+jobs:
+  update-badge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          # We want to commit on main, not on the tag. fetch-depth: 0
+          # so the subsequent push has the full history to fast-forward.
+          ref: main
+          fetch-depth: 0
+          # Use a token that can push back. GITHUB_TOKEN with
+          # contents:write does this.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update release badge to ${{ github.ref_name }}
+        id: bump
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "Updating README badge to $TAG"
+          # The badge URL pattern: release-vX.Y.Z-blue. The version
+          # part may contain dots and digits and the v prefix; we
+          # replace the WHOLE matched version segment between
+          # "release-" and "-blue" so we don't depend on knowing
+          # the previous version explicitly.
+          sed -i -E \
+            "s|release-v[0-9A-Za-z._-]+-blue|release-${TAG}-blue|g" \
+            README.md
+          # Detect whether sed actually changed anything. If the
+          # README already has the new tag (rare, e.g. manual
+          # update before tag push), we exit clean without an
+          # empty commit.
+          if git diff --quiet README.md; then
+            echo "README badge already at $TAG, nothing to commit"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          # [skip ci] in the commit message prevents this workflow
+          # from re-triggering on the resulting push (the trigger
+          # is tag-push only, but defence-in-depth in case the
+          # trigger gets broadened later).
+          git commit -m "docs: bump README badge to ${GITHUB_REF_NAME} [skip ci]"
+          git push origin main
