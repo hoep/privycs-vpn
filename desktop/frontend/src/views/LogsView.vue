@@ -32,7 +32,7 @@
       </div>
     </div>
 
-    <div ref="logContainer" class="flex-1 overflow-y-auto card p-3 font-mono text-[11px] leading-relaxed">
+    <div ref="logContainer" @scroll="onScroll" class="flex-1 overflow-y-auto card p-3 font-mono text-[11px] leading-relaxed">
       <div v-if="logs.length === 0" class="text-gray-500 text-center mt-8">
         No logs available
       </div>
@@ -70,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { GetLogs, ClearLogs } from '../../wailsjs/go/main/App'
 import { ArrowLeftIcon, ArrowPathIcon, ClipboardIcon, TrashIcon } from '@heroicons/vue/24/outline'
 
@@ -83,21 +83,51 @@ const copied = ref(false)
 
 const copyLabel = computed(() => copied.value ? 'Copied!' : 'Copy')
 
-async function loadLogs() {
+// Tracks whether the user has scrolled away from the bottom. If they
+// have, the auto-scroll-to-bottom on each refresh would tear them
+// away from where they were reading. We only auto-scroll when the
+// user is already at (or near) the bottom — same convention as
+// every chat / log app.
+const userAwayFromBottom = ref(false)
+
+function isNearBottom(el: HTMLElement, slackPx = 40): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= slackPx
+}
+
+function onScroll() {
+  if (logContainer.value) {
+    userAwayFromBottom.value = !isNearBottom(logContainer.value)
+  }
+}
+
+async function loadLogs(silent = false) {
   if (loadingLogs.value) return
-  loadingLogs.value = true
+  if (!silent) loadingLogs.value = true
   try {
-    logs.value = await GetLogs()
+    const next = await GetLogs()
+    // Only assign + scroll if content actually changed. Avoids
+    // re-render flicker on every poll tick when the log file is
+    // idle. Cheap reference-array compare is overkill; we
+    // compare the last line + length as a stable fingerprint.
+    const fingerprint =
+      next.length + ':' + (next.length > 0 ? next[next.length - 1] : '')
+    if (fingerprint === lastFingerprint.value) return
+    lastFingerprint.value = fingerprint
+
+    const stickToBottom = !userAwayFromBottom.value
+    logs.value = next
     await nextTick()
-    if (logContainer.value) {
+    if (stickToBottom && logContainer.value) {
       logContainer.value.scrollTop = logContainer.value.scrollHeight
     }
   } catch (e) {
-    logs.value = ['--- Log file could not be loaded ---']
+    if (!silent) logs.value = ['--- Log file could not be loaded ---']
   } finally {
-    loadingLogs.value = false
+    if (!silent) loadingLogs.value = false
   }
 }
+
+const lastFingerprint = ref('')
 
 async function copyLogs() {
   try {
@@ -146,5 +176,24 @@ function lineClass(line: string): string {
   return 'text-gray-500 dark:text-gray-400'
 }
 
-onMounted(loadLogs)
+// Live-tail the log file. Pre-fix the screen used a single
+// onMounted(loadLogs) which read the file once and never refreshed,
+// so users on the Logs view during a connect / disconnect saw a
+// frozen snapshot - the manual ⟳ button was the only way to get
+// fresh data. Polling at 1.5s mirrors Android's LogsScreen behavior
+// and is cheap (the GetLogs Wails call returns a tail of the same
+// rotated 200-KB file). Stops on screen unmount.
+let pollHandle: ReturnType<typeof setInterval> | null = null
+
+onMounted(async () => {
+  await loadLogs(false)
+  pollHandle = setInterval(() => loadLogs(true), 1500)
+})
+
+onUnmounted(() => {
+  if (pollHandle !== null) {
+    clearInterval(pollHandle)
+    pollHandle = null
+  }
+})
 </script>

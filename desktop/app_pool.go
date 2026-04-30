@@ -403,6 +403,27 @@ func (a *App) ActivatePool(id string) error {
 		a.mu.Unlock()
 		return fmt.Errorf("pool not found: %s", id)
 	}
+
+	// Capture connect state for the post-mu disconnect dispatch.
+	// Switch-while-connected: if the user activates a different
+	// pool (or activates a pool while a single connection is up),
+	// we tear the running tunnel down. NetworkMonitor's
+	// post-disconnect re-evaluation in COD mode then brings the
+	// new pool up; in non-COD mode the tunnel stays down and the
+	// user taps Connect explicitly. Pre-fix ActivatePool only
+	// updated state, so the user could activate a pool while
+	// connected to a single and the UI showed "active pool" but
+	// the running tunnel was still on the old single - no actual
+	// switch. Mirrors Android's switchActivePool funnel from
+	// v0.9.11.60.
+	wasConnected := a.connected
+	prevPool := a.activePoolID
+	prevSingleID := ""
+	if act := a.connections.Active(); act != nil {
+		prevSingleID = act.ID
+	}
+	isChange := prevPool != id || prevSingleID != ""
+
 	a.activePoolID = id
 
 	// Activating a pool also clears the active single-connection
@@ -428,6 +449,24 @@ func (a *App) ActivatePool(id string) error {
 	// ActivePoolID, PoolRotatorStatus, SelfIPCountry...) and the user
 	// perceives the entire app as frozen during pool activation.
 	a.mu.Unlock()
+
+	// Switch-while-connected: tear down the running tunnel so the
+	// new pool selection actually takes effect. NetworkMonitor's
+	// post-disconnect re-evaluation in COD mode brings the new
+	// pool up via connectActiveTarget; non-COD users get a clean
+	// disconnected state and tap Connect to bring up the new
+	// pool. Detached so the IPC call to ActivatePool returns
+	// immediately - the disconnect can take seconds for IPSec.
+	if wasConnected && isChange {
+		go func() {
+			a.mu.Lock()
+			err := a.disconnectInternal()
+			a.mu.Unlock()
+			if err != nil {
+				log.Printf("ActivatePool: disconnect failed: %v", err)
+			}
+		}()
+	}
 
 	if needsAutoRestrict {
 		// Run in a goroutine so the user-facing ActivatePool call

@@ -216,6 +216,16 @@ func (a *App) startup(ctx context.Context) {
 	// never fired for COD-disabled users.
 	a.startPoolRotator()
 
+	// Pool keepalive loop. Process-lifetime goroutine that checks
+	// every 30s whether the user has a pool active but no tunnel
+	// up - if so, fires a reconnect via connectActiveTarget. Closes
+	// the "pool stopped overnight" hole on desktop for users who
+	// don't have COD enabled. The COD path already does this via
+	// NetworkMonitor's platform-watcher subscriptions; the keepalive
+	// loop is the no-COD fallback. 30s tick is cheap and matches the
+	// existing safety-poll cadence.
+	go a.poolKeepaliveLoop()
+
 	// Pre-warm the SelfIP cache in the background so the first
 	// user-facing operation (ActivatePool, Connect, picker switch)
 	// does not stall behind the DoH probe chain (up to 3-8s on a
@@ -1480,6 +1490,63 @@ func (a *App) connectActiveTarget() {
 	}
 	if _, err := a.Connect(proto); err != nil {
 		log.Printf("connectActiveTarget: connect failed: %v", err)
+	}
+}
+
+// poolKeepaliveLoop is a process-lifetime ticker that ensures an
+// active pool stays connected even outside the COD-driven path.
+// Fires every 30 seconds; if a pool is the active selection AND
+// the VPN is NOT currently connected AND no manual pause is in
+// effect, it calls connectActiveTarget (which picks a member via
+// the pool's policy and brings the tunnel up).
+//
+// Closes the "pool stopped overnight" hole reported on Android in
+// v0.9.11.59 (PoolKeepaliveWatcher). Desktop's gap was narrower
+// because workstations rarely Doze the way phones do, but laptop
+// suspend/resume + WiFi-network changes for non-COD users still
+// produced the same symptom: pool tunnel drops, no recovery
+// trigger, user finds VPN dead in the morning.
+//
+// Why a ticker instead of a NetworkMonitor callback: Desktop's
+// NetworkMonitor only runs when COD is enabled (or when COD is
+// toggled at startup), and rewiring it to always run for pool
+// users would mean changing autoConnect plumbing, settings flows
+// and platform-watcher lifetimes. A 30s ticker is fire-and-forget,
+// uses negligible resources (one stat-equivalent + a couple of
+// reads of in-memory state), and gives the same recovery
+// behaviour with much less moving parts.
+//
+// Cooldowns / pauses honored:
+//   - PauseManager.IsPaused: user clicked "pause for N min" - skip.
+//   - KillSwitchManager sinkhole: never auto-connect through it,
+//     connectActiveTarget -> Connect refuses anyway, but bailing
+//     here avoids the log spam.
+//   - Currently connecting: the Coordinator would gate as
+//     AlreadyConnecting, but bailing here saves the IPC.
+func (a *App) poolKeepaliveLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.mu.RLock()
+			poolID := a.activePoolID
+			connected := a.connected
+			a.mu.RUnlock()
+			if poolID == "" || connected {
+				continue
+			}
+			if a.pauseManager != nil && a.pauseManager.IsPaused() {
+				continue
+			}
+			if a.ksManager != nil && a.ksManager.IsSinkholeActive() {
+				continue
+			}
+			log.Printf("PoolKeepalive: pool %s active but not connected - firing reconnect", poolID)
+			a.connectActiveTarget()
+		}
 	}
 }
 
