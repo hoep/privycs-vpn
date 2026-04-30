@@ -6,13 +6,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.privycs.vpn.MainActivity
 import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.R
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.data.models.VpnStatus
+import com.privycs.vpn.util.PrivycsLogger
 import com.privycs.vpn.widget.VpnWidget
 import com.wireguard.android.backend.GoBackend
 import kotlinx.coroutines.CoroutineScope
@@ -77,7 +77,7 @@ class PrivycsVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         goBackend = GoBackend(this)
-        Log.d(TAG, "VPN service created")
+        PrivycsLogger.d(TAG, "VPN service created")
 
         // If the service is being created (or recreated via
         // START_STICKY) while the process-global KillSwitchManager
@@ -90,7 +90,7 @@ class PrivycsVpnService : VpnService() {
         // to fire enterSinkholeMode, so for several hundred ms
         // traffic could flow without the sinkhole fd in place.
         if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
-            Log.i(TAG, "onCreate: state=SINKHOLE at service start → establishing sinkhole synchronously")
+            PrivycsLogger.i(TAG, "onCreate: state=SINKHOLE at service start → establishing sinkhole synchronously")
             enterSinkholeMode()
         }
 
@@ -119,7 +119,7 @@ class PrivycsVpnService : VpnService() {
                         if (previous == com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE) {
                             when (state) {
                                 com.privycs.vpn.util.KillSwitchManager.State.IDLE -> {
-                                    Log.i(TAG, "KS state SINKHOLE->IDLE: tearing down stale plugin (zombie tunnel recovery)")
+                                    PrivycsLogger.i(TAG, "KS state SINKHOLE->IDLE: tearing down stale plugin (zombie tunnel recovery)")
                                     scope.launch { forceTeardownAfterSinkhole() }
                                 }
                                 com.privycs.vpn.util.KillSwitchManager.State.ARMED -> {
@@ -134,7 +134,7 @@ class PrivycsVpnService : VpnService() {
                                     // connected status, not stale "Kill
                                     // Switch active" text.
                                     val name = currentConnectionName.takeIf { it.isNotBlank() } ?: "VPN"
-                                    Log.i(TAG, "KS state SINKHOLE->ARMED: refreshing notification to connected")
+                                    PrivycsLogger.i(TAG, "KS state SINKHOLE->ARMED: refreshing notification to connected")
                                     updateNotification("Connected to $name")
                                 }
                                 else -> { /* unreachable - SINKHOLE handled above */ }
@@ -163,7 +163,7 @@ class PrivycsVpnService : VpnService() {
                     com.privycs.vpn.util.KillSwitchManager.State.ARMED -> {
                         val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
                         if (!hasAnyNonVpnNetwork(cm)) {
-                            Log.i(TAG, "Kill switch poll: no non-VPN network while armed → engageSinkhole")
+                            PrivycsLogger.i(TAG, "Kill switch poll: no non-VPN network while armed → engageSinkhole")
                             com.privycs.vpn.util.KillSwitchManager.engageSinkhole(
                                 "poll: no non-VPN network",
                             )
@@ -184,7 +184,7 @@ class PrivycsVpnService : VpnService() {
                         // service instance started up, so there's
                         // no "transition" event for the collector.
                         if (sinkholeTunFd == null) {
-                            Log.w(TAG, "Kill switch poll: state=SINKHOLE but fd=null → re-establishing")
+                            PrivycsLogger.w(TAG, "Kill switch poll: state=SINKHOLE but fd=null → re-establishing")
                             enterSinkholeMode()
                         }
                     }
@@ -218,7 +218,7 @@ class PrivycsVpnService : VpnService() {
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onLost(network: android.net.Network) {
                 super.onLost(network)
-                Log.d(TAG, "Kill switch onLost fired for network=$network, armed=${com.privycs.vpn.util.KillSwitchManager.isArmed()}")
+                PrivycsLogger.d(TAG, "Kill switch onLost fired for network=$network, armed=${com.privycs.vpn.util.KillSwitchManager.isArmed()}")
                 scope.launch {
                     // Grace period for WiFi-to-mobile handoffs:
                     // during a handoff both the losing and gaining
@@ -228,14 +228,14 @@ class PrivycsVpnService : VpnService() {
                     // settles.
                     delay(1500)
                     if (!com.privycs.vpn.util.KillSwitchManager.isArmed()) {
-                        Log.d(TAG, "Kill switch onLost post-delay: not armed, skipping")
+                        PrivycsLogger.d(TAG, "Kill switch onLost post-delay: not armed, skipping")
                         return@launch
                     }
                     if (hasAnyNonVpnNetwork(cm)) {
-                        Log.d(TAG, "Kill switch onLost post-delay: another non-VPN network present, skipping")
+                        PrivycsLogger.d(TAG, "Kill switch onLost post-delay: another non-VPN network present, skipping")
                         return@launch
                     }
-                    Log.i(TAG, "Network watcher: all non-VPN networks lost while armed → engageSinkhole")
+                    PrivycsLogger.i(TAG, "Network watcher: all non-VPN networks lost while armed → engageSinkhole")
                     com.privycs.vpn.util.KillSwitchManager.engageSinkhole(
                         "all non-VPN networks lost",
                     )
@@ -244,7 +244,7 @@ class PrivycsVpnService : VpnService() {
 
             override fun onAvailable(network: android.net.Network) {
                 super.onAvailable(network)
-                Log.d(TAG, "Kill switch onAvailable fired for network=$network")
+                PrivycsLogger.d(TAG, "Kill switch onAvailable fired for network=$network")
                 // v0.9.10.2: DO NOT refresh the sinkhole fd on
                 // onAvailable. Closing the tun fd causes Android to
                 // destroy the VpnService; START_STICKY then recreates
@@ -267,9 +267,9 @@ class PrivycsVpnService : VpnService() {
                 .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 .build()
             cm.registerNetworkCallback(request, callback)
-            Log.d(TAG, "Kill switch network watcher registered (non-VPN filter)")
+            PrivycsLogger.d(TAG, "Kill switch network watcher registered (non-VPN filter)")
         } catch (e: Exception) {
-            Log.w(TAG, "Kill switch network watcher registration failed", e)
+            PrivycsLogger.w(TAG, "Kill switch network watcher registration failed", e)
             killSwitchNetworkCallback = null
         }
     }
@@ -293,7 +293,7 @@ class PrivycsVpnService : VpnService() {
     private fun enterSinkholeMode() {
         if (sinkholeTunFd != null) return  // already active
         try {
-            Log.i(TAG, "enterSinkholeMode: establishing block-all tunnel")
+            PrivycsLogger.i(TAG, "enterSinkholeMode: establishing block-all tunnel")
             val builder = Builder()
                 .setSession("Privycs VPN (Kill Switch)")
                 .addAddress("10.255.255.2", 32)
@@ -302,7 +302,7 @@ class PrivycsVpnService : VpnService() {
                 .addDisallowedApplication(packageName)
             sinkholeTunFd = builder.establish()
             if (sinkholeTunFd == null) {
-                Log.w(TAG, "enterSinkholeMode: establish returned null (prepare not granted?)")
+                PrivycsLogger.w(TAG, "enterSinkholeMode: establish returned null (prepare not granted?)")
             } else {
                 updateNotification(
                     "Kill Switch active — traffic blocked",
@@ -319,17 +319,17 @@ class PrivycsVpnService : VpnService() {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "enterSinkholeMode failed", e)
+            PrivycsLogger.e(TAG, "enterSinkholeMode failed", e)
         }
     }
 
     private fun exitSinkholeMode() {
         val fd = sinkholeTunFd ?: return
         try {
-            Log.i(TAG, "exitSinkholeMode: closing block-all tunnel")
+            PrivycsLogger.i(TAG, "exitSinkholeMode: closing block-all tunnel")
             fd.close()
         } catch (e: Exception) {
-            Log.w(TAG, "exitSinkholeMode: fd close failed", e)
+            PrivycsLogger.w(TAG, "exitSinkholeMode: fd close failed", e)
         } finally {
             sinkholeTunFd = null
         }
@@ -358,11 +358,11 @@ class PrivycsVpnService : VpnService() {
      * would be poor UX. Clear state > clever state.
      */
     private suspend fun forceTeardownAfterSinkhole() {
-        try { wireGuardTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "Post-sinkhole WG teardown: ${e.message}") }
+        try { wireGuardTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "Post-sinkhole WG teardown: ${e.message}") }
         wireGuardTunnel = null
-        try { openVpnTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "Post-sinkhole OpenVPN teardown: ${e.message}") }
+        try { openVpnTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "Post-sinkhole OpenVPN teardown: ${e.message}") }
         openVpnTunnel = null
-        try { ipSecTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "Post-sinkhole IPSec teardown: ${e.message}") }
+        try { ipSecTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "Post-sinkhole IPSec teardown: ${e.message}") }
         ipSecTunnel = null
 
         val manager = VpnServiceManager.getInstance(this)
@@ -371,7 +371,7 @@ class PrivycsVpnService : VpnService() {
         connectStartTime = 0L
         sendWidgetUpdate(connected = false)
         updateNotification("Disconnected")
-        Log.i(TAG, "Post-sinkhole teardown complete - plugin state cleared, UI reflects disconnected")
+        PrivycsLogger.i(TAG, "Post-sinkhole teardown complete - plugin state cleared, UI reflects disconnected")
 
         // Post-teardown: if Connect-on-Demand is enabled and its
         // rules currently match, automatically reconnect. The user
@@ -382,7 +382,7 @@ class PrivycsVpnService : VpnService() {
         try {
             val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
             if (!settings.connectOnDemand.enabled) {
-                Log.d(TAG, "Post-sinkhole: COD disabled, not auto-reconnecting")
+                PrivycsLogger.d(TAG, "Post-sinkhole: COD disabled, not auto-reconnecting")
                 return
             }
             // Brief settle delay so the plugin teardown above has
@@ -393,7 +393,7 @@ class PrivycsVpnService : VpnService() {
             nm.reevaluate()
             val ns = nm.networkState.value
             if (!ns.shouldConnect) {
-                Log.d(TAG, "Post-sinkhole: COD rules do not match current network, not auto-reconnecting (${ns.ruleMatch})")
+                PrivycsLogger.d(TAG, "Post-sinkhole: COD rules do not match current network, not auto-reconnecting (${ns.ruleMatch})")
                 return
             }
             // Pool-active wins. If the user's selection is a Pool
@@ -405,7 +405,7 @@ class PrivycsVpnService : VpnService() {
             val activePoolId = poolReg.activeId
             val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
             if (activePoolId.isNotEmpty() && activePool != null) {
-                Log.i(TAG, "Post-sinkhole: COD rules match, auto-reconnecting to pool ${activePool.name}")
+                PrivycsLogger.i(TAG, "Post-sinkhole: COD rules match, auto-reconnecting to pool ${activePool.name}")
                 com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
                     this,
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
@@ -415,14 +415,14 @@ class PrivycsVpnService : VpnService() {
                 return
             }
             val active = PrivycsApp.instance.connectionRepository.getActive() ?: return
-            Log.i(TAG, "Post-sinkhole: COD rules match, auto-reconnecting to ${active.name}")
+            PrivycsLogger.i(TAG, "Post-sinkhole: COD rules match, auto-reconnecting to ${active.name}")
             com.privycs.vpn.util.ConnectCoordinator.requestConnect(
                 this,
                 com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
                 active,
             )
         } catch (e: Exception) {
-            Log.w(TAG, "Post-sinkhole COD auto-reconnect failed: ${e.message}")
+            PrivycsLogger.w(TAG, "Post-sinkhole COD auto-reconnect failed: ${e.message}")
         }
     }
 
@@ -467,7 +467,7 @@ class PrivycsVpnService : VpnService() {
                     }
                     val active = PrivycsApp.instance.connectionRepository.getActive()
                     if (active == null) {
-                        Log.w(TAG, "Kill Switch retry: no active connection or pool to reconnect to")
+                        PrivycsLogger.w(TAG, "Kill Switch retry: no active connection or pool to reconnect to")
                         return@launch
                     }
                     com.privycs.vpn.util.ConnectCoordinator.requestConnect(
@@ -499,7 +499,7 @@ class PrivycsVpnService : VpnService() {
                 if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
                     enterSinkholeMode()
                 } else {
-                    Log.w(TAG, "ACTION_ENGAGE_SINKHOLE but state=${com.privycs.vpn.util.KillSwitchManager.state.value}; stopping")
+                    PrivycsLogger.w(TAG, "ACTION_ENGAGE_SINKHOLE but state=${com.privycs.vpn.util.KillSwitchManager.state.value}; stopping")
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
@@ -511,7 +511,7 @@ class PrivycsVpnService : VpnService() {
                 // rotation scheduler for round-robin pools.
                 val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
                 if (poolId.isEmpty()) {
-                    Log.w(TAG, "ACTION_POOL_CONNECT without pool id")
+                    PrivycsLogger.w(TAG, "ACTION_POOL_CONNECT without pool id")
                     return START_NOT_STICKY
                 }
                 startForeground(
@@ -524,7 +524,7 @@ class PrivycsVpnService : VpnService() {
             ACTION_POOL_PRE_WARM -> {
                 val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
                 if (poolId.isEmpty()) {
-                    Log.w(TAG, "ACTION_POOL_PRE_WARM without pool id")
+                    PrivycsLogger.w(TAG, "ACTION_POOL_PRE_WARM without pool id")
                     return START_NOT_STICKY
                 }
                 // Sequence-guard: drop intents from older arm()
@@ -535,7 +535,7 @@ class PrivycsVpnService : VpnService() {
                 // twice in quick succession on the same pool,
                 // tearing down the just-set-up tunnel.
                 if (!isFreshAlarmSeq(intent)) {
-                    Log.d(TAG, "dropping stale PRE_WARM (seq mismatch)")
+                    PrivycsLogger.d(TAG, "dropping stale PRE_WARM (seq mismatch)")
                     return START_NOT_STICKY
                 }
                 handlePoolPreWarm(poolId)
@@ -544,11 +544,11 @@ class PrivycsVpnService : VpnService() {
             ACTION_POOL_ROTATE -> {
                 val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
                 if (poolId.isEmpty()) {
-                    Log.w(TAG, "ACTION_POOL_ROTATE without pool id")
+                    PrivycsLogger.w(TAG, "ACTION_POOL_ROTATE without pool id")
                     return START_NOT_STICKY
                 }
                 if (!isFreshAlarmSeq(intent)) {
-                    Log.d(TAG, "dropping stale ROTATE (seq mismatch)")
+                    PrivycsLogger.d(TAG, "dropping stale ROTATE (seq mismatch)")
                     return START_NOT_STICKY
                 }
                 handlePoolRotate(poolId)
@@ -622,7 +622,7 @@ class PrivycsVpnService : VpnService() {
                     splitTunnel = splitTunnel
                 )
                 if (!result.applied && result.skippedReason != null) {
-                    Log.i(TAG, "pool ${member.name}: split-tunnel skipped (${result.skippedReason})")
+                    PrivycsLogger.i(TAG, "pool ${member.name}: split-tunnel skipped (${result.skippedReason})")
                 }
                 result.patched
             } else {
@@ -646,13 +646,13 @@ class PrivycsVpnService : VpnService() {
                         VpnProtocol.IPSEC -> ipSecTunnel != null
                     }
                     if (tunnelReady) {
-                        Log.d(TAG, "pool bringUp: ${member.config.protocol} tunnel ready " +
+                        PrivycsLogger.d(TAG, "pool bringUp: ${member.config.protocol} tunnel ready " +
                                 "after ${System.currentTimeMillis() - (deadline - budgetMs)}ms")
                         return true
                     }
                     kotlinx.coroutines.delay(pollIntervalMs)
                 }
-                Log.w(TAG, "pool bringUp: ${member.config.protocol} tunnel did not appear " +
+                PrivycsLogger.w(TAG, "pool bringUp: ${member.config.protocol} tunnel did not appear " +
                         "within ${budgetMs}ms - handleConnect likely bailed")
                 false
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -669,7 +669,7 @@ class PrivycsVpnService : VpnService() {
                 // tunnel matched the picked member).
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "pool bringUp failed: ${e.message}", e)
+                PrivycsLogger.e(TAG, "pool bringUp failed: ${e.message}", e)
                 false
             }
         }
@@ -694,7 +694,7 @@ class PrivycsVpnService : VpnService() {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "pool bringDown failed: ${e.message}", e)
+            PrivycsLogger.e(TAG, "pool bringDown failed: ${e.message}", e)
             false
         }
 
@@ -753,7 +753,7 @@ class PrivycsVpnService : VpnService() {
                 // already-deleted pool). Surface as VpnStatus.error
                 // so the UI exits the "Connecting..." state instead
                 // of hanging there forever.
-                Log.e(TAG, "pool $poolId not found - deleted while connect was queued")
+                PrivycsLogger.e(TAG, "pool $poolId not found - deleted while connect was queued")
                 broadcastPoolError("Pool no longer exists")
                 return@launch
             }
@@ -765,7 +765,7 @@ class PrivycsVpnService : VpnService() {
             // attempts" but the user only sees a stuck UI. Catch
             // here and surface a clearer message.
             if (raw.members.isEmpty()) {
-                Log.e(TAG, "pool ${raw.name}: empty - no members imported")
+                PrivycsLogger.e(TAG, "pool ${raw.name}: empty - no members imported")
                 broadcastPoolError("Pool ${raw.name} has no members")
                 return@launch
             }
@@ -801,7 +801,7 @@ class PrivycsVpnService : VpnService() {
                 } else {
                     "Pool ${pool.name}: no member could connect (${pool.members.size - unreachableCount} eligible, all failed)"
                 }
-                Log.e(TAG, msg)
+                PrivycsLogger.e(TAG, msg)
                 teardownAllProtocols()
                 broadcastPoolError(msg)
                 return@launch
@@ -813,7 +813,7 @@ class PrivycsVpnService : VpnService() {
     private fun handlePoolPreWarm(poolId: String) {
         scope.launch {
             val pool = PrivycsApp.instance.poolRepository.get(poolId) ?: run {
-                Log.d(TAG, "pre-warm: pool $poolId no longer exists - skipping")
+                PrivycsLogger.d(TAG, "pre-warm: pool $poolId no longer exists - skipping")
                 return@launch
             }
             poolConnector.preWarm(pool)
@@ -833,7 +833,7 @@ class PrivycsVpnService : VpnService() {
                 // path should have done this already) and surface
                 // the error so the UI doesn't show a stale
                 // countdown.
-                Log.e(TAG, "rotate: pool $poolId deleted - cancelling alarms")
+                PrivycsLogger.e(TAG, "rotate: pool $poolId deleted - cancelling alarms")
                 try {
                     poolScheduler.cancelAll()
                 } catch (e: Exception) { /* ignore */ }
@@ -849,7 +849,7 @@ class PrivycsVpnService : VpnService() {
                 // tunnel cleanly but do NOT stopSelf - the next
                 // rotation tick (or a manual retry) needs the
                 // service alive to act on it.
-                Log.e(TAG, "pool ${pool.name}: rotation - all attempts failed")
+                PrivycsLogger.e(TAG, "pool ${pool.name}: rotation - all attempts failed")
                 teardownAllProtocols()
                 broadcastPoolError("Pool ${pool.name}: rotation failed - all members in scope unreachable")
             }
@@ -868,7 +868,7 @@ class PrivycsVpnService : VpnService() {
             val mgr = com.privycs.vpn.service.VpnServiceManager.getInstance(this@PrivycsVpnService)
             mgr.updateStatus(com.privycs.vpn.data.models.VpnStatus(error = msg))
         } catch (e: Exception) {
-            Log.w(TAG, "broadcastPoolError dispatch failed: ${e.message}")
+            PrivycsLogger.w(TAG, "broadcastPoolError dispatch failed: ${e.message}")
         }
     }
 
@@ -893,15 +893,15 @@ class PrivycsVpnService : VpnService() {
         if (pool.restrictRegions.isNotEmpty()) return pool
         val country = PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty()
         if (country.isEmpty()) {
-            Log.d(TAG, "auto-restrict skip: SelfIp cache cold for pool ${pool.name}")
+            PrivycsLogger.d(TAG, "auto-restrict skip: SelfIp cache cold for pool ${pool.name}")
             return pool
         }
         val homeRegion = com.privycs.vpn.data.PoolPicker.regionForCountry(country)
         if (homeRegion.isEmpty() || homeRegion == "Other") {
-            Log.d(TAG, "auto-restrict skip: country=$country maps to '$homeRegion'")
+            PrivycsLogger.d(TAG, "auto-restrict skip: country=$country maps to '$homeRegion'")
             return pool
         }
-        Log.i(TAG, "auto-restrict pool ${pool.name} to $homeRegion (user country=$country)")
+        PrivycsLogger.i(TAG, "auto-restrict pool ${pool.name} to $homeRegion (user country=$country)")
         val updated = pool.copy(restrictRegions = listOf(homeRegion))
         PrivycsApp.instance.poolRepository.update(updated)
         return updated
@@ -1004,7 +1004,7 @@ class PrivycsVpnService : VpnService() {
                 (getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager)
                     .unregisterNetworkCallback(cb)
             } catch (e: Exception) {
-                Log.d(TAG, "Kill switch callback unregister failed (already gone?): ${e.message}")
+                PrivycsLogger.d(TAG, "Kill switch callback unregister failed (already gone?): ${e.message}")
             }
             killSwitchNetworkCallback = null
         }
@@ -1026,11 +1026,11 @@ class PrivycsVpnService : VpnService() {
         try {
             poolScheduler.unregisterBatterySaverReceiver()
         } catch (e: Exception) {
-            Log.d(TAG, "battery-saver unregister failed: ${e.message}")
+            PrivycsLogger.d(TAG, "battery-saver unregister failed: ${e.message}")
         }
         scope.cancel()
         super.onDestroy()
-        Log.d(TAG, "VPN service destroyed")
+        PrivycsLogger.d(TAG, "VPN service destroyed")
     }
 
     override fun onRevoke() {
@@ -1043,7 +1043,7 @@ class PrivycsVpnService : VpnService() {
         // service teardown and spawns a second GoBackend on the same
         // /dev/tun (observed symptom: "Failed to write packet to TUN
         // device: input/output error" + keepalive storm).
-        Log.w(TAG, "VPN permission revoked")
+        PrivycsLogger.w(TAG, "VPN permission revoked")
         com.privycs.vpn.util.AlwaysOnDetector.stampSystemRevoke(this)
         handleDisconnect()
         super.onRevoke()
@@ -1068,7 +1068,7 @@ class PrivycsVpnService : VpnService() {
                 // and the only release path remains the user toggling
                 // KS off in Settings.
                 if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
-                    Log.w(TAG, "handleConnect refused: sinkhole active - manual KS toggle off required")
+                    PrivycsLogger.w(TAG, "handleConnect refused: sinkhole active - manual KS toggle off required")
                     com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
                     return@launch
                 }
@@ -1093,7 +1093,7 @@ class PrivycsVpnService : VpnService() {
                     if (!hasAnyNonVpnNetwork(cm)) {
                         val sinkhole = com.privycs.vpn.util.KillSwitchManager
                             .isSinkholeActive()
-                        Log.w(TAG, "handleConnect refused: no underlying non-VPN network (sinkhole=$sinkhole)")
+                        PrivycsLogger.w(TAG, "handleConnect refused: no underlying non-VPN network (sinkhole=$sinkhole)")
                         com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
                         if (sinkhole) {
                             updateNotification(
@@ -1135,14 +1135,14 @@ class PrivycsVpnService : VpnService() {
                     VpnProtocol.OPENVPN -> connectOpenVpn(configContent)
                     VpnProtocol.IPSEC -> connectIpSec(configContent)
                     null -> {
-                        Log.e(TAG, "Unknown protocol: $protocolStr")
+                        PrivycsLogger.e(TAG, "Unknown protocol: $protocolStr")
                         val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
                         manager.updateStatus(VpnStatus(error = "Unknown protocol: $protocolStr"))
                         stopSelf()
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Connect failed", e)
+                PrivycsLogger.e(TAG, "Connect failed", e)
                 val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
                 manager.updateStatus(VpnStatus(error = "Connection failed: ${e.message}"))
                 stopSelf()
@@ -1167,15 +1167,15 @@ class PrivycsVpnService : VpnService() {
      */
     private suspend fun teardownAllProtocols() {
         val hadSomething = wireGuardTunnel != null || openVpnTunnel != null || ipSecTunnel != null
-        try { wireGuardTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "WG teardown: ${e.message}") }
+        try { wireGuardTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "WG teardown: ${e.message}") }
         wireGuardTunnel = null
-        try { openVpnTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "OpenVPN teardown: ${e.message}") }
+        try { openVpnTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "OpenVPN teardown: ${e.message}") }
         openVpnTunnel = null
-        try { ipSecTunnel?.disconnect() } catch (e: Exception) { Log.w(TAG, "IPSec teardown: ${e.message}") }
+        try { ipSecTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "IPSec teardown: ${e.message}") }
         ipSecTunnel = null
 
         if (hadSomething) {
-            Log.i(TAG, "Previous tunnel torn down, waiting 1500ms for native-side cleanup")
+            PrivycsLogger.i(TAG, "Previous tunnel torn down, waiting 1500ms for native-side cleanup")
             delay(1500)
         }
     }
@@ -1210,7 +1210,7 @@ class PrivycsVpnService : VpnService() {
         val raw = try {
             PrivycsApp.instance.settingsRepository.getSettingsBlocking().dnsOverride
         } catch (e: Exception) {
-            Log.w(TAG, "DNS override read failed: ${e.message}")
+            PrivycsLogger.w(TAG, "DNS override read failed: ${e.message}")
             return emptyList()
         }
         if (raw.isBlank()) return emptyList()
@@ -1248,7 +1248,7 @@ class PrivycsVpnService : VpnService() {
             }
         }
         if (interfaceStart < 0) {
-            Log.w(TAG, "DNS override (WG): [Interface] section not found, override skipped")
+            PrivycsLogger.w(TAG, "DNS override (WG): [Interface] section not found, override skipped")
             return configContent
         }
 
@@ -1269,7 +1269,7 @@ class PrivycsVpnService : VpnService() {
         if (!replaced) {
             lines.add(interfaceEnd, newLine)
         }
-        Log.i(TAG, "DNS override (WG): applied ${servers.joinToString(",")} (${if (replaced) "replaced" else "inserted"})")
+        PrivycsLogger.i(TAG, "DNS override (WG): applied ${servers.joinToString(",")} (${if (replaced) "replaced" else "inserted"})")
         return lines.joinToString("\n")
     }
 
@@ -1289,7 +1289,7 @@ class PrivycsVpnService : VpnService() {
         val mode = prefs.getString("mode", "exclude") ?: "exclude"
         val packages = prefs.getStringSet("packages", emptySet()) ?: emptySet()
         if (packages.isEmpty()) {
-            Log.d(TAG, "Per-App VPN (WG): no apps configured, config unchanged")
+            PrivycsLogger.d(TAG, "Per-App VPN (WG): no apps configured, config unchanged")
             return configContent
         }
 
@@ -1305,7 +1305,7 @@ class PrivycsVpnService : VpnService() {
             packages.size == 1 &&
             packages.first() == packageName
         ) {
-            Log.w(
+            PrivycsLogger.w(
                 TAG,
                 "Per-App VPN (WG): include-mode but only our own package " +
                 "selected - skipping injection (no user apps would tunnel). " +
@@ -1330,7 +1330,7 @@ class PrivycsVpnService : VpnService() {
         // given the guards above, but bail explicitly to avoid the
         // injection emitting a malformed line.
         if (value.isBlank()) {
-            Log.e(TAG, "Per-App VPN (WG): empty package list - aborting injection")
+            PrivycsLogger.e(TAG, "Per-App VPN (WG): empty package list - aborting injection")
             return configContent
         }
         val injected = "$key = $value"
@@ -1348,12 +1348,12 @@ class PrivycsVpnService : VpnService() {
             }
         }
         if (interfaceIdx < 0) {
-            Log.w(TAG, "Per-App VPN (WG): [Interface] section not found, config unchanged")
+            PrivycsLogger.w(TAG, "Per-App VPN (WG): [Interface] section not found, config unchanged")
             return configContent
         }
         val at = if (insertIdx > 0) insertIdx else lines.size
         lines.add(at, injected)
-        Log.i(TAG, "Per-App VPN (WG): mode=$mode, ${finalPackages.size} packages injected")
+        PrivycsLogger.i(TAG, "Per-App VPN (WG): mode=$mode, ${finalPackages.size} packages injected")
         return lines.joinToString("\n")
     }
 
@@ -1429,7 +1429,7 @@ class PrivycsVpnService : VpnService() {
         sb.appendLine("pull-filter ignore \"dhcp-option DNS\"")
         for (s in servers) sb.appendLine("dhcp-option DNS $s")
         sb.append(configContent)
-        Log.i(TAG, "DNS override (OVPN): applied ${servers.joinToString(",")}")
+        PrivycsLogger.i(TAG, "DNS override (OVPN): applied ${servers.joinToString(",")}")
         return sb.toString()
     }
 
@@ -1488,7 +1488,7 @@ class PrivycsVpnService : VpnService() {
         try {
             poolScheduler.cancelAll()
         } catch (e: Exception) {
-            Log.w(TAG, "pool alarm cancel failed: ${e.message}")
+            PrivycsLogger.w(TAG, "pool alarm cancel failed: ${e.message}")
         }
 
         // Clear scheduledRotationAt for the active pool so the UI
@@ -1532,7 +1532,7 @@ class PrivycsVpnService : VpnService() {
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error during disconnect", e)
+                PrivycsLogger.e(TAG, "Error during disconnect", e)
             }
 
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
@@ -1581,13 +1581,13 @@ class PrivycsVpnService : VpnService() {
                     .getSettingsBlocking().killSwitchEnabled
                 val alwaysOn = com.privycs.vpn.util.AlwaysOnDetector.detected.value
                 if (ksEnabled && ksWasArmed && !alwaysOn) {
-                    Log.i(TAG, "handleDisconnect: KS enabled + KS was armed → forceSinkhole")
+                    PrivycsLogger.i(TAG, "handleDisconnect: KS enabled + KS was armed → forceSinkhole")
                     com.privycs.vpn.util.KillSwitchManager.forceSinkhole(
                         "manual disconnect with KS armed",
                     )
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "handleDisconnect: KS sinkhole engage failed: ${e.message}")
+                PrivycsLogger.w(TAG, "handleDisconnect: KS sinkhole engage failed: ${e.message}")
             }
 
             // Critical: if Kill Switch is enabled, the manager.updateStatus
@@ -1599,7 +1599,7 @@ class PrivycsVpnService : VpnService() {
             // Kill Switch intent. Stay alive in sinkhole mode.
             delay(150)
             if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
-                Log.i(TAG, "handleDisconnect: Kill Switch sinkhole engaged - keeping service alive in block-all mode")
+                PrivycsLogger.i(TAG, "handleDisconnect: Kill Switch sinkhole engaged - keeping service alive in block-all mode")
                 updateNotification(
                     "Kill Switch active — traffic blocked",
                     sinkholeMode = true,
@@ -1630,7 +1630,7 @@ class PrivycsVpnService : VpnService() {
             // does not keep the foreground notification alive for a
             // service that is intentionally doing nothing.
             if (com.privycs.vpn.util.AlwaysOnDetector.isPausedNow(this@PrivycsVpnService)) {
-                Log.i(TAG, "handleAlwaysOnReconnect: pause flag active - skipping reconnect")
+                PrivycsLogger.i(TAG, "handleAlwaysOnReconnect: pause flag active - skipping reconnect")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return@launch
@@ -1646,7 +1646,7 @@ class PrivycsVpnService : VpnService() {
             val connRepoEarly = PrivycsApp.instance.connectionRepository
             val activeConnEarly = connRepoEarly.getActive()
             if (activeConnEarly == null) {
-                Log.d(TAG, "handleAlwaysOnReconnect: no active connection, stopping")
+                PrivycsLogger.d(TAG, "handleAlwaysOnReconnect: no active connection, stopping")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return@launch
@@ -1654,7 +1654,7 @@ class PrivycsVpnService : VpnService() {
             val claimed = com.privycs.vpn.util.ConnectCoordinator
                 .markAlwaysOnConnecting(activeConnEarly)
             if (!claimed) {
-                Log.i(TAG, "handleAlwaysOnReconnect: coordinator slot taken, yielding")
+                PrivycsLogger.i(TAG, "handleAlwaysOnReconnect: coordinator slot taken, yielding")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return@launch
@@ -1672,7 +1672,7 @@ class PrivycsVpnService : VpnService() {
             // same need with finer-grained rule evaluation).
             val activeConn = connRepo.getActive()
             if (activeConn == null) {
-                Log.d(TAG, "No active connection to restore, stopping")
+                PrivycsLogger.d(TAG, "No active connection to restore, stopping")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return@launch
@@ -1709,10 +1709,10 @@ class PrivycsVpnService : VpnService() {
             // callback's one-shot values for the rest of the session.
             delay(STATUS_POLL_INTERVAL_MS)
             val loopStart = System.currentTimeMillis()
-            Log.i(TAG, "startStatusPolling: loop starting, scope.isActive=$isActive, currentProtocol=$currentProtocol")
+            PrivycsLogger.i(TAG, "startStatusPolling: loop starting, scope.isActive=$isActive, currentProtocol=$currentProtocol")
             while (isActive) {
                 iter++
-                Log.i(TAG, "startStatusPolling: iteration=$iter protocol=$currentProtocol")
+                PrivycsLogger.i(TAG, "startStatusPolling: iteration=$iter protocol=$currentProtocol")
                 val status = when (currentProtocol) {
                     VpnProtocol.WIREGUARD -> {
                         wireGuardTunnel?.getStatus(currentConnectionName, currentConnectionId)
@@ -1762,7 +1762,7 @@ class PrivycsVpnService : VpnService() {
                             else -> false
                         }
                         if (!stillTransient) {
-                            Log.w(TAG, "Tunnel went down unexpectedly")
+                            PrivycsLogger.w(TAG, "Tunnel went down unexpectedly")
                             updateNotification("Disconnected")
                             break
                         }
