@@ -257,7 +257,17 @@ func (a *App) startup(ctx context.Context) {
 	// NetworkMonitor's platform-watcher subscriptions; the keepalive
 	// loop is the no-COD fallback. 30s tick is cheap and matches the
 	// existing safety-poll cadence.
-	go a.poolKeepaliveLoop()
+	// Pool keepalive ticker DISABLED in v0.9.13.4 stability patch.
+	// Was suspected as one of the cascade sources during the
+	// "4 windows opening / closing" / "Connect doesn't work"
+	// reports. With autoConnect / Connect-on-Demand / network
+	// monitor / tunnel health all firing in parallel, an extra
+	// 30s ticker that fires reconnect intents added to the
+	// noise. Manual reconnect via Connect button is the user's
+	// recovery path until we re-enable with rate-limiting.
+	if false {
+		go a.poolKeepaliveLoop()
+	}
 
 	// Pre-warm the SelfIP cache in the background so the first
 	// user-facing operation (ActivatePool, Connect, picker switch)
@@ -772,13 +782,18 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		shouldRun := mode == "always" || (mode == "auto" && isPool)
 		if shouldRun {
 			target := a.settings.TunnelHealthTarget
+			// Recovery callback is currently DISABLED on desktop
+			// pending v0.9.13.x stability work. The monitor still
+			// observes ping success/failure and updates the UI
+			// pill, but does NOT auto-disconnect on dead detection
+			// because the cascade interaction with poolKeepaliveLoop
+			// + notify-on-transition produced "4 modal windows
+			// opening and closing" symptoms reported by the user.
+			// Manual reconnect via Connect button is the user's
+			// recovery path until the auto-recovery is re-enabled
+			// with proper rate-limiting in a follow-up patch.
 			a.tunnelHealth.Start(target, func() {
-				a.mu.Lock()
-				defer a.mu.Unlock()
-				if a.connected {
-					log.Printf("TunnelHealth recovery: forcing disconnect")
-					_ = a.disconnectInternal()
-				}
+				log.Printf("TunnelHealth: would have triggered recovery (disabled in v0.9.13.4 - manual reconnect required)")
 			})
 		}
 	}
@@ -1720,11 +1735,22 @@ func (a *App) startOnDemandMonitoring() {
 		a.selfIPDetector.SubscribeNetworkChanges(nm)
 	}
 
-	// Phase 2: wire the per-network rules engine. When the user
-	// has at least one rule defined, the monitor's evaluator
-	// consults it before the legacy COD logic; first-match wins.
-	if nm := a.autoConnect.NetworkMonitor(); nm != nil && a.networkRules != nil {
-		nm.SetRuleEngine(a.networkRules.Resolve, a.applyRuleResolution)
+	// Phase 2: rules engine is GATED behind a settings flag in
+	// v0.9.13.4 because the v0.9.13.0..3 versions caused
+	// connect-cascade and 4-modal-flicker reports. The
+	// transition-guard fix in v0.9.13.3 reduced the symptom but
+	// did not eliminate it on every user's machine. Until we
+	// have a clean reproduction + fix, the engine is opt-in via
+	// AppSettings.NetworkRulesEnabled (default false). Existing
+	// rules persist on disk; users who want them active enable
+	// the toggle in Settings.
+	if a.settings.NetworkRulesEnabled {
+		if nm := a.autoConnect.NetworkMonitor(); nm != nil && a.networkRules != nil {
+			nm.SetRuleEngine(a.networkRules.Resolve, a.applyRuleResolution)
+			log.Printf("Network rules engine: ENABLED")
+		}
+	} else {
+		log.Printf("Network rules engine: disabled (opt-in via Settings)")
 	}
 }
 

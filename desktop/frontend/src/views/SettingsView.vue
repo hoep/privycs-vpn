@@ -357,7 +357,19 @@
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network Rules</h3>
         <p class="text-[10px] text-gray-400 mb-3">
           Per-network auto-tunnel routing. Define rules matching SSID / BSSID / network type → Pool / Connection / No-VPN.
-          When set, rules drive the lifecycle (overrides Connect-on-Demand above).
+          When enabled, rules drive the lifecycle (overrides Connect-on-Demand above).
+        </p>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm text-gray-700 dark:text-gray-300">Engine enabled</span>
+          <input
+            type="checkbox"
+            :checked="settings.network_rules_enabled"
+            @change="settings.network_rules_enabled = $event.target.checked; saveSettings()"
+            class="w-4 h-4"
+          />
+        </div>
+        <p v-if="!settings.network_rules_enabled" class="text-[10px] text-amber-500 mb-3">
+          Disabled by default in v0.9.13.4 after stability reports. Toggle on to activate. Existing rules persist.
         </p>
         <router-link to="/network-rules"
           class="btn-secondary block w-full py-2 text-center text-xs">

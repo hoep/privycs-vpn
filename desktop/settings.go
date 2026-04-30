@@ -45,6 +45,10 @@ type AppSettings struct {
 	// Empty target falls back to built-in default 1.1.1.1.
 	TunnelHealthMode   string                  `json:"tunnel_health_mode,omitempty"`
 	TunnelHealthTarget string                  `json:"tunnel_health_target,omitempty"`
+	// Per-network rules engine (Phase 2). Default off in v0.9.13.4
+	// after the v0.9.13.0..3 instability reports - opt-in until
+	// the connect-cascade interaction is fully understood.
+	NetworkRulesEnabled bool `json:"network_rules_enabled,omitempty"`
 }
 
 // LoadSettings reads settings from disk or returns defaults
