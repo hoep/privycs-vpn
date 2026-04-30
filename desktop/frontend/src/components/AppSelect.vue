@@ -5,9 +5,15 @@
         class="relative w-full cursor-pointer rounded-md border border-gray-300 dark:border-gray-600
                bg-white dark:bg-gray-800 py-1.5 pl-3 pr-8 text-left text-sm
                text-gray-900 dark:text-gray-200
-               focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+               focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500
+               min-w-[8rem]"
       >
-        <span class="block truncate">{{ selectedLabel }}</span>
+        <span
+          class="block truncate"
+          :class="!selectedLabel ? 'text-gray-400 dark:text-gray-500' : ''"
+        >
+          {{ selectedLabel || placeholder || ' ' }}
+        </span>
         <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
           <ChevronUpDownIcon class="h-4 w-4 text-gray-400" />
         </span>
@@ -53,12 +59,20 @@ import { CheckIcon, ChevronUpDownIcon } from '@heroicons/vue/24/outline'
 const props = defineProps<{
   modelValue: string
   options: { value: string; label: string }[]
+  placeholder?: string
 }>()
 
 defineEmits(['update:modelValue'])
 
+// Returns empty string when there is no matching option AND no
+// modelValue. The template then falls back to the placeholder so the
+// button shows "Presets..." instead of collapsing to chevron-only
+// width (the v0.9.13.8 bug — placeholder was passed as a prop but
+// AppSelect did not declare it, so it was silently dropped and the
+// dropdown looked invisible).
 const selectedLabel = computed(() => {
   const opt = props.options.find(o => o.value === props.modelValue)
-  return opt?.label || props.modelValue
+  if (opt) return opt.label
+  return props.modelValue || ''
 })
 </script>

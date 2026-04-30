@@ -335,21 +335,25 @@
       <div v-if="isConnected" class="w-full max-w-sm grid grid-cols-2 gap-3 mb-4">
         <div class="card p-3 text-center">
           <div class="flex items-center justify-center gap-1 mb-1">
-            <ArrowDownTrayIcon class="w-3 h-3 text-green-400" />
+            <ArrowDownTrayIcon class="w-3 h-3 text-primary-400" />
             <span class="text-[10px] text-gray-500">Download</span>
           </div>
           <span class="text-base font-semibold text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_rx) }}</span>
           <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestRxSpeed) }}</div>
-          <SpeedSparkline :data="vpn.rxSpeedHistory" color="#4ade80" />
+          <!-- #34d4b2 = primary-400 (Privycs teal). Sparkline takes a
+               raw hex because echarts itemStyle.color does not resolve
+               Tailwind tokens at runtime. Mirrors the icon color above. -->
+          <SpeedSparkline :data="vpn.rxSpeedHistory" color="#34d4b2" />
         </div>
         <div class="card p-3 text-center">
           <div class="flex items-center justify-center gap-1 mb-1">
-            <ArrowUpTrayIcon class="w-3 h-3 text-blue-400" />
+            <ArrowUpTrayIcon class="w-3 h-3 text-secondary-500" />
             <span class="text-[10px] text-gray-500">Upload</span>
           </div>
           <span class="text-base font-semibold text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_tx) }}</span>
           <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestTxSpeed) }}</div>
-          <SpeedSparkline :data="vpn.txSpeedHistory" color="#60a5fa" />
+          <!-- #1f8efa = secondary-500 (Privycs accent blue). -->
+          <SpeedSparkline :data="vpn.txSpeedHistory" color="#1f8efa" />
         </div>
       </div>
 

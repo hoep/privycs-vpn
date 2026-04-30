@@ -334,7 +334,7 @@
               :value="opt.value"
               v-model="settings.tunnel_health_mode"
               @change="saveSettings()"
-              class="text-primary-600"
+              class="accent-primary-600 h-4 w-4"
             />
             <span class="text-gray-700 dark:text-gray-300">{{ opt.label }}</span>
           </label>
