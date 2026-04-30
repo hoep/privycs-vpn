@@ -908,9 +908,24 @@ func (a *App) disconnectInternal() error {
 	a.disconnecting = true
 	a.connectedAt = time.Time{}
 
-	log.Printf("Disconnecting %s...", a.activeProtocol)
+	// Snapshot fields we need without the lock during the slow Down call.
+	appCtx := a.ctx
+	activeProtocol := a.activeProtocol
 
-	downErr := proto.Down(a.ctx)
+	log.Printf("Disconnecting %s...", activeProtocol)
+
+	// Release a.mu around proto.Down. Down is slow on every protocol
+	// (Windows: subprocess to privileged helper + NDIS teardown for
+	// WireGuard, IKE-SA delete for IPSec, management-socket close for
+	// OpenVPN — up to 5+ seconds in the worst case) and holding the
+	// global app mutex during it freezes every UI IPC handler that
+	// needs the lock (Status, ListConnections, GetSettings, ...).
+	// proto.Down touches OS state via the protocol handler / privileged
+	// helper; it does not touch App state. Re-acquire after.
+	a.mu.Unlock()
+	downErr := proto.Down(appCtx)
+	a.mu.Lock()
+
 	a.disconnecting = false
 
 	if downErr != nil {
@@ -924,10 +939,10 @@ func (a *App) disconnectInternal() error {
 		// MAY still be running and they should run the cleanup
 		// PowerShell if their public IP still shows the VPN exit.
 		// User-recoverable beats user-stuck.
-		wailsRuntime.EventsEmit(a.ctx, "vpn:error", downErr.Error())
+		wailsRuntime.EventsEmit(appCtx, "vpn:error", downErr.Error())
 		Notify("VPN disconnect (with errors)",
 			fmt.Sprintf("%s reported: %s. If your public IP still shows the VPN, run the cleanup script.",
-				strings.ToUpper(a.activeProtocol), downErr.Error()),
+				strings.ToUpper(activeProtocol), downErr.Error()),
 			NotifyError)
 		a.connected = false
 		return nil
@@ -958,9 +973,9 @@ func (a *App) disconnectInternal() error {
 		}()
 	}
 
-	wailsRuntime.EventsEmit(a.ctx, "vpn:disconnected", a.activeProtocol)
+	wailsRuntime.EventsEmit(appCtx, "vpn:disconnected", activeProtocol)
 	log.Println("Disconnected")
-	Notify("VPN disconnected", fmt.Sprintf("%s tunnel closed", strings.ToUpper(a.activeProtocol)), NotifyInfo)
+	Notify("VPN disconnected", fmt.Sprintf("%s tunnel closed", strings.ToUpper(activeProtocol)), NotifyInfo)
 
 	return nil
 }
@@ -1146,11 +1161,17 @@ func (a *App) ListConnections() []*SavedConnection {
 
 // ActivateConnection switches to a saved connection and optionally a specific protocol
 func (a *App) ActivateConnection(id string, protocol string) error {
+	// SNAPSHOT phase: lookup conn + protocol handler, run any
+	// disconnect-on-active under the lock. THEN release the lock for
+	// the slow Configure call. Holding a.mu through Configure was
+	// what made the user's "click on connection list does nothing"
+	// symptom — every UI IPC waiting on a.mu blocked while Configure
+	// did its file write + setTunnelName mutations.
 	a.mu.Lock()
-	defer a.mu.Unlock()
 
 	conn := a.connections.Get(id)
 	if conn == nil {
+		a.mu.Unlock()
 		return fmt.Errorf("connection not found: %s", id)
 	}
 
@@ -1169,13 +1190,6 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 		}
 	}
 
-	// Disconnect current tunnel if connected
-	if a.connected {
-		if err := a.disconnectInternal(); err != nil {
-			log.Printf("Warning: disconnect failed during activate: %v", err)
-		}
-	}
-
 	// Select protocol
 	selectedProtocol := protocol
 	if selectedProtocol == "" {
@@ -1187,28 +1201,49 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 
 	cfg := conn.GetProtocol(selectedProtocol)
 	if cfg == nil {
+		a.mu.Unlock()
 		return fmt.Errorf("protocol %s not configured for connection %s", selectedProtocol, conn.Name)
 	}
 
 	protoHandler, ok := a.protocols[selectedProtocol]
 	if !ok {
+		a.mu.Unlock()
 		return fmt.Errorf("protocol handler not available: %s", selectedProtocol)
 	}
 
-	setTunnelName(protoHandler, sanitizeTunnelName(conn.Name))
+	connName := conn.Name
+	cfgContent := cfg.ConfigContent
 
-	if err := protoHandler.Configure(a.applyDnsOverride([]byte(cfg.ConfigContent), protoHandler.Name())); err != nil {
+	// Disconnect current tunnel if connected. disconnectInternal
+	// itself releases the lock around the slow proto.Down call
+	// (PATCH 1 in v0.9.13.6) so this no longer freezes the UI.
+	if a.connected {
+		if err := a.disconnectInternal(); err != nil {
+			log.Printf("Warning: disconnect failed during activate: %v", err)
+		}
+	}
+	a.mu.Unlock()
+
+	// CONFIGURE phase — NO LOCK. setTunnelName + applyDnsOverride +
+	// Configure all run without holding a.mu so concurrent UI calls
+	// (Status, ListConnections, GetSettings, …) stay responsive.
+	setTunnelName(protoHandler, sanitizeTunnelName(connName))
+
+	if err := protoHandler.Configure(a.applyDnsOverride([]byte(cfgContent), protoHandler.Name())); err != nil {
 		return fmt.Errorf("failed to configure: %w", err)
 	}
 
+	// STATE-UPDATE phase.
+	a.mu.Lock()
 	a.connections.SetActive(id)
 	conn.ActiveProtocol = selectedProtocol
 	a.activeProtocol = selectedProtocol
 	a.settings.ActiveProtocol = selectedProtocol
 	a.connections.Save()
 	SaveSettings(a.settings)
+	a.mu.Unlock()
 
-	log.Printf("Activated connection: %s (%s)", conn.Name, selectedProtocol)
+	log.Printf("Activated connection: %s (%s)", connName, selectedProtocol)
 	return nil
 }
 
@@ -1489,15 +1524,27 @@ func (a *App) GetSettings() *AppSettings {
 // the spawn loop produced visible console-window flashing on the
 // user's screen.
 func (a *App) UpdateSettings(settings *AppSettings) error {
+	// SNAPSHOT phase: capture prevs, swap a.settings, persist.
+	// Side-effects below run AFTER the lock is released — they do
+	// not touch App state directly, only OS resources (firewall,
+	// registry) and external goroutines (NetworkMonitor). Holding
+	// a.mu during nm.Reevaluate() in particular risked re-entrant
+	// deadlocks: Reevaluate can synchronously dispatch the
+	// connectFn callback which calls connectActiveTarget →
+	// PickAndConnectActivePool → connectToPoolMember which
+	// re-acquires a.mu. PATCH 5 of v0.9.13.6.
 	a.mu.Lock()
-	defer a.mu.Unlock()
 
 	prevAutostart := a.settings != nil && a.settings.AutostartEnabled
 	prevKS := a.settings != nil && a.settings.KillSwitchEnabled
 	prevCOD := a.settings != nil && a.settings.ConnectOnDemand.Enabled
+	wasConnected := a.connected
 
 	a.settings = settings
 	SaveSettings(settings)
+
+	appCtx := a.ctx
+	a.mu.Unlock()
 
 	// Connect-on-Demand transitions:
 	//
@@ -1510,17 +1557,13 @@ func (a *App) UpdateSettings(settings *AppSettings) error {
 	//   on -> on  : push the new ConnectOnDemand pointer into the
 	//               monitor so settings changes (trigger, ssid_list)
 	//               take effect immediately rather than on next 60s
-	//               poll. Otherwise the monitor would still hold the
-	//               pointer to the OLD settings struct that
-	//               `a.settings = settings` just orphaned.
+	//               poll.
 	switch {
 	case !prevCOD && settings.ConnectOnDemand.Enabled:
 		a.startOnDemandMonitoring()
 	case prevCOD && !settings.ConnectOnDemand.Enabled:
 		a.autoConnect.Stop()
-		if a.connected {
-			// Detach disconnect from the locked UpdateSettings path -
-			// proto.Down can be slow and we hold a.mu here.
+		if wasConnected {
 			go func() {
 				if err := a.Disconnect(); err != nil {
 					log.Printf("UpdateSettings: COD-off triggered disconnect failed: %v", err)
@@ -1529,12 +1572,11 @@ func (a *App) UpdateSettings(settings *AppSettings) error {
 		}
 	case prevCOD && settings.ConnectOnDemand.Enabled:
 		nm := a.autoConnect.NetworkMonitor()
-		nm.UpdateSettings(&a.settings.ConnectOnDemand)
+		nm.UpdateSettings(&settings.ConnectOnDemand)
 		// Force an immediate re-eval so the change takes effect
 		// within ~1s rather than up to 60s (the safety-poll
-		// interval). Common case: user just changed the trigger
-		// from "any" to "wifi_mobile" while on Ethernet - they
-		// expect the VPN to disconnect now, not in a minute.
+		// interval). Safe to call without a.mu now — Reevaluate's
+		// connectFn callback will acquire the lock fresh.
 		nm.Reevaluate()
 	}
 
@@ -1559,7 +1601,7 @@ func (a *App) UpdateSettings(settings *AppSettings) error {
 		}
 	}
 
-	wailsRuntime.EventsEmit(a.ctx, "vpn:settings_changed", settings)
+	wailsRuntime.EventsEmit(appCtx, "vpn:settings_changed", settings)
 	return nil
 }
 

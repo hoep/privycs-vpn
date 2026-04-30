@@ -148,12 +148,24 @@ func (w *WireGuardProtocol) SetTunnelName(name string) {
 }
 
 func (w *WireGuardProtocol) Configure(cfg []byte) error {
+	// Forensic logging - user reported "Connect doesn't work" with
+	// logs ending at "WG split tunnel applied" and no further line.
+	// One of these steps is hanging on the user's machine; logs
+	// pinpoint which.
+	log.Printf("WireGuard.Configure: enter (confPath=%s, cfg=%d bytes)", w.confPath, len(cfg))
+
 	// Ensure directory exists
-	os.MkdirAll(filepath.Dir(w.confPath), 0700)
+	if err := os.MkdirAll(filepath.Dir(w.confPath), 0700); err != nil {
+		log.Printf("WireGuard.Configure: MkdirAll FAILED: %v", err)
+		return fmt.Errorf("failed to create WireGuard config dir: %w", err)
+	}
+	log.Printf("WireGuard.Configure: MkdirAll ok")
 
 	if err := os.WriteFile(w.confPath, cfg, 0600); err != nil {
+		log.Printf("WireGuard.Configure: WriteFile FAILED: %v", err)
 		return fmt.Errorf("failed to write WireGuard config: %w", err)
 	}
+	log.Printf("WireGuard.Configure: WriteFile ok")
 
 	// Derive interface name from config filename — this determines the
 	// Windows service name (WireGuardTunnel$<ifaceName>) and the

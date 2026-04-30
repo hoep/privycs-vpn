@@ -529,76 +529,57 @@ func (a *App) SwitchPoolMember(memberID string) error {
 // pool members are not "saved connections" the user picks individually
 // in the picker, they are pool-internal entries.
 //
-// Tunnel-name is STABLE per pool. Pool semantics guarantee only one
-// member is active at a time, so reusing the same tunnel name across
-// rotations keeps OS state minimal: one .conf file overwritten,
-// one WireGuardTunnel$ service stop/restart cycled, one wintun
-// adapter. Without this we accumulated one .conf + one service per
-// member ever connected (up to 600 leftover entries on a Mullvad
-// pool with full rotation history).
+// Tunnel-name pattern: "pool-<memberID-8>" — UNIQUE PER MEMBER.
+// Reverted from the v0.9.11.8+ slot-alternation ("privycs-pool-<pool>-A/B")
+// in v0.9.13.6. Slot-alternation made two members share .conf paths
+// over rotations, which on Windows produced os.WriteFile hangs when
+// wintun.sys / Defender held the previous file open during the NDIS
+// teardown that follows proto.Down. v0.9.11.7 used per-member paths
+// and was rock-stable; we are restoring that pattern.
+//
+// The member-unique scheme costs disk space (one .conf per member ever
+// connected — ~3 KB × 600 members = ~2 MB worst case for a Mullvad
+// pool) but eliminates the file-lock conflict entirely.
+//
+// Mutex contract:
+//   - Snapshot phase (lookups, pool state) takes a.mu briefly
+//   - Configure phase (file IO, may be slow on Windows) runs WITHOUT a.mu
+//   - State-update phase takes a.mu again briefly
+// Holding a.mu through Configure was what made every UI IPC handler
+// (ActivateConnection, UpdateSettings, Status, …) block in v0.9.11.8 ..
+// v0.9.13.5 — symptom: "click on connection list does nothing".
 func (a *App) connectToPoolMember(m *PoolMember) error {
 	if m == nil || m.Config == nil {
 		return fmt.Errorf("invalid member or config")
 	}
 
+	// SNAPSHOT phase.
 	a.mu.Lock()
 	proto, ok := a.protocols[m.Config.Protocol]
 	if !ok {
 		a.mu.Unlock()
 		return fmt.Errorf("protocol %s not registered", m.Config.Protocol)
 	}
-
-	// Alternating slot pattern: each connect uses the OPPOSITE slot
-	// of whatever's currently active. Per the user's suggestion -
-	// "du musst dir halt merken welcher conf welche ist". Reasons:
-	//
-	//   - The .conf file at the OS WireGuard config dir for slot A
-	//     stays untouched while slot B's tunnel is up. No race
-	//     between writing config and the service reading it.
-	//   - The service entry for slot A stays cleanly stopped (or
-	//     uninstalled) while slot B is up. Re-installing slot B's
-	//     fresh service is conflict-free; reusing the same name
-	//     after a Down sometimes hit "service already exists" race.
-	//   - Net effect: rotation just becomes "down current slot, up
-	//     opposite slot". Each step touches a different name on disk
-	//     and in the service registry.
-	suffix := shortID(a.activePoolID)
-	if suffix == "" {
-		suffix = "active"
-	}
-	// Slot alternation: opposite of currently-active slot. Reads
-	// state via the registry helper so we cannot read a stale value
-	// from a Pool struct that the rotator pre-warmed against. Empty
-	// state.ActiveSlot ("") naturally yields "A" via NextSlot.
-	currentSlot := a.pools.ActiveSlot(a.activePoolID)
-	nextSlotForPool := func(active string) string {
-		if active == "A" {
-			return "B"
-		}
-		return "A"
-	}
-	slot := nextSlotForPool(currentSlot)
-	tunnelName := "privycs-pool-" + suffix + "-" + slot
-	setTunnelName(proto, tunnelName)
-
-	// Pool-level split-tunnel config. Read upfront so the pre-write
-	// shortcut + the fresh-Configure path both see the same value.
-	// Active pool may be nil if the user just deleted it mid-rotate;
-	// treat as no split tunnel in that case.
+	activePoolID := a.activePoolID
 	var poolSplitTunnel PoolSplitTunnel
-	if pool := a.pools.Get(a.activePoolID); pool != nil {
+	if pool := a.pools.Get(activePoolID); pool != nil {
 		poolSplitTunnel = pool.SplitTunnel
 	}
+	a.mu.Unlock()
 
-	// Was this slot's .conf pre-written 60 s ago? If yes, adopt it
-	// (read-only) instead of writing again with identical content.
-	// Pre-write is bypassed when split tunnel is active because the
-	// pre-write code path does NOT apply the split-tunnel patch -
-	// adopting it would skip the AllowedIPs rewrite and leak full-
-	// tunnel routes for the bypass CIDRs.
+	// Member-unique tunnel name. setTunnelName mutates proto's
+	// internal ifaceName field; safe outside a.mu because each
+	// protocol handler owns its own state and Status() reads are
+	// idempotent.
+	tunnelName := "pool-" + shortID(m.ID)
+	setTunnelName(proto, tunnelName)
+
+	// Pre-warm adoption: if pre-warm wrote the same per-member
+	// .conf already, adopt it instead of rewriting. Bypassed for
+	// split-tunnel because pre-write does not patch AllowedIPs.
 	preWritten := false
 	if m.Config.Protocol == "wireguard" && !poolSplitTunnel.IsActive() {
-		if pendingID := a.pools.PendingMemberID(a.activePoolID); pendingID == m.ID {
+		if pendingID := a.pools.PendingMemberID(activePoolID); pendingID == m.ID {
 			confPath := filepath.Join(appDataDir(), tunnelName+".conf")
 			if _, err := os.Stat(confPath); err == nil {
 				preWritten = true
@@ -616,44 +597,30 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 		return a.applyDnsOverride([]byte(patched), proto.Name())
 	}
 
+	// CONFIGURE phase — NO LOCK. File IO can take seconds on
+	// Windows under Defender real-time-scan; previously this stalled
+	// every other UI handler.
+	var configErr error
 	if preWritten {
 		if wg, ok := proto.(*WireGuardProtocol); ok {
 			if err := wg.AdoptExistingConfig(); err != nil {
-				// Fallback: pre-written file vanished or unreadable.
-				if err := proto.Configure(applyAllPatches([]byte(m.Config.ConfigContent))); err != nil {
-					a.mu.Unlock()
-					return fmt.Errorf("invalid pool-member config: %w", err)
-				}
+				configErr = proto.Configure(applyAllPatches([]byte(m.Config.ConfigContent)))
 			}
 		} else {
-			if err := proto.Configure(applyAllPatches([]byte(m.Config.ConfigContent))); err != nil {
-				a.mu.Unlock()
-				return fmt.Errorf("invalid pool-member config: %w", err)
-			}
+			configErr = proto.Configure(applyAllPatches([]byte(m.Config.ConfigContent)))
 		}
 	} else {
-		if err := proto.Configure(applyAllPatches([]byte(m.Config.ConfigContent))); err != nil {
-			a.mu.Unlock()
-			return fmt.Errorf("invalid pool-member config: %w", err)
-		}
+		configErr = proto.Configure(applyAllPatches([]byte(m.Config.ConfigContent)))
+	}
+	if configErr != nil {
+		return fmt.Errorf("invalid pool-member config: %w", configErr)
 	}
 
+	// STATE-UPDATE phase.
+	a.mu.Lock()
 	a.activeProtocol = m.Config.Protocol
 	a.settings.ActiveProtocol = m.Config.Protocol
 	a.mu.Unlock()
-
-	// Persist the new slot BEFORE Connect. The race we used to have:
-	// Connect's status-poll loop ran for several seconds while
-	// pool.ActiveSlot was still the OLD value. If pre-warm fired
-	// during that window (e.g. very short rotation interval), it
-	// computed NextSlot from the stale value and pre-wrote into the
-	// CURRENT slot's file. Persisting first puts the new value where
-	// pre-warm reads it and eliminates that path. If Connect
-	// subsequently fails, the retry loop's next iteration will
-	// re-target the same slot anyway (current ActiveSlot stays the
-	// new value, NextSlot() flips back to the previous one) - no
-	// orphaned state.
-	a.pools.SetActiveSlot(a.activePoolID, slot)
 
 	if _, err := a.Connect(""); err != nil {
 		return err
@@ -1346,16 +1313,19 @@ func (a *App) preWarmActivePool() {
 	}
 	a.pools.SetPendingMember(pool.ID, member.ID)
 
-	// Pre-write the .conf file for the next slot to disk RIGHT NOW
+	// Pre-write the .conf file for the next member to disk RIGHT NOW
 	// (60 s before rotation). The rotation tick then only has to do
 	// the OS-service install + handshake; the file write that used
 	// to live in the disconnect-then-write-then-up critical path is
 	// gone. For protocols other than WireGuard the path layout is
 	// different - we skip pre-write for OpenVPN/IPSec rather than
 	// risk writing to the wrong place.
+	//
+	// Tunnel name MUST match connectToPoolMember's pattern
+	// ("pool-<memberID-8>") so AdoptExistingConfig finds the
+	// pre-written file. Reverted from slot-alternation in v0.9.13.6.
 	if member.Config != nil && member.Config.Protocol == "wireguard" {
-		nextSlot := pool.NextSlot(a.pools)
-		nextTunnel := "privycs-pool-" + shortID(pool.ID) + "-" + nextSlot
+		nextTunnel := "pool-" + shortID(member.ID)
 		if err := a.preWriteWGConfig(nextTunnel, member.Config.ConfigContent); err != nil {
 			log.Printf("Pool: pre-write %s.conf failed: %v", nextTunnel, err)
 		} else {
