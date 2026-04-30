@@ -144,7 +144,14 @@ data class AppSettings(
     @SerialName("api_key")
     val apiKey: String = "",
     @SerialName("connect_on_demand")
-    val connectOnDemand: ConnectOnDemandSettings = ConnectOnDemandSettings()
+    val connectOnDemand: ConnectOnDemandSettings = ConnectOnDemandSettings(),
+    // First-launch tracking. Set to true by MainActivity after the
+    // post-install location-permission rationale has been shown
+    // exactly once. Defaults to false so an upgrade-from-old-version
+    // counts as "still need to ask" - users who were never prompted
+    // get the rationale dialog on the next app open.
+    @SerialName("first_launch_completed")
+    val firstLaunchCompleted: Boolean = false
 )
 
 // Gateway API models matching desktop api_client.go

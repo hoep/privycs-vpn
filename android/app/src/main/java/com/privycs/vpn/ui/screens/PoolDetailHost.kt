@@ -131,26 +131,36 @@ fun PoolDetailHost(
                     // (within RestrictRegions) still works.
                 }
             }
-            // Route the activate-tap through ConnectCoordinator so
-            // the same gates (Kill Switch sinkhole, system-revoke
-            // cooldown, Always-On / manual pause) and serialisation
-            // apply to pool activations as to single-connection
-            // taps. Pre-Coordinator-pool-aware code fired
-            // ACTION_POOL_CONNECT here directly which bypassed every
-            // gate.
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                try {
-                    com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
-                        ctx,
-                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
-                        poolId,
-                        pool.name,
-                    )
-                } catch (e: Exception) {
-                    // Coordinator already logs internally; UI just
-                    // proceeds to onActivated() so the navigation
-                    // still happens even if the connect intent was
-                    // gated (e.g. Kill Switch lock).
+            // COD-aware: when Connect-on-Demand is enabled the user
+            // expects activation to be a "set this as my target,
+            // connect when rules say so" gesture, NOT an immediate
+            // connect that overrides COD's "should not connect"
+            // assessment. Skip the connect intent in that case;
+            // the monitor's lifecycle owns it. With COD off the tap
+            // is a manual "activate + connect" (existing UX).
+            //
+            // Coordinator routing path (when we DO connect): same
+            // gates (Kill Switch sinkhole, system-revoke cooldown,
+            // Always-On / manual pause) + serialisation as single-
+            // connection.
+            val codEnabled = app.settingsRepository.getSettingsBlocking()
+                .connectOnDemand.enabled
+            if (!codEnabled) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    try {
+                        com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                            ctx,
+                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                            poolId,
+                            pool.name,
+                        )
+                    } catch (e: Exception) {
+                        // Coordinator already logs internally; UI
+                        // just proceeds to onActivated() so the
+                        // navigation still happens even if the
+                        // connect intent was gated (e.g. Kill
+                        // Switch lock).
+                    }
                 }
             }
             onActivated()

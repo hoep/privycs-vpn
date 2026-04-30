@@ -211,6 +211,20 @@ class PrivycsApp : StrongSwanApplication() {
                 }
             }
         }
+
+        // Pool keepalive watcher - independent of COD. When the user
+        // has a pool selected, the watcher reconnects the pool after
+        // any non-VPN network restoration event (Doze release, WiFi
+        // re-association, mobile-data toggle, airplane-mode off).
+        // Closes the "pool stopped overnight" hole where a Doze-
+        // induced tunnel drop combined with the all-members-
+        // unreachable connectivity gate left the pool stuck until
+        // the user opened the app and tapped Connect manually.
+        try {
+            com.privycs.vpn.service.PoolKeepaliveWatcher.start(applicationContext)
+        } catch (t: Throwable) {
+            Log.e("PrivycsApp", "PoolKeepaliveWatcher start failed", t)
+        }
     }
 
     /**

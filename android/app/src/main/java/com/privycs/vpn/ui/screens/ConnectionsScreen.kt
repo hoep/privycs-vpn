@@ -467,16 +467,29 @@ fun ConnectionsScreen(
                                     connectionRepo.setActive("")
                                     PrivycsApp.instance.poolRepository
                                         .setActiveId(p.id)
-                                    // Route through Coordinator so
-                                    // the same gates apply as for
-                                    // single-connection taps. See
-                                    // ConnectCoordinator.requestPoolConnect.
-                                    com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
-                                        context,
-                                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
-                                        p.id,
-                                        p.name,
-                                    )
+                                    // COD-aware: only fire the
+                                    // connect intent when COD is off.
+                                    // With COD on the tap is "select
+                                    // this as my target", connect is
+                                    // owned by the monitor's
+                                    // rule-driven lifecycle. Without
+                                    // this gate the tap would
+                                    // override a COD "should not
+                                    // connect" decision and bring
+                                    // the VPN up on a network the
+                                    // user explicitly excluded.
+                                    val codEnabled = PrivycsApp.instance
+                                        .settingsRepository
+                                        .getSettingsBlocking()
+                                        .connectOnDemand.enabled
+                                    if (!codEnabled) {
+                                        com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                                            context,
+                                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                                            p.id,
+                                            p.name,
+                                        )
+                                    }
                                     onNavigateToConnect()
                                 }
                             },

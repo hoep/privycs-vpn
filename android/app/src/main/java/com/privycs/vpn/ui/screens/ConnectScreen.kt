@@ -575,32 +575,30 @@ fun ConnectScreen(
                                         // FIRST so the Connect screen does
                                         // not show stale single-name +
                                         // protocol pills under the pool
-                                        // card. Pre-fix, the picker only
-                                        // set the pool active id and left
-                                        // single's activeId untouched -
-                                        // the protocol pills row at line
-                                        // ~604 then re-rendered for the
-                                        // previously-selected single
-                                        // connection because activeConnection
-                                        // = connectionRepo.getActive() was
-                                        // still non-null. Mirrors what
+                                        // card. Mirrors what
                                         // PoolDetailHost.onActivate and
                                         // ConnectionsScreen.onTap already
                                         // do.
                                         connectionRepo.setActive("")
                                         poolRepoForIndicator.setActiveId(p.id)
-                                        // Route through Coordinator
-                                        // so KS sinkhole / pause /
-                                        // cooldown gates apply to
-                                        // pool taps from the picker
-                                        // the same way they do to
-                                        // single-connection taps.
-                                        com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
-                                            context,
-                                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
-                                            p.id,
-                                            p.name,
-                                        )
+                                        // COD-aware: only fire connect
+                                        // when COD is off. With COD on
+                                        // the picker tap is "select
+                                        // this as my target" - the
+                                        // monitor's lifecycle owns the
+                                        // actual connect decision.
+                                        val codEnabled = PrivycsApp.instance
+                                            .settingsRepository
+                                            .getSettingsBlocking()
+                                            .connectOnDemand.enabled
+                                        if (!codEnabled) {
+                                            com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                                                context,
+                                                com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                                                p.id,
+                                                p.name,
+                                            )
+                                        }
                                     }
                                 }
                             )

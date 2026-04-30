@@ -32,6 +32,7 @@ class SettingsRepository(private val context: Context) {
         val COD_TRIGGER = stringPreferencesKey("cod_trigger")
         val COD_SSID_MODE = stringPreferencesKey("cod_ssid_mode")
         val COD_SSID_LIST = stringPreferencesKey("cod_ssid_list")
+        val FIRST_LAUNCH_COMPLETED = booleanPreferencesKey("first_launch_completed")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -51,7 +52,8 @@ class SettingsRepository(private val context: Context) {
                 ssidList = (prefs[Keys.COD_SSID_LIST] ?: "").let { raw ->
                     if (raw.isBlank()) emptyList() else raw.split(",").map { it.trim() }
                 }
-            )
+            ),
+            firstLaunchCompleted = prefs[Keys.FIRST_LAUNCH_COMPLETED] ?: false
         )
     }
 
@@ -78,6 +80,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.COD_TRIGGER] = settings.connectOnDemand.trigger
             prefs[Keys.COD_SSID_MODE] = settings.connectOnDemand.ssidMode
             prefs[Keys.COD_SSID_LIST] = settings.connectOnDemand.ssidList.joinToString(",")
+            prefs[Keys.FIRST_LAUNCH_COMPLETED] = settings.firstLaunchCompleted
         }
     }
 
@@ -171,6 +174,18 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.COD_TRIGGER] = cod.trigger
             prefs[Keys.COD_SSID_MODE] = cod.ssidMode
             prefs[Keys.COD_SSID_LIST] = cod.ssidList.joinToString(",")
+        }
+    }
+
+    /**
+     * Mark the first-launch flow complete. Called by MainActivity
+     * after the post-install Location-permission rationale + request
+     * has been shown exactly once. Subsequent app starts read the
+     * flag and skip the dialog.
+     */
+    suspend fun markFirstLaunchCompleted() {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.FIRST_LAUNCH_COMPLETED] = true
         }
     }
 
