@@ -270,7 +270,19 @@
           <ProtocolIcon :protocol="proto" size="xs" />
           {{ protocolLabel(proto) }}
         </button>
+        <!-- "+" Add-protocol-config link goes to the AddConnection
+             flow scoped to the currently-active single connection
+             (query.connectionId points to the existing record so
+             the imported config attaches to it). For pools the
+             concept does not apply: a pool is a bag of members with
+             potentially different protocols, the picker rotates
+             between them, and there is no single "the connection"
+             to attach a new protocol to. Hide the button entirely
+             when a pool is the active selection. Mirrors the
+             Android Connect screen which also hides single-protocol
+             UI affordances for pool users. -->
         <router-link
+          v-if="!poolStore.activePoolId"
           :to="{ path: '/add', query: { connectionId: vpn.status?.connection_id } }"
           class="px-2 py-1 rounded-full text-[11px] text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 bg-gray-100 dark:bg-gray-800/30 hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-all"
           title="Add another protocol config"
