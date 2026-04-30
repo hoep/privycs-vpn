@@ -161,23 +161,43 @@
             class="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700/50 group"
             :class="m.unreachable ? 'bg-amber-500/5' : ''"
           >
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-1.5">
-                <span class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ m.name }}</span>
-                <span
-                  v-if="m.unreachable"
-                  class="inline-flex items-center px-1 py-px rounded bg-amber-500/15 ring-1 ring-amber-500/30 text-amber-600 dark:text-amber-400 text-[8px] font-medium uppercase tracking-wide flex-shrink-0"
-                  :title="memberUnreachableTooltip(m)"
-                >
-                  Unreachable
+            <div class="min-w-0 flex-1 flex items-center gap-2">
+              <!-- Country flag rectangle keyed by ISO 3166-1 alpha-2.
+                   Uses the flag-icons CSS library (already loaded
+                   globally in main.ts) so Windows users see real
+                   flag glyphs - native flag emoji rendering is
+                   stripped on Windows for political reasons and
+                   would show "AT" / "DE" plain letters instead.
+                   Mirrors the pool-member flags Android renders
+                   via the OS's Regional Indicator Symbol pair
+                   (com.privycs.vpn.data.PoolHostnameLabels.flagEmojiFromCode).
+                   Empty-country members show no flag (the span
+                   self-collapses) and the row stays aligned via
+                   the consistent gap-2. -->
+              <span
+                v-if="m.country"
+                :class="`fi fi-${m.country.toLowerCase()} flex-shrink-0`"
+                style="width: 18px; height: 13px; border-radius: 2px;"
+                :title="m.country.toUpperCase()"
+              ></span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ m.name }}</span>
+                  <span
+                    v-if="m.unreachable"
+                    class="inline-flex items-center px-1 py-px rounded bg-amber-500/15 ring-1 ring-amber-500/30 text-amber-600 dark:text-amber-400 text-[8px] font-medium uppercase tracking-wide flex-shrink-0"
+                    :title="memberUnreachableTooltip(m)"
+                  >
+                    Unreachable
+                  </span>
+                </div>
+                <span class="text-[9px] text-gray-500">
+                  {{ m.country || 'unknown' }} · {{ m.region || 'Other' }}
+                  <span v-if="m.unreachable && m.last_error" class="ml-1 text-amber-500/80 truncate">
+                    · {{ m.last_error }}
+                  </span>
                 </span>
               </div>
-              <span class="text-[9px] text-gray-500">
-                {{ m.country || 'unknown' }} · {{ m.region || 'Other' }}
-                <span v-if="m.unreachable && m.last_error" class="ml-1 text-amber-500/80 truncate">
-                  · {{ m.last_error }}
-                </span>
-              </span>
             </div>
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
