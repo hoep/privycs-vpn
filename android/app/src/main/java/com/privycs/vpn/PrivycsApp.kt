@@ -67,6 +67,10 @@ class PrivycsApp : StrongSwanApplication() {
     lateinit var settingsRepository: SettingsRepository
         private set
 
+    /** Per-network auto-tunnel rules (Phase 2). */
+    lateinit var networkRulesRepository: com.privycs.vpn.data.NetworkRulesRepository
+        private set
+
     /** Pool runtime state (active member, slot, unreachable flags, cursors). */
     lateinit var poolStateRepository: PoolStateRepository
         private set
@@ -108,6 +112,7 @@ class PrivycsApp : StrongSwanApplication() {
         instance = this
         connectionRepository = ConnectionRepository(this)
         settingsRepository = SettingsRepository(this)
+        networkRulesRepository = com.privycs.vpn.data.NetworkRulesRepository(this)
         poolStateRepository = PoolStateRepository(this)
         poolRepository = PoolRepository(this, poolStateRepository)
         // MMDB-first resolver chain: IP-endpoints get exact country

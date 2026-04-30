@@ -290,6 +290,7 @@ class NetworkMonitor private constructor(private val context: Context) {
             // Use effective SSID from here on for state reporting so
             // the UI banner reflects the value we actually decided on.
             val ssid = effectiveSsid
+            val bssid = detectCurrentBssid()
 
             val newState = NetworkState(
                 networkType = networkType,
@@ -298,6 +299,22 @@ class NetworkMonitor private constructor(private val context: Context) {
                 ruleMatch = ruleMatch
             )
             _networkState.value = newState
+
+            // Phase 2: Per-network rules engine. When the user has
+            // defined any network rule, the rules engine becomes
+            // authoritative for the connect lifecycle. Walk rules
+            // in priority order, first match wins:
+            //   - NoVpn: if connected, disconnect; else stay down.
+            //   - Pool/Connection: switch target if different;
+            //     otherwise leave as-is.
+            //   - NoMatch (no rules OR none matched): fall through
+            //     to the legacy COD logic below for backwards-compat.
+            val ruleResolution = PrivycsApp.instance.networkRulesRepository
+                .resolve(networkType, ssid, bssid)
+            if (ruleResolution !is com.privycs.vpn.data.models.RuleResolution.NoMatch) {
+                applyRuleResolution(ruleResolution)
+                return@launch
+            }
 
             if (!codSettings.enabled) {
                 PrivycsLogger.d(TAG, "Connect on demand disabled, skipping action")
@@ -469,6 +486,93 @@ class NetworkMonitor private constructor(private val context: Context) {
             ""
         } catch (e: Exception) {
             PrivycsLogger.e(TAG, "Failed to get SSID", e)
+            ""
+        }
+    }
+
+    /**
+     * Apply a non-NoMatch rule resolution. Drives target switching
+     * via the existing switchActivePool / switchActiveConnection
+     * machinery so we get the same disconnect-wait-reconnect grace
+     * pattern, Coordinator gating, and tentative-status propagation
+     * that manual switches use.
+     *
+     * Honours the manual-disconnect cooldown and Always-On pause
+     * by routing through the Coordinator (via switch helpers,
+     * vpnManager.connect, requestDisconnect). USER source preserves
+     * the same gate semantics as a tap.
+     */
+    private suspend fun applyRuleResolution(
+        resolution: com.privycs.vpn.data.models.RuleResolution,
+    ) {
+        val app = PrivycsApp.instance
+        val vpnManager = VpnServiceManager.getInstance(context)
+        when (resolution) {
+            is com.privycs.vpn.data.models.RuleResolution.NoVpn -> {
+                if (vpnManager.isConnected) {
+                    PrivycsLogger.i(TAG, "rule -> NO_VPN, disconnecting")
+                    com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                        context,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
+                    )
+                }
+            }
+            is com.privycs.vpn.data.models.RuleResolution.Pool -> {
+                val poolReg = app.poolRepository.registry.value
+                val pool = poolReg.pools.firstOrNull { it.id == resolution.poolId }
+                if (pool == null) {
+                    PrivycsLogger.w(TAG, "rule -> POOL ${resolution.poolId} but pool not found")
+                    return
+                }
+                if (poolReg.activeId == pool.id && vpnManager.isConnected) {
+                    return // already active and connected
+                }
+                PrivycsLogger.i(TAG, "rule -> POOL ${pool.name}")
+                vpnManager.switchActivePool(pool.id)
+            }
+            is com.privycs.vpn.data.models.RuleResolution.Connection -> {
+                val conn = app.connectionRepository.getById(resolution.connectionId)
+                if (conn == null) {
+                    PrivycsLogger.w(TAG, "rule -> CONNECTION ${resolution.connectionId} but not found")
+                    return
+                }
+                val currentActive = app.connectionRepository.activeId
+                if (currentActive == conn.id && vpnManager.isConnected) {
+                    return
+                }
+                PrivycsLogger.i(TAG, "rule -> CONNECTION ${conn.name}")
+                vpnManager.switchActiveConnection(conn.id)
+            }
+            else -> Unit
+        }
+    }
+
+    /**
+     * Detect the current Wi-Fi BSSID (access-point MAC). Used by
+     * the Phase-3 BSSID-match rule type to defend against SSID
+     * spoofing - someone naming their hotspot "HomeWifi" at the
+     * airport would otherwise pass an SSID-only trust check.
+     *
+     * Requires ACCESS_FINE_LOCATION (which we already use for
+     * SSID detection on Android 8+). Returns "" when not on Wi-Fi
+     * or when BSSID cannot be determined. Lower-cased for
+     * case-insensitive matching against rule MAC strings.
+     */
+    @Suppress("DEPRECATION")
+    private fun detectCurrentBssid(): String {
+        if (detectNetworkType() != "wifi") return ""
+        return try {
+            val wifiInfo = wifiManager.connectionInfo
+            val bssid = wifiInfo?.bssid ?: return ""
+            // Android sometimes returns "02:00:00:00:00:00" when
+            // Location permission is granted but the system has
+            // anonymised the MAC (e.g. when MAC randomisation is
+            // active and the underlying call doesn't have full
+            // permission yet). Treat that as "unknown".
+            if (bssid == "02:00:00:00:00:00" || bssid.isBlank()) "" else bssid.lowercase()
+        } catch (e: SecurityException) {
+            ""
+        } catch (e: Exception) {
             ""
         }
     }

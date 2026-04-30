@@ -74,6 +74,11 @@ type App struct {
 	// the "tunnel up but no traffic" gap that OpenVPN / IPSec do
 	// not detect themselves.
 	tunnelHealth *TunnelHealthMonitor
+	// Per-network auto-tunnel rule list (Phase 2). Walked on every
+	// NetworkMonitor tick; first matching rule drives the connect
+	// lifecycle (overrides COD trigger/SSID logic when at least
+	// one rule exists). Empty list = legacy COD behaviour.
+	networkRules *NetworkRulesRegistry
 }
 
 // NewApp creates a new App instance
@@ -113,6 +118,7 @@ func NewApp() *App {
 		settings:           LoadSettings(),
 		stopStats:          make(chan struct{}),
 		tunnelHealth:       NewTunnelHealthMonitor(),
+		networkRules:       NewNetworkRulesRegistry(),
 	}
 }
 
@@ -1682,6 +1688,12 @@ func (a *App) startOnDemandMonitoring() {
 		a.selfIPDetector.SubscribeNetworkChanges(nm)
 	}
 
+	// Phase 2: wire the per-network rules engine. When the user
+	// has at least one rule defined, the monitor's evaluator
+	// consults it before the legacy COD logic; first-match wins.
+	if nm := a.autoConnect.NetworkMonitor(); nm != nil && a.networkRules != nil {
+		nm.SetRuleEngine(a.networkRules.Resolve, a.applyRuleResolution)
+	}
 }
 
 // startPoolRotator brings the rotator goroutine up. Independent of

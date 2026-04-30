@@ -50,6 +50,11 @@ const routes = [
     name: 'SplitTunnel',
     component: () => import('@/views/SplitTunnelView.vue'),
   },
+  {
+    path: '/network-rules',
+    name: 'NetworkRules',
+    component: () => import('@/views/NetworkRulesView.vue'),
+  },
 ]
 
 const router = createRouter({

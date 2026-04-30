@@ -27,9 +27,31 @@ type NetworkMonitor struct {
 	disconnectFn    func()
 	isConnected     func() bool
 	isPaused        func() bool // optional - when set and returns true, monitor suppresses all actions
+	// ruleResolver returns the RuleResolution for the current
+	// network state; empty Action = no rule matched, fall through
+	// to legacy COD logic. Set via SetRuleEngine.
+	ruleResolver func(networkType, ssid, bssid string) RuleResolution
+	// ruleApplier is invoked when a rule matched. Receives the
+	// resolution and is responsible for triggering the right
+	// switch/disconnect path. Set via SetRuleEngine.
+	ruleApplier     func(RuleResolution)
 	lastState       NetworkState
 	stopWatcher     func() // platform watcher teardown
 	changeObservers []func()
+}
+
+// SetRuleEngine wires the per-network rules engine into the
+// monitor's evaluator. Called from App.startup once the
+// NetworkRulesRegistry is initialised. Both callbacks may be
+// nil to disable the rules engine entirely.
+func (nm *NetworkMonitor) SetRuleEngine(
+	resolver func(networkType, ssid, bssid string) RuleResolution,
+	applier func(RuleResolution),
+) {
+	nm.mu.Lock()
+	nm.ruleResolver = resolver
+	nm.ruleApplier = applier
+	nm.mu.Unlock()
 }
 
 // OnChange registers a callback fired (asynchronously, on its own
@@ -243,6 +265,21 @@ func (nm *NetworkMonitor) checkAndAct() {
 		log.Printf("Network monitor: paused - skipping rule eval (type=%s ssid=%q)",
 			state.NetworkType, state.SSID)
 		return
+	}
+
+	// Phase 2: rule engine takes priority over legacy COD logic.
+	// When the resolver returns a non-empty Action, that resolution
+	// drives the lifecycle and we skip the legacy match-based
+	// path. Empty Action / nil resolver = fall through to legacy.
+	if nm.ruleResolver != nil {
+		bssid := detectCurrentBssid()
+		if res := nm.ruleResolver(state.NetworkType, state.SSID, bssid); res.Action != "" {
+			log.Printf("Network monitor: rule -> %s (%s)", res.Action, res.TargetID)
+			if nm.ruleApplier != nil {
+				nm.ruleApplier(res)
+			}
+			return
+		}
 	}
 
 	match := evaluateRules(settings, &state)

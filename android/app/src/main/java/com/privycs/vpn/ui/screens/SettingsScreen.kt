@@ -82,7 +82,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(
     onNavigateToLogs: () -> Unit,
-    onNavigateToPerAppVpn: () -> Unit = {}
+    onNavigateToPerAppVpn: () -> Unit = {},
+    onNavigateToNetworkRules: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val settingsRepo = remember { PrivycsApp.instance.settingsRepository }
@@ -841,6 +842,25 @@ fun SettingsScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // -- Network Rules (Phase 2) --
+            SettingsSection(title = "NETWORK RULES") {
+                Text(
+                    text = "Per-network auto-tunnel routing. Define rules " +
+                        "matching SSID / BSSID / network type → Pool / " +
+                        "Connection / No-VPN. When set, rules drive the " +
+                        "lifecycle (overrides Connect-on-Demand above).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onNavigateToNetworkRules,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Manage Network Rules")
                 }
             }
 

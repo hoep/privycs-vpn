@@ -316,6 +316,19 @@
         </div>
       </div>
 
+      <!-- Network Rules (Phase 2) -->
+      <div class="card p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network Rules</h3>
+        <p class="text-[10px] text-gray-400 mb-3">
+          Per-network auto-tunnel routing. Define rules matching SSID / BSSID / network type → Pool / Connection / No-VPN.
+          When set, rules drive the lifecycle (overrides Connect-on-Demand above).
+        </p>
+        <router-link to="/network-rules"
+          class="btn-secondary block w-full py-2 text-center text-xs">
+          Manage Network Rules
+        </router-link>
+      </div>
+
       <!-- Logs -->
       <div class="card p-4">
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Diagnostics</h3>

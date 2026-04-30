@@ -32,6 +32,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val LOGS = "logs"
     const val PER_APP_VPN = "per_app_vpn"
+    const val NETWORK_RULES = "network_rules"
 
     // Pool routes. POOL_ADD reuses the "Add" tab via a flag so the
     // BottomNavBar's Add button surfaces a chooser between Single
@@ -137,7 +138,10 @@ fun AppNavigation(
                     },
                     onNavigateToPerAppVpn = {
                         navController.navigate(Routes.PER_APP_VPN)
-                    }
+                    },
+                    onNavigateToNetworkRules = {
+                        navController.navigate(Routes.NETWORK_RULES)
+                    },
                 )
             }
 
@@ -146,6 +150,12 @@ fun AppNavigation(
                     onBack = {
                         navController.popBackStack()
                     }
+                )
+            }
+
+            composable(Routes.NETWORK_RULES) {
+                com.privycs.vpn.ui.screens.NetworkRulesScreen(
+                    onBack = { navController.popBackStack() },
                 )
             }
 
