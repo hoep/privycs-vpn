@@ -482,16 +482,9 @@
                     <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                       DNS Override <span class="text-gray-400">(per-pool, IPv4 + IPv6)</span>
                     </label>
-                    <input
+                    <DnsOverrideField
                       v-model="editDnsOverride"
-                      type="text"
-                      spellcheck="false"
                       placeholder="e.g. 1.1.1.1, 2606:4700:4700::1111"
-                      class="w-full bg-gray-50 dark:bg-gray-800
-                             text-gray-800 dark:text-gray-200
-                             text-xs font-mono p-2 rounded-lg
-                             border border-gray-200 dark:border-gray-700
-                             focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
                     <p class="text-[10px] text-gray-500 mt-1">
                       Empty = use the global DNS Override from Settings.
@@ -539,6 +532,7 @@ import {
   TransitionChild,
 } from '@headlessui/vue'
 import AppSelect from '@/components/AppSelect.vue'
+import DnsOverrideField from '@/components/DnsOverrideField.vue'
 import {
   ArrowLeftIcon,
   Cog6ToothIcon,

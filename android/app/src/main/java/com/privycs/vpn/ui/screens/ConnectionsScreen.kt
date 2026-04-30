@@ -169,6 +169,14 @@ fun ConnectionsScreen(
                             }
                         }
                     )
+                    // Per-connection preset dropdown (v0.9.14.4) —
+                    // mirror of the global Settings picker so users
+                    // can fill in Cloudflare / Quad9 / etc. with one
+                    // tap instead of typing the IPs manually.
+                    Spacer(modifier = Modifier.height(8.dp))
+                    com.privycs.vpn.ui.components.DnsPresetPicker(
+                        onPick = { renameDnsDraft = it },
+                    )
                 }
             },
             confirmButton = {

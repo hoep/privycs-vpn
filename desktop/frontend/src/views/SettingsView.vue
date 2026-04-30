@@ -262,23 +262,12 @@
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network</h3>
         <div class="space-y-3">
           <div>
-            <div class="flex items-center justify-between mb-1">
-              <label class="text-sm text-gray-700 dark:text-gray-300">DNS Override</label>
-              <AppSelect
-                :model-value="''"
-                @update:model-value="applyDnsPreset($event)"
-                :options="dnsPresetOptions"
-                placeholder="Presets..."
-              />
-            </div>
-            <input
+            <label class="text-sm text-gray-700 dark:text-gray-300 block mb-1">DNS Override</label>
+            <DnsOverrideField
               v-model="settings.dns_override"
-              @blur="validateAndSave"
-              @input="onDnsInput"
-              type="text"
               placeholder="e.g. 1.1.1.1, 2606:4700:4700::1111 — comma-separated, IPv4 + IPv6"
-              maxlength="200"
-              class="input"
+              @update:model-value="onDnsInput"
+              @blur="validateAndSave"
             />
             <div class="flex items-center justify-between mt-1">
               <p class="text-[10px] flex-1" :class="dnsError ? 'text-red-400' : 'text-gray-500'">
@@ -508,6 +497,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useVpnStore } from '@/stores/vpn'
 import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath, ValidateDnsOverride, TestDnsResolution, GetDnsProviders } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
+import DnsOverrideField from '@/components/DnsOverrideField.vue'
 
 const vpn = useVpnStore()
 

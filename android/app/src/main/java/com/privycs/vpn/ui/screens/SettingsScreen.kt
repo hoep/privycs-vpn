@@ -737,43 +737,18 @@ fun SettingsScreen(
                 // populates the override field with the dual-stack
                 // server list. Same canonical table as desktop
                 // GetDnsProviders so the two platforms stay in sync.
+                // Refactored in v0.9.14.4 to use the shared
+                // DnsPresetPicker composable so the per-connection
+                // and per-pool DNS UIs use the same options.
                 Spacer(Modifier.height(8.dp))
-                var presetMenuOpen by remember { mutableStateOf(false) }
-                Box {
-                    OutlinedButton(
-                        onClick = { presetMenuOpen = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Pick a preset…")
-                    }
-                    DropdownMenu(
-                        expanded = presetMenuOpen,
-                        onDismissRequest = { presetMenuOpen = false }
-                    ) {
-                        com.privycs.vpn.util.DnsValidator.providers.forEach { p ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(p.label, style = MaterialTheme.typography.bodyMedium)
-                                        Text(
-                                            p.note,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    presetMenuOpen = false
-                                    val joined = p.servers.joinToString(", ")
-                                    dnsOverride = joined
-                                    persistScope.launch {
-                                        settingsRepo.updateSettings(settings.copy(dnsOverride = joined))
-                                    }
-                                }
-                            )
+                com.privycs.vpn.ui.components.DnsPresetPicker(
+                    onPick = { joined ->
+                        dnsOverride = joined
+                        persistScope.launch {
+                            settingsRepo.updateSettings(settings.copy(dnsOverride = joined))
                         }
-                    }
-                }
+                    },
+                )
 
                 // Test-DNS button. Synchronously resolves a known
                 // hostname and shows the result so the user gets a

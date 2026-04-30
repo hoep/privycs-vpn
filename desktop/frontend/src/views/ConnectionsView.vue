@@ -278,13 +278,10 @@
         <p class="text-[11px] text-gray-500 mb-3">
           Per-connection DNS for "{{ dnsEditTarget.name }}". Empty inherits Settings global.
         </p>
-        <input
+        <DnsOverrideField
           v-model="dnsEditDraft"
-          @input="validateDnsEdit"
-          type="text"
-          spellcheck="false"
           placeholder="e.g. 1.1.1.1, 2606:4700:4700::1111"
-          class="input mb-1"
+          @update:model-value="validateDnsEdit"
         />
         <p
           v-if="dnsEditError"
@@ -324,6 +321,7 @@ import { usePoolStore } from '@/stores/pool'
 import { ListConnections, ActivateConnection, DeleteConnection, RenameConnection, FetchMyProfile, DownloadAndImportConfig, RemoveProtocolFromConnection, ImportConfig, GetSettings, UpdateSettings, SetConnectionDnsOverride, ValidateDnsOverride } from '../../wailsjs/go/main/App'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import QrScanModal from '@/components/QrScanModal.vue'
+import DnsOverrideField from '@/components/DnsOverrideField.vue'
 import { parseQrPayload } from '@/util/qrPayload'
 import {
   PlusIcon,

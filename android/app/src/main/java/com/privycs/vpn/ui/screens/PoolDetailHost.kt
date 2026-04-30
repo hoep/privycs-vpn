@@ -371,6 +371,14 @@ private fun EditPoolSheet(
                 isError = dnsInvalid.isNotEmpty()
             )
 
+            // Per-pool preset dropdown (v0.9.14.4) — same picker as
+            // Settings global and per-connection, lets users fill
+            // the override field by tap instead of manual typing.
+            Spacer(Modifier.height(8.dp))
+            com.privycs.vpn.ui.components.DnsPresetPicker(
+                onPick = { dnsOverride = it },
+            )
+
             Spacer(Modifier.height(20.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
