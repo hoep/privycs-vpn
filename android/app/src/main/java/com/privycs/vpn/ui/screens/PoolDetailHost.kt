@@ -131,38 +131,26 @@ fun PoolDetailHost(
                     // (within RestrictRegions) still works.
                 }
             }
-            // COD-aware: when Connect-on-Demand is enabled the user
-            // expects activation to be a "set this as my target,
-            // connect when rules say so" gesture, NOT an immediate
-            // connect that overrides COD's "should not connect"
-            // assessment. Skip the connect intent in that case;
-            // the monitor's lifecycle owns it. With COD off the tap
-            // is a manual "activate + connect" (existing UX).
+            // Funnel pool selection through VpnServiceManager
+            // .switchActivePool which:
+            //   - clears single-active, sets pool-active
+            //   - updates _status to a tentative pool view so the
+            //     Connect screen reflects the pick immediately
+            //   - if currently connected: fires disconnect, lets
+            //     COD/NetworkMonitor decide reconnect to the new
+            //     pool target
+            //   - if not connected + COD on + rules match:
+            //     re-evaluates so COD fires connect now
+            //   - if not connected + COD off: stays down, user
+            //     must tap Connect explicitly
             //
-            // Coordinator routing path (when we DO connect): same
-            // gates (Kill Switch sinkhole, system-revoke cooldown,
-            // Always-On / manual pause) + serialisation as single-
-            // connection.
-            val codEnabled = app.settingsRepository.getSettingsBlocking()
-                .connectOnDemand.enabled
-            if (!codEnabled) {
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                    try {
-                        com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
-                            ctx,
-                            com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
-                            poolId,
-                            pool.name,
-                        )
-                    } catch (e: Exception) {
-                        // Coordinator already logs internally; UI
-                        // just proceeds to onActivated() so the
-                        // navigation still happens even if the
-                        // connect intent was gated (e.g. Kill
-                        // Switch lock).
-                    }
-                }
-            }
+            // Pool tap NEVER auto-connects directly here. That was
+            // the v0.9.11.59 over-connect bug: with COD off the
+            // tap forced a connect that overrode the user's
+            // "manual mode" intent.
+            com.privycs.vpn.service.VpnServiceManager
+                .getInstance(ctx)
+                .switchActivePool(poolId)
             onActivated()
         },
         onDelete = {

@@ -396,6 +396,105 @@ class VpnServiceManager private constructor(private val context: Context) {
     }
 
     /**
+     * Switch the active selection to a pool. Mirrors
+     * switchActiveConnection but for pools. Called from every UI
+     * path that picks a pool: PoolDetailHost.onActivate,
+     * ConnectionsScreen.onTap, ConnectScreen picker.
+     *
+     * Behaviour:
+     *   - Always clears single-connection active id (UI does not
+     *     show stale single name + protocol pills under the pool
+     *     card).
+     *   - Always sets pool active id (poolRepository).
+     *   - Always updates _status to a tentative pool status so the
+     *     Connect screen reflects the new selection immediately,
+     *     even if a connect intent does not fire here. Without this
+     *     a pool pick from the dropdown left the UI showing the
+     *     previously-active single connection name until the
+     *     tunnel actually came up - the v0.9.11.59 user-reported
+     *     "Frontend bleibt auf privycs shielded obelix" bug.
+     *   - If currently connected, fires a USER-source disconnect
+     *     via the Coordinator. NetworkMonitor's status-flow
+     *     listener (see NetworkMonitor.start) then re-evaluates
+     *     on the disconnected transition - if COD is enabled and
+     *     rules match, it fires a fresh pool connect via the pool
+     *     branch. If COD is disabled, the tunnel stays down and
+     *     the user must tap the big Connect button to bring the
+     *     pool up. This matches the user's mental model: "COD off
+     *     = manual mode, nothing connects automatically; COD on =
+     *     rules drive the lifecycle".
+     *   - If NOT currently connected, calls
+     *     NetworkMonitor.reevaluate() so COD can fire a pool
+     *     connect right away if rules already match (instead of
+     *     waiting for the next network event tick).
+     *
+     * Returns true if the active selection changed, false if it
+     * was already this pool (idempotent re-tap).
+     */
+    fun switchActivePool(poolId: String): Boolean {
+        val poolRepo = com.privycs.vpn.PrivycsApp.instance.poolRepository
+        val activePool = poolRepo.registry.value.pools
+            .firstOrNull { it.id == poolId } ?: return false
+        val prevPool = poolRepo.registry.value.activeId
+        val prevSingle = connectionRepo.activeId
+        val isChange = prevPool != poolId || prevSingle.isNotEmpty()
+        if (!isChange) return false
+
+        val wasConnected = isConnected
+
+        scope.launch {
+            // Order: clear single FIRST so any state observer that
+            // recomputes activeConnection sees null before pool
+            // becomes active. Then set pool active.
+            connectionRepo.setActive("")
+            poolRepo.setActiveId(poolId)
+
+            // Tentative pool status so the Connect screen and any
+            // observers see pool-name + policy immediately. This
+            // is what surfaces the pool selection in the UI even
+            // when no connect intent is going to fire.
+            if (!wasConnected) {
+                _status.value = VpnStatus(
+                    connected = false,
+                    connectionName = activePool.name,
+                    connectionId = "pool:${activePool.id}",
+                    poolId = activePool.id,
+                    poolName = activePool.name,
+                    poolPolicy = activePool.policy.name,
+                )
+            }
+
+            if (wasConnected) {
+                // Tear down the old tunnel. NetworkMonitor's status
+                // listener will re-evaluate on the disconnected
+                // transition; if COD rules match it fires the pool
+                // connect through the pool branch. If COD is off,
+                // the tunnel stays down (user wanted manual mode).
+                val result = com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                    context,
+                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                )
+                PrivycsLogger.i(TAG, "switchActivePool: disconnect requested -> $result")
+            } else {
+                // Not connected. If COD is enabled and current
+                // network already matches rules, fire the
+                // re-evaluation so the new pool gets connected
+                // right away instead of waiting for the next
+                // network event. With COD off this is a no-op
+                // and the user will tap Connect manually.
+                val codEnabled = com.privycs.vpn.PrivycsApp.instance
+                    .settingsRepository.getSettingsBlocking()
+                    .connectOnDemand.enabled
+                if (codEnabled) {
+                    val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
+                    nm.reevaluate()
+                }
+            }
+        }
+        return true
+    }
+
+    /**
      * Update status from VpnService (called via service binding or broadcast).
      * Once the tunnel reports either connected=true or an error, clear the
      * connecting spinner - otherwise ConnectScreen keeps showing

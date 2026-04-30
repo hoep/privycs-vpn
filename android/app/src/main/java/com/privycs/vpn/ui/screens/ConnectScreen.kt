@@ -561,45 +561,17 @@ fun ConnectScreen(
                                 },
                                 onClick = {
                                     showConnectionPicker = false
-                                    // Always set + connect, even if
-                                    // the pool was already the active
-                                    // selection. Re-tapping a pool is
-                                    // explicitly a "retry" gesture —
-                                    // the previous attempt may have
-                                    // failed silently and the user
-                                    // wants another go. The previous
-                                    // skip-if-same guard made the
-                                    // retry path unreachable.
-                                    coroutineScope.launch {
-                                        // Clear single-connection active
-                                        // FIRST so the Connect screen does
-                                        // not show stale single-name +
-                                        // protocol pills under the pool
-                                        // card. Mirrors what
-                                        // PoolDetailHost.onActivate and
-                                        // ConnectionsScreen.onTap already
-                                        // do.
-                                        connectionRepo.setActive("")
-                                        poolRepoForIndicator.setActiveId(p.id)
-                                        // COD-aware: only fire connect
-                                        // when COD is off. With COD on
-                                        // the picker tap is "select
-                                        // this as my target" - the
-                                        // monitor's lifecycle owns the
-                                        // actual connect decision.
-                                        val codEnabled = PrivycsApp.instance
-                                            .settingsRepository
-                                            .getSettingsBlocking()
-                                            .connectOnDemand.enabled
-                                        if (!codEnabled) {
-                                            com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
-                                                context,
-                                                com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
-                                                p.id,
-                                                p.name,
-                                            )
-                                        }
-                                    }
+                                    // Funnel through VpnServiceManager
+                                    // .switchActivePool - same single
+                                    // entry point used by every other
+                                    // pool-pick path. Selection is
+                                    // never an auto-connect; connect
+                                    // is owned by COD (when on) or
+                                    // the big Connect button (when
+                                    // off). Re-tapping the same pool
+                                    // is idempotent (returns false
+                                    // without firing anything).
+                                    vpnManager.switchActivePool(p.id)
                                 }
                             )
                         }
