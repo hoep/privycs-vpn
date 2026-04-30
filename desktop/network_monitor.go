@@ -34,7 +34,15 @@ type NetworkMonitor struct {
 	// ruleApplier is invoked when a rule matched. Receives the
 	// resolution and is responsible for triggering the right
 	// switch/disconnect path. Set via SetRuleEngine.
-	ruleApplier     func(RuleResolution)
+	ruleApplier func(RuleResolution)
+	// lastRuleKey tracks the most recently applied rule
+	// resolution so we only fire the applier on TRANSITION (=
+	// resolved target changed). Without this guard the engine
+	// fires applier on every poll tick, which causes
+	// ActivatePool / SwitchActiveConnection / disconnectInternal
+	// to ping-pong: tunnel-up triggers a new network event ->
+	// next tick -> apply -> disconnect -> reconnect -> loop.
+	lastRuleKey string
 	lastState       NetworkState
 	stopWatcher     func() // platform watcher teardown
 	changeObservers []func()
@@ -274,12 +282,27 @@ func (nm *NetworkMonitor) checkAndAct() {
 	if nm.ruleResolver != nil {
 		bssid := detectCurrentBssid()
 		if res := nm.ruleResolver(state.NetworkType, state.SSID, bssid); res.Action != "" {
-			log.Printf("Network monitor: rule -> %s (%s)", res.Action, res.TargetID)
-			if nm.ruleApplier != nil {
-				nm.ruleApplier(res)
+			// Transition guard: only apply when the resolved
+			// target changed since the last applied rule. Without
+			// this every tick re-applies the same rule which
+			// triggers ActivatePool / disconnect / reconnect in
+			// a ping-pong loop. The legacy COD logic below is
+			// already idempotent so we skip it on a quiet rule
+			// match too.
+			key := res.Action + ":" + res.TargetID
+			if key != nm.lastRuleKey {
+				nm.lastRuleKey = key
+				log.Printf("Network monitor: rule transition -> %s (%s)", res.Action, res.TargetID)
+				if nm.ruleApplier != nil {
+					nm.ruleApplier(res)
+				}
 			}
 			return
 		}
+		// No rule matched - reset the transition key so the next
+		// match fires applier even if it lands on the previously
+		// applied target.
+		nm.lastRuleKey = ""
 	}
 
 	match := evaluateRules(settings, &state)

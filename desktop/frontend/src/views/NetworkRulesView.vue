@@ -16,7 +16,7 @@
       </button>
     </div>
 
-    <!-- Empty-state explainer / how rules interact with legacy COD -->
+    <!-- Empty-state explainer -->
     <div v-if="rules.length === 0" class="card p-4 mb-4 bg-gray-50 dark:bg-gray-800/30">
       <h3 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">No rules defined</h3>
       <p class="text-[11px] text-gray-500 leading-relaxed">
@@ -27,7 +27,7 @@
       </p>
     </div>
 
-    <!-- Rule list. List position = priority order, first match wins. -->
+    <!-- Rule list -->
     <div v-else class="space-y-2">
       <div
         v-for="(rule, i) in rules"
@@ -42,18 +42,19 @@
             </div>
             <div v-if="rule.name" class="text-[10px] text-gray-500 mt-0.5">{{ rule.name }}</div>
           </div>
-          <label class="flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              :checked="rule.enabled"
-              @change="toggleEnabled(rule)"
-              class="sr-only peer"
-            />
-            <div class="w-8 h-4 bg-gray-300 dark:bg-gray-700 rounded-full peer-checked:bg-primary-500 transition-colors relative">
-              <div class="absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform"
-                   :class="rule.enabled ? 'translate-x-4' : ''"></div>
-            </div>
-          </label>
+          <SwitchGroup>
+            <Switch
+              :model-value="rule.enabled"
+              @update:model-value="(v: boolean) => toggleEnabled(rule, v)"
+              :class="rule.enabled ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-700'"
+              class="relative inline-flex h-4 w-8 items-center rounded-full transition-colors flex-shrink-0"
+            >
+              <span
+                :class="rule.enabled ? 'translate-x-4' : 'translate-x-0.5'"
+                class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"
+              />
+            </Switch>
+          </SwitchGroup>
         </div>
         <div class="flex items-center gap-1 mt-2">
           <button @click="moveUp(i)" :disabled="i === 0"
@@ -69,81 +70,204 @@
           <button @click="openEdit(rule)" class="p-1 text-gray-500 hover:text-primary-400">
             <PencilIcon class="w-3.5 h-3.5" />
           </button>
-          <button @click="remove(rule)" class="p-1 text-gray-500 hover:text-red-400">
+          <button @click="confirmDelete(rule)" class="p-1 text-gray-500 hover:text-red-400">
             <TrashIcon class="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Edit / Create modal -->
-    <div
-      v-if="editing"
-      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-      @click.self="editing = null"
-    >
-      <div class="card p-4 max-w-md w-full">
-        <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-          {{ editing.id ? 'Edit Rule' : 'New Rule' }}
-        </h3>
-        <div class="space-y-3">
-          <div>
-            <label class="text-[11px] text-gray-500 block mb-1">Name (optional)</label>
-            <input v-model="draft.name" type="text" placeholder="Home / Office / Public"
-                   class="input" />
-          </div>
-          <div>
-            <label class="text-[11px] text-gray-500 block mb-1">Match by</label>
-            <select v-model="draft.match_type" class="input">
-              <option value="ssid_exact">Wi-Fi SSID (exact)</option>
-              <option value="ssid_pattern">Wi-Fi SSID (pattern *, ?)</option>
-              <option value="network_type">Network type</option>
-              <option value="bssid">Wi-Fi BSSID (MAC)</option>
-              <option value="any">Any network</option>
-            </select>
-          </div>
-          <div v-if="draft.match_type !== 'any'">
-            <label class="text-[11px] text-gray-500 block mb-1">{{ matchValueLabel }}</label>
-            <input v-model="draft.match_value" type="text" :placeholder="matchValueHint"
-                   class="input" />
-          </div>
-          <div>
-            <label class="text-[11px] text-gray-500 block mb-1">Action</label>
-            <select v-model="draft.action" @change="resetTarget" class="input">
-              <option value="no_vpn">No VPN (trusted)</option>
-              <option value="pool">Use Pool</option>
-              <option value="connection">Use Connection</option>
-            </select>
-          </div>
-          <div v-if="draft.action === 'pool'">
-            <label class="text-[11px] text-gray-500 block mb-1">Pool</label>
-            <select v-model="draft.target_id" class="input">
-              <option value="">Pick a pool…</option>
-              <option v-for="p in pools" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
-          </div>
-          <div v-else-if="draft.action === 'connection'">
-            <label class="text-[11px] text-gray-500 block mb-1">Connection</label>
-            <select v-model="draft.target_id" class="input">
-              <option value="">Pick a connection…</option>
-              <option v-for="c in connections" :key="c.id" :value="c.id">{{ c.name }}</option>
-            </select>
+    <!-- Edit / Create modal: HeadlessUI Dialog with smooth in/out -->
+    <TransitionRoot :show="!!editing" as="template">
+      <Dialog as="div" class="relative z-50" @close="cancel">
+        <TransitionChild
+          as="template"
+          enter="duration-200 ease-out"
+          enter-from="opacity-0"
+          enter-to="opacity-100"
+          leave="duration-150 ease-in"
+          leave-from="opacity-100"
+          leave-to="opacity-0"
+        >
+          <!-- Backdrop with pointer-events-none on leave so the
+               click-through bug fixed in v0.9.11.54 doesn't return. -->
+          <div class="fixed inset-0 bg-black/60 transition-opacity" :class="editing ? '' : 'pointer-events-none'" />
+        </TransitionChild>
+        <div class="fixed inset-0 overflow-y-auto">
+          <div class="flex min-h-full items-center justify-center p-4">
+            <TransitionChild
+              as="template"
+              enter="duration-200 ease-out"
+              enter-from="opacity-0 scale-95"
+              enter-to="opacity-100 scale-100"
+              leave="duration-150 ease-in"
+              leave-from="opacity-100 scale-100"
+              leave-to="opacity-0 scale-95"
+            >
+              <DialogPanel class="w-full max-w-md transform overflow-hidden rounded-xl bg-white dark:bg-gray-900 shadow-2xl ring-1 ring-black/5 dark:ring-white/10">
+                <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-800">
+                  <DialogTitle class="text-sm font-semibold text-gray-900 dark:text-white">
+                    {{ editing?.id ? 'Edit Rule' : 'New Rule' }}
+                  </DialogTitle>
+                </div>
+                <div class="p-4 space-y-3">
+                  <div>
+                    <label class="text-[11px] text-gray-500 block mb-1">Name (optional)</label>
+                    <input v-model="draft.name" type="text" placeholder="Home / Office / Public"
+                           class="input" />
+                  </div>
+
+                  <!-- HeadlessUI Listbox for match-type instead of native select -->
+                  <div>
+                    <label class="text-[11px] text-gray-500 block mb-1">Match by</label>
+                    <Listbox v-model="draft.match_type">
+                      <div class="relative">
+                        <ListboxButton class="input flex justify-between items-center cursor-pointer text-left">
+                          <span>{{ matchTypeLabel(draft.match_type) }}</span>
+                          <ChevronUpDownIcon class="w-4 h-4 text-gray-400" />
+                        </ListboxButton>
+                        <ListboxOptions class="absolute z-10 mt-1 w-full overflow-auto rounded-lg bg-white dark:bg-gray-800 py-1 text-xs shadow-lg ring-1 ring-black/10 max-h-60">
+                          <ListboxOption
+                            v-for="opt in matchTypeOptions"
+                            :key="opt.value"
+                            :value="opt.value"
+                            v-slot="{ active, selected }"
+                            as="template"
+                          >
+                            <li :class="[active ? 'bg-primary-500/10' : '', 'px-3 py-1.5 cursor-pointer']">
+                              <span :class="selected ? 'font-medium text-primary-500' : ''">{{ opt.label }}</span>
+                            </li>
+                          </ListboxOption>
+                        </ListboxOptions>
+                      </div>
+                    </Listbox>
+                  </div>
+
+                  <div v-if="draft.match_type !== 'any'">
+                    <label class="text-[11px] text-gray-500 block mb-1">{{ matchValueLabel }}</label>
+                    <input v-model="draft.match_value" type="text" :placeholder="matchValueHint"
+                           class="input" />
+                  </div>
+
+                  <div>
+                    <label class="text-[11px] text-gray-500 block mb-1">Action</label>
+                    <Listbox :model-value="draft.action" @update:model-value="onActionChange">
+                      <div class="relative">
+                        <ListboxButton class="input flex justify-between items-center cursor-pointer text-left">
+                          <span>{{ actionLabel(draft.action) }}</span>
+                          <ChevronUpDownIcon class="w-4 h-4 text-gray-400" />
+                        </ListboxButton>
+                        <ListboxOptions class="absolute z-10 mt-1 w-full overflow-auto rounded-lg bg-white dark:bg-gray-800 py-1 text-xs shadow-lg ring-1 ring-black/10 max-h-60">
+                          <ListboxOption
+                            v-for="opt in actionOptions"
+                            :key="opt.value"
+                            :value="opt.value"
+                            v-slot="{ active, selected }"
+                            as="template"
+                          >
+                            <li :class="[active ? 'bg-primary-500/10' : '', 'px-3 py-1.5 cursor-pointer']">
+                              <span :class="selected ? 'font-medium text-primary-500' : ''">{{ opt.label }}</span>
+                            </li>
+                          </ListboxOption>
+                        </ListboxOptions>
+                      </div>
+                    </Listbox>
+                  </div>
+
+                  <div v-if="draft.action === 'pool'">
+                    <label class="text-[11px] text-gray-500 block mb-1">Pool</label>
+                    <Listbox v-model="draft.target_id">
+                      <div class="relative">
+                        <ListboxButton class="input flex justify-between items-center cursor-pointer text-left">
+                          <span>{{ targetLabel('pool', draft.target_id) }}</span>
+                          <ChevronUpDownIcon class="w-4 h-4 text-gray-400" />
+                        </ListboxButton>
+                        <ListboxOptions class="absolute z-10 mt-1 w-full overflow-auto rounded-lg bg-white dark:bg-gray-800 py-1 text-xs shadow-lg ring-1 ring-black/10 max-h-60">
+                          <ListboxOption
+                            v-for="p in pools"
+                            :key="p.id"
+                            :value="p.id"
+                            v-slot="{ active, selected }"
+                            as="template"
+                          >
+                            <li :class="[active ? 'bg-primary-500/10' : '', 'px-3 py-1.5 cursor-pointer']">
+                              <span :class="selected ? 'font-medium text-primary-500' : ''">{{ p.name }}</span>
+                            </li>
+                          </ListboxOption>
+                        </ListboxOptions>
+                      </div>
+                    </Listbox>
+                  </div>
+
+                  <div v-else-if="draft.action === 'connection'">
+                    <label class="text-[11px] text-gray-500 block mb-1">Connection</label>
+                    <Listbox v-model="draft.target_id">
+                      <div class="relative">
+                        <ListboxButton class="input flex justify-between items-center cursor-pointer text-left">
+                          <span>{{ targetLabel('connection', draft.target_id) }}</span>
+                          <ChevronUpDownIcon class="w-4 h-4 text-gray-400" />
+                        </ListboxButton>
+                        <ListboxOptions class="absolute z-10 mt-1 w-full overflow-auto rounded-lg bg-white dark:bg-gray-800 py-1 text-xs shadow-lg ring-1 ring-black/10 max-h-60">
+                          <ListboxOption
+                            v-for="c in connections"
+                            :key="c.id"
+                            :value="c.id"
+                            v-slot="{ active, selected }"
+                            as="template"
+                          >
+                            <li :class="[active ? 'bg-primary-500/10' : '', 'px-3 py-1.5 cursor-pointer']">
+                              <span :class="selected ? 'font-medium text-primary-500' : ''">{{ c.name }}</span>
+                            </li>
+                          </ListboxOption>
+                        </ListboxOptions>
+                      </div>
+                    </Listbox>
+                  </div>
+                </div>
+                <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/30">
+                  <button @click="cancel" class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
+                    Cancel
+                  </button>
+                  <button
+                    @click="save"
+                    :disabled="!canSave"
+                    class="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </div>
+              </DialogPanel>
+            </TransitionChild>
           </div>
         </div>
-        <div class="flex justify-end gap-2 mt-4">
-          <button @click="editing = null" class="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700">
-            Cancel
-          </button>
-          <button
-            @click="save"
-            :disabled="!canSave"
-            class="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md disabled:opacity-50"
-          >
-            Save
-          </button>
+      </Dialog>
+    </TransitionRoot>
+
+    <!-- Confirm-delete dialog (HeadlessUI). The native confirm()
+         was the cause of the "windows aufgehen und verschwinden"
+         flicker - some Wails / WebView2 builds render confirm()
+         in a way that can re-enter the Vue render loop. -->
+    <TransitionRoot :show="!!deleting" as="template">
+      <Dialog as="div" class="relative z-50" @close="deleting = null">
+        <div class="fixed inset-0 bg-black/60" />
+        <div class="fixed inset-0 flex items-center justify-center p-4">
+          <DialogPanel class="card p-4 max-w-sm w-full">
+            <DialogTitle class="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              Delete this rule?
+            </DialogTitle>
+            <p class="text-[11px] text-gray-500 mb-4">{{ deleting ? ruleSummary(deleting) : '' }}</p>
+            <div class="flex justify-end gap-2">
+              <button @click="deleting = null" class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
+                Cancel
+              </button>
+              <button @click="doDelete" class="px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-md">
+                Delete
+              </button>
+            </div>
+          </DialogPanel>
         </div>
-      </div>
-    </div>
+      </Dialog>
+    </TransitionRoot>
   </div>
 </template>
 
@@ -155,8 +279,13 @@ import {
 } from '../../wailsjs/go/main/App'
 import {
   ArrowLeftIcon, PlusIcon, PencilIcon, TrashIcon,
-  ArrowUpIcon, ArrowDownIcon,
+  ArrowUpIcon, ArrowDownIcon, ChevronUpDownIcon,
 } from '@heroicons/vue/24/outline'
+import {
+  TransitionRoot, TransitionChild, Dialog, DialogPanel, DialogTitle,
+  Listbox, ListboxButton, ListboxOptions, ListboxOption,
+  Switch, SwitchGroup,
+} from '@headlessui/vue'
 
 interface NetworkRule {
   id: string
@@ -173,7 +302,22 @@ const rules = ref<NetworkRule[]>([])
 const pools = ref<any[]>([])
 const connections = ref<any[]>([])
 const editing = ref<NetworkRule | null>(null)
+const deleting = ref<NetworkRule | null>(null)
 const draft = ref<NetworkRule>(emptyRule())
+
+const matchTypeOptions = [
+  { value: 'ssid_exact', label: 'Wi-Fi SSID (exact)' },
+  { value: 'ssid_pattern', label: 'Wi-Fi SSID (pattern *, ?)' },
+  { value: 'network_type', label: 'Network type' },
+  { value: 'bssid', label: 'Wi-Fi BSSID (MAC)' },
+  { value: 'any', label: 'Any network' },
+]
+
+const actionOptions = [
+  { value: 'no_vpn', label: 'No VPN (trusted)' },
+  { value: 'pool', label: 'Use Pool' },
+  { value: 'connection', label: 'Use Connection' },
+]
 
 function emptyRule(): NetworkRule {
   return {
@@ -182,6 +326,22 @@ function emptyRule(): NetworkRule {
     action: 'no_vpn', target_id: '',
     enabled: true, name: '',
   }
+}
+
+function matchTypeLabel(v: string): string {
+  return matchTypeOptions.find(o => o.value === v)?.label ?? v
+}
+function actionLabel(v: string): string {
+  return actionOptions.find(o => o.value === v)?.label ?? v
+}
+function targetLabel(kind: 'pool' | 'connection', id: string): string {
+  if (!id) return kind === 'pool' ? 'Pick a pool…' : 'Pick a connection…'
+  if (kind === 'pool') {
+    const p = pools.value.find((x: any) => x.id === id)
+    return p?.name ?? '(missing)'
+  }
+  const c = connections.value.find((x: any) => x.id === id)
+  return c?.name ?? '(missing)'
 }
 
 const matchValueLabel = computed(() => {
@@ -250,11 +410,17 @@ function openEdit(rule: NetworkRule) {
   editing.value = draft.value
 }
 
-function resetTarget() {
+function onActionChange(v: string) {
+  draft.value.action = v
   draft.value.target_id = ''
 }
 
+function cancel() {
+  editing.value = null
+}
+
 async function save() {
+  if (!canSave.value) return
   try {
     if (draft.value.id) {
       await UpdateNetworkRule(draft.value)
@@ -268,14 +434,19 @@ async function save() {
   }
 }
 
-async function remove(rule: NetworkRule) {
-  if (!confirm(`Delete rule "${ruleSummary(rule)}"?`)) return
-  await DeleteNetworkRule(rule.id)
+function confirmDelete(rule: NetworkRule) {
+  deleting.value = rule
+}
+
+async function doDelete() {
+  if (!deleting.value) return
+  await DeleteNetworkRule(deleting.value.id)
+  deleting.value = null
   await load()
 }
 
-async function toggleEnabled(rule: NetworkRule) {
-  await UpdateNetworkRule({ ...rule, enabled: !rule.enabled })
+async function toggleEnabled(rule: NetworkRule, value: boolean) {
+  await UpdateNetworkRule({ ...rule, enabled: value })
   await load()
 }
 

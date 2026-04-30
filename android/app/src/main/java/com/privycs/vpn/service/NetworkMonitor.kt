@@ -97,6 +97,16 @@ class NetworkMonitor private constructor(private val context: Context) {
     private var lastResolvedSsid: String = ""
     private var lastResolvedNetworkType: String = ""
 
+    // Tracks the last applied rule resolution so the engine fires
+    // its applier only on transition (= resolved target changed),
+    // not on every tick. Without this guard the rules engine would
+    // re-apply the same rule on every NetworkCallback event, which
+    // for action=POOL/CONNECTION drives switchActivePool /
+    // switchActiveConnection / requestDisconnect in a ping-pong
+    // loop because tunnel-up itself produces a new network event.
+    // Empty string = no rule currently in effect.
+    private var lastRuleKey: String = ""
+
     /**
      * Start monitoring network changes. Safe to call multiple times.
      */
@@ -312,8 +322,30 @@ class NetworkMonitor private constructor(private val context: Context) {
             val ruleResolution = PrivycsApp.instance.networkRulesRepository
                 .resolve(networkType, ssid, bssid)
             if (ruleResolution !is com.privycs.vpn.data.models.RuleResolution.NoMatch) {
-                applyRuleResolution(ruleResolution)
+                // Transition guard: same rule applied as last tick =
+                // skip. Otherwise the engine drives switch/disconnect
+                // in a loop because tunnel-up itself fires another
+                // NetworkCallback event which re-evaluates and
+                // re-applies. Reset on NoMatch so the next match
+                // fires applier even if it lands on the same target.
+                val key = when (ruleResolution) {
+                    is com.privycs.vpn.data.models.RuleResolution.NoVpn -> "no_vpn:"
+                    is com.privycs.vpn.data.models.RuleResolution.Pool ->
+                        "pool:${ruleResolution.poolId}"
+                    is com.privycs.vpn.data.models.RuleResolution.Connection ->
+                        "connection:${ruleResolution.connectionId}"
+                    else -> ""
+                }
+                if (key != lastRuleKey) {
+                    lastRuleKey = key
+                    PrivycsLogger.i(TAG, "rule transition -> $key")
+                    applyRuleResolution(ruleResolution)
+                }
                 return@launch
+            } else {
+                // No rule matched - reset transition key so the
+                // next match fires applier even if same as before.
+                lastRuleKey = ""
             }
 
             if (!codSettings.enabled) {
