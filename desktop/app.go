@@ -55,6 +55,16 @@ type App struct {
 	connected     bool
 	disconnecting bool // true while proto.Down() is running — blocks auto-detect
 	connectedAt   time.Time
+	// lastUserDisconnectAt tracks the wall-clock time of the most
+	// recent App.Disconnect() call (= user clicked the big disconnect
+	// button or the tray menu). poolKeepaliveLoop consults this so
+	// a manual disconnect is not undone by the next 30s tick.
+	// Zero value means "no manual disconnect since process start".
+	// Mirrors Android's AlwaysOnDetector.lastUserDisconnect stamp,
+	// just in-memory because desktop processes do not need to
+	// persist this across restarts (a fresh app start is implicitly
+	// "user wants to start fresh").
+	lastUserDisconnectAt time.Time
 	stopStats     chan struct{}
 	forceQuit     bool           // set by tray Quit to bypass minimize-to-tray
 	logFile       *os.File       // log file handle for proper cleanup on shutdown
@@ -785,6 +795,15 @@ func (a *App) Disconnect() error {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	// Stamp the wall-clock so poolKeepaliveLoop can suppress the
+	// next 30s tick. Without this, a user who clicks Disconnect
+	// while a pool is the active selection saw the tunnel come
+	// back up within ~10-30s as the keepalive ticker rediscovered
+	// "pool active, not connected -> reconnect" - blind to the
+	// fact that this disconnect was user-initiated, not a
+	// drop-recovery scenario. Mirrors Android's
+	// AlwaysOnDetector.stampUserDisconnect.
+	a.lastUserDisconnectAt = time.Now()
 	return a.disconnectInternal()
 }
 
@@ -1493,37 +1512,42 @@ func (a *App) connectActiveTarget() {
 	}
 }
 
-// poolKeepaliveLoop is a process-lifetime ticker that ensures an
-// active pool stays connected even outside the COD-driven path.
-// Fires every 30 seconds; if a pool is the active selection AND
-// the VPN is NOT currently connected AND no manual pause is in
-// effect, it calls connectActiveTarget (which picks a member via
-// the pool's policy and brings the tunnel up).
+// poolKeepaliveLoop is a process-lifetime ticker that recovers a
+// connection-dropped pool tunnel under one specific condition:
+// COD is enabled AND the user did not just manually disconnect.
 //
-// Closes the "pool stopped overnight" hole reported on Android in
-// v0.9.11.59 (PoolKeepaliveWatcher). Desktop's gap was narrower
-// because workstations rarely Doze the way phones do, but laptop
-// suspend/resume + WiFi-network changes for non-COD users still
-// produced the same symptom: pool tunnel drops, no recovery
-// trigger, user finds VPN dead in the morning.
+// Why those gates exist:
+//
+//   - COD off: the user has chosen manual mode. Disconnect means
+//     "stay off until I tap Connect". The pre-fix loop fired
+//     blind every 30s and undid the user's manual disconnect
+//     after 10-30s - the user-reported "obwohl on demand aus,
+//     connected vpn pool nach 30s wieder zu vpn pool" glitch.
+//     Now: skip entirely when COD is off.
+//
+//   - 30s post-disconnect cooldown: even with COD on, a user who
+//     just clicked Disconnect deserves a 30-second window where
+//     their intent ("off right now") wins over auto-recovery.
+//     Mirrors Android's AlwaysOnDetector cooldown which
+//     PoolKeepaliveWatcher already honors.
+//
+// What's left for the loop to do: catch the rare case where the
+// tunnel drops without a corresponding network-change event (so
+// NetworkMonitor's COD path missed it) AND COD is enabled AND the
+// drop was not user-initiated. Laptop suspend/resume on some
+// configurations, helper-process crashes, etc.
 //
 // Why a ticker instead of a NetworkMonitor callback: Desktop's
-// NetworkMonitor only runs when COD is enabled (or when COD is
-// toggled at startup), and rewiring it to always run for pool
-// users would mean changing autoConnect plumbing, settings flows
-// and platform-watcher lifetimes. A 30s ticker is fire-and-forget,
-// uses negligible resources (one stat-equivalent + a couple of
-// reads of in-memory state), and gives the same recovery
-// behaviour with much less moving parts.
+// NetworkMonitor's onChange already fires for normal network
+// transitions; the ticker is a defense-in-depth backup, not the
+// primary path.
 //
-// Cooldowns / pauses honored:
-//   - PauseManager.IsPaused: user clicked "pause for N min" - skip.
-//   - KillSwitchManager sinkhole: never auto-connect through it,
-//     connectActiveTarget -> Connect refuses anyway, but bailing
-//     here avoids the log spam.
-//   - Currently connecting: the Coordinator would gate as
-//     AlreadyConnecting, but bailing here saves the IPC.
+// Honored stops:
+//   - PauseManager.IsPaused: user clicked "pause for N min".
+//   - KillSwitchManager sinkhole: connectActiveTarget would refuse,
+//     bailing here avoids log noise.
 func (a *App) poolKeepaliveLoop() {
+	const recentDisconnectCooldown = 30 * time.Second
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -1534,8 +1558,19 @@ func (a *App) poolKeepaliveLoop() {
 			a.mu.RLock()
 			poolID := a.activePoolID
 			connected := a.connected
+			lastUserDc := a.lastUserDisconnectAt
+			codEnabled := a.settings.ConnectOnDemand.Enabled
 			a.mu.RUnlock()
+
 			if poolID == "" || connected {
+				continue
+			}
+			// COD-off gate: user wants manual mode.
+			if !codEnabled {
+				continue
+			}
+			// Recent-disconnect cooldown: honour user intent.
+			if !lastUserDc.IsZero() && time.Since(lastUserDc) < recentDisconnectCooldown {
 				continue
 			}
 			if a.pauseManager != nil && a.pauseManager.IsPaused() {
