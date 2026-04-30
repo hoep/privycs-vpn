@@ -439,6 +439,17 @@ class VpnWidget : AppWidgetProvider() {
         // shape is fully repainted with the tint colour).
         views.setInt(R.id.widget_button_bg, "setColorFilter", statusColor)
 
+        // Halo glow behind the circle. Visible only when the tunnel
+        // is up AND the Kill Switch is not in sinkhole - sinkhole
+        // already gets a red disk + Kill Switch icon, adding a green
+        // halo would be visually contradictory. Disconnected state
+        // also stays glow-less so the widget reads as "off".
+        views.setViewVisibility(
+            R.id.widget_button_halo,
+            if (connected && !killSwitchSinkhole) android.view.View.VISIBLE
+            else android.view.View.GONE,
+        )
+
         // Resolve the icon in the circle. Sinkhole wins over everything
         // else - the user must see it's the Kill-Switch shield, not
         // the protocol icon. Otherwise: live active protocol when
@@ -493,6 +504,20 @@ class VpnWidget : AppWidgetProvider() {
         views.setTextViewText(R.id.widget_connection_name, displayName)
 
         // --- Section 4: Protocol pills ---
+        // Pool-aware: hide the whole pill row when a pool is active.
+        // Pools mix members with different protocols, so the
+        // single-protocol picker UI is meaningless for them.
+        // Mirrors the same gate on ConnectScreen (`activePool ==
+        // null` requirement on the protocol-badges row). Hiding
+        // the row also gives the connect button slightly more
+        // vertical space, which is the "bigger / clearer" UX win
+        // requested for pool users.
+        views.setViewVisibility(
+            R.id.widget_protocol_pills_row,
+            if (activePool != null) android.view.View.GONE
+            else android.view.View.VISIBLE,
+        )
+
         setProtocolPillState(
             context, views, VpnProtocol.WIREGUARD,
             R.id.widget_protocol_wg, R.id.widget_protocol_wg_icon,

@@ -450,31 +450,65 @@ class VpnServiceManager private constructor(private val context: Context) {
             poolRepo.setActiveId(poolId)
 
             // Tentative pool status so the Connect screen and any
-            // observers see pool-name + policy immediately. This
-            // is what surfaces the pool selection in the UI even
-            // when no connect intent is going to fire.
-            if (!wasConnected) {
-                _status.value = VpnStatus(
-                    connected = false,
-                    connectionName = activePool.name,
-                    connectionId = "pool:${activePool.id}",
-                    poolId = activePool.id,
-                    poolName = activePool.name,
-                    poolPolicy = activePool.policy.name,
-                )
-            }
+            // observers see pool-name + policy immediately, even
+            // before a tunnel comes up. Always set, regardless of
+            // wasConnected - the dropdown switch from single to
+            // pool needs the UI to flip to the pool's name right
+            // away so the user is not staring at the previous
+            // single connection name during the disconnect.
+            _status.value = VpnStatus(
+                connected = false,
+                connectionName = activePool.name,
+                connectionId = "pool:${activePool.id}",
+                poolId = activePool.id,
+                poolName = activePool.name,
+                poolPolicy = activePool.policy.name,
+            )
 
             if (wasConnected) {
-                // Tear down the old tunnel. NetworkMonitor's status
-                // listener will re-evaluate on the disconnected
-                // transition; if COD rules match it fires the pool
-                // connect through the pool branch. If COD is off,
-                // the tunnel stays down (user wanted manual mode).
-                val result = com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                // Disconnect-wait-reconnect pattern, mirroring
+                // switchActiveConnection. v0.9.11.60 just fired
+                // requestDisconnect via the Coordinator and let
+                // NetworkMonitor's status-flow listener race the
+                // new connect against the old tunnel's native-
+                // side teardown. Result: ACTION_POOL_CONNECT
+                // landed before WireGuard / OpenVPN / strongSwan
+                // had fully released, the new tunnel never came
+                // up cleanly, and the Coordinator sat in
+                // Connecting until the 90s watchdog reset - the
+                // user-visible "stuck spinner on pool dropdown
+                // switch" bug. Now: explicit disconnect intent,
+                // wait for status to reach disconnected, 1.5s
+                // grace for native teardown, then explicit USER-
+                // source pool connect through the Coordinator.
+                val intent = Intent(context, PrivycsVpnService::class.java).apply {
+                    action = PrivycsVpnService.ACTION_DISCONNECT
+                }
+                try {
+                    context.startService(intent)
+                } catch (e: Exception) {
+                    PrivycsLogger.w(TAG, "switchActivePool: disconnect intent failed: ${e.message}")
+                }
+
+                try {
+                    kotlinx.coroutines.withTimeout(4000) {
+                        _status.filter { !it.connected }.first()
+                    }
+                } catch (_: Exception) {
+                    PrivycsLogger.w(TAG, "switchActivePool: disconnect wait timed out, connecting anyway")
+                }
+
+                // Native-side teardown grace - same delay used by
+                // switchActiveConnection and switchProtocol.
+                kotlinx.coroutines.delay(1500)
+
+                val result = com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
                     context,
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+                    poolId,
+                    activePool.name,
                 )
-                PrivycsLogger.i(TAG, "switchActivePool: disconnect requested -> $result")
+                PrivycsLogger.i(TAG, "switchActivePool: post-disconnect pool connect -> $result")
             } else {
                 // Not connected. If COD is enabled and current
                 // network already matches rules, fire the

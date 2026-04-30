@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Soft radial halo behind the widget's main connect-button circle.
+    Drawn only when the tunnel is up so disconnected widgets stay
+    visually quiet. Color matches the connected state's accent
+    (widget_status_connected, ~#10B981).
+
+    Geometry: shape oval with a radial gradient that fades from a
+    20% alpha tint at the center to fully transparent at the rim.
+    The gradientRadius is set high so the inner third is uniform
+    glow and the outer two-thirds dissolve smoothly. Sized via the
+    parent ImageView's negative margin so the visible glow extends
+    past the solid disk's edge.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="radial"
+        android:gradientRadius="120"
+        android:centerX="0.5"
+        android:centerY="0.5"
+        android:startColor="#3310B981"
+        android:centerColor="#1A10B981"
+        android:endColor="#0010B981" />
+</shape>

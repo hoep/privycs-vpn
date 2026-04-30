@@ -343,13 +343,30 @@
 
       <!-- Connection Details -->
       <div class="w-full max-w-sm space-y-1.5">
-        <div v-if="vpn.status?.local_address" class="flex justify-between items-center py-1.5 px-3 bg-white dark:bg-gray-800 rounded-lg">
-          <span class="text-[11px] text-gray-500">VPN IP</span>
-          <span class="text-[11px] text-gray-600 dark:text-gray-300 font-mono">{{ vpn.status.local_address }}</span>
+        <div v-if="vpn.status?.local_address" class="flex justify-between items-start py-1.5 px-3 bg-white dark:bg-gray-800 rounded-lg">
+          <span class="text-[11px] text-gray-500 pt-0.5">VPN IP</span>
+          <!-- Comma-separated WireGuard addresses split into stacked
+               right-aligned lines (IPv4 above IPv6 by insertion order)
+               so a 30+ char "10.66.x.x/32, fd00:...::y/128" does not
+               wrap mid-address. Single-value protocols (OpenVPN /
+               IPSec) render as one line via the same template. -->
+          <div class="flex flex-col items-end">
+            <span
+              v-for="(addr, i) in splitAddresses(vpn.status.local_address)"
+              :key="i"
+              class="text-[11px] text-gray-600 dark:text-gray-300 font-mono"
+            >{{ addr }}</span>
+          </div>
         </div>
-        <div v-if="vpn.status?.server_address" class="flex justify-between items-center py-1.5 px-3 bg-white dark:bg-gray-800 rounded-lg">
-          <span class="text-[11px] text-gray-500">Endpoint</span>
-          <span class="text-[11px] text-gray-600 dark:text-gray-300 font-mono truncate max-w-[180px]">{{ vpn.status.server_address }}</span>
+        <div v-if="vpn.status?.server_address" class="flex justify-between items-start py-1.5 px-3 bg-white dark:bg-gray-800 rounded-lg">
+          <span class="text-[11px] text-gray-500 pt-0.5">Endpoint</span>
+          <div class="flex flex-col items-end">
+            <span
+              v-for="(addr, i) in splitAddresses(vpn.status.server_address)"
+              :key="i"
+              class="text-[11px] text-gray-600 dark:text-gray-300 font-mono"
+            >{{ addr }}</span>
+          </div>
         </div>
         <div v-if="vpn.status?.last_handshake" class="flex justify-between items-center py-1.5 px-3 bg-white dark:bg-gray-800 rounded-lg">
           <span class="text-[11px] text-gray-500">Handshake</span>
@@ -557,6 +574,16 @@ const pendingMemberDisplay = computed(() => {
 // always knows what's driving server selection. The countdown row
 // only appears for Round-Robin (the only policy with a rotation
 // timer). All other policies pick once per Connect.
+// Split a comma-separated address string into trimmed parts.
+// Used by the Connection Details panel to stack WireGuard's
+// dual-stack Address line (e.g. "10.66.245.13/32, fd6f:...::e/128")
+// as IPv4 above IPv6 right-aligned. Single-value strings degrade
+// gracefully to a one-element array.
+function splitAddresses(value: string): string[] {
+  if (!value) return []
+  return value.split(',').map(s => s.trim()).filter(s => s.length > 0)
+}
+
 function formatClockTime(ns: number): string {
   if (!ns || ns <= 0) return ''
   const future = new Date(Date.now() + ns / 1_000_000)

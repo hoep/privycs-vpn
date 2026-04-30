@@ -1,21 +1,24 @@
 <template>
-  <!-- Rudimentary sparkline for upload/download speed. No axes, no
-       labels, no tooltip - just the area-filled curve. The parent
-       card holds the current-speed number separately. -->
+  <!-- Bar-style sparkline for upload/download speed. One vertical bar
+       per sample. No axes, no labels, no tooltip. Parent card holds
+       the current-speed number separately. -->
   <div ref="chartEl" class="w-full h-8"></div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as echarts from 'echarts/core'
-import { LineChart } from 'echarts/charts'
+import { BarChart } from 'echarts/charts'
 import { GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
-// Register only the modules we need so the bundle stays as small as
-// echarts' tree-shakeable core allows (~60 KB gzipped, vs. ~200 KB
-// for the full bundle).
-echarts.use([LineChart, GridComponent, CanvasRenderer])
+// Register only the modules we need so the bundle stays small.
+// Switched from LineChart to BarChart to communicate VPN's bursty
+// throughput pattern more honestly: a smooth area-curve smooths
+// individual page-load / video-chunk spikes into a misleading
+// shape, while bars preserve sample-discrete resolution. Mirrors
+// dashboard convention (Grafana, DataDog) for throughput strips.
+echarts.use([BarChart, GridComponent, CanvasRenderer])
 
 const props = defineProps<{
   data: number[]
@@ -29,20 +32,18 @@ function buildOption() {
   return {
     animation: false,
     grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: false },
-    xAxis: { type: 'category', show: false, boundaryGap: false },
+    xAxis: { type: 'category', show: false, boundaryGap: true },
     yAxis: { type: 'value', show: false, min: 0 },
     series: [
       {
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { color: props.color, width: 1.5 },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: props.color + 'cc' }, // 80% alpha
-            { offset: 1, color: props.color + '00' }, //  0% alpha
-          ]),
-        },
+        type: 'bar',
+        // 70% category width = 30% gap between bars - the
+        // "discrete sample" reading we want, vs a continuous fill.
+        barCategoryGap: '30%',
+        // 1.5px floor so a tiny non-zero burst stays visible
+        // instead of vanishing into the baseline.
+        barMinHeight: 1.5,
+        itemStyle: { color: props.color, borderRadius: [1, 1, 0, 0] },
         data: props.data,
       },
     ],

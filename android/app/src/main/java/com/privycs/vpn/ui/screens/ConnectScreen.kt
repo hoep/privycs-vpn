@@ -1137,6 +1137,15 @@ private fun ConnectionDetails(
 
 @Composable
 private fun DetailRow(label: String, value: String) {
+    // Split comma-separated values onto their own right-aligned
+    // line. WireGuard's Address field is typically a list like
+    // "10.66.245.13/32, fd6f:fc81:c4f8::e/128" - rendering that as
+    // a single line wraps mid-IP at narrow widths and is hard to
+    // scan. Stacking each entry right-aligned keeps the IPv4
+    // above the IPv6 (insertion order) and makes both readable.
+    // Single-value fields (Endpoint, Handshake) just render as a
+    // single right-aligned line via the same code path.
+    val parts = value.split(",").map { it.trim() }.filter { it.isNotBlank() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1151,12 +1160,17 @@ private fun DetailRow(label: String, value: String) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Column(horizontalAlignment = Alignment.End) {
+            parts.forEach { part ->
+                Text(
+                    text = part,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.End,
+                )
+            }
+        }
     }
 }
 

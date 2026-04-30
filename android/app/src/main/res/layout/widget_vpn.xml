@@ -49,11 +49,32 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center_horizontal"
-        android:minHeight="88dp">
+        android:minHeight="120dp">
 
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent">
+
+            <!-- Halo: soft radial glow behind the main circle. Drawn
+                 first (= behind the solid disk). Visibility is
+                 toggled from VpnWidget.kt: shown only when the
+                 tunnel is up (Connected state) so disconnected
+                 widgets stay visually quiet. The drawable itself is
+                 a radial-gradient shape oval with alpha center→edge,
+                 sized slightly larger than the button bg via the
+                 -10dp negative margin so the glow extends past the
+                 disk's edge instead of being hidden behind it. -->
+            <ImageView
+                android:id="@+id/widget_button_halo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="center"
+                android:layout_margin="-10dp"
+                android:src="@drawable/widget_button_halo"
+                android:scaleType="fitCenter"
+                android:visibility="gone"
+                android:contentDescription="@null"
+                android:adjustViewBounds="true" />
 
             <ImageView
                 android:id="@+id/widget_button_bg"
@@ -140,8 +161,13 @@
 
     <!-- 4. Protocol pills (WG / IPSec / OVPN). Each pill is a
          horizontal LinearLayout with icon + label text. Pill
-         background switches between active/inactive drawables. -->
+         background switches between active/inactive drawables.
+         The whole row is hidden by VpnWidget.kt when a pool is
+         the active selection - pools mix members with different
+         protocols, so a single-protocol picker UI is meaningless
+         for them, mirroring the same gate on ConnectScreen. -->
     <LinearLayout
+        android:id="@+id/widget_protocol_pills_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
