@@ -30,7 +30,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -51,42 +53,76 @@ fun LogsScreen(
     val clipboardManager = LocalClipboardManager.current
     val logLines = remember { mutableStateListOf<String>() }
     val listState = rememberLazyListState()
+    var lastSnapshotKey by remember { mutableStateOf("") }
 
+    // Live tail. Polls the two log files every 1.5s while the screen
+    // is in composition and re-renders if their (size,mtime) changed.
+    // Pre-fix the screen used LaunchedEffect(Unit) which runs once on
+    // entry, so any log lines written by the service during a connect
+    // never made it into the visible list - the user-reported "logs
+    // nicht upgedatet" bug. Polling is the simplest fix that avoids
+    // pulling in FileObserver lifecycle and gives the same effect at
+    // ~negligible CPU cost (two stat() calls + a conditional readLines
+    // when timestamps actually move).
     LaunchedEffect(Unit) {
-        logLines.clear()
-
-        // Main app event log (written by PrivycsLogger from connect / disconnect /
-        // state transitions / errors). Tail the last 500 lines.
         val logFile = File(context.filesDir, "privycs-vpn.log")
-        if (logFile.exists()) {
-            val lines = logFile.readLines()
-            val tail = if (lines.size > 500) lines.takeLast(500) else lines
-            if (tail.isNotEmpty()) {
-                logLines.add("== Privycs VPN events ==")
-                logLines.addAll(tail)
-            }
-        }
-
-        // strongSwan / charon log from active IPSec sessions. Lives next to
-        // the main log file, written by CharonVpnService while it runs.
         val charonFile = File(context.filesDir, "charon.log")
-        if (charonFile.exists()) {
-            val lines = charonFile.readLines()
-            val tail = if (lines.size > 500) lines.takeLast(500) else lines
-            if (tail.isNotEmpty()) {
-                if (logLines.isNotEmpty()) logLines.add("")
-                logLines.add("== strongSwan charon log ==")
-                logLines.addAll(tail)
+        var firstPass = true
+
+        while (true) {
+            val key = "${logFile.length()}-${logFile.lastModified()}-" +
+                "${charonFile.length()}-${charonFile.lastModified()}"
+            if (key != lastSnapshotKey) {
+                lastSnapshotKey = key
+                val newLines = mutableListOf<String>()
+
+                // Main app event log (written by PrivycsLogger from
+                // connect / disconnect / state transitions / errors).
+                // Tail the last 500 lines.
+                if (logFile.exists()) {
+                    val lines = logFile.readLines()
+                    val tail = if (lines.size > 500) lines.takeLast(500) else lines
+                    if (tail.isNotEmpty()) {
+                        newLines.add("== Privycs VPN events ==")
+                        newLines.addAll(tail)
+                    }
+                }
+
+                // strongSwan / charon log from active IPSec sessions.
+                // Lives next to the main log file, written by
+                // CharonVpnService while it runs.
+                if (charonFile.exists()) {
+                    val lines = charonFile.readLines()
+                    val tail = if (lines.size > 500) lines.takeLast(500) else lines
+                    if (tail.isNotEmpty()) {
+                        if (newLines.isNotEmpty()) newLines.add("")
+                        newLines.add("== strongSwan charon log ==")
+                        newLines.addAll(tail)
+                    }
+                }
+
+                if (newLines.isEmpty()) {
+                    newLines.add(
+                        "No log entries yet. Events will appear here after connect / disconnect."
+                    )
+                }
+
+                logLines.clear()
+                logLines.addAll(newLines)
+
+                // Auto-scroll to bottom on first pass and whenever
+                // the log grows. Without this each tail re-read
+                // jumps the user back up.
+                if (logLines.isNotEmpty()) {
+                    if (firstPass) {
+                        listState.scrollToItem(logLines.size - 1)
+                    } else {
+                        listState.animateScrollToItem(logLines.size - 1)
+                    }
+                }
+                firstPass = false
             }
-        }
-
-        if (logLines.isEmpty()) {
-            logLines.add("No log entries yet. Events will appear here after connect / disconnect.")
-        }
-
-        // Auto-scroll to bottom
-        if (logLines.isNotEmpty()) {
-            listState.animateScrollToItem(logLines.size - 1)
+            kotlinx.coroutines.delay(1500)
         }
     }
 

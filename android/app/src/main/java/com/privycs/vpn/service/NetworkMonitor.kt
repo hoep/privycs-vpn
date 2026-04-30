@@ -7,10 +7,10 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.util.Log
 import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.data.models.ConnectOnDemandSettings
 import com.privycs.vpn.util.AlwaysOnDetector
+import com.privycs.vpn.util.PrivycsLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -103,7 +103,7 @@ class NetworkMonitor private constructor(private val context: Context) {
     fun start() {
         if (started) return
         started = true
-        Log.d(TAG, "Starting network monitor")
+        PrivycsLogger.d(TAG, "Starting network monitor")
 
         // Re-evaluate when on-demand settings change (SSID list, mode,
         // trigger). Without this the user's rule edits only take effect on
@@ -113,7 +113,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                 .map { it.connectOnDemand }
                 .distinctUntilChanged()
                 .collect {
-                    Log.d(TAG, "Connect-on-demand settings changed, re-evaluating")
+                    PrivycsLogger.d(TAG, "Connect-on-demand settings changed, re-evaluating")
                     // Force edge transition on settings change so a rule flip
                     // is applied immediately even if the network state is
                     // unchanged.
@@ -136,7 +136,7 @@ class NetworkMonitor private constructor(private val context: Context) {
             var wasConnected = false
             VpnServiceManager.getInstance(context).status.collect { status ->
                 if (wasConnected && !status.connected) {
-                    Log.d(TAG, "VPN transitioned to disconnected, re-evaluating on-demand rules")
+                    PrivycsLogger.d(TAG, "VPN transitioned to disconnected, re-evaluating on-demand rules")
                     lastShouldConnect = null // force edge so connect branch fires
                     evaluateCurrentNetwork()
                 }
@@ -146,7 +146,7 @@ class NetworkMonitor private constructor(private val context: Context) {
 
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                Log.d(TAG, "Network available: $network")
+                PrivycsLogger.d(TAG, "Network available: $network")
                 evaluateCurrentNetwork()
             }
 
@@ -162,7 +162,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                 // Re-evaluate based on whatever the ConnectivityManager says
                 // is the current active network. If it is truly gone
                 // detectNetworkType() will return "none" naturally.
-                Log.d(TAG, "Network lost: $network — re-evaluating current state")
+                PrivycsLogger.d(TAG, "Network lost: $network — re-evaluating current state")
                 evaluateCurrentNetwork()
             }
 
@@ -170,7 +170,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                 network: Network,
                 networkCapabilities: NetworkCapabilities
             ) {
-                Log.d(TAG, "Network capabilities changed: $network")
+                PrivycsLogger.d(TAG, "Network capabilities changed: $network")
                 evaluateCurrentNetwork()
             }
 
@@ -181,7 +181,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                 // IP address / DNS / route change on the current default
                 // network. Still the same transport, but can influence SSID
                 // detection on some devices (e.g. WiFi reassociation).
-                Log.d(TAG, "Network link properties changed: $network")
+                PrivycsLogger.d(TAG, "Network link properties changed: $network")
                 evaluateCurrentNetwork()
             }
         }
@@ -199,7 +199,7 @@ class NetworkMonitor private constructor(private val context: Context) {
             connectivityManager.registerDefaultNetworkCallback(callback)
             networkCallback = callback
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to register network callback", e)
+            PrivycsLogger.e(TAG, "Failed to register network callback", e)
             // started flag must be reset too so a retry can
             // attempt registration; otherwise started=true with
             // no callback wedges the monitor in a half-up state.
@@ -217,13 +217,13 @@ class NetworkMonitor private constructor(private val context: Context) {
     fun stop() {
         if (!started) return
         started = false
-        Log.d(TAG, "Stopping network monitor")
+        PrivycsLogger.d(TAG, "Stopping network monitor")
 
         networkCallback?.let {
             try {
                 connectivityManager.unregisterNetworkCallback(it)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to unregister network callback", e)
+                PrivycsLogger.e(TAG, "Failed to unregister network callback", e)
             }
         }
         networkCallback = null
@@ -258,7 +258,7 @@ class NetworkMonitor private constructor(private val context: Context) {
             val effectiveSsid = if (rawSsid.isEmpty() && networkType == "wifi") {
                 lastResolvedSsid.also {
                     if (it.isNotEmpty()) {
-                        Log.d(TAG, "SSID detection returned empty, using cached \"$it\"")
+                        PrivycsLogger.d(TAG, "SSID detection returned empty, using cached \"$it\"")
                     }
                 }
             } else rawSsid
@@ -276,7 +276,7 @@ class NetworkMonitor private constructor(private val context: Context) {
             if (vpnManagerForGuard.isConnected && networkType == "wifi" &&
                 rawSsid.isEmpty() && lastResolvedSsid.isEmpty()
             ) {
-                Log.d(TAG, "Skipping evaluate: VPN up but SSID indeterminate (no cache)")
+                PrivycsLogger.d(TAG, "Skipping evaluate: VPN up but SSID indeterminate (no cache)")
                 return@launch
             }
 
@@ -293,7 +293,7 @@ class NetworkMonitor private constructor(private val context: Context) {
             _networkState.value = newState
 
             if (!codSettings.enabled) {
-                Log.d(TAG, "Connect on demand disabled, skipping action")
+                PrivycsLogger.d(TAG, "Connect on demand disabled, skipping action")
                 lastShouldConnect = null
                 return@launch
             }
@@ -332,7 +332,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                             context, MANUAL_DISCONNECT_COOLDOWN_MS
                         )
                 ) {
-                    Log.i(
+                    PrivycsLogger.i(
                         TAG,
                         "on-demand reconnect suppressed: manual disconnect within ${MANUAL_DISCONNECT_COOLDOWN_MS / 1000}s cooldown"
                     )
@@ -366,7 +366,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                         activePoolId,
                         activePool.name,
                     )
-                    Log.d(
+                    PrivycsLogger.d(
                         TAG,
                         "on-demand requestPoolConnect -> $poolResult (poolId=$activePoolId rules=$ruleMatch)"
                     )
@@ -382,7 +382,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                 // trust the coordinator's decision.
                 val connection = PrivycsApp.instance.connectionRepository.getActive()
                 if (connection == null) {
-                    Log.d(TAG, "Rules match but no active connection or pool, skipping")
+                    PrivycsLogger.d(TAG, "Rules match but no active connection or pool, skipping")
                     return@launch
                 }
                 val result = com.privycs.vpn.util.ConnectCoordinator.requestConnect(
@@ -390,7 +390,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
                     connection,
                 )
-                Log.d(TAG, "on-demand requestConnect -> $result (rules=$ruleMatch)")
+                PrivycsLogger.d(TAG, "on-demand requestConnect -> $result (rules=$ruleMatch)")
             } else if (!shouldConnect && vpnManager.isConnected) {
                 // Drop the `&& transitioned` gate that lived here: if
                 // we're connected and the rules say we shouldn't be,
@@ -403,13 +403,13 @@ class NetworkMonitor private constructor(private val context: Context) {
                 // says "disconnect here". requestDisconnect is
                 // idempotent (returns AlreadyIdle if tunnel is
                 // already down), so re-firing is free.
-                Log.d(TAG, "Rules say no-match while connected, disconnecting VPN: $ruleMatch")
+                PrivycsLogger.d(TAG, "Rules say no-match while connected, disconnecting VPN: $ruleMatch")
                 com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
                     context,
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
                 )
             } else if (transitioned) {
-                Log.d(TAG, "Rules transitioned but already in desired state: $ruleMatch")
+                PrivycsLogger.d(TAG, "Rules transitioned but already in desired state: $ruleMatch")
             }
         }
     }
@@ -458,10 +458,10 @@ class NetworkMonitor private constructor(private val context: Context) {
                 if (cleaned == "<unknown ssid>") "" else cleaned
             }
         } catch (e: SecurityException) {
-            Log.w(TAG, "No location permission for SSID detection", e)
+            PrivycsLogger.w(TAG, "No location permission for SSID detection", e)
             ""
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get SSID", e)
+            PrivycsLogger.e(TAG, "Failed to get SSID", e)
             ""
         }
     }
@@ -554,7 +554,7 @@ class NetworkMonitor private constructor(private val context: Context) {
      * network event.
      */
     fun reevaluate() {
-        Log.d(TAG, "Manual re-evaluate requested")
+        PrivycsLogger.d(TAG, "Manual re-evaluate requested")
         evaluateCurrentNetwork()
     }
 
