@@ -219,6 +219,9 @@ func (a *App) UpdatePool(id string, patch UpdatePoolRequest) (*Pool, error) {
 	if patch.SplitTunnel != nil {
 		p.SplitTunnel = *patch.SplitTunnel
 	}
+	if patch.DnsOverride != nil {
+		p.DnsOverride = *patch.DnsOverride
+	}
 
 	if err := a.pools.Update(p); err != nil {
 		return nil, err
@@ -246,6 +249,9 @@ type UpdatePoolRequest struct {
 	RestrictRegions *[]string        `json:"restrict_regions,omitempty"`
 	CountryOverride *string          `json:"country_override,omitempty"`
 	SplitTunnel     *PoolSplitTunnel `json:"split_tunnel,omitempty"`
+	// Per-pool DNS override. Pointer disambiguates "not patched"
+	// from "explicitly cleared back to global default".
+	DnsOverride     *string          `json:"dns_override,omitempty"`
 }
 
 // DeletePool removes a pool and clears any active-pool reference. If

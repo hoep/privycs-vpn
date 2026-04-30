@@ -262,17 +262,45 @@
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network</h3>
         <div class="space-y-3">
           <div>
-            <label class="text-sm text-gray-700 dark:text-gray-300 block mb-1">DNS Override</label>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-sm text-gray-700 dark:text-gray-300">DNS Override</label>
+              <AppSelect
+                :model-value="''"
+                @update:model-value="applyDnsPreset($event)"
+                :options="dnsPresetOptions"
+                placeholder="Presets..."
+              />
+            </div>
             <input
               v-model="settings.dns_override"
               @blur="validateAndSave"
+              @input="onDnsInput"
               type="text"
-              placeholder="e.g. 1.1.1.1 or leave empty"
-              pattern="^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})?$"
-              maxlength="45"
+              placeholder="e.g. 1.1.1.1, 2606:4700:4700::1111 — comma-separated, IPv4 + IPv6"
+              maxlength="200"
               class="input"
             />
-            <p v-if="dnsError" class="text-[10px] text-red-400 mt-0.5">{{ dnsError }}</p>
+            <div class="flex items-center justify-between mt-1">
+              <p class="text-[10px] flex-1" :class="dnsError ? 'text-red-400' : 'text-gray-500'">
+                <template v-if="dnsError">{{ dnsError }}</template>
+                <template v-else-if="dnsProviderHint">{{ dnsProviderHint }}</template>
+                <template v-else>Multiple servers separated by comma. Empty = use server-pushed DNS.</template>
+              </p>
+              <button
+                @click="testDns"
+                :disabled="dnsTesting"
+                class="text-[10px] text-primary-400 hover:text-primary-300 ml-2 disabled:opacity-50"
+              >
+                {{ dnsTesting ? 'Testing…' : 'Test DNS' }}
+              </button>
+            </div>
+            <p v-if="dnsTestResult" class="text-[10px] text-gray-500 mt-0.5">
+              <span v-if="dnsTestResult.error" class="text-red-400">Error: {{ dnsTestResult.error }}</span>
+              <span v-else>
+                Resolved {{ dnsTestResult.host }} → {{ dnsTestResult.addresses.join(', ') }} ({{ dnsTestResult.duration_ms }}ms)
+                <span v-if="dnsTestResult.resolver_hint" class="text-primary-400 ml-1">via {{ dnsTestResult.resolver_hint }}</span>
+              </span>
+            </p>
           </div>
           <div class="flex items-center justify-between">
             <span class="text-sm text-gray-700 dark:text-gray-300">Routing Mode</span>
@@ -417,7 +445,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useVpnStore } from '@/stores/vpn'
-import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath } from '../../wailsjs/go/main/App'
+import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath, ValidateDnsOverride, TestDnsResolution, GetDnsProviders } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
 
 const vpn = useVpnStore()
@@ -718,14 +746,88 @@ async function saveSettings() {
   }, 300)
 }
 
-function validateAndSave() {
-  const dns = settings.value.dns_override?.trim() || ''
-  if (dns && !/^(\d{1,3}\.){3}\d{1,3}$/.test(dns) && !dns.includes(':')) {
-    dnsError.value = 'Enter a valid IP address (e.g. 1.1.1.1)'
+// DNS provider preset table loaded from backend GetDnsProviders.
+// Same canonical list used by the Android picker so cross-platform
+// users get identical preset options.
+const dnsProviders = ref<any[]>([])
+const dnsProviderHint = ref('')
+const dnsTestResult = ref<any>(null)
+const dnsTesting = ref(false)
+
+const dnsPresetOptions = computed(() => {
+  return dnsProviders.value.map(p => ({ value: p.id, label: p.label }))
+})
+
+async function loadDnsProviders() {
+  try {
+    dnsProviders.value = await GetDnsProviders() as any[]
+  } catch (e) {
+    console.error('Failed to load DNS providers:', e)
+  }
+}
+
+function applyDnsPreset(id: string) {
+  if (!id) return
+  const preset = dnsProviders.value.find(p => p.id === id)
+  if (!preset) return
+  settings.value.dns_override = preset.servers.join(', ')
+  dnsError.value = ''
+  validateAndSave()
+}
+
+async function onDnsInput() {
+  // Live validation while typing so the user gets feedback before
+  // they tab away.
+  await refreshDnsValidationAndHint()
+}
+
+async function refreshDnsValidationAndHint() {
+  const raw = (settings.value.dns_override || '').trim()
+  if (!raw) {
+    dnsError.value = ''
+    dnsProviderHint.value = ''
     return
   }
-  dnsError.value = ''
+  try {
+    const bad = (await ValidateDnsOverride(raw)) as string[]
+    if (bad && bad.length) {
+      dnsError.value = `Invalid: ${bad.join(', ')}`
+      dnsProviderHint.value = ''
+      return
+    }
+    dnsError.value = ''
+    // Match against known providers for an inline hint.
+    const lower = raw.toLowerCase()
+    const match = dnsProviders.value.find(p => {
+      return p.servers.every((s: string) => lower.includes(s.toLowerCase()))
+        && p.servers.length <= raw.split(/[,\s]+/).filter(Boolean).length
+    })
+    if (match) {
+      dnsProviderHint.value = `Detected: ${match.label}` + (match.dot_host ? ` · DoT host: ${match.dot_host}` : '')
+    } else {
+      dnsProviderHint.value = ''
+    }
+  } catch (e) {
+    console.error('DNS validate failed:', e)
+  }
+}
+
+async function validateAndSave() {
+  await refreshDnsValidationAndHint()
+  if (dnsError.value) return
   saveSettings()
+}
+
+async function testDns() {
+  dnsTesting.value = true
+  dnsTestResult.value = null
+  try {
+    dnsTestResult.value = await TestDnsResolution('cloudflare.com')
+  } catch (e) {
+    dnsTestResult.value = { error: String(e) }
+  } finally {
+    dnsTesting.value = false
+  }
 }
 
 function toggleSetting(key: string) {
@@ -772,6 +874,7 @@ async function uninstallHelper() {
 onMounted(async () => {
   loadSettings()
   loadHelperStatus()
+  loadDnsProviders()
   // Load platform feature flags to disable unsupported toggles
   try {
     platform.value = await GetPlatformFeatures()

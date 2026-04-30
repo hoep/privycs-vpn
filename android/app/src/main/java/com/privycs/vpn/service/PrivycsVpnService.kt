@@ -1219,16 +1219,21 @@ class PrivycsVpnService : VpnService() {
      * without breaking the protocol-specific formatters downstream.
      */
     private fun resolveDnsOverrideServers(): List<String> {
+        // Per-pool DNS override wins over global Settings.dnsOverride
+        // when a pool is the active selection AND its dnsOverride is
+        // non-empty. Mirrors the desktop resolvePoolDnsOverride.
         val raw = try {
-            PrivycsApp.instance.settingsRepository.getSettingsBlocking().dnsOverride
+            val poolReg = PrivycsApp.instance.poolRepository.registry.value
+            val activePool = poolReg.pools.firstOrNull { it.id == poolReg.activeId }
+            val perPool = activePool?.dnsOverride.orEmpty().trim()
+            if (perPool.isNotEmpty()) perPool
+            else PrivycsApp.instance.settingsRepository.getSettingsBlocking().dnsOverride
         } catch (e: Exception) {
             PrivycsLogger.w(TAG, "DNS override read failed: ${e.message}")
             return emptyList()
         }
         if (raw.isBlank()) return emptyList()
-        return raw.split(',', ' ', '\t', '\n')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+        return com.privycs.vpn.util.DnsValidator.parseServers(raw)
     }
 
     /**

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
+	"time"
 )
 
 // applyDnsOverride patches a config blob with the user's manual
@@ -38,7 +41,11 @@ func (a *App) applyDnsOverride(cfg []byte, protocol string) []byte {
 	if a == nil {
 		return cfg
 	}
-	override := strings.TrimSpace(a.settings.DNSOverride)
+	// Per-pool override wins over global Settings.DNSOverride. Lets
+	// users have e.g. "Pool A uses Mullvad DNS, Pool B uses
+	// Cloudflare" without toggling the Settings field on every
+	// pool switch.
+	override := a.resolvePoolDnsOverride()
 	if override == "" {
 		// Even with empty override, we should clear any stale
 		// IPSec dns-override so a previous override doesn't
@@ -102,17 +109,282 @@ func (a *App) applyIPSecDnsOverride(servers []string) {
 // IP addresses into a clean list. Empty entries dropped, surrounding
 // whitespace trimmed. Caller decides whether to format them as
 // comma-separated (WG DNS line) or one-per-line (OpenVPN dhcp-option).
+//
+// IPv6 bracket stripping: web-style "[2001:db8::1]" and
+// "[2001:db8::1]:53" are reduced to "2001:db8::1" so users can
+// paste from URL-style sources without breaking downstream
+// formatters that expect a bare address.
 func parseDnsServers(s string) []string {
 	out := make([]string, 0, 4)
 	for _, part := range strings.FieldsFunc(s, func(r rune) bool {
 		return r == ',' || r == ' ' || r == '\t' || r == '\n'
 	}) {
-		t := strings.TrimSpace(part)
-		if t != "" {
-			out = append(out, t)
+		out = append(out, normalizeDnsEntry(strings.TrimSpace(part)))
+	}
+	// Drop empties produced by all-whitespace entries.
+	clean := out[:0]
+	for _, e := range out {
+		if e != "" {
+			clean = append(clean, e)
 		}
 	}
-	return out
+	return clean
+}
+
+// normalizeDnsEntry strips IPv6 brackets and any trailing :port
+// suffix. Best-effort: when the result is ambiguous (e.g. a bare
+// IPv4 with ":53" appended) we drop the port; the inject paths
+// only support default DNS port 53 anyway, custom ports cannot be
+// expressed in WireGuard DNS=, OpenVPN dhcp-option DNS, or
+// /etc/resolv.conf, so silently dropping the port is the right
+// behaviour.
+func normalizeDnsEntry(s string) string {
+	s = strings.TrimSpace(s)
+	// "[ipv6]:port" or "[ipv6]"
+	if strings.HasPrefix(s, "[") {
+		end := strings.Index(s, "]")
+		if end > 0 {
+			return s[1:end]
+		}
+		// Malformed - return as-is for downstream validator to flag.
+		return s
+	}
+	// "ipv4:port" — dotted-quad followed by a single colon-port.
+	// IPv6 has multiple colons so we only chop when there is exactly
+	// one ':'.
+	if strings.Count(s, ":") == 1 {
+		return strings.SplitN(s, ":", 2)[0]
+	}
+	return s
+}
+
+// IsValidDnsServer reports whether s parses as a numeric IPv4 or
+// IPv6 address. Used by validateDnsOverride and exposed via Wails
+// so the Settings UI can highlight invalid entries before save.
+// Hostname-style entries (e.g. "dns.cloudflare.com") are rejected
+// here - the inject pipeline (WG DNS=, OpenVPN dhcp-option DNS,
+// /etc/resolv.conf nameserver) only accepts numeric addresses.
+func IsValidDnsServer(s string) bool {
+	s = normalizeDnsEntry(s)
+	if s == "" {
+		return false
+	}
+	return net.ParseIP(s) != nil
+}
+
+// ValidateDnsOverride parses the user-entered DNS override string
+// and returns a list of invalid entries (empty list = all valid).
+// Used by the Settings UI to surface problems before save.
+func (a *App) ValidateDnsOverride(input string) []string {
+	parts := parseDnsServers(input)
+	bad := make([]string, 0)
+	for _, p := range parts {
+		if net.ParseIP(p) == nil {
+			bad = append(bad, p)
+		}
+	}
+	return bad
+}
+
+// DnsTestResult is the wire-shape returned to the Settings UI's
+// DNS Test button. ResolverHint is a best-effort label of who
+// answered (matched against the well-known provider IPs); empty
+// when no match.
+type DnsTestResult struct {
+	Host         string   `json:"host"`
+	Addresses    []string `json:"addresses"`
+	DurationMs   int64    `json:"duration_ms"`
+	ResolverHint string   `json:"resolver_hint"`
+	Error        string   `json:"error,omitempty"`
+}
+
+// TestDnsResolution probes the system DNS by resolving a known
+// hostname (default cloudflare.com if empty). Used by the Settings
+// "Test DNS" button to give the user a visible "DNS works / it
+// returned X in Yms" signal instead of having to wait for an
+// actual VPN connect to find out.
+//
+// Note: this resolves through the OS resolver, which on Windows
+// and Linux honours whatever DNS is currently in use. While the
+// VPN is connected that will be the tunnel's DNS; while
+// disconnected it will be the system DNS. Either case is useful
+// diagnostic information.
+func (a *App) TestDnsResolution(host string) DnsTestResult {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "cloudflare.com"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+	elapsed := time.Since(start).Milliseconds()
+	res := DnsTestResult{Host: host, DurationMs: elapsed}
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	res.Addresses = addrs
+	// Provider hint: if the resolver IPs matched a known provider's
+	// addresses we display that next to the test result. Best-
+	// effort, no network round-trip.
+	if a != nil {
+		hint := DnsProviderForServers(parseDnsServers(a.settings.DNSOverride))
+		if hint != "" {
+			res.ResolverHint = hint
+		}
+	}
+	return res
+}
+
+// DnsProvider is one entry in the Settings dropdown of well-known
+// public resolvers. Servers are dual-stack (IPv4 + IPv6) so the
+// inject pipeline gets both regardless of where the user's
+// current network stack ends up resolving.
+type DnsProvider struct {
+	ID         string   `json:"id"`
+	Label      string   `json:"label"`
+	Servers    []string `json:"servers"`
+	DotHost    string   `json:"dot_host,omitempty"`    // hostname for Android Private DNS / TLS
+	Note       string   `json:"note,omitempty"`        // short pitch (privacy / speed / blocklists)
+}
+
+// dnsProvidersList is the canonical preset table. Keep order so
+// the Settings dropdown renders deterministically.
+var dnsProvidersList = []DnsProvider{
+	{
+		ID: "cloudflare", Label: "Cloudflare",
+		Servers: []string{"1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"},
+		DotHost: "cloudflare-dns.com",
+		Note:    "Fast, no logging beyond 24h",
+	},
+	{
+		ID: "cloudflare-malware", Label: "Cloudflare (block malware)",
+		Servers: []string{"1.1.1.2", "1.0.0.2", "2606:4700:4700::1112", "2606:4700:4700::1002"},
+		DotHost: "security.cloudflare-dns.com",
+		Note:    "Blocks known malware domains",
+	},
+	{
+		ID: "cloudflare-family", Label: "Cloudflare (block malware + adult)",
+		Servers: []string{"1.1.1.3", "1.0.0.3", "2606:4700:4700::1113", "2606:4700:4700::1003"},
+		DotHost: "family.cloudflare-dns.com",
+		Note:    "Family-safe filtering",
+	},
+	{
+		ID: "google", Label: "Google",
+		Servers: []string{"8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844"},
+		DotHost: "dns.google",
+		Note:    "Reliable, logs queries",
+	},
+	{
+		ID: "quad9", Label: "Quad9 (block malware)",
+		Servers: []string{"9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9"},
+		DotHost: "dns.quad9.net",
+		Note:    "Swiss, malware blocking, no logging",
+	},
+	{
+		ID: "adguard", Label: "AdGuard (block ads + trackers)",
+		Servers: []string{"94.140.14.14", "94.140.15.15", "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"},
+		DotHost: "dns.adguard-dns.com",
+		Note:    "Default - blocks ads and trackers",
+	},
+	{
+		ID: "adguard-family", Label: "AdGuard Family (block ads + trackers + adult)",
+		Servers: []string{"94.140.14.15", "94.140.15.16", "2a10:50c0::bad1:ff", "2a10:50c0::bad2:ff"},
+		DotHost: "family.adguard-dns.com",
+		Note:    "Family-safe content filtering on top of ad blocking",
+	},
+	{
+		ID: "adguard-unfiltered", Label: "AdGuard (no filtering)",
+		Servers: []string{"94.140.14.140", "94.140.14.141", "2a10:50c0::1:ff", "2a10:50c0::2:ff"},
+		DotHost: "unfiltered.adguard-dns.com",
+		Note:    "Pass-through, no blocking",
+	},
+	{
+		ID: "mullvad", Label: "Mullvad",
+		Servers: []string{"194.242.2.2", "2a07:e340::2"},
+		DotHost: "dns.mullvad.net",
+		Note:    "Logging-free, run by Mullvad VPN",
+	},
+	{
+		ID: "mullvad-adblock", Label: "Mullvad (block ads + trackers)",
+		Servers: []string{"194.242.2.3", "2a07:e340::3"},
+		DotHost: "adblock.dns.mullvad.net",
+		Note:    "Mullvad with content blocking",
+	},
+}
+
+// GetDnsProviders returns the preset table for the Settings UI.
+func (a *App) GetDnsProviders() []DnsProvider {
+	return dnsProvidersList
+}
+
+// DnsProviderForServers returns the human-readable provider name
+// when the supplied server list matches a known preset. Empty when
+// no match. Used by Settings UI to show "This is Cloudflare - tip:
+// also enable Private DNS for DoT" on the Android side, and by
+// TestDnsResolution as a hint label on Desktop.
+func DnsProviderForServers(servers []string) string {
+	if len(servers) == 0 {
+		return ""
+	}
+	// Build a normalised lookup set from input.
+	want := make(map[string]struct{}, len(servers))
+	for _, s := range servers {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			continue
+		}
+		want[ip.String()] = struct{}{}
+	}
+	if len(want) == 0 {
+		return ""
+	}
+	// A provider matches if the input is a subset of the provider's
+	// canonical server list (so user with "1.1.1.1" alone still
+	// matches Cloudflare; but "1.1.1.1, 8.8.8.8" matches none).
+	for _, p := range dnsProvidersList {
+		canonical := make(map[string]struct{}, len(p.Servers))
+		for _, s := range p.Servers {
+			ip := net.ParseIP(s)
+			if ip == nil {
+				continue
+			}
+			canonical[ip.String()] = struct{}{}
+		}
+		matched := true
+		for w := range want {
+			if _, ok := canonical[w]; !ok {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return p.Label
+		}
+	}
+	return ""
+}
+
+// resolvePoolDnsOverride returns the per-pool DNS override when a
+// pool is the active selection AND has a non-empty override, else
+// the global Settings.DNSOverride. Mirrors the Android
+// resolveDnsOverrideServers per-pool branch. Called from
+// applyDnsOverride.
+func (a *App) resolvePoolDnsOverride() string {
+	if a == nil {
+		return ""
+	}
+	a.mu.RLock()
+	poolID := a.activePoolID
+	a.mu.RUnlock()
+	if poolID == "" {
+		return strings.TrimSpace(a.settings.DNSOverride)
+	}
+	if pool := a.pools.Get(poolID); pool != nil && strings.TrimSpace(pool.DnsOverride) != "" {
+		return strings.TrimSpace(pool.DnsOverride)
+	}
+	return strings.TrimSpace(a.settings.DNSOverride)
 }
 
 // patchWireGuardDns replaces (or inserts) the DNS line in the

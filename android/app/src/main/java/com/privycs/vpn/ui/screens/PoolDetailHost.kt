@@ -195,6 +195,9 @@ private fun EditPoolSheet(
     var bypassCidrsText by remember(pool.id) {
         mutableStateOf(pool.splitTunnel.bypassCidrs.joinToString("\n"))
     }
+    // Per-pool DNS override. When non-empty, overrides
+    // Settings.dnsOverride for this pool's tunnel only.
+    var dnsOverride by remember(pool.id) { mutableStateOf(pool.dnsOverride) }
     // Per-line validation tally so the UI can surface "3 lines, 1
     // invalid". Recomputed on every keystroke (cheap: parse is
     // microseconds + the list is short).
@@ -335,6 +338,39 @@ private fun EditPoolSheet(
                 }
             )
 
+            Spacer(Modifier.height(12.dp))
+            // Per-pool DNS override. Empty = inherit Settings global.
+            // Validation feedback via supportingText so the user
+            // knows which entries the inject pipeline will reject
+            // before they save and connect.
+            val dnsInvalid = remember(dnsOverride) {
+                com.privycs.vpn.util.DnsValidator.invalidEntries(dnsOverride)
+            }
+            OutlinedTextField(
+                value = dnsOverride,
+                onValueChange = { dnsOverride = it },
+                label = { Text("DNS Override (per-pool)") },
+                placeholder = { Text("e.g. 1.1.1.1, 2606:4700:4700::1111") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                supportingText = {
+                    when {
+                        dnsOverride.isBlank() -> Text(
+                            "Empty = inherit global Settings DNS Override"
+                        )
+                        dnsInvalid.isEmpty() -> Text(
+                            "Valid",
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        else -> Text(
+                            "Invalid: ${dnsInvalid.joinToString(", ")}",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                },
+                isError = dnsInvalid.isNotEmpty()
+            )
+
             Spacer(Modifier.height(20.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -365,7 +401,8 @@ private fun EditPoolSheet(
                             splitTunnel = com.privycs.vpn.data.models.PoolSplitTunnel(
                                 bypassCidrs = cidrLines,
                                 excludePrivateNetworks = excludePrivate
-                            )
+                            ),
+                            dnsOverride = dnsOverride.trim()
                         )
                         scope.launch { onSave(updated) }
                     }

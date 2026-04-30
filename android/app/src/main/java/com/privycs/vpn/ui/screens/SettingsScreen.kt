@@ -34,6 +34,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -686,6 +688,18 @@ fun SettingsScreen(
 
             // -- Network --
             SettingsSection(title = "NETWORK") {
+                // Live validation: parse the entry, show inline
+                // error listing invalid IPs. Provider hint surfaces
+                // when the user pasted servers belonging to a known
+                // public resolver (Cloudflare, Quad9, etc.) so they
+                // can be told to additionally enable Private DNS
+                // for DoT encryption.
+                val dnsInvalid = remember(dnsOverride) {
+                    com.privycs.vpn.util.DnsValidator.invalidEntries(dnsOverride)
+                }
+                val dnsProvider = remember(dnsOverride) {
+                    com.privycs.vpn.util.DnsValidator.detectProvider(dnsOverride)
+                }
                 OutlinedTextField(
                     value = dnsOverride,
                     onValueChange = {
@@ -695,11 +709,138 @@ fun SettingsScreen(
                         }
                     },
                     label = { Text("DNS Override") },
-                    placeholder = { Text("e.g. 1.1.1.1 or leave empty") },
+                    placeholder = { Text("e.g. 1.1.1.1, 2606:4700:4700::1111") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    isError = dnsInvalid.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = {
+                        when {
+                            dnsInvalid.isNotEmpty() -> Text(
+                                "Invalid: ${dnsInvalid.joinToString(", ")}",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            dnsProvider != null -> Text(
+                                "Detected: ${dnsProvider.label} · DoT host: ${dnsProvider.dotHost}",
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            else -> Text(
+                                "IPv4 + IPv6, comma-separated. Empty = use server-pushed DNS."
+                            )
+                        }
+                    }
                 )
 
+                // DNS provider preset dropdown. Picking a preset
+                // populates the override field with the dual-stack
+                // server list. Same canonical table as desktop
+                // GetDnsProviders so the two platforms stay in sync.
+                Spacer(Modifier.height(8.dp))
+                var presetMenuOpen by remember { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(
+                        onClick = { presetMenuOpen = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Pick a preset…")
+                    }
+                    DropdownMenu(
+                        expanded = presetMenuOpen,
+                        onDismissRequest = { presetMenuOpen = false }
+                    ) {
+                        com.privycs.vpn.util.DnsValidator.providers.forEach { p ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(p.label, style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            p.note,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    presetMenuOpen = false
+                                    val joined = p.servers.joinToString(", ")
+                                    dnsOverride = joined
+                                    persistScope.launch {
+                                        settingsRepo.updateSettings(settings.copy(dnsOverride = joined))
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Test-DNS button. Synchronously resolves a known
+                // hostname and shows the result so the user gets a
+                // visible "DNS works / returned X in Yms" signal
+                // without having to wait for an actual VPN connect.
+                Spacer(Modifier.height(8.dp))
+                var dnsTestResult by remember {
+                    mutableStateOf<com.privycs.vpn.util.DnsValidator.TestResult?>(null)
+                }
+                var dnsTesting by remember { mutableStateOf(false) }
+                val testScope = rememberCoroutineScope()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(
+                        onClick = {
+                            dnsTesting = true
+                            testScope.launch {
+                                val res = withContext(Dispatchers.IO) {
+                                    com.privycs.vpn.util.DnsValidator.testResolution()
+                                }
+                                dnsTestResult = res
+                                dnsTesting = false
+                            }
+                        },
+                        enabled = !dnsTesting
+                    ) {
+                        Text(if (dnsTesting) "Testing…" else "Test DNS")
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    val res = dnsTestResult
+                    if (res != null) {
+                        Text(
+                            text = if (res.error != null) "Error: ${res.error}"
+                                   else "${res.host} → ${res.addresses.firstOrNull() ?: "?"} (${res.durationMs}ms)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (res.error != null) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Android Private DNS hint. We can't toggle the
+                // system setting from here (Network → Private DNS
+                // is system-managed), but we can guide the user
+                // there when their override IPs match a known DoT
+                // provider. Closes the most common DoH/DoT support
+                // gap without bundling our own DoH proxy.
+                if (dnsProvider != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                "Tip: enable encrypted DNS",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "${dnsProvider.label} also offers DNS-over-TLS. " +
+                                        "For end-to-end encryption: Android Settings → Network → " +
+                                        "Private DNS → enter \"${dnsProvider.dotHost}\".",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
             }
 
             // -- Per-App VPN --

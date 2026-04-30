@@ -470,6 +470,35 @@
                       {{ bypassValidation.invalidSample.join(', ') }}
                     </p>
                   </div>
+
+                  <!-- Per-pool DNS override. Comma-separated IPv4 +
+                       IPv6 list. When non-empty, this overrides the
+                       global Settings.DNSOverride for the duration
+                       of this pool's tunnel only. Use case: "Pool A
+                       uses Mullvad DNS, Pool B uses Cloudflare"
+                       without having to edit global settings on
+                       every switch. Empty = inherit global. -->
+                  <div>
+                    <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                      DNS Override <span class="text-gray-400">(per-pool, IPv4 + IPv6)</span>
+                    </label>
+                    <input
+                      v-model="editDnsOverride"
+                      type="text"
+                      spellcheck="false"
+                      placeholder="e.g. 1.1.1.1, 2606:4700:4700::1111"
+                      class="w-full bg-gray-50 dark:bg-gray-800
+                             text-gray-800 dark:text-gray-200
+                             text-xs font-mono p-2 rounded-lg
+                             border border-gray-200 dark:border-gray-700
+                             focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                    <p class="text-[10px] text-gray-500 mt-1">
+                      Empty = use the global DNS Override from Settings.
+                      Overrides only apply while this pool is the
+                      active selection.
+                    </p>
+                  </div>
                 </div>
 
                 <div class="flex justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/30">
@@ -634,6 +663,7 @@ const editForceAfterMin = ref(30)
 // string array happens at saveSettings time.
 const editExcludePrivateNetworks = ref(false)
 const editBypassCidrsText = ref('')
+const editDnsOverride = ref('')
 // Per-line validation: counts valid + invalid entries so the UI
 // can surface "3 valid, 1 invalid" as a hint. Pure regex here -
 // the backend re-parses with the canonical CidrMath at inject
@@ -765,6 +795,7 @@ async function load() {
         pool.value.split_tunnel?.exclude_private_networks ?? false
       editBypassCidrsText.value =
         (pool.value.split_tunnel?.bypass_cidrs ?? []).join('\n')
+      editDnsOverride.value = pool.value.dns_override || ''
     }
   } catch (e) {
     console.error(e)
@@ -809,6 +840,7 @@ async function saveSettings() {
         bypass_cidrs: cidrLines,
         exclude_private_networks: editExcludePrivateNetworks.value,
       },
+      dns_override: editDnsOverride.value.trim(),
     })
     showSettingsModal.value = false
     await load()

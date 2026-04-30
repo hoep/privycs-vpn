@@ -110,7 +110,16 @@ data class Pool(
      * identical for any pool that hasn't opted in.
      */
     @SerialName("split_tunnel")
-    val splitTunnel: PoolSplitTunnel = PoolSplitTunnel()
+    val splitTunnel: PoolSplitTunnel = PoolSplitTunnel(),
+    /**
+     * Per-pool DNS override. Comma- or whitespace-separated
+     * IPv4/IPv6 list. When non-empty, overrides the global
+     * Settings.dnsOverride for the duration of this pool's
+     * tunnel. Empty falls back to global. Mirrors desktop
+     * Pool.DnsOverride for cross-platform parity.
+     */
+    @SerialName("dns_override")
+    val dnsOverride: String = ""
 ) {
     /** O(n) member lookup. Repository caches per-pool index for O(1). */
     fun memberById(id: String): PoolMember? = members.firstOrNull { it.id == id }

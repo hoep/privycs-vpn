@@ -133,6 +133,10 @@ type Pool struct {
 	CountryOverride string           `json:"country_override,omitempty"`
 	RestrictRegions []string         `json:"restrict_regions,omitempty"`
 	SplitTunnel     PoolSplitTunnel  `json:"split_tunnel,omitempty"`
+	// Per-pool DNS override. Comma- or whitespace-separated IPs.
+	// When non-empty, overrides Settings.DNSOverride for the
+	// duration of this pool's tunnel. Empty falls back to global.
+	DnsOverride     string           `json:"dns_override,omitempty"`
 
 	// memberByID is a parallel index for O(1) MemberByID lookups.
 	// Built on load + Create + DeleteMember + RenameMember. NOT
