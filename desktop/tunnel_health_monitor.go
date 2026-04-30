@@ -132,6 +132,25 @@ func (m *TunnelHealthMonitor) Start(target string, onDead func()) {
 	// first ping at T+60s either confirms or flips to DEGRADED.
 	m.setState(TunnelHealthHealthy)
 
+	// Defensive force-emit: setState short-circuits when the
+	// state value is unchanged (e.g., Start called twice in a row
+	// without intervening Stop, or when Start was already Healthy
+	// because of a previous run that never went Inactive). The
+	// frontend's Vue ConnectionView listens for tunnelHealth:state
+	// events; without a guaranteed emit on every Start call, a
+	// re-mount of ConnectionView could miss the current state. Force
+	// re-fire here to guarantee the frontend sees the active state.
+	// Duplicate emits with the same value are harmless — the Vue
+	// store sets the same string value, no UI re-render churn.
+	// v0.9.14.2 hardening.
+	m.mu.Lock()
+	cb := m.onStateChange
+	curState := m.state
+	m.mu.Unlock()
+	if cb != nil {
+		go cb(curState)
+	}
+
 	go m.run(ctx, target, onDead)
 }
 

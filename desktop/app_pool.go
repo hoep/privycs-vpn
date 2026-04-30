@@ -1010,7 +1010,16 @@ func (a *App) PickAndConnectActivePool() error {
 	var attempted []string
 	var lastErr error
 
-	lastActiveMember := a.pools.ActiveMemberID(pool.ID)
+	// Snapshot the previous active member BEFORE any iteration runs.
+	// Used both as PickExcluding's "lastActiveMember" anti-pin (so the
+	// rotator does not re-pick the same one) AND as the rollback
+	// target if every attempt fails. v0.9.14.2 hardening — pre-fix,
+	// SetActiveMember fired before each attempt's connect, so a
+	// failure-only loop left ActiveMember pointing at the last failed
+	// candidate (UI then displayed "connected to X" while the tunnel
+	// was actually down).
+	prevActiveMember := a.pools.ActiveMemberID(pool.ID)
+	lastActiveMember := prevActiveMember
 
 	for attempt := 0; attempt < maxConnectAttempts; attempt++ {
 		var member *PoolMember
@@ -1029,13 +1038,6 @@ func (a *App) PickAndConnectActivePool() error {
 			break
 		}
 		attempted = append(attempted, member.ID)
-
-		// Persist the new active member + clear pre-warm hint via
-		// state.json (NOT pools.json - the actual definition file).
-		// Combined effect of both writes is one debounced state.json
-		// flush after the rotation completes.
-		a.pools.SetActiveMember(pool.ID, member.ID)
-		a.pools.SetPendingMember(pool.ID, "")
 
 		log.Printf("Pool %s policy=%s attempt %d/%d: trying member %s (%s, %s)",
 			pool.Name, pool.Policy, attempt+1, maxConnectAttempts,
@@ -1090,6 +1092,14 @@ func (a *App) PickAndConnectActivePool() error {
 		log.Printf("Pool %s timing: TOTAL switch=%dms (disconnect+connect+verify)",
 			pool.Name, time.Since(rotationStart).Milliseconds())
 
+		// Persist the new active member NOW that connect+verify
+		// succeeded (v0.9.14.2 — was previously set before the
+		// connect attempt, leaving stale state on failed attempts).
+		// Pair with clearing the pre-warm hint via state.json. Both
+		// writes coalesce into one debounced state.json flush.
+		a.pools.SetActiveMember(pool.ID, member.ID)
+		a.pools.SetPendingMember(pool.ID, "")
+
 		// Flush OS DNS cache so apps re-resolve hostnames through
 		// the new tunnel's geolocation (different exit IP = often
 		// different CDN edge). Background goroutine - the rotation
@@ -1107,6 +1117,18 @@ func (a *App) PickAndConnectActivePool() error {
 			})
 		}
 		return nil
+	}
+
+	// All attempts failed: restore the previous active member so the
+	// UI does not display the last-failed candidate as "currently
+	// connected". If there was no prior active member, leave the
+	// state as-is (empty); a future user-initiated retry can pick
+	// fresh. The pre-warm hint is left untouched so the next
+	// rotation can still try the pre-warmed candidate.
+	if prevActiveMember != "" {
+		a.pools.SetActiveMember(pool.ID, prevActiveMember)
+		log.Printf("Pool %s: all %d attempts failed - restored previous active member %s",
+			pool.Name, len(attempted), prevActiveMember)
 	}
 
 	if lastErr == nil {

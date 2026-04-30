@@ -803,6 +803,13 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		}
 		isPool := a.activePoolID != ""
 		shouldRun := mode == "always" || (mode == "auto" && isPool)
+		// v0.9.14.2: explicit gating-decision log so the user can
+		// diagnose "no healthy dot" without code-tracing. The three
+		// inputs uniquely determine the decision; if shouldRun=false
+		// you read the line and immediately know whether to flip mode
+		// to "always" or activate a pool.
+		log.Printf("TunnelHealth: gating mode=%q isPool=%v shouldRun=%v target=%q",
+			mode, isPool, shouldRun, a.settings.TunnelHealthTarget)
 		if shouldRun {
 			target := a.settings.TunnelHealthTarget
 			// Recovery callback is currently DISABLED on desktop
