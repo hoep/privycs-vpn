@@ -394,20 +394,6 @@
         </div>
       </div>
 
-      <!-- Tunnel-health pill. Visible only when the periodic
-           ICMP-ping monitor is running (state != inactive).
-           Three-state traffic light driven by the
-           tunnelHealth:state Wails event. -->
-      <div v-if="tunnelHealthState !== 'inactive'" class="w-full max-w-sm mt-3 flex justify-center">
-        <span
-          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-medium"
-          :class="healthPillClass"
-        >
-          <span class="w-2 h-2 rounded-full" :class="healthDotClass"></span>
-          {{ healthPillLabel }}
-        </span>
-      </div>
-
       <!-- Edit Config Button -->
       <div class="w-full max-w-sm mt-3">
         <button
@@ -422,6 +408,23 @@
 
       <!-- Error -->
       <p v-if="vpn.error" class="mt-3 text-xs text-red-400 text-center max-w-sm">{{ vpn.error }}</p>
+
+      <!-- Tunnel-health pill. Sits at the BOTTOM of the connection
+           card per user feedback (v0.9.14.3) — it was previously
+           between connection details and the Edit Config button which
+           split the visual focus. Visible only when the periodic
+           ICMP-ping monitor is running (state != inactive).
+           Three-state traffic light driven by the
+           tunnelHealth:state Wails event. -->
+      <div v-if="tunnelHealthState !== 'inactive'" class="w-full max-w-sm mt-3 flex justify-center">
+        <span
+          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-medium"
+          :class="healthPillClass"
+        >
+          <span class="w-2 h-2 rounded-full" :class="healthDotClass"></span>
+          {{ healthPillLabel }}
+        </span>
+      </div>
     </template>
 
     <!-- COD-Mismatch Confirm Modal -->
