@@ -571,6 +571,23 @@ fun ConnectScreen(
                                     // skip-if-same guard made the
                                     // retry path unreachable.
                                     coroutineScope.launch {
+                                        // Clear single-connection active
+                                        // FIRST so the Connect screen does
+                                        // not show stale single-name +
+                                        // protocol pills under the pool
+                                        // card. Pre-fix, the picker only
+                                        // set the pool active id and left
+                                        // single's activeId untouched -
+                                        // the protocol pills row at line
+                                        // ~604 then re-rendered for the
+                                        // previously-selected single
+                                        // connection because activeConnection
+                                        // = connectionRepo.getActive() was
+                                        // still non-null. Mirrors what
+                                        // PoolDetailHost.onActivate and
+                                        // ConnectionsScreen.onTap already
+                                        // do.
+                                        connectionRepo.setActive("")
                                         poolRepoForIndicator.setActiveId(p.id)
                                         // Route through Coordinator
                                         // so KS sinkhole / pause /
@@ -597,10 +614,21 @@ fun ConnectScreen(
             // Protocol badges. Single-connection only: pools mix
             // members with potentially different protocols, so a
             // single-protocol picker UI is meaningless. When a pool
-            // is active (activeConnection == null), skip the badges
-            // entirely. The pool indicator card above already shows
-            // policy/member info in the appropriate framing.
-            if (activeConnection != null) {
+            // is active, skip the badges entirely - the pool
+            // indicator card above already shows policy/member info
+            // in the appropriate framing.
+            //
+            // Defence-in-depth: pool wins over connectionRepo's
+            // activeId. Pre-fix, paths that activated a pool
+            // without clearing connectionRepo.setActive("") (the
+            // ConnectScreen picker was one of them) left
+            // activeConnection non-null while activePool was set,
+            // so this row showed protocol pills from the previous
+            // single connection underneath the pool card. Adding
+            // `activePool == null` as a gate makes the UI correct
+            // even if a future caller forgets to clear single-
+            // active when activating a pool.
+            if (activeConnection != null && activePool == null) {
                 ProtocolBadges(
                     availableProtocols = activeConnection.availableProtocols(),
                     activeProtocol = status.activeProtocol ?: activeConnection.activeProtocol,

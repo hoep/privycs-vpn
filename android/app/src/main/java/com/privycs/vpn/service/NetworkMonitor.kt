@@ -557,4 +557,31 @@ class NetworkMonitor private constructor(private val context: Context) {
         Log.d(TAG, "Manual re-evaluate requested")
         evaluateCurrentNetwork()
     }
+
+    /**
+     * Synchronous one-shot rule check - does the current network
+     * environment satisfy the COD rules? Returns true if a connect
+     * intent SHOULD fire right now, false otherwise.
+     *
+     * Does NOT fire any intent, does NOT update lastShouldConnect,
+     * does NOT touch the state flow. Pure read-only evaluation.
+     *
+     * Used by BootReceiver to gate the boot-time auto-connect: when
+     * COD is enabled the user expects boot connect ONLY when rules
+     * currently match. The async evaluateCurrentNetwork() path
+     * cannot serve this because BootReceiver may finish before the
+     * Main-dispatcher launch runs, in which case the process can be
+     * killed before the eval lands.
+     */
+    fun evaluateRulesNow(settings: ConnectOnDemandSettings): Boolean {
+        val networkType = detectNetworkType()
+        val rawSsid = detectCurrentSsid()
+        val effectiveSsid = if (rawSsid.isEmpty() && networkType == "wifi") {
+            lastResolvedSsid
+        } else {
+            rawSsid
+        }
+        val (shouldConnect, _) = evaluateRules(settings, networkType, effectiveSsid)
+        return shouldConnect
+    }
 }

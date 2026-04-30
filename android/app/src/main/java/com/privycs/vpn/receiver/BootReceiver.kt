@@ -52,16 +52,45 @@ class BootReceiver : BroadcastReceiver() {
                 val app = context.applicationContext as PrivycsApp
                 val settings = app.settingsRepository.getSettingsBlocking()
 
+                // Always start the NetworkMonitor when COD is on so
+                // ongoing rule-based connects/disconnects work after
+                // boot. Independent of autoConnectOnStart - the
+                // monitor's job is the long-lived lifecycle, the
+                // boot intent below is a one-shot kick.
                 if (settings.connectOnDemand.enabled) {
                     Log.d(TAG, "Connect on demand enabled, starting NetworkMonitor")
-                    val monitor = NetworkMonitor.getInstance(context)
-                    monitor.start()
-                    return@launch
+                    NetworkMonitor.getInstance(context).start()
                 }
 
                 if (!settings.autoConnectOnStart) {
-                    Log.d(TAG, "Auto-connect disabled, skipping")
+                    Log.d(TAG, "Auto-connect at boot disabled, no boot intent fired")
                     return@launch
+                }
+
+                // COD-rule gate. When the user has BOTH
+                // autoConnectOnStart AND connectOnDemand enabled,
+                // they expect boot connect ONLY when COD rules
+                // currently match. Without this check the BOOT
+                // intent would fire on every reboot regardless of
+                // SSID / network-type filter, defeating the whole
+                // point of "connect only on trusted/untrusted
+                // networks". Pre-fix the BootReceiver had a hard
+                // early-return on COD-enabled, which leaked the
+                // opposite bug (no boot connect even when rules
+                // matched). The right answer is: rules-aware gate.
+                //
+                // evaluateRulesNow() is synchronous, no intent
+                // firing, pure read of detectNetworkType() +
+                // detectCurrentSsid(). Returns true if a connect
+                // SHOULD fire right now.
+                if (settings.connectOnDemand.enabled) {
+                    val shouldConnect = NetworkMonitor.getInstance(context)
+                        .evaluateRulesNow(settings.connectOnDemand)
+                    if (!shouldConnect) {
+                        Log.d(TAG, "Boot auto-connect suppressed: COD rules do not match current network")
+                        return@launch
+                    }
+                    Log.d(TAG, "Boot auto-connect: COD rules match, proceeding")
                 }
 
                 // Pool-active wins. Without this branch boot-time
