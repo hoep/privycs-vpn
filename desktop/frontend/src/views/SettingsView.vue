@@ -365,7 +365,7 @@
             type="checkbox"
             :checked="settings.network_rules_enabled"
             @change="settings.network_rules_enabled = $event.target.checked; saveSettings()"
-            class="w-4 h-4"
+            class="w-4 h-4 accent-primary-600"
           />
         </div>
         <p v-if="!settings.network_rules_enabled" class="text-[10px] text-amber-500 mb-3">

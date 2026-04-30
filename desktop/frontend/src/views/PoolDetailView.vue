@@ -83,7 +83,7 @@
                   type="checkbox"
                   :checked="isRegionEnabled(row.region)"
                   @change="toggleRegion(row.region)"
-                  class="rounded"
+                  class="rounded accent-primary-600"
                 />
                 <span class="text-xs text-gray-700 dark:text-gray-300">{{ row.region }}</span>
               </div>

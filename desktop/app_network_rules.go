@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -249,7 +248,14 @@ func detectBssidWindows() string {
 }
 
 func runCmd(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	// execHidden applies CREATE_NO_WINDOW on Windows so the netsh
+	// BSSID-detect subprocess does not pop a console window every
+	// time NetworkMonitor's rule-engine tick reads the active SSID's
+	// BSSID. Pass-through to exec.Command on Linux/macOS where the
+	// flag is meaningless. v0.9.14.1 fix — the v0.9.13.8 sweep that
+	// hid pingHost + autostart reg commands missed this site because
+	// it was gated behind the opt-in rules engine.
+	cmd := execHidden(name, args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
