@@ -677,9 +677,9 @@ const newSSID = ref('')
 const codStatus = ref<any>(null)
 let codStatusInterval: ReturnType<typeof setInterval> | null = null
 
-function toggleConnectOnDemand() {
+async function toggleConnectOnDemand() {
   connectOnDemand.value.enabled = !connectOnDemand.value.enabled
-  saveOnDemandSettings()
+  await saveOnDemandSettings()
   if (connectOnDemand.value.enabled) {
     startCodStatusPolling()
   } else {
@@ -688,11 +688,21 @@ function toggleConnectOnDemand() {
   }
 }
 
-function saveOnDemandSettings() {
+async function saveOnDemandSettings() {
   settings.value.connect_on_demand = { ...connectOnDemand.value }
   // Keep legacy field in sync
   settings.value.auto_connect_on_start = connectOnDemand.value.enabled
-  saveSettings()
+  // SYNCHRONOUS save - the 300ms debounce on saveSettings() races
+  // with view re-mount: if the user toggles COD off and navigates
+  // away within 300ms, the Settings view re-mounts and calls
+  // loadSettings BEFORE the debounce timeout fires. loadSettings
+  // overwrites settings.value with the OLD-disk-state (still on),
+  // then the pending timeout fires UpdateSettings(settings.value)
+  // with the now-reloaded ON state - undoing the toggle. User-
+  // reported "COD toggle comes back after switching screens".
+  // Toggle clicks are intentional discrete events, no debounce
+  // needed. saveSettingsImmediate writes immediately.
+  await saveSettingsImmediate()
 }
 
 // Add a single SSID via the chip-input pattern (Android-style):

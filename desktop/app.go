@@ -634,8 +634,10 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	// IDLE and lets the controller release the firewall block).
 	// Mirrors the Android v0.9.10.6 hardcore lock behaviour.
 	if a.ksManager != nil && a.ksManager.IsSinkholeActive() {
+		log.Printf("Connect: REFUSED - kill switch sinkhole active")
 		return nil, fmt.Errorf("kill switch active — toggle Kill Switch off in Settings to release the sinkhole")
 	}
+	log.Printf("Connect: entry (protocol arg=%q, current active=%q)", protocol, a.activeProtocol)
 
 	// Pause guard: refuse non-explicit connect attempts while a
 	// user-initiated pause is active. NetworkMonitor's pause check
@@ -648,6 +650,7 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	// in the pause banner to release the pause - that path calls
 	// CancelPause first, then a normal Connect succeeds.
 	if a.pauseManager != nil && a.pauseManager.IsPaused() {
+		log.Printf("Connect: REFUSED - pause active")
 		return nil, fmt.Errorf("VPN paused — click Resume now in the pause banner to release")
 	}
 
@@ -667,13 +670,20 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	}
 
 	if !proto.IsAvailable() {
+		log.Printf("Connect: REFUSED - protocol %s not available on this system", a.activeProtocol)
 		return nil, fmt.Errorf("%s is not available on this system", a.activeProtocol)
 	}
 
-	// Check if already connected
+	// Check if already connected. Stale Windows-WG service state
+	// from a previous run can produce a false-positive "Connected"
+	// here that short-circuits the new connect attempt - tunnel
+	// "running" per status query but no traffic actually flowing.
+	// Logged explicitly so user-reports of "Connect doesn't work"
+	// can be diagnosed via the log line.
 	currentStatus := proto.Status()
+	log.Printf("Connect: pre-check Status().Connected=%v for %s", currentStatus.Connected, a.activeProtocol)
 	if currentStatus.Connected {
-		log.Printf("Tunnel already running via %s", a.activeProtocol)
+		log.Printf("Connect: SHORT-CIRCUIT - Tunnel already running via %s, treating as connected (no new Up() call)", a.activeProtocol)
 		a.connected = true
 		if a.connectedAt.IsZero() {
 			a.connectedAt = time.Now()
