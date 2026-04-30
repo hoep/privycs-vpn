@@ -25,6 +25,19 @@ type App struct {
 	ctx context.Context
 	mu  sync.RWMutex
 
+	// connectMu serializes connect attempts — taken with TryLock at
+	// the entry of connectActiveTarget so a network-monitor flood
+	// (Windows fires WLAN notification + address-change events
+	// every 1-2 seconds) cannot spawn parallel Up() calls.
+	// v0.9.13.6's mutex-split removed the implicit serialization
+	// that a.mu provided in v0.9.11.7, exposing this race: each
+	// concurrent Up() attempted to install a different
+	// WireGuardTunnel$ Windows service against the same proto
+	// singleton, racing on proto.ifaceName / proto.confPath via
+	// setTunnelName. Symptom: "Tunnel already installed and running"
+	// errors and 6+ orphan service-wait timeouts. v0.9.13.7 fix.
+	connectMu sync.Mutex
+
 	// VPN protocol management
 	protocols      map[string]VPNProtocol
 	activeProtocol string
@@ -1652,6 +1665,30 @@ func (a *App) SetKillSwitch(enabled bool) error {
 // VpnPauseTimer / BootReceiver / Tile / Widget after the pool-aware
 // Coordinator refactor in v0.9.11.57.
 func (a *App) connectActiveTarget() {
+	// Serialize concurrent connect attempts. Network monitor fires
+	// "triggering connect" on every WLAN notification + address-
+	// change event — Windows produces 6-8 such events in the first
+	// few seconds after app start as the network stack settles.
+	// While Connect's Up() phase runs (multi-second window before
+	// the WireGuard service enters RUNNING and a.connected flips to
+	// true), each subsequent event sees connected=false and queues
+	// another connect. Without this gate, all 6-8 ran in parallel,
+	// each installing a different WireGuardTunnel$<id> service
+	// against the same shared proto singleton — race on
+	// proto.ifaceName / proto.confPath via setTunnelName, "Tunnel
+	// already installed and running" errors, orphan services.
+	//
+	// TryLock + skip is the right primitive (vs. queue): a queued
+	// connect would fire after the current one finished but with
+	// stale member selection. Skipping silently lets the current
+	// connect complete and the next legitimate event triggers a
+	// fresh Pick.
+	if !a.connectMu.TryLock() {
+		log.Printf("connectActiveTarget: another connect in progress, skipping")
+		return
+	}
+	defer a.connectMu.Unlock()
+
 	a.mu.RLock()
 	poolID := a.activePoolID
 	proto := a.activeProtocol
