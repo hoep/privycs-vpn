@@ -15,7 +15,7 @@
     https://img.shields.io/github/stars/hoep/privycs-vpn?style=social
 -->
 
-[![Latest Release](https://img.shields.io/badge/release-v0.9.11.69-blue)](https://github.com/hoep/privycs-vpn/releases/latest)
+[![Latest Release](https://img.shields.io/badge/release-v0.9.11.70-blue)](https://github.com/hoep/privycs-vpn/releases/latest)
 [![Platforms](https://img.shields.io/badge/platforms-Android%20%7C%20Desktop-green)](https://github.com/hoep/privycs-vpn/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0-orange)](#license)
 
