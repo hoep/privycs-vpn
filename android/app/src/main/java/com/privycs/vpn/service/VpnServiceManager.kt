@@ -631,6 +631,14 @@ class VpnServiceManager private constructor(private val context: Context) {
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markConnected(status.connectionId)
             }
+            // Tunnel is up: start the periodic ICMP-based liveness
+            // monitor. Pings 1.1.1.1 every 60s; 3 consecutive
+            // failures fire a USER-source disconnect and let the
+            // post-disconnect path drive recovery (pool member
+            // rotation OR COD reconnect for single connections).
+            // Closes the "tunnel up but no traffic" gap that
+            // OpenVPN / IPSec cannot detect themselves.
+            TunnelHealthMonitor.start()
         }
         // Kill Switch: defensively arm on every connected status
         // push, not only on the disconnected->connected transition.
@@ -671,6 +679,10 @@ class VpnServiceManager private constructor(private val context: Context) {
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
             }
+            // Tunnel is down: stop the liveness monitor so its
+            // background ping cycle does not fire false positives
+            // against a torn-down tunnel.
+            TunnelHealthMonitor.stop()
             // Kill Switch: decide whether this is an "expected" or
             // "unexpected" disconnect. User-initiated disconnects
             // (ConnectCoordinator.requestDisconnect with USER/WIDGET/

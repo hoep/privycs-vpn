@@ -12,8 +12,8 @@ android {
         applicationId = "com.privycs.vpn"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10038
-        versionName = "0.9.11.70"
+        versionCode = 10100
+        versionName = "0.9.12.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -186,6 +186,15 @@ dependencies {
 
     // DataStore Preferences
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+
+    // WorkManager: backstop for the network-event-driven auto-tunnel
+    // engine. NetworkMonitor's NetworkCallback remains the primary
+    // fast-reaction path; WorkManager is the slow safety net (15-min
+    // periodic) that keeps the engine alive across Doze, battery-
+    // saver, and process-death cycles where the in-process scope
+    // would otherwise miss events. Min interval is hard-floored at
+    // 15 min by the OS for periodic work.
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // QR code scanner via Google Play Services Code Scanner.
     // Uses Google Play Services' own camera UI in a separate process,

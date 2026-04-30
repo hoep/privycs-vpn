@@ -225,6 +225,38 @@ class PrivycsApp : StrongSwanApplication() {
         } catch (t: Throwable) {
             Log.e("PrivycsApp", "PoolKeepaliveWatcher start failed", t)
         }
+
+        // WorkManager-backed auto-tunnel backstop. NetworkCallback in
+        // NetworkMonitor stays the primary fast-reaction path; the
+        // worker is the slow safety net (15-min periodic, the OS
+        // floor) that survives Doze, battery-saver, force-stop and
+        // process-death cycles where the in-process scope would
+        // otherwise miss events. KEEP existing schedule on app
+        // restart so the next-tick timer is preserved instead of
+        // reset.
+        try {
+            val constraints = androidx.work.Constraints.Builder()
+                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                .build()
+            val request = androidx.work.PeriodicWorkRequestBuilder<
+                com.privycs.vpn.service.AutoTunnelWorker
+            >(15, java.util.concurrent.TimeUnit.MINUTES)
+                .setConstraints(constraints)
+                .setBackoffCriteria(
+                    androidx.work.BackoffPolicy.EXPONENTIAL,
+                    30, java.util.concurrent.TimeUnit.SECONDS,
+                )
+                .build()
+            androidx.work.WorkManager.getInstance(applicationContext)
+                .enqueueUniquePeriodicWork(
+                    "auto-tunnel-backstop",
+                    androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                    request,
+                )
+            Log.i("PrivycsApp", "AutoTunnelWorker scheduled (15-min periodic)")
+        } catch (t: Throwable) {
+            Log.e("PrivycsApp", "AutoTunnelWorker scheduling failed", t)
+        }
     }
 
     /**

@@ -69,6 +69,11 @@ type App struct {
 	forceQuit     bool           // set by tray Quit to bypass minimize-to-tray
 	logFile       *os.File       // log file handle for proper cleanup on shutdown
 	wg            sync.WaitGroup // tracks background goroutines for clean shutdown
+	// Periodic tunnel-liveness probe. Started after a successful
+	// Connect, stopped from Disconnect / disconnectInternal. Closes
+	// the "tunnel up but no traffic" gap that OpenVPN / IPSec do
+	// not detect themselves.
+	tunnelHealth *TunnelHealthMonitor
 }
 
 // NewApp creates a new App instance
@@ -107,6 +112,7 @@ func NewApp() *App {
 		autoConnect:        NewAutoConnectManager(),
 		settings:           LoadSettings(),
 		stopStats:          make(chan struct{}),
+		tunnelHealth:       NewTunnelHealthMonitor(),
 	}
 }
 
@@ -734,6 +740,22 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	a.connected = true
 	a.connectedAt = time.Now()
 
+	// Tunnel-liveness monitor: 60s ICMP probe to a known reliable
+	// target. 3 consecutive failures fire disconnectInternal so the
+	// post-disconnect path drives recovery (COD reconnect or pool
+	// keepalive). Closes the "tunnel up but no traffic" gap that
+	// OpenVPN / IPSec do not detect on their own.
+	if a.tunnelHealth != nil {
+		a.tunnelHealth.Start("", func() {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			if a.connected {
+				log.Printf("TunnelHealth recovery: forcing disconnect")
+				_ = a.disconnectInternal()
+			}
+		})
+	}
+
 	// Pool rotator: reset the rotation countdown to start fresh from
 	// THIS moment. The countdown the user sees on the Connect screen
 	// should begin at connect-time, not at pool-activation-time. Only
@@ -812,6 +834,15 @@ func (a *App) disconnectInternal() error {
 	proto, ok := a.protocols[a.activeProtocol]
 	if !ok {
 		return nil
+	}
+
+	// Stop the tunnel-liveness monitor first thing. The ping loop
+	// would otherwise generate spurious failures against the
+	// torn-down tunnel and the recovery callback would fire
+	// disconnectInternal recursively (idempotent at the proto
+	// level but log-noise we can avoid).
+	if a.tunnelHealth != nil {
+		a.tunnelHealth.Stop()
 	}
 
 	// Block auto-detection while disconnecting. Do NOT set
