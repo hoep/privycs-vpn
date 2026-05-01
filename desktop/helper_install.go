@@ -206,18 +206,51 @@ func installHelperMacOS() error {
 </plist>
 `, exePath, helperFlag)
 
-	// Use osascript for admin prompt on macOS
+	// v0.9.14.19: write plist to a temp file FIRST, then AppleScript
+	// only does the cp + launchctl load. Pre-fix put the entire plist
+	// XML inline in the AppleScript string — the plist's many `"`
+	// characters broke the AppleScript parser at the first internal
+	// `"` it encountered. User reported "Helper lässt sich nicht
+	// installieren" with no visible error because the AppleScript
+	// failure surfaced as a generic exec error that the UI dropped.
+	tmpPlist, err := os.CreateTemp("", "privycs-vpn-helper-*.plist")
+	if err != nil {
+		return fmt.Errorf("failed to create temp plist: %w", err)
+	}
+	tmpPath := tmpPlist.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmpPlist.WriteString(plistContent); err != nil {
+		tmpPlist.Close()
+		return fmt.Errorf("failed to write temp plist: %w", err)
+	}
+	tmpPlist.Close()
+
+	// AppleScript now only runs three trivial shell commands:
+	// cp /tmp/file → /Library/LaunchDaemons, chown to root, launchctl
+	// load. No XML embedded in the script string → no quote-escape
+	// hell. Single-quoted shell within double-quoted AppleScript is
+	// safe because the embedded shell command no longer contains `"`.
 	script := fmt.Sprintf(
-		`do shell script "cat > %s << 'PLISTEOF'\n%sPLISTEOF\nlaunchctl load -w %s" with administrator privileges`,
+		`do shell script "cp '%s' '%s' && chown root:wheel '%s' && chmod 644 '%s' && launchctl load -w '%s'" with administrator privileges`,
+		tmpPath,
 		launchDaemonPath,
-		plistContent,
+		launchDaemonPath,
+		launchDaemonPath,
 		launchDaemonPath,
 	)
 
 	cmd := exec.Command("osascript", "-e", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to install helper daemon: %s: %w", string(out), err)
+		// Surface the full osascript output. Common failure messages:
+		//   "User canceled" — user dismissed the admin-password prompt
+		//   "Operation not permitted" — TCC denied AppleEvents access;
+		//     fix is to grant Privycs in Settings → Privacy & Security
+		//     → Automation → System Events
+		//   "launchctl: ... is not a valid LaunchDaemon" — plist parse
+		//     error (should not happen with the template above)
+		log.Printf("Helper install failed. osascript output:\n%s", string(out))
+		return fmt.Errorf("failed to install helper daemon: %s", strings.TrimSpace(string(out)))
 	}
 
 	log.Println("Helper daemon installed and loaded via launchd")
