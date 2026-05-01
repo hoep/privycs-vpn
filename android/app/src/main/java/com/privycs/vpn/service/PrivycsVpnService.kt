@@ -1060,13 +1060,51 @@ class PrivycsVpnService : VpnService() {
         // VPN permission revoked by user or system. Typical triggers:
         // the user disables our Always-On toggle, another VPN app
         // takes over the VPN slot, or the user taps Disconnect on the
-        // system VPN settings page. Stamp the timestamp so
+        // system VPN settings page.
+        //
+        // CRITICAL self-revoke detection (v0.9.14.18):
+        // Android also invokes onRevoke whenever a VpnService session
+        // ENDS — including when our OWN code closes the underlying
+        // ParcelFileDescriptor as part of pool rotation
+        // (wireGuardTunnel.disconnect → GoBackend.setState(DOWN) →
+        // PFD close → Android framework → onRevoke). In that case
+        // there is no actual permission revocation; we are about to
+        // open a fresh session for the next pool member within a
+        // few hundred ms. Falling through to handleDisconnect →
+        // stopSelf would kill the service mid-rotation, leaving a
+        // 30+ second VPN-blackout window before AlarmManager fires
+        // the next POOL_CONNECT intent and the service comes back.
+        // User-reported symptom: "rotation hängengeblieben" with
+        // a logcat showing onDestroy + 35s gap + service restart.
+        //
+        // Detection: ConnectCoordinator's State.Connecting means we
+        // are mid-cycle. The state was set when requestPoolConnect
+        // accepted the rotation tick, and won't transition to
+        // Connected until the new tunnel reports up. Any onRevoke
+        // during Connecting is by definition self-induced — the
+        // framework would not be revoking us when we are still
+        // arming the next session.
+        val coordState = com.privycs.vpn.util.ConnectCoordinator.state.value
+        if (coordState is com.privycs.vpn.util.ConnectCoordinator.State.Connecting) {
+            PrivycsLogger.i(
+                TAG,
+                "onRevoke: self-revoke during Connecting (source=${coordState.source}, target=${coordState.connectionId}) — ignoring, NOT calling stopSelf"
+            )
+            // DO NOT call super.onRevoke() — default impl calls
+            // stopSelf() which is exactly what we are trying to
+            // avoid here. Service stays alive, the in-flight
+            // connectWireGuard / connectIpSec / connectOpenVpn
+            // will complete and re-establish the tunnel.
+            return
+        }
+
+        // Genuine external revoke. Stamp the timestamp so
         // NetworkMonitor skips on-demand auto-reconnect for the next
         // few seconds - otherwise it collides with the in-flight
         // service teardown and spawns a second GoBackend on the same
         // /dev/tun (observed symptom: "Failed to write packet to TUN
         // device: input/output error" + keepalive storm).
-        PrivycsLogger.w(TAG, "VPN permission revoked")
+        PrivycsLogger.w(TAG, "VPN permission revoked (external — coordinator state=$coordState)")
         com.privycs.vpn.util.AlwaysOnDetector.stampSystemRevoke(this)
         handleDisconnect()
         super.onRevoke()
