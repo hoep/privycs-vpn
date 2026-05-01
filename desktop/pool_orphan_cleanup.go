@@ -33,7 +33,23 @@ import (
 // call (sc query is fast, helper IPC is local-pipe). Safe to skip on
 // non-Windows.
 func (a *App) cleanupOrphanPoolServices(skipIface string) int {
+	// Conf-file sweep runs FIRST and CROSS-PLATFORM. The .conf
+	// accumulation bug exists on every OS we ship to (each new
+	// pool-member name creates a new <appDataDir>/pool-XXX.conf
+	// file, no OS removes it on tunnel-down). Service/adapter leak
+	// only happens on Windows; the early-return below preserves
+	// that gating for the Windows-specific block, but conf-cleanup
+	// must not be inside it. v0.9.14.11 fix.
+	confsCleaned := a.cleanupOrphanPoolConfs(skipIface)
+	if confsCleaned > 0 {
+		log.Printf("cleanupOrphan: deleted %d orphan pool-*.conf files", confsCleaned)
+	}
+
 	if runtime.GOOS != "windows" {
+		// Linux/macOS: wg-quick down removes the WG interface AND
+		// releases its kernel state cleanly; no analogous Windows
+		// "service registration + wintun adapter" leak. Conf-sweep
+		// above is the only cleanup needed on these platforms.
 		return 0
 	}
 
@@ -107,21 +123,6 @@ func (a *App) cleanupOrphanPoolServices(skipIface string) int {
 		cleaned++
 	}
 	log.Printf("cleanupOrphan: uninstalled %d orphan pool-* services", cleaned)
-
-	// Phase 2 (v0.9.14.10): sweep orphan pool-*.conf files. The helper's
-	// uninstalltunnelservice removes the service registration + the
-	// wintun adapter, but leaves the .conf file on disk in
-	// %LOCALAPPDATA%\privycs-vpn\. Over time this accumulates one file
-	// per pool-member ever connected — user reported "Unmengen von pool
-	// confs in der Windows dir". Each file is ~1KB so it's not a disk-
-	// space issue, but disk-clutter and confusing during diagnostics.
-	// Sweep every pool-*.conf whose iface is NOT the current target and
-	// NOT the pre-warmed pending member, delete it.
-	confsCleaned := a.cleanupOrphanPoolConfs(skipIface)
-	if confsCleaned > 0 {
-		log.Printf("cleanupOrphan: deleted %d orphan pool-*.conf files", confsCleaned)
-	}
-
 	return cleaned
 }
 
