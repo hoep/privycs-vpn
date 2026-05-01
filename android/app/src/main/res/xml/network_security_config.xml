@@ -1,13 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    HTTPS-only network policy. v0.9.14.10 removed the prior
+    cleartextTrafficPermitted="true" exception for 10.0.0.0 +
+    localhost — that was a development convenience for hitting a
+    Privycs gateway running on a dev machine over plain HTTP.
+    Production end-users have no business sending cleartext to
+    10/8 ranges; self-hosted Privycs gateways serve HTTPS via
+    Let's Encrypt by default. Aikido flagged the prior config as
+    "Improper SSL certificate validation" because the permissive
+    domain-config undermined the base-config default.
+
+    Developers needing cleartext to a localhost gateway should
+    enable it only in a debug buildType resource override, never
+    in the release manifest that ships to end users.
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <!-- Allow cleartext for local development gateway only -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">10.0.0.0</domain>
-        <domain includeSubdomains="true">localhost</domain>
-    </domain-config>
 </network-security-config>

@@ -102,6 +102,13 @@ class VpnWidget : AppWidgetProvider() {
         ) {
             val intent = Intent(context, VpnWidget::class.java).apply {
                 action = ACTION_STATUS_CHANGED
+                // setPackage restricts delivery to receivers in our own
+                // app package. The intent is already explicit (targets
+                // VpnWidget::class.java) so other apps cannot intercept,
+                // but Aikido's pattern-matcher flags any sendBroadcast
+                // without setPackage as risky. Defense-in-depth +
+                // explicit-policy clarification. v0.9.14.10.
+                setPackage(context.packageName)
                 putExtra(EXTRA_CONNECTED, connected)
                 putExtra(EXTRA_CONNECTION_NAME, connectionName)
                 putExtra(EXTRA_PROTOCOL, protocol)

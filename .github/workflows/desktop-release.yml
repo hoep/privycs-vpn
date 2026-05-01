@@ -23,7 +23,7 @@ jobs:
       desktop_changed: ${{ steps.changes.outputs.changed }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
@@ -48,14 +48,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: desktop/go.sum
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install Linux dependencies
@@ -97,7 +97,7 @@ jobs:
             cd build/bin && sha256sum privycs-vpn-linux-amd64.deb > privycs-vpn-linux-amd64.deb.sha256
           fi
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: privycs-vpn-linux-amd64
           path: |
@@ -116,14 +116,14 @@ jobs:
         arch: [amd64, arm64]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: desktop/go.sum
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install Wails CLI
@@ -149,7 +149,7 @@ jobs:
           ditto -c -k --keepParent privycs-vpn.app "$ARCHIVE" 2>/dev/null || zip -r "$ARCHIVE" privycs-vpn.app
           shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: privycs-vpn-darwin-${{ matrix.arch }}
           path: |
@@ -163,14 +163,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: desktop/go.sum
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install Wails CLI
@@ -202,14 +202,14 @@ jobs:
             Get-FileHash "privycs-vpn-windows-amd64-setup.exe" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  privycs-vpn-windows-amd64-setup.exe" } | Out-File -Encoding ASCII "privycs-vpn-windows-amd64-setup.exe.sha256"
           }
       - name: Upload standalone binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: privycs-vpn-windows-amd64
           path: |
             desktop/build/bin/privycs-vpn-windows-amd64.exe
             desktop/build/bin/privycs-vpn-windows-amd64.exe.sha256
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: privycs-vpn-windows-amd64-setup
           path: |
@@ -223,7 +223,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
 
@@ -231,7 +231,7 @@ jobs:
         run: find artifacts -type f | sort
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: Privycs VPN ${{ github.ref_name }}
           draft: false
@@ -263,7 +263,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout (for gh CLI auth context)
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Find previous tag with desktop assets and re-attach them
         env:
