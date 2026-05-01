@@ -126,6 +126,83 @@ func (a *App) cleanupOrphanPoolServices(skipIface string) int {
 	return cleaned
 }
 
+// forceUninstallAllPoolServices uninstalls EVERY WireGuardTunnel$pool-*
+// service regardless of state (RUNNING, STOPPED, START_PENDING — all
+// of them). Called at shutdown so a Quit cannot leave a tunnel up that
+// blocks the next App-start's connect attempts.
+//
+// User report (v0.9.14.10): "beim quit von der letzten version wurde
+// der tunnel nicht beendet" — shutdown's `if a.connected { proto.Down() }`
+// was conditional on the in-memory connected flag AND only operated on
+// proto.ifaceName (the LAST iface configured). Failed-attempt services
+// that were "installed but never RUNNING", and earlier rotation
+// services whose ifaceName had since changed, both leaked. Result on
+// next start: leftover RUNNING service routes traffic, but Privycs's
+// new pool-attempts cannot install fresh services beside it.
+//
+// Filter: only `WireGuardTunnel$pool-*` prefix — user's saved single-
+// connection services (`WireGuardTunnel$<connection-name>`) are NOT
+// touched. Pool-* prefix is exclusively our naming convention; nothing
+// else uses it.
+//
+// Cross-platform: Windows-only (other OSes have no per-tunnel service
+// concept; wg-quick down at proto.Down handles teardown there).
+func (a *App) forceUninstallAllPoolServices() int {
+	if runtime.GOOS != "windows" {
+		return 0
+	}
+
+	out, err := execHidden("sc", "query", "type=", "service", "state=", "all").CombinedOutput()
+	if err != nil {
+		log.Printf("forceUninstall: sc query failed: %v - skipping", err)
+		return 0
+	}
+
+	var ifaces []string
+	for _, rawLine := range strings.Split(string(out), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if !strings.HasPrefix(line, "SERVICE_NAME:") {
+			continue
+		}
+		svcName := strings.TrimSpace(strings.TrimPrefix(line, "SERVICE_NAME:"))
+		if !strings.HasPrefix(svcName, "WireGuardTunnel$pool-") {
+			continue
+		}
+		iface := strings.TrimPrefix(svcName, "WireGuardTunnel$")
+		ifaces = append(ifaces, iface)
+	}
+
+	if len(ifaces) == 0 {
+		return 0
+	}
+
+	log.Printf("forceUninstall: tearing down %d pool-* services on shutdown", len(ifaces))
+
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		log.Printf("forceUninstall: helper unreachable — %d pool-* services may persist after exit", len(ifaces))
+		return 0
+	}
+
+	cleaned := 0
+	for _, iface := range ifaces {
+		resp, err := client.SendCommand("disconnect", map[string]string{
+			"protocol":  "wireguard",
+			"interface": iface,
+		})
+		if err != nil {
+			log.Printf("forceUninstall: %s disconnect failed: %v", iface, err)
+			continue
+		}
+		if !resp.Success {
+			log.Printf("forceUninstall: %s helper response: %s (treating as cleaned)", iface, resp.Error)
+		}
+		cleaned++
+	}
+	log.Printf("forceUninstall: uninstalled %d pool-* services", cleaned)
+	return cleaned
+}
+
 // cleanupOrphanPoolConfs sweeps the appData directory for pool-*.conf
 // files and deletes any whose corresponding service is gone. Skips the
 // current iface (skipIface) AND the pre-warmed pending member's iface

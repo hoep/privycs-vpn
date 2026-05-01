@@ -449,6 +449,19 @@ func (a *App) shutdown(ctx context.Context) {
 		a.connected = false
 	}
 
+	// v0.9.14.11 — force-teardown ALL pool-* services on shutdown.
+	// proto.Down() above only kills proto.ifaceName (the LAST iface
+	// configured); leftover services from failed-attempts and
+	// earlier rotations stayed up across Quit, blocking the next
+	// App-start's connect attempts. User reported "beim quit wurde
+	// der tunnel nicht beendet" with WhatsMyIP showing an orphan
+	// Mullvad UK IP after a session that had cycled through many
+	// pool members. forceUninstallAllPoolServices uninstalls every
+	// WireGuardTunnel$pool-* regardless of state (RUNNING included).
+	// Single-connection services (`WireGuardTunnel$<conn-name>`)
+	// are NOT touched — the prefix filter guarantees that.
+	a.forceUninstallAllPoolServices()
+
 	// Final safety net: legacy PrivycsKS-* cleanup AND a best-effort
 	// Privycs-Sinkhole-* cleanup in case the controller missed something.
 	// Both are idempotent, log warnings only on failure.

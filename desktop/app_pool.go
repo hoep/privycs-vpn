@@ -83,18 +83,83 @@ func (a *App) ListPools() []PoolListItem {
 
 // PoolDetail is the wire-shape for PoolDetailView.
 type PoolDetail struct {
-	Pool     *Pool            `json:"pool"`
+	Pool     *PoolWire        `json:"pool"`
 	Coverage []RegionCoverage `json:"coverage"`
 }
 
+// PoolWire is the IPC-shape for PoolDetailView. Identical to Pool
+// except Members is wrapped to merge in PoolStateRegistry runtime
+// fields (Unreachable / LastError / LastUnreachable). Those were
+// moved out of PoolMember in v0.9.11.39's state-separation, which
+// meant the Vue frontend lost visibility on unreachable badges +
+// reset button — user reported in v0.9.14.10: "exit points unter
+// edit vpn pool werden nicht mehr markiert wenn unhealthy". v0.9.14.11
+// flattens runtime state into the wire payload at IPC time.
+type PoolWire struct {
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	Policy          PoolPolicy       `json:"policy"`
+	Members         []PoolMemberWire `json:"members"`
+	Rotation        PoolRotation     `json:"rotation,omitempty"`
+	RestrictRegions []string         `json:"restrict_regions,omitempty"`
+	CountryOverride string           `json:"country_override,omitempty"`
+	SplitTunnel     PoolSplitTunnel  `json:"split_tunnel,omitempty"`
+	DnsOverride     string           `json:"dns_override,omitempty"`
+}
+
+// PoolMemberWire flattens PoolMember definition fields + runtime
+// state from PoolStateRegistry into one IPC object.
+type PoolMemberWire struct {
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	Config          *ProtocolConfig `json:"config"`
+	Country         string          `json:"country"`
+	Region          string          `json:"region"`
+	Active          bool            `json:"active"`
+	Unreachable     bool            `json:"unreachable"`
+	LastError       string          `json:"last_error,omitempty"`
+	LastUnreachable time.Time       `json:"last_unreachable,omitempty"`
+}
+
 // GetPoolDetail returns the full pool with members + region coverage.
+// Members are enriched with runtime state from PoolStateRegistry so
+// the UI's unreachable badge + reset button render correctly.
 func (a *App) GetPoolDetail(id string) (*PoolDetail, error) {
 	p := a.pools.Get(id)
 	if p == nil {
 		return nil, fmt.Errorf("pool not found: %s", id)
 	}
+
+	wireMembers := make([]PoolMemberWire, 0, len(p.Members))
+	for _, m := range p.Members {
+		st := a.pools.MemberStatus(p.ID, m.ID)
+		wireMembers = append(wireMembers, PoolMemberWire{
+			ID:              m.ID,
+			Name:            m.Name,
+			Config:          m.Config,
+			Country:         m.Country,
+			Region:          m.Region,
+			Active:          m.Active,
+			Unreachable:     st.Unreachable,
+			LastError:       st.LastError,
+			LastUnreachable: st.LastUnreachable,
+		})
+	}
+
+	wirePool := &PoolWire{
+		ID:              p.ID,
+		Name:            p.Name,
+		Policy:          p.Policy,
+		Members:         wireMembers,
+		Rotation:        p.Rotation,
+		RestrictRegions: p.RestrictRegions,
+		CountryOverride: p.CountryOverride,
+		SplitTunnel:     p.SplitTunnel,
+		DnsOverride:     p.DnsOverride,
+	}
+
 	return &PoolDetail{
-		Pool:     p,
+		Pool:     wirePool,
 		Coverage: p.Coverage(),
 	}, nil
 }
