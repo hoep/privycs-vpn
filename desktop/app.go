@@ -1635,6 +1635,18 @@ func (a *App) UpdateSettings(settings *AppSettings) error {
 				if err := a.Disconnect(); err != nil {
 					log.Printf("UpdateSettings: COD-off triggered disconnect failed: %v", err)
 				}
+				// v0.9.14.12: belt-and-suspenders pool-service sweep.
+				// proto.Down() inside Disconnect targets proto.ifaceName
+				// only — if the actual RUNNING service is from an
+				// earlier rotation under a different iface name, Down
+				// early-returns ("service not RUNNING under this name")
+				// and leaves the tunnel up at OS level. User reported
+				// "wenn ich connect on demand abschalte bleibt tunnel
+				// verbunden" — exactly this scenario. Force-sweep
+				// guarantees the user's explicit "off" intent reaches
+				// the kernel. Single-connection services are protected
+				// by the pool-* prefix filter.
+				a.forceUninstallAllPoolServices()
 			}()
 		}
 	case prevCOD && settings.ConnectOnDemand.Enabled:
