@@ -492,13 +492,28 @@ func (a *App) shutdown(ctx context.Context) {
 
 // beforeClose is called before the window closes — minimize to tray if enabled.
 // If forceQuit is set (from tray Quit), always allow close.
+//
+// Return value semantics: prevent=true blocks the close, prevent=false lets it
+// proceed. Counterintuitive on Mac because "close" usually means "hide", but
+// Wails treats the red-close-button as a real close (last window closed quits
+// the app on macOS by default).
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	if a.forceQuit {
 		log.Println("Force quit — closing app")
 		return false
 	}
 	if runtime.GOOS == "darwin" {
-		return false
+		// Standard Mac UX: red close button hides the window, ⌘Q quits.
+		// Pre-fix this branch returned false unconditionally, which let
+		// the red button quit the entire app — surprising for Mac users
+		// who expect their windows to come back when they reopen from
+		// the Dock. ⌘Q goes through the AppMenu (set in main.go) and
+		// terminates the NSApplication directly without re-entering
+		// beforeClose, so this branch only fires for the red button /
+		// Cmd-W path.
+		log.Println("Mac: hiding window on close (use ⌘Q to quit)")
+		wailsRuntime.WindowHide(ctx)
+		return true
 	}
 	if a.settings.MinimizeToTray {
 		log.Println("Minimizing to tray")

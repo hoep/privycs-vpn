@@ -3,8 +3,10 @@ package main
 import (
 	"embed"
 	"os"
+	"runtime"
 
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
@@ -29,8 +31,26 @@ func main() {
 
 	app := NewApp()
 
+	// macOS menu bar — required for the standard ⌘Q (Quit) keystroke
+	// to actually fire. Wails v2 does not auto-wire the App-menu on
+	// Mac when options.Menu is nil, which leaves the menu bar
+	// effectively empty and ⌘Q with no handler. Symptom: user
+	// reports "app lässt sich nicht beenden". The fix is to attach
+	// the standard AppMenu (which contains Hide / Hide Others / Quit)
+	// plus an EditMenu so Cmd-C / Cmd-V / Cmd-A work in the WebView.
+	// On Linux/Windows we leave Menu nil — those platforms quit via
+	// the title-bar close button or the system tray icon.
+	var appMenu *menu.Menu
+	if runtime.GOOS == "darwin" {
+		appMenu = menu.NewMenuFromItems(
+			menu.AppMenu(),
+			menu.EditMenu(),
+		)
+	}
+
 	err := wails.Run(&options.App{
 		Title:     "Privycs VPN",
+		Menu:      appMenu,
 		Width:     490, // +70 over previous 420 - earlier dimensions felt cramped, especially with pool indicator + unreachable badges + truncated tunnel-names
 		Height:    995, // +50 over previous 945 (v0.9.13.8) — extra breathing room around pool indicator + COD banner + connect button + protocol pills + traffic stats + pause + tray
 		MinWidth:  450, // bumped together with default Width so the cramped state is no longer the floor
