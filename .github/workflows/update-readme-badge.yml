@@ -54,7 +54,7 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Commit and push
+      - name: Commit and push (with retry-on-race)
         if: steps.bump.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
@@ -65,4 +65,33 @@ jobs:
           # is tag-push only, but defence-in-depth in case the
           # trigger gets broadened later).
           git commit -m "docs: bump README badge to ${GITHUB_REF_NAME} [skip ci]"
-          git push origin main
+
+          # Retry-with-rebase loop. v0.9.14.17 hit the race on its
+          # tag-push: a manual `git push origin main` + `git push
+          # origin v0.9.14.17` from the developer machine landed on
+          # main at the same moment this workflow's checkout snapshot
+          # was taken. Result: workflow's local main was a commit
+          # behind by the time it tried to push back, push rejected
+          # with "cannot lock ref ... is at <newer-sha> but expected
+          # <stale-sha>". Three-attempt rebase loop covers all
+          # realistic concurrent-write windows.
+          set +e
+          for attempt in 1 2 3; do
+            if git push origin main; then
+              echo "Push succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "Push attempt $attempt failed (likely concurrent main update). Rebasing and retrying…"
+            git fetch origin main
+            # Rebase our single badge-bump commit onto the new tip.
+            # Conflicts shouldn't happen — the badge-bump only touches
+            # one line in README.md and concurrent commits aren't
+            # likely to touch the same line. If they do, abort.
+            if ! git rebase origin/main; then
+              echo "Rebase conflict — aborting badge bump for this run."
+              git rebase --abort || true
+              exit 1
+            fi
+          done
+          echo "Push failed after 3 attempts."
+          exit 1
