@@ -277,8 +277,40 @@ jobs:
           # Keep as a regex so grep -E can match any of them.
           ASSET_RE='(privycs-vpn-linux-amd64(\.sha256|\.deb(\.sha256)?)?$|privycs-vpn-darwin-(amd64|arm64)\.zip(\.sha256)?$|privycs-vpn-windows-amd64(-setup)?\.exe(\.sha256)?$)'
 
+          # SEMVER-SORTED tag list — was previously gh-default ordering
+          # (release-creation-time) which produced a race when the
+          # immediately-prior tag's desktop-release was still building.
+          # Example: v0.9.14.9 (android-only, propagator runs in 26s)
+          # raced against v0.9.14.8's still-running 6-min build → picked
+          # v0.9.14.7 instead. sort -rV (reverse version sort) makes the
+          # propagator pick the highest-semver release with desktop
+          # assets, regardless of the in-flight build's clock.
+          # Plus a one-time wait-loop: if the candidate tag exists but
+          # has no desktop assets yet (build still running), poll the
+          # release for up to 10 minutes before falling through to the
+          # next-highest tag.
           TAGS=$(gh release list --repo "$REPO" --limit 50 --json tagName --jq '.[].tagName' \
-                 | grep -v "^${CURRENT_TAG}$" || true)
+                 | grep -v "^${CURRENT_TAG}$" \
+                 | sort -rV || true)
+
+          # Wait helper: poll the named tag's assets until desktop
+          # patterns appear, with timeout. Returns 0 if assets found,
+          # 1 if timeout. The 600 s (10-min) cap is roughly the worst-
+          # case desktop build time + buffer.
+          wait_for_desktop_assets() {
+            local tag="$1"
+            local deadline=$(( $(date +%s) + 600 ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              local has=$(gh release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null \
+                          | grep -cE "$ASSET_RE" || true)
+              if [ "$has" -gt 0 ]; then
+                return 0
+              fi
+              echo "  $tag has no desktop assets yet — waiting 30s…"
+              sleep 30
+            done
+            return 1
+          }
 
           PREV_TAG=""
           for tag in $TAGS; do
@@ -287,6 +319,23 @@ jobs:
             if [ "$has_desktop" -gt 0 ]; then
               PREV_TAG="$tag"
               break
+            fi
+            # Check if a desktop-release workflow is still running for
+            # this tag. If yes, wait for it. This catches the race where
+            # the immediately-prior tag's build started moments ago and
+            # is still in progress.
+            running=$(gh run list --repo "$REPO" \
+                      --workflow=desktop-release.yml \
+                      --json databaseId,status,headBranch,event \
+                      --jq ".[] | select(.headBranch==\"$tag\" and (.status==\"in_progress\" or .status==\"queued\")) | .databaseId" \
+                      2>/dev/null | head -1)
+            if [ -n "$running" ]; then
+              echo "Tag $tag has an in-flight desktop-release run ($running) — waiting up to 10 min for assets…"
+              if wait_for_desktop_assets "$tag"; then
+                PREV_TAG="$tag"
+                break
+              fi
+              echo "  $tag wait timed out — moving to next-highest tag."
             fi
           done
 

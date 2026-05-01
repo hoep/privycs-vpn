@@ -195,11 +195,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Collect recent release tags, skipping the current one. Use --repo
-          # so gh does not rely on a .git context (the download step works in
-          # /tmp which isn't a git repo).
+          # SEMVER-SORTED tag list — was previously gh-default ordering
+          # (release-creation-time) which produced a race when the
+          # immediately-prior tag's android-release was still building.
+          # Same race that hit desktop-release on v0.9.14.9 (propagator
+          # ran in 26s, picked v0.9.14.7 because v0.9.14.8's 6-min
+          # build was still uploading). sort -rV picks the highest-semver
+          # release with assets, regardless of in-flight build clocks.
+          # Plus: poll the candidate's release for up to 10 min if a
+          # desktop/android-release run is still in progress for that tag.
           TAGS=$(gh release list --repo "$REPO" --limit 50 --json tagName --jq '.[].tagName' \
-                 | grep -v "^${CURRENT_TAG}$" || true)
+                 | grep -v "^${CURRENT_TAG}$" \
+                 | sort -rV || true)
+
+          wait_for_apk_assets() {
+            local tag="$1"
+            local deadline=$(( $(date +%s) + 600 ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              local has=$(gh release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null \
+                          | grep -cE '\.apk$' || true)
+              if [ "$has" -gt 0 ]; then
+                return 0
+              fi
+              echo "  $tag has no APK assets yet — waiting 30s…"
+              sleep 30
+            done
+            return 1
+          }
 
           PREV_TAG=""
           for tag in $TAGS; do
@@ -208,6 +230,19 @@ jobs:
             if [ "$has_apk" -gt 0 ]; then
               PREV_TAG="$tag"
               break
+            fi
+            running=$(gh run list --repo "$REPO" \
+                      --workflow=android-release.yml \
+                      --json databaseId,status,headBranch \
+                      --jq ".[] | select(.headBranch==\"$tag\" and (.status==\"in_progress\" or .status==\"queued\")) | .databaseId" \
+                      2>/dev/null | head -1)
+            if [ -n "$running" ]; then
+              echo "Tag $tag has an in-flight android-release run ($running) — waiting up to 10 min for APK…"
+              if wait_for_apk_assets "$tag"; then
+                PREV_TAG="$tag"
+                break
+              fi
+              echo "  $tag wait timed out — moving to next-highest tag."
             fi
           done
 
