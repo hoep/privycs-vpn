@@ -1049,6 +1049,15 @@ func (a *App) PickAndConnectActivePool() error {
 			a.markMemberUnreachable(pool, member, err.Error())
 			log.Printf("Pool %s: connect to %s failed after %dms (%v) - retrying with next member",
 				pool.Name, member.Name, time.Since(connectStart).Milliseconds(), err)
+			// v0.9.14.8: uninstall the just-failed pool-XXX service
+			// so its leaked wintun adapter slot is freed BEFORE the
+			// next member tries to install. Without this, retry-loop
+			// failures linearly accumulate orphan services until
+			// Windows refuses any new install with
+			// EXIT_CODE 5010 (DLL_INIT_FAILED). Skip the just-failed
+			// member's iface — the helper-disconnect on a STOPPED
+			// service is a clean uninstall.
+			a.cleanupOrphanPoolServices("")
 			continue
 		}
 		connectDur := time.Since(connectStart)

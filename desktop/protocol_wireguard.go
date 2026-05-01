@@ -561,17 +561,41 @@ func (w *WireGuardProtocol) downWindows(ctx context.Context) error {
 }
 
 // waitForWGService polls for the WireGuardTunnel$<iface> Windows service to
-// enter RUNNING state after installtunnelservice. Returns after ~7.5s max.
+// enter RUNNING state after installtunnelservice. Returns after ~20s max.
+//
+// v0.9.14.8: bumped from 7.5s to 20s. v0.9.14.6's fast-fail propagation
+// of the wait error to Up() exposed slow-start cases (Mullvad configs
+// with 49 AllowedIPs entries take 8-15s on some Windows setups for the
+// kernel to install all routes before the service reports RUNNING).
+// The previous 7.5s window was too aggressive — slow but healthy
+// services failed Up() and the user saw "app says disconnected, tunnel
+// is up, traffic flows" because the service eventually came up after
+// we had already given up. 20s catches the realistic worst case while
+// still failing dead services within bounded time. Connect's outer
+// status-poll then double-confirms.
+//
+// Polls every 500ms; logs progress every 5s so a stuck-in-START_PENDING
+// service is visible in the log instead of appearing silent.
 func waitForWGService(ifaceName string) error {
 	svcName := "WireGuardTunnel$" + ifaceName
-	for i := 0; i < 15; i++ {
+	const maxIterations = 40 // 40 * 500ms = 20s
+	for i := 0; i < maxIterations; i++ {
 		time.Sleep(500 * time.Millisecond)
 		out, err := execHidden("sc", "query", svcName).CombinedOutput()
 		if err == nil && strings.Contains(string(out), "RUNNING") {
+			if i >= 15 {
+				log.Printf("WireGuard service %s entered RUNNING after %dms (slow-start, but healthy)",
+					svcName, (i+1)*500)
+			}
 			return nil
 		}
+		// Progress beat every 5s so the user-facing log shows
+		// the service IS being polled, not that we hung.
+		if (i+1)%10 == 0 {
+			log.Printf("WireGuard service %s wait: %dms elapsed, still not RUNNING", svcName, (i+1)*500)
+		}
 	}
-	return fmt.Errorf("service %s did not enter RUNNING state", svcName)
+	return fmt.Errorf("service %s did not enter RUNNING state within 20s", svcName)
 }
 
 // findWireGuardExe locates the WireGuard executable on Windows

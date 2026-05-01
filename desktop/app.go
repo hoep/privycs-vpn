@@ -406,6 +406,14 @@ func (a *App) startup(ctx context.Context) {
 		wailsRuntime.EventsEmit(a.ctx, "pool:bootstrap", a.BootstrapState())
 	}
 
+	// v0.9.14.8: clear out leaked WireGuardTunnel$pool-* services from
+	// previous sessions. User found 15 such services accumulated in
+	// their Windows Services list — each one leaks a wintun adapter
+	// slot and after enough leaks every new install fails with
+	// EXIT_CODE 5010 (DLL_INIT_FAILED). Detached so startup is not
+	// blocked on the helper IPC roundtrip.
+	go a.cleanupOrphanPoolServices("")
+
 	log.Println("Privycs VPN ready")
 }
 
