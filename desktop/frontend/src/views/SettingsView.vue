@@ -845,6 +845,15 @@ async function onDnsInput() {
   // Live validation while typing so the user gets feedback before
   // they tab away.
   await refreshDnsValidationAndHint()
+  // v0.9.14.13: also trigger debounced save here. Pre-fix only
+  // @blur called validateAndSave — but preset-picks (clicking a
+  // provider in the AppSelect dropdown) don't change focus, so
+  // @blur never fires and the picked preset was lost on next
+  // restart. Routing through saveSettings (debounced 300ms) means
+  // typing also coalesces to a single save instead of one per
+  // keystroke. User reported "nach ändern und neustart sind
+  // settings weg" — exactly this case.
+  saveSettings()
 }
 
 async function refreshDnsValidationAndHint() {
