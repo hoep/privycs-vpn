@@ -902,7 +902,16 @@ fun SettingsScreen(
                     text = "Per-network auto-tunnel routing. Define rules " +
                         "matching SSID / BSSID / network type → Pool / " +
                         "Connection / No-VPN. When set, rules drive the " +
-                        "lifecycle (overrides Connect-on-Demand above).",
+                        "choice of target (overrides Connect-on-Demand's " +
+                        "simple SSID-match above).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Requires Connect-on-Demand to be enabled. " +
+                        "Rules are not evaluated when COD is off — manual " +
+                        "control wins.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

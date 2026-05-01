@@ -346,9 +346,9 @@
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network Rules</h3>
         <p class="text-[10px] text-gray-400 mb-3">
           Per-network auto-tunnel routing. Define rules matching SSID / BSSID / network type → Pool / Connection / No-VPN.
-          When enabled, rules drive the lifecycle (overrides Connect-on-Demand above).
+          When enabled, rules drive the choice of target (overrides Connect-on-Demand's simple SSID-match above).
         </p>
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-1">
           <span class="text-sm text-gray-700 dark:text-gray-300">Engine enabled</span>
           <input
             type="checkbox"
@@ -357,6 +357,9 @@
             class="w-4 h-4 accent-primary-600"
           />
         </div>
+        <p class="text-[10px] text-gray-500 mb-3">
+          Requires Connect-on-Demand to be enabled. Rules are not evaluated when COD is off — manual control wins.
+        </p>
         <p v-if="!settings.network_rules_enabled" class="text-[10px] text-amber-500 mb-3">
           Disabled by default in v0.9.13.4 after stability reports. Toggle on to activate. Existing rules persist.
         </p>
