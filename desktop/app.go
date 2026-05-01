@@ -812,18 +812,44 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 			mode, isPool, shouldRun, a.settings.TunnelHealthTarget)
 		if shouldRun {
 			target := a.settings.TunnelHealthTarget
-			// Recovery callback is currently DISABLED on desktop
-			// pending v0.9.13.x stability work. The monitor still
-			// observes ping success/failure and updates the UI
-			// pill, but does NOT auto-disconnect on dead detection
-			// because the cascade interaction with poolKeepaliveLoop
-			// + notify-on-transition produced "4 modal windows
-			// opening and closing" symptoms reported by the user.
-			// Manual reconnect via Connect button is the user's
-			// recovery path until the auto-recovery is re-enabled
-			// with proper rate-limiting in a follow-up patch.
+			// v0.9.14.7: Recovery callback re-enabled. v0.9.13.4
+			// disabled it because of a cascade interaction with
+			// poolKeepaliveLoop + notify-on-transition that
+			// produced the "4 modal windows opening and closing"
+			// symptom. Two of those guards are now in place:
+			//   - poolKeepaliveLoop is `if false` disabled
+			//     (separate ticker that double-fired connects)
+			//   - connectMu in connectActiveTarget serialises
+			//     concurrent connect intents (v0.9.13.7) so
+			//     recovery cannot race with a network-monitor
+			//     trigger or a manual user tap
+			// User-reported overnight symptom: pool shows "connected"
+			// but tunnel is actually dead because the no-op recovery
+			// never reset a.connected when ICMP probes died, and
+			// PickAndConnectActivePool's "wasConnected" path then
+			// no-ops on a phantom-running tunnel. Re-enabling the
+			// real recovery closes that hole.
 			a.tunnelHealth.Start(target, func() {
-				log.Printf("TunnelHealth: would have triggered recovery (disabled in v0.9.13.4 - manual reconnect required)")
+				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + reconnecting")
+				// Tear down the stale connected state so the
+				// reconnect goes through the normal Up path
+				// instead of short-circuiting on Status().Connected.
+				a.mu.Lock()
+				if err := a.disconnectInternal(); err != nil {
+					log.Printf("TunnelHealth: recovery disconnect: %v", err)
+				}
+				a.mu.Unlock()
+				// Brief settle delay so wintun.sys/NDIS teardown
+				// completes before the new Up() races with the
+				// release. 2s is empirically the minimum on
+				// Windows for a clean restart.
+				time.Sleep(2 * time.Second)
+				// connectActiveTarget respects connectMu, COD pause,
+				// kill switch sinkhole, and the configured rule
+				// resolution, so this single call is the right
+				// drop-in for "redo whatever the user's intent
+				// currently is".
+				a.connectActiveTarget()
 			})
 		}
 	}
