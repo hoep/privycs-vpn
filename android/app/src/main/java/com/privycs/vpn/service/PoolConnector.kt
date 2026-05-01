@@ -196,11 +196,6 @@ class PoolConnector(
             }
             attempted.add(member.id)
 
-            // Persist the pick (and clear pending) up-front so the
-            // pre-warm path doesn't re-read stale ActiveMemberID.
-            pools.setActiveMember(pool.id, member.id)
-            pools.setPendingMember(pool.id, "")
-
             Log.i(tag, "attempt ${attempt + 1}/$MAX_CONNECT_ATTEMPTS member=${member.name}")
 
             val ok = tunnelOps.bringUp(member, pool.splitTunnel)
@@ -226,6 +221,13 @@ class PoolConnector(
                 }
             }
 
+            // Persist the pick + clear pending NOW that connect
+            // succeeded (v0.9.14.8 — was previously up-front, before
+            // bringUp, leaving stale UI state on every failed
+            // attempt). Symmetric with desktop v0.9.14.2 fix.
+            pools.setActiveMember(pool.id, member.id)
+            pools.setPendingMember(pool.id, "")
+
             Log.i(tag, "connected member=${member.name}")
             return member
         }
@@ -239,6 +241,18 @@ class PoolConnector(
         // blackout-ed for 30 minutes (TTL) until the unreachable
         // flag clears. Wiping pending forces a fresh policy pick.
         pools.setPendingMember(pool.id, "")
+        // v0.9.14.8: restore previous active member on total
+        // failure so the UI does not display the last-tried-and-
+        // failed candidate as "currently connected". Without this,
+        // pool rotations that fully fail leave ActiveMember
+        // pointing at a dead member and the user sees "connected
+        // to X" while the tunnel is down. Match desktop v0.9.14.2
+        // semantics: empty lastActiveMember means we leave state
+        // as-is (no prior pick to restore).
+        if (lastActiveMember.isNotEmpty()) {
+            pools.setActiveMember(pool.id, lastActiveMember)
+            Log.i(tag, "restored previous active member $lastActiveMember after total failure")
+        }
         return null
     }
 
