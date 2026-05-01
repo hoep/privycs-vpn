@@ -12,8 +12,8 @@ android {
         applicationId = "com.privycs.vpn"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10122
-        versionName = "0.9.14.13"
+        versionCode = 10123
+        versionName = "0.9.14.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
