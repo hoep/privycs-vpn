@@ -50,6 +50,17 @@ class PrivycsVpnService : VpnService() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Tracks the currently-running status-poll coroutine so a re-call
+    // of startStatusPolling can cancel the previous one before
+    // launching a new one. Without this, every Connect / Reconnect /
+    // PoolRotation entry-point spawned a fresh poller without
+    // cancelling the previous, and they accumulated. User found two
+    // pollers at iteration=850 + iteration=403 running concurrently
+    // for the same WIREGUARD protocol — a poller leaked from each
+    // pool rotation. v0.9.14.16 fix.
+    private var statusPollingJob: kotlinx.coroutines.Job? = null
+
     private var goBackend: GoBackend? = null
     private var wireGuardTunnel: WireGuardTunnel? = null
     private var openVpnTunnel: OpenVpnTunnel? = null
@@ -1730,9 +1741,21 @@ class PrivycsVpnService : VpnService() {
      * Delegates to the active protocol's tunnel implementation.
      */
     private fun startStatusPolling() {
-        scope.launch {
+        // Cancel any previously-running poller. Without this, each
+        // tunnel-bring-up entry-point (handleConnect / handleReconnect
+        // / handlePoolConnect) accumulated a fresh poller goroutine
+        // because scope.launch spawns unconditionally. Symptom: two+
+        // "iteration=N" lines in logcat per tick from the same
+        // PrivycsVpnService PID, each with its own counter (e.g.
+        // iter=850 + iter=403 ticking in parallel). Result: doubled
+        // status-broadcast traffic, doubled proto.Status() reads,
+        // possible UI oscillation. v0.9.14.16 fix.
+        statusPollingJob?.cancel()
+        val previousIterLog = if (statusPollingJob != null) "(cancelling previous poller)" else "(no previous poller)"
+        statusPollingJob = scope.launch {
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
             var iter = 0
+            PrivycsLogger.d(TAG, "startStatusPolling: $previousIterLog")
             // Delay BEFORE the first status read so the tunnel has a
             // chance to transition out of DISCONNECTED. Otherwise the
             // very first iteration races the state listener and sees
