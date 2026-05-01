@@ -407,7 +407,11 @@ fun ConnectScreen(
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            // v0.9.14.17: tighter spacer below uptime — was 8dp,
+            // 4dp keeps visual breathing room while saving vertical
+            // height so the connect-dropdown + content below fit
+            // without scroll on shorter phones.
+            Spacer(modifier = Modifier.height(4.dp))
         }
 
         // Connection name with picker.
@@ -433,7 +437,11 @@ fun ConnectScreen(
                 Row(
                     modifier = Modifier
                         .clickable { showConnectionPicker = !showConnectionPicker }
-                        .padding(4.dp),
+                        // v0.9.14.17: vertical padding 4dp -> 2dp.
+                        // Touch-target requirement (48dp) easily met
+                        // by text+icon at bodyMedium; the extra 2dp
+                        // top + 2dp bottom were pure white-space.
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -446,7 +454,11 @@ fun ConnectScreen(
                         imageVector = if (showConnectionPicker) Icons.Filled.KeyboardArrowUp
                         else Icons.Filled.KeyboardArrowDown,
                         contentDescription = "Switch connection",
-                        modifier = Modifier.size(18.dp),
+                        // 18dp -> 16dp matches the Material icon
+                        // baseline for in-line-with-bodyMedium
+                        // contexts; visually paired better with
+                        // the body text + saves 2dp height.
+                        modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
