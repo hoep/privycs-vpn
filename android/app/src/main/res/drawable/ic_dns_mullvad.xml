@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Yellow rounded square — Mullvad's primary brand color. -->
+    <path
+        android:fillColor="#FFD23F"
+        android:pathData="M4,0h16a4,4 0,0 1,4 4v16a4,4 0,0 1,-4 4H4a4,4 0,0 1,-4 -4V4A4,4 0,0 1,4 0z"/>
+    <!-- Stylised "M" -->
+    <path
+        android:fillColor="#191919"
+        android:pathData="M5,17V7h2.5l3,7.5L13.5,7H16v10h-2V11l-2.4,6h-2.2L7,11v6H5z"/>
+</vector>
