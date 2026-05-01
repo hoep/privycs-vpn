@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -105,5 +107,73 @@ func (a *App) cleanupOrphanPoolServices(skipIface string) int {
 		cleaned++
 	}
 	log.Printf("cleanupOrphan: uninstalled %d orphan pool-* services", cleaned)
+
+	// Phase 2 (v0.9.14.10): sweep orphan pool-*.conf files. The helper's
+	// uninstalltunnelservice removes the service registration + the
+	// wintun adapter, but leaves the .conf file on disk in
+	// %LOCALAPPDATA%\privycs-vpn\. Over time this accumulates one file
+	// per pool-member ever connected — user reported "Unmengen von pool
+	// confs in der Windows dir". Each file is ~1KB so it's not a disk-
+	// space issue, but disk-clutter and confusing during diagnostics.
+	// Sweep every pool-*.conf whose iface is NOT the current target and
+	// NOT the pre-warmed pending member, delete it.
+	confsCleaned := a.cleanupOrphanPoolConfs(skipIface)
+	if confsCleaned > 0 {
+		log.Printf("cleanupOrphan: deleted %d orphan pool-*.conf files", confsCleaned)
+	}
+
 	return cleaned
+}
+
+// cleanupOrphanPoolConfs sweeps the appData directory for pool-*.conf
+// files and deletes any whose corresponding service is gone. Skips the
+// current iface (skipIface) AND the pre-warmed pending member's iface
+// (looked up from the active pool's pending state) so the next
+// rotation can adopt the pre-written config without rebuilding it.
+//
+// Cross-platform helper, but the file naming convention pool-<id>.conf
+// is identical on Linux/macOS, so the sweep is safe everywhere even
+// though the practical leak is Windows-only.
+func (a *App) cleanupOrphanPoolConfs(skipIface string) int {
+	dir := appDataDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("cleanupOrphanConfs: ReadDir %s failed: %v - skipping", dir, err)
+		return 0
+	}
+
+	// Build the keep-set: current target + pre-warmed pending member.
+	// Pending lookup needs the active pool — when no pool is active,
+	// only skipIface is preserved.
+	keep := map[string]struct{}{}
+	if skipIface != "" {
+		keep[skipIface] = struct{}{}
+	}
+	a.mu.RLock()
+	activePoolID := a.activePoolID
+	a.mu.RUnlock()
+	if activePoolID != "" && a.pools != nil {
+		if pendingID := a.pools.PendingMemberID(activePoolID); pendingID != "" {
+			keep["pool-"+shortID(pendingID)] = struct{}{}
+		}
+	}
+
+	deleted := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, "pool-") || !strings.HasSuffix(name, ".conf") {
+			continue
+		}
+		iface := strings.TrimSuffix(name, ".conf")
+		if _, isKept := keep[iface]; isKept {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if err := os.Remove(path); err != nil {
+			log.Printf("cleanupOrphanConfs: remove %s failed: %v", name, err)
+			continue
+		}
+		deleted++
+	}
+	return deleted
 }
