@@ -243,6 +243,16 @@ func (w *WireGuardProtocol) upUnix(ctx context.Context) error {
 		return fmt.Errorf("wg-quick up failed: %s", resp.Error)
 	}
 	w.connectedAt = time.Now()
+	// Log the wg-quick stdout/stderr even on success — exit-0 from
+	// wg-quick does NOT mean every step succeeded; some steps swallow
+	// errors with `|| true` (route additions, network DNS swap),
+	// which means the tunnel may be half-up despite "success". User
+	// reported on v0.9.14.25 the helper said success but `wg show`
+	// returned "not connected" continuously; without the wg-quick
+	// output we couldn't tell which sub-step bombed.
+	if strings.TrimSpace(resp.Output) != "" {
+		log.Printf("WireGuard.upUnix: wg-quick stdout/stderr:\n%s", strings.TrimSpace(resp.Output))
+	}
 	log.Printf("WireGuard connected via helper (interface: %s)", w.ifaceName)
 	return nil
 }

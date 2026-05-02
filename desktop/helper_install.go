@@ -288,12 +288,26 @@ func uninstallHelperMacOS() error {
 }
 
 func isHelperInstalledMacOS() bool {
-	out, err := exec.Command("launchctl", "list", "com.privycs.vpn-helper").CombinedOutput()
-	if err != nil {
-		return false
-	}
-	// launchctl list returns info if loaded
-	return !strings.Contains(string(out), "Could not find service")
+	// Check the LaunchDaemon plist file existence directly. The
+	// pre-fix used `launchctl list com.privycs.vpn-helper` which
+	// fails for system-level LaunchDaemons when run from a non-root
+	// process: launchctl shows the calling user's LaunchAgents in
+	// the unscoped form, but system daemons require either
+	// `sudo launchctl list` or the modern `launchctl print
+	// system/<label>` form. Our GUI app runs as the user, sees
+	// "Could not find service" even though the daemon IS installed
+	// and running, and reports installed=false. Side effect: the
+	// Settings → Privileged Helper UI hid both Install AND Uninstall
+	// buttons because their v-if conditions both depend on
+	// helperStatus.installed.
+	//
+	// The plist at /Library/LaunchDaemons/ is world-readable (mode
+	// 644), so a plain os.Stat works without elevation. Existence of
+	// the plist is the canonical "registered with launchd" signal —
+	// any further check (running vs. just installed) goes through
+	// the IPC ping in IsHelperRunning.
+	_, err := os.Stat(launchDaemonPath)
+	return err == nil
 }
 
 // ============================================================================

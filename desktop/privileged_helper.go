@@ -206,11 +206,21 @@ func (h *PrivilegedHelper) handleConnection(conn net.Conn) {
 
 	resp := h.executeCommand(cmd)
 
-	// Audit log result
+	// Audit log result. Output is logged on every action whose Output
+	// field is non-empty (wg-quick up/down, swanctl, etc.) so we can
+	// see what the underlying command actually said. v0.9.14.25 user
+	// log showed wg-quick up reporting success but `wg show` returning
+	// "not connected" right after — the wg-quick stdout had useful
+	// diagnostics that were thrown away because we only logged Output
+	// on the failure branch in the client. Now both branches log it.
 	if resp.Success {
-		log.Printf("Helper result: action=%s success=true", cmd.Action)
+		if resp.Output != "" {
+			log.Printf("Helper result: action=%s success=true output=%q", cmd.Action, strings.TrimSpace(resp.Output))
+		} else {
+			log.Printf("Helper result: action=%s success=true", cmd.Action)
+		}
 	} else {
-		log.Printf("Helper result: action=%s success=false error=%s", cmd.Action, resp.Error)
+		log.Printf("Helper result: action=%s success=false error=%s output=%q", cmd.Action, resp.Error, strings.TrimSpace(resp.Output))
 	}
 
 	h.sendResponse(conn, resp)
@@ -338,6 +348,14 @@ func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 	}
 	wgUp := exec.Command(wgQuick, "up", ifaceName)
 	wgUp.Env = wgExecEnv()
+	// Detach the wg-quick child into its own session so that
+	// wireguard-go (which wg-quick spawns as a background daemon for
+	// the userspace tunnel) can survive past wg-quick exit. Without
+	// this on macOS the helper's launchd-inherited session caused
+	// wireguard-go to die or fail to allocate utun, leaving the
+	// tunnel half-up: wg-quick exited 0 but `wg show <iface>` then
+	// returned "not connected" continuously, observed in v0.9.14.25.
+	applyDetachedSession(wgUp)
 	out, err := wgUp.CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("wg-quick up failed: %s", string(out)), Output: string(out)}
