@@ -46,8 +46,9 @@ func (w *WireGuardProtocol) IsAvailable() bool {
 		_, err := exec.LookPath("wireguard.exe")
 		return err == nil
 	}
-	_, err := exec.LookPath("wg-quick")
-	return err == nil
+	// Linux/macOS: search Homebrew + standard system paths in addition
+	// to PATH — see findWGBinary for the launchd-PATH gotcha.
+	return findWGBinary("wg-quick") != ""
 }
 
 func (w *WireGuardProtocol) Up(ctx context.Context) error {
@@ -611,6 +612,57 @@ func findWireGuardExe() string {
 	}
 	// Try PATH
 	if p, err := exec.LookPath("wireguard.exe"); err == nil {
+		return p
+	}
+	return ""
+}
+
+// wgExecEnv returns an environment slice suitable for spawning a
+// WireGuard userland binary (or wg-quick, which is a shell script that
+// internally invokes wg/ip/pfctl/sysctl/etc. by bare name). Prepends
+// the standard Homebrew prefixes plus /sbin and /usr/sbin to PATH so
+// the launchd-spawned helper can locate every dependency wg-quick
+// touches even when its inherited PATH is the minimal launchd default.
+// Caller does cmd.Env = wgExecEnv() before exec.
+func wgExecEnv() []string {
+	const prepend = "/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin"
+	env := os.Environ()
+	for i, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") {
+			env[i] = "PATH=" + prepend + ":" + kv[5:]
+			return env
+		}
+	}
+	return append(env, "PATH="+prepend+":/usr/bin:/bin")
+}
+
+// findWGBinary returns the absolute path to a WireGuard userland binary
+// ("wg" or "wg-quick") on Linux/macOS, or empty if not installed.
+//
+// macOS GUI-launched apps get launchd's minimal PATH (/usr/bin:/bin:
+// /usr/sbin:/sbin) — Homebrew installs (/opt/homebrew/bin on Apple
+// Silicon, /usr/local/bin on Intel) are NOT in that PATH, so a plain
+// exec.LookPath fails even though the user has wireguard-tools
+// installed and reachable from a terminal. Same problem affects the
+// privileged helper which runs as root via launchd: launchd-spawned
+// daemons inherit a similarly minimal PATH.
+//
+// Search order: explicit Homebrew paths first (cheap stat, deterministic
+// even when PATH is unset), then PATH fallback for nonstandard installs
+// or when the user launches from a terminal that has Homebrew in PATH.
+func findWGBinary(name string) string {
+	candidates := []string{
+		"/opt/homebrew/bin/" + name, // Apple Silicon Homebrew
+		"/usr/local/bin/" + name,    // Intel Homebrew, MacPorts, manual installs
+		"/usr/bin/" + name,          // distro-packaged on Linux
+		"/sbin/" + name,             // some Linux distros
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if p, err := exec.LookPath(name); err == nil {
 		return p
 	}
 	return ""

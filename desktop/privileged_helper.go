@@ -332,7 +332,13 @@ func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("failed to install config: %v", err)}
 		}
 	}
-	out, err := exec.Command("wg-quick", "up", ifaceName).CombinedOutput()
+	wgQuick := findWGBinary("wg-quick")
+	if wgQuick == "" {
+		return HelperResponse{Success: false, Error: "wg-quick not found — install wireguard-tools (macOS: brew install wireguard-tools)"}
+	}
+	wgUp := exec.Command(wgQuick, "up", ifaceName)
+	wgUp.Env = wgExecEnv()
+	out, err := wgUp.CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("wg-quick up failed: %s", string(out)), Output: string(out)}
 	}
@@ -358,7 +364,13 @@ func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse
 		return HelperResponse{Success: true, Output: string(out)}
 	}
 
-	out, err := exec.Command("wg-quick", "down", ifaceName).CombinedOutput()
+	wgQuick := findWGBinary("wg-quick")
+	if wgQuick == "" {
+		return HelperResponse{Success: false, Error: "wg-quick not found — install wireguard-tools"}
+	}
+	wgDown := exec.Command(wgQuick, "down", ifaceName)
+	wgDown.Env = wgExecEnv()
+	out, err := wgDown.CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("wg-quick down failed: %s", string(out)), Output: string(out)}
 	}
@@ -677,7 +689,11 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 			}
 			return HelperResponse{Success: false, Error: "not connected"}
 		}
-		out, err := exec.Command("wg", "show", ifaceName).CombinedOutput()
+		wg := findWGBinary("wg")
+		if wg == "" {
+			return HelperResponse{Success: false, Error: "not connected"}
+		}
+		out, err := exec.Command(wg, "show", ifaceName).CombinedOutput()
 		if err != nil {
 			return HelperResponse{Success: false, Error: "not connected", Output: string(out)}
 		}
@@ -838,7 +854,10 @@ func (h *PrivilegedHelper) cmdWGHandshake(cmd HelperCommand) HelperResponse {
 			return HelperResponse{Success: false, Error: "wg.exe not found"}
 		}
 	} else {
-		binary = "wg"
+		binary = findWGBinary("wg")
+		if binary == "" {
+			return HelperResponse{Success: false, Error: "wg not found — install wireguard-tools"}
+		}
 	}
 	out, err := exec.Command(binary, "show", cmd.Interface, "latest-handshakes").CombinedOutput()
 	if err != nil {
