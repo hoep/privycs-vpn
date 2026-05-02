@@ -711,7 +711,31 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 		if wg == "" {
 			return HelperResponse{Success: false, Error: "not connected"}
 		}
-		out, err := exec.Command(wg, "show", ifaceName).CombinedOutput()
+		// On macOS, wg-quick writes /var/run/wireguard/<friendly>.name
+		// containing the actual utunN name (the userspace driver attaches
+		// to a kernel-allocated utun number, not a configurable interface
+		// name like Linux). `wg show <friendly>` is supposed to read that
+		// .name file and connect to /var/run/wireguard/<utunN>.sock —
+		// but in v0.9.14.26 the user reported that exact call returning
+		// "Unable to access interface: No such file or directory" while
+		// `sudo wg show` (no argument) cleanly listed the running tunnel.
+		// Direct ENOENT despite both files existing means wg's own
+		// friendly→utun resolution path fails from the helper context
+		// (probably an open-mode or atomicity quirk with wireguard-tools'
+		// path traversal under launchd). Bypass it: read the .name file
+		// ourselves with plain os.ReadFile and call wg show on the utunN
+		// directly. The .name file is owned by root and mode 0644-ish, so
+		// the helper (root) reads it without issue.
+		queryName := ifaceName
+		if runtime.GOOS == "darwin" {
+			nameFile := "/var/run/wireguard/" + ifaceName + ".name"
+			if data, err := os.ReadFile(nameFile); err == nil {
+				if utun := strings.TrimSpace(string(data)); utun != "" {
+					queryName = utun
+				}
+			}
+		}
+		out, err := exec.Command(wg, "show", queryName).CombinedOutput()
 		if err != nil {
 			return HelperResponse{Success: false, Error: "not connected", Output: string(out)}
 		}
@@ -877,7 +901,18 @@ func (h *PrivilegedHelper) cmdWGHandshake(cmd HelperCommand) HelperResponse {
 			return HelperResponse{Success: false, Error: "wg not found — install wireguard-tools"}
 		}
 	}
-	out, err := exec.Command(binary, "show", cmd.Interface, "latest-handshakes").CombinedOutput()
+	// Same friendly→utun translation as cmdStatus on macOS — see
+	// the comment there for why wg's own resolution path is bypassed.
+	queryName := cmd.Interface
+	if runtime.GOOS == "darwin" {
+		nameFile := "/var/run/wireguard/" + cmd.Interface + ".name"
+		if data, err := os.ReadFile(nameFile); err == nil {
+			if utun := strings.TrimSpace(string(data)); utun != "" {
+				queryName = utun
+			}
+		}
+	}
+	out, err := exec.Command(binary, "show", queryName, "latest-handshakes").CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("wg show: %v", err), Output: string(out)}
 	}

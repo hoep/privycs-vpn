@@ -251,6 +251,7 @@
               Uninstall
             </button>
           </div>
+          <p v-if="helperError" class="text-[10px] text-red-400 bg-red-500/10 rounded-lg py-1.5 px-2">{{ helperError }}</p>
           <p class="text-[10px] text-gray-500 dark:text-gray-400">
             The helper runs as a system service and handles VPN operations without repeated admin prompts. Requires a one-time authorization to install.
           </p>
@@ -913,6 +914,7 @@ function toggleSetting(key: string) {
 // Privileged helper state
 const helperStatus = ref<any>({ installed: false, running: false, platform: '' })
 const helperInstalling = ref(false)
+const helperError = ref('')
 
 async function loadHelperStatus() {
   try {
@@ -924,10 +926,13 @@ async function loadHelperStatus() {
 
 async function installHelper() {
   helperInstalling.value = true
+  helperError.value = ''
   try {
     await InstallPrivilegedHelper()
     await loadHelperStatus()
-  } catch (e) {
+  } catch (e: any) {
+    const msg = e?.toString()?.replace('Error: ', '') || 'Unknown error'
+    helperError.value = 'Install failed: ' + msg
     console.error('Failed to install helper:', e)
   } finally {
     helperInstalling.value = false
@@ -936,10 +941,18 @@ async function installHelper() {
 
 async function uninstallHelper() {
   helperInstalling.value = true
+  helperError.value = ''
   try {
     await UninstallPrivilegedHelper()
     await loadHelperStatus()
-  } catch (e) {
+  } catch (e: any) {
+    // Pre-fix the catch only logged to console which is invisible in
+    // production builds. v0.9.14.26 user reported "nach uninstall
+    // wird das frontend nicht aktualisiert" — likely the osascript
+    // admin-prompt was dismissed, uninstall threw, status stayed
+    // unchanged, no UI feedback. Now surfaces as inline error.
+    const msg = e?.toString()?.replace('Error: ', '') || 'Unknown error'
+    helperError.value = 'Uninstall failed: ' + msg
     console.error('Failed to uninstall helper:', e)
   } finally {
     helperInstalling.value = false
