@@ -1164,13 +1164,13 @@ type ProtocolInfo struct {
 func (a *App) ImportConfig(protocol string, content string, filename string, connectionName string, connectionID string) error {
 	log.Printf("ImportConfig: protocol=%q len=%d filename=%q connName=%q connID=%q (waiting for mu)", protocol, len(content), filename, connectionName, connectionID)
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	log.Printf("ImportConfig: acquired mu, proceeding")
+	log.Printf("ImportConfig: acquired mu (validation phase)")
 
 	// Auto-detect protocol if not specified
 	if protocol == "" {
 		protocol = detectProtocol(content, filename)
 		if protocol == "" {
+			a.mu.Unlock()
 			log.Printf("ImportConfig: cannot detect protocol")
 			return fmt.Errorf("cannot detect protocol from file content")
 		}
@@ -1178,6 +1178,7 @@ func (a *App) ImportConfig(protocol string, content string, filename string, con
 
 	proto, ok := a.protocols[protocol]
 	if !ok {
+		a.mu.Unlock()
 		log.Printf("ImportConfig: unsupported protocol %q", protocol)
 		return fmt.Errorf("unsupported protocol: %s", protocol)
 	}
@@ -1189,8 +1190,16 @@ func (a *App) ImportConfig(protocol string, content string, filename string, con
 		tunnelName = sanitizeTunnelName(filename)
 	}
 	setTunnelName(proto, tunnelName)
+	a.mu.Unlock()
 
-	// Validate config by configuring the protocol handler
+	// CONFIGURE phase — NO LOCK. applyDnsOverride takes a.mu.RLock()
+	// internally via resolveDnsOverride; if we still held the write
+	// lock here Go's non-reentrant sync.RWMutex would self-deadlock
+	// (ImportConfig holds Lock, applyDnsOverride wants RLock, RLock
+	// blocks until Lock is released, but the same goroutine holds
+	// it — process hangs forever with no error). Same release-then-
+	// reacquire pattern as ActivateConnection above.
+	log.Printf("ImportConfig: starting Configure phase (no lock)")
 	if err := proto.Configure(a.applyDnsOverride([]byte(content), proto.Name())); err != nil {
 		log.Printf("ImportConfig: proto.Configure FAILED: %v", err)
 		return fmt.Errorf("invalid config: %w", err)
@@ -1212,6 +1221,11 @@ func (a *App) ImportConfig(protocol string, content string, filename string, con
 	if status.LocalAddress != "" {
 		pc.LocalAddress = status.LocalAddress
 	}
+
+	// STATE-UPDATE phase — re-acquire the write lock for the registry
+	// mutation + settings save.
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	// Add to existing connection or create new one
 	name := connectionName

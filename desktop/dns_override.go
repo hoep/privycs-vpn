@@ -387,9 +387,21 @@ func (a *App) resolveDnsOverride() string {
 	if a == nil {
 		return ""
 	}
-	a.mu.RLock()
+	// Deliberate unsynchronised read of a.activePoolID. We cannot hold
+	// a.mu.RLock() here because resolveDnsOverride is called by
+	// applyDnsOverride from inside callers that already hold
+	// a.mu.Lock() (write lock) — Go's sync.RWMutex is non-reentrant,
+	// so the same goroutine asking for RLock while holding Lock
+	// self-deadlocks forever. v0.9.14.21 user log showed
+	// "ImportConfig: acquired mu, proceeding" with no following lines
+	// — the goroutine sat blocked on this RLock indefinitely.
+	//
+	// Safe without the lock: a.activePoolID is a single-word string
+	// load (atomic on all supported architectures), and the worst-
+	// case race is a one-call-stale read of which pool is active,
+	// which the user-perceptible flow tolerates trivially (the next
+	// Configure call sees the new value).
 	poolID := a.activePoolID
-	a.mu.RUnlock()
 	if poolID != "" {
 		if pool := a.pools.Get(poolID); pool != nil && strings.TrimSpace(pool.DnsOverride) != "" {
 			return strings.TrimSpace(pool.DnsOverride)
