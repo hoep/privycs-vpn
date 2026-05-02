@@ -235,9 +235,11 @@ func (w *WireGuardProtocol) upUnix(ctx context.Context) error {
 		"interface": w.ifaceName,
 	})
 	if err != nil {
+		log.Printf("WireGuard.upUnix: helper IPC FAILED: %v", err)
 		return fmt.Errorf("helper connect failed: %w", err)
 	}
 	if !resp.Success {
+		log.Printf("WireGuard.upUnix: wg-quick up FAILED. helper.Error=%q helper.Output=%q", resp.Error, resp.Output)
 		return fmt.Errorf("wg-quick up failed: %s", resp.Error)
 	}
 	w.connectedAt = time.Now()
@@ -297,22 +299,55 @@ func buildWGConfigWithBypass(src string) (string, error) {
 	endpointIP, endpointIPv6 := parseEndpointIPs(content)
 
 	if endpointIP != "" && !strings.Contains(content, endpointIP+"/32") {
-		bypassRules := fmt.Sprintf(
-			"PostUp = ip route add %s/32 $(ip route show default | sed 's/default//') || true\n"+
-				"PreDown = ip route del %s/32 || true\n",
-			endpointIP, endpointIP)
-
-		if endpointIPv6 != "" {
-			bypassRules += fmt.Sprintf(
-				"PostUp = ip -6 route add %s/128 $(ip -6 route show default | sed 's/default//') || true\n"+
-					"PreDown = ip -6 route del %s/128 || true\n",
-				endpointIPv6, endpointIPv6)
+		var bypassRules string
+		switch runtime.GOOS {
+		case "darwin":
+			// macOS: use BSD `route` instead of Linux `ip route`. Without
+			// this bypass route, the WG client's UDP packets to the server
+			// would match the 0.0.0.0/1 tunnel route and loop back into the
+			// tunnel that's still trying to handshake — Henne-Ei-Deadlock,
+			// no handshake ever completes, tunnel reports "connected" but
+			// routes 0 bytes. (User-reported on v0.9.14.23: tunnel up,
+			// handshake never happens, log shows "ip: Kommando nicht
+			// gefunden" because the Linux command isn't on macOS.)
+			//
+			// Subshell awks the IPv4 default gateway from `route -n get
+			// default`. Quoting `'$2'` inside an outer single-quoted shell
+			// string requires escape-then-reopen: '"'"'$2'"'"' (close,
+			// double-quoted single, reopen). PostUp/PreDown are written
+			// to /etc/wireguard/<iface>.conf which wg-quick reads as
+			// /bin/bash, so bash $() and awk are both available.
+			//
+			// IPv6 endpoint bypass is NOT injected here — wg-quick on
+			// macOS adds it automatically when AllowedIPs covers ::/0
+			// (visible in the user's wg-quick output as `route -q -n
+			// add -inet6 <endpoint-v6> -gateway <fe80::...%en0>`).
+			// Adding our own would conflict with wg-quick's.
+			bypassRules = fmt.Sprintf(
+				"PostUp = route -q -n add -inet %s/32 -gateway $(route -n get default 2>/dev/null | awk '/gateway:/ {print $2}') || true\n"+
+					"PreDown = route -q -n delete -inet %s/32 || true\n",
+				endpointIP, endpointIP)
+		default:
+			// Linux: keep existing iproute2 behaviour. The `ip route show
+			// default | sed 's/default//'` trick captures gateway+device
+			// in one go, then prepends a /32 host route that beats the
+			// 0.0.0.0/1 tunnel route by being more specific.
+			bypassRules = fmt.Sprintf(
+				"PostUp = ip route add %s/32 $(ip route show default | sed 's/default//') || true\n"+
+					"PreDown = ip route del %s/32 || true\n",
+				endpointIP, endpointIP)
+			if endpointIPv6 != "" {
+				bypassRules += fmt.Sprintf(
+					"PostUp = ip -6 route add %s/128 $(ip -6 route show default | sed 's/default//') || true\n"+
+						"PreDown = ip -6 route del %s/128 || true\n",
+					endpointIPv6, endpointIPv6)
+			}
 		}
 
 		peerIdx := strings.Index(content, "[Peer]")
 		if peerIdx > 0 {
 			content = content[:peerIdx] + bypassRules + "\n" + content[peerIdx:]
-			log.Printf("Injected endpoint bypass routes for %s (IPv6: %s)", endpointIP, endpointIPv6)
+			log.Printf("Injected endpoint bypass routes for %s (IPv6: %s) [%s syntax]", endpointIP, endpointIPv6, runtime.GOOS)
 		}
 	}
 

@@ -764,6 +764,14 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 
 	a.mu.Lock() // Re-acquire lock
 	if upErr != nil {
+		// Log the full error chain BEFORE emitting frontend events —
+		// the previous code went straight to EventsEmit/Notify, which
+		// surfaced the error to the user but never wrote it to the log
+		// file. That made post-mortem debugging impossible: tail -f
+		// privycs-vpn.log saw "Using privileged helper for wg-quick
+		// up X" and then nothing, while the actual wg-quick stderr
+		// (passed back via helper IPC) was discarded.
+		log.Printf("Connect: %s.Up FAILED: %v", activeProto, upErr)
 		// New sinkhole model: we did NOT pre-activate, so there is
 		// nothing to roll back here - the firewall stayed open during
 		// the failed connect attempt. User retains internet

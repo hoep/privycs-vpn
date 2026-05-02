@@ -258,15 +258,29 @@ func installHelperMacOS() error {
 }
 
 func uninstallHelperMacOS() error {
+	// Use BOTH bootout (modern, macOS 10.10+) AND unload -w (older
+	// fallback) — Apple deprecated unload for system daemons in
+	// Sequoia/Sonoma but kept it as a compat shim, and bootout
+	// returns non-zero if the service isn't in launchd's registry.
+	// Running both with || true means whichever is appropriate
+	// succeeds; the rm step still happens even if both report
+	// the daemon was already gone.
+	//
+	// Pre-fix used a single `unload -w; rm` chain which produced
+	// "kann nicht deinstallieren" on the user's Mac because the
+	// daemon was registered via bootstrap (modern semantics) but
+	// unload couldn't deregister it; rm then ran but the launchd
+	// registration persisted, breaking subsequent reinstall with
+	// "service already loaded".
 	script := fmt.Sprintf(
-		`do shell script "launchctl unload -w %s; rm -f %s" with administrator privileges`,
-		launchDaemonPath, launchDaemonPath,
+		`do shell script "launchctl bootout system %s 2>/dev/null || true; launchctl unload -w %s 2>/dev/null || true; rm -f %s; pkill -f privycs-vpn-helper 2>/dev/null || true" with administrator privileges`,
+		launchDaemonPath, launchDaemonPath, launchDaemonPath,
 	)
 
 	cmd := exec.Command("osascript", "-e", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to uninstall helper daemon: %s: %w", string(out), err)
+		return fmt.Errorf("failed to uninstall helper daemon: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 
 	log.Println("Helper daemon uninstalled")
