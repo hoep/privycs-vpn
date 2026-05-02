@@ -94,9 +94,17 @@ func findOpenVPNExe() string {
 		return ""
 	}
 	// Linux/macOS: prefer absolute paths so we don't depend on PATH at all
-	// from the launchd-spawned helper context. Order: Apple Silicon Homebrew,
-	// Intel Homebrew / MacPorts, distro-packaged Linux, sbin variants.
+	// from the launchd-spawned helper context.
+	//
+	// Homebrew puts OpenVPN under sbin/, NOT bin/ — the binary lives in
+	// /usr/local/Cellar/openvpn/<ver>/sbin/openvpn and is symlinked from
+	// /usr/local/sbin/openvpn (Intel) or /opt/homebrew/sbin/openvpn (Apple
+	// Silicon). v0.9.14.30 missed the sbin variants for Mac and only
+	// covered them for distro-packaged Linux. Search order: both arch's
+	// Homebrew sbin + bin, then distro-packaged Linux paths.
 	candidates := []string{
+		"/opt/homebrew/sbin/openvpn",
+		"/usr/local/sbin/openvpn",
 		"/opt/homebrew/bin/openvpn",
 		"/usr/local/bin/openvpn",
 		"/usr/sbin/openvpn",
