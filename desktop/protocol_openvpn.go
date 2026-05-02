@@ -67,14 +67,17 @@ func (o *OpenVPNProtocol) IsAvailable() bool {
 	return findOpenVPNExe() != ""
 }
 
-// findOpenVPNExe locates the OpenVPN executable
+// findOpenVPNExe locates the OpenVPN executable.
+//
+// On macOS GUI-launched apps and launchd-spawned daemons inherit a minimal
+// PATH (/usr/bin:/bin:/usr/sbin:/sbin) that does NOT include the Homebrew
+// install dirs (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel),
+// so a plain exec.LookPath("openvpn") returns "not found" even though
+// `which openvpn` works fine in Terminal. Mirror the v0.9.14.23 findWGBinary
+// fix here — explicit os.Stat fallbacks before falling through to PATH.
 func findOpenVPNExe() string {
-	// Check PATH first
-	if p, err := exec.LookPath("openvpn"); err == nil {
-		return p
-	}
 	if runtime.GOOS == "windows" {
-		// Standard Windows install paths
+		// Windows: standard install paths first, then PATH.
 		paths := []string{
 			`C:\Program Files\OpenVPN\bin\openvpn.exe`,
 			`C:\Program Files (x86)\OpenVPN\bin\openvpn.exe`,
@@ -85,6 +88,28 @@ func findOpenVPNExe() string {
 				return p
 			}
 		}
+		if p, err := exec.LookPath("openvpn.exe"); err == nil {
+			return p
+		}
+		return ""
+	}
+	// Linux/macOS: prefer absolute paths so we don't depend on PATH at all
+	// from the launchd-spawned helper context. Order: Apple Silicon Homebrew,
+	// Intel Homebrew / MacPorts, distro-packaged Linux, sbin variants.
+	candidates := []string{
+		"/opt/homebrew/bin/openvpn",
+		"/usr/local/bin/openvpn",
+		"/usr/sbin/openvpn",
+		"/sbin/openvpn",
+		"/usr/bin/openvpn",
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if p, err := exec.LookPath("openvpn"); err == nil {
+		return p
 	}
 	return ""
 }
