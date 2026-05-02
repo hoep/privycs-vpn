@@ -1291,6 +1291,7 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 	// single) drives the connection at a time. Persist the cleared
 	// pool selection so a restart does not revive it.
 	if a.activePoolID != "" {
+		log.Printf("ActivateConnection[%s]: clearing previously-active pool %q for mutual-exclusion", id, a.activePoolID)
 		a.activePoolID = ""
 		if a.poolRotator != nil {
 			a.poolRotator.SetActivePool(nil)
@@ -1409,6 +1410,22 @@ func (a *App) SwitchActiveConnection(id string, protocol string) (bool, error) {
 		// ActivateConnection has time to complete its native-side
 		// teardown before we fire a new Up().
 		time.Sleep(1500 * time.Millisecond)
+		// Diagnostic: log what we're about to reconnect to. User v0.9.14.32
+		// reported "single picked but pool reconnects" symptom; if this
+		// goroutine somehow sees activePoolID still set (race against
+		// ActivateConnection's clearing path), we'd see it here. Connect
+		// itself uses Connect("" → activeProtocol path) which does NOT
+		// re-read activePoolID, so the only way pool reconnects is if
+		// connectActiveTarget fires from elsewhere with a stale read.
+		a.mu.RLock()
+		curPool := a.activePoolID
+		curProto := a.activeProtocol
+		curActive := ""
+		if act := a.connections.Active(); act != nil {
+			curActive = act.ID + "/" + act.Name
+		}
+		a.mu.RUnlock()
+		log.Printf("SwitchActiveConnection reconnect: target single=%q proto=%q activePool=%q (should be empty if switch took effect)", curActive, curProto, curPool)
 		if _, err := a.Connect(""); err != nil {
 			log.Printf("SwitchActiveConnection reconnect: %v", err)
 		}

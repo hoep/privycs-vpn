@@ -504,8 +504,15 @@ async function selectConnection(connId: string) {
     const conn = connections.value.find(c => c.id === connId)
     const proto = conn?.active_protocol || conn?.protocols?.[0]?.protocol || ''
     await ActivateConnection(connId, proto)
-    await vpn.fetchStatus()
-    await loadConnections()
+    // Refresh pool store too. Backend ActivateConnection clears
+    // activePoolID + persists pools.SetActiveID("") but the frontend
+    // pool store cached the previous "is_active=true" rendering until
+    // we explicitly re-fetch. Without this, the user picked a single
+    // connection in the listbox and the previously-active pool stayed
+    // visually highlighted with its primary-border + "active member"
+    // badge, looking like "the switch did not happen". Mirror the
+    // ConnectionView dropdown's three-call refresh pattern.
+    await Promise.all([vpn.fetchStatus(), loadConnections(), poolStore.refresh()])
   } catch (e: any) {
     actionError.value = 'Failed to select connection'
   }
@@ -520,7 +527,10 @@ async function selectProtocol(connId: string, protocol: string) {
       vpn.status.active_protocol = protocol
       vpn.status.connection_id = connId
     }
-    await loadConnections()
+    // Same poolStore.refresh() reason as selectConnection above —
+    // ActivateConnection clears the active pool backend-side and
+    // the listbox needs to re-render without the stale pool highlight.
+    await Promise.all([loadConnections(), poolStore.refresh()])
   } catch (e: any) {
     actionError.value = 'Failed to switch protocol'
   }
