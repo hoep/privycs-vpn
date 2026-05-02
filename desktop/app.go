@@ -494,26 +494,26 @@ func (a *App) shutdown(ctx context.Context) {
 // If forceQuit is set (from tray Quit), always allow close.
 //
 // Return value semantics: prevent=true blocks the close, prevent=false lets it
-// proceed. Counterintuitive on Mac because "close" usually means "hide", but
-// Wails treats the red-close-button as a real close (last window closed quits
-// the app on macOS by default).
+// proceed.
+//
+// macOS: both the red close button and the AppMenu's ⌘Q route through
+// this same beforeClose hook in Wails v2. v0.9.14.20 attempted to make
+// the red button hide-only and reserve ⌘Q for real quit, but the AppMenu
+// Quit goes through the same Wails Quit path and re-enters beforeClose,
+// so the hide branch caught BOTH and the user could not actually quit
+// ("beenden beendet die app NICHT", reported on v0.9.14.23). Reverted
+// to "any close attempt quits" which matches the convention of every
+// production Mac VPN app (Mullvad, Tailscale, ProtonVPN). There is no
+// system tray on macOS (TraySupported=false) so a hidden-but-running
+// app would have no UI handle anyway.
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	if a.forceQuit {
 		log.Println("Force quit — closing app")
 		return false
 	}
 	if runtime.GOOS == "darwin" {
-		// Standard Mac UX: red close button hides the window, ⌘Q quits.
-		// Pre-fix this branch returned false unconditionally, which let
-		// the red button quit the entire app — surprising for Mac users
-		// who expect their windows to come back when they reopen from
-		// the Dock. ⌘Q goes through the AppMenu (set in main.go) and
-		// terminates the NSApplication directly without re-entering
-		// beforeClose, so this branch only fires for the red button /
-		// Cmd-W path.
-		log.Println("Mac: hiding window on close (use ⌘Q to quit)")
-		wailsRuntime.WindowHide(ctx)
-		return true
+		log.Println("Mac: closing app on window close / ⌘Q")
+		return false
 	}
 	if a.settings.MinimizeToTray {
 		log.Println("Minimizing to tray")
