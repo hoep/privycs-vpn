@@ -335,26 +335,37 @@ func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: true, Output: string(out)}
 	}
 
-	// Linux/macOS: wg-quick up, with optional config copy from user path.
+	// Linux/macOS: copy config to /etc/wireguard. Linux then proceeds with
+	// wg-quick; macOS branches into the in-process wireguard-go path that
+	// avoids launchd's wg-quick foreground-wait trap entirely (see
+	// wg_macos.go for the architecture).
 	if cmd.ConfigPath != "" {
 		etcConf := filepath.Join("/etc/wireguard", ifaceName+".conf")
 		if err := h.copyConfigFile(cmd.ConfigPath, etcConf); err != nil {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("failed to install config: %v", err)}
 		}
 	}
+
+	if runtime.GOOS == "darwin" {
+		etcConf := filepath.Join("/etc/wireguard", ifaceName+".conf")
+		content, err := os.ReadFile(etcConf)
+		if err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("read %s: %v", etcConf, err)}
+		}
+		realIface, err := wgDarwinUp(ifaceName, string(content))
+		if err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("wgDarwinUp failed: %v", err)}
+		}
+		return HelperResponse{Success: true, Output: fmt.Sprintf("WireGuard tunnel up on %s (in-process)", realIface)}
+	}
+
+	// Linux: wg-quick (untouched — works fine, kernel-WG, no userspace driver).
 	wgQuick := findWGBinary("wg-quick")
 	if wgQuick == "" {
-		return HelperResponse{Success: false, Error: "wg-quick not found — install wireguard-tools (macOS: brew install wireguard-tools)"}
+		return HelperResponse{Success: false, Error: "wg-quick not found — install wireguard-tools"}
 	}
 	wgUp := exec.Command(wgQuick, "up", ifaceName)
 	wgUp.Env = wgExecEnv()
-	// Detach the wg-quick child into its own session so that
-	// wireguard-go (which wg-quick spawns as a background daemon for
-	// the userspace tunnel) can survive past wg-quick exit. Without
-	// this on macOS the helper's launchd-inherited session caused
-	// wireguard-go to die or fail to allocate utun, leaving the
-	// tunnel half-up: wg-quick exited 0 but `wg show <iface>` then
-	// returned "not connected" continuously, observed in v0.9.14.25.
 	applyDetachedSession(wgUp)
 	out, err := wgUp.CombinedOutput()
 	if err != nil {
@@ -380,6 +391,13 @@ func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse
 			return HelperResponse{Success: false, Error: fmt.Sprintf("uninstalltunnelservice failed: %s: %v", string(out), err), Output: string(out)}
 		}
 		return HelperResponse{Success: true, Output: string(out)}
+	}
+
+	if runtime.GOOS == "darwin" {
+		if err := wgDarwinDown(ifaceName); err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("wgDarwinDown failed: %v", err)}
+		}
+		return HelperResponse{Success: true, Output: fmt.Sprintf("WireGuard tunnel down (%s, in-process)", ifaceName)}
 	}
 
 	wgQuick := findWGBinary("wg-quick")
@@ -707,35 +725,32 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 			}
 			return HelperResponse{Success: false, Error: "not connected"}
 		}
+		// macOS: in-process tunnel — query the device directly via UAPI.
+		// No /var/run/wireguard files involved, no launchd-related quirks.
+		// See wg_macos.go for why we own the tunnel inside the helper
+		// instead of shelling out to wg show.
+		if runtime.GOOS == "darwin" {
+			uapi, connected, err := wgDarwinStatus(ifaceName)
+			if err != nil {
+				return HelperResponse{Success: false, Error: "not connected", Output: err.Error()}
+			}
+			if !connected {
+				// Tunnel object exists but no handshake yet — return success
+				// with the dump so the client can decide if peer info is
+				// enough (handshake-pending state). Empty Output from this
+				// path was the v0.9.14.27 regression where the client read
+				// len(Output) > 0 as the connected signal.
+				return HelperResponse{Success: true, Output: uapi}
+			}
+			return HelperResponse{Success: true, Output: uapi}
+		}
+
+		// Linux: kernel-WG via wg show.
 		wg := findWGBinary("wg")
 		if wg == "" {
 			return HelperResponse{Success: false, Error: "not connected"}
 		}
-		// On macOS, wg-quick writes /var/run/wireguard/<friendly>.name
-		// containing the actual utunN name (the userspace driver attaches
-		// to a kernel-allocated utun number, not a configurable interface
-		// name like Linux). `wg show <friendly>` is supposed to read that
-		// .name file and connect to /var/run/wireguard/<utunN>.sock —
-		// but in v0.9.14.26 the user reported that exact call returning
-		// "Unable to access interface: No such file or directory" while
-		// `sudo wg show` (no argument) cleanly listed the running tunnel.
-		// Direct ENOENT despite both files existing means wg's own
-		// friendly→utun resolution path fails from the helper context
-		// (probably an open-mode or atomicity quirk with wireguard-tools'
-		// path traversal under launchd). Bypass it: read the .name file
-		// ourselves with plain os.ReadFile and call wg show on the utunN
-		// directly. The .name file is owned by root and mode 0644-ish, so
-		// the helper (root) reads it without issue.
-		queryName := ifaceName
-		if runtime.GOOS == "darwin" {
-			nameFile := "/var/run/wireguard/" + ifaceName + ".name"
-			if data, err := os.ReadFile(nameFile); err == nil {
-				if utun := strings.TrimSpace(string(data)); utun != "" {
-					queryName = utun
-				}
-			}
-		}
-		out, err := exec.Command(wg, "show", queryName).CombinedOutput()
+		out, err := exec.Command(wg, "show", ifaceName).CombinedOutput()
 		if err != nil {
 			return HelperResponse{Success: false, Error: "not connected", Output: string(out)}
 		}
@@ -901,18 +916,27 @@ func (h *PrivilegedHelper) cmdWGHandshake(cmd HelperCommand) HelperResponse {
 			return HelperResponse{Success: false, Error: "wg not found — install wireguard-tools"}
 		}
 	}
-	// Same friendly→utun translation as cmdStatus on macOS — see
-	// the comment there for why wg's own resolution path is bypassed.
-	queryName := cmd.Interface
+	// macOS: read from in-process tunnel via UAPI. Same data, no exec.
 	if runtime.GOOS == "darwin" {
-		nameFile := "/var/run/wireguard/" + cmd.Interface + ".name"
-		if data, err := os.ReadFile(nameFile); err == nil {
-			if utun := strings.TrimSpace(string(data)); utun != "" {
-				queryName = utun
+		uapi, _, err := wgDarwinStatus(cmd.Interface)
+		if err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("status: %v", err)}
+		}
+		var maxTs int64
+		for _, line := range strings.Split(uapi, "\n") {
+			if !strings.HasPrefix(line, "last_handshake_time_sec=") {
+				continue
+			}
+			val := strings.TrimPrefix(line, "last_handshake_time_sec=")
+			var ts int64
+			if _, err := fmt.Sscan(strings.TrimSpace(val), &ts); err == nil && ts > maxTs {
+				maxTs = ts
 			}
 		}
+		return HelperResponse{Success: true, Output: fmt.Sprintf("%d", maxTs)}
 	}
-	out, err := exec.Command(binary, "show", queryName, "latest-handshakes").CombinedOutput()
+
+	out, err := exec.Command(binary, "show", cmd.Interface, "latest-handshakes").CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("wg show: %v", err), Output: string(out)}
 	}
