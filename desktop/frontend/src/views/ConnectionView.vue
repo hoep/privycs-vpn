@@ -248,7 +248,19 @@
             </div>
             <RectangleStackIcon v-if="entry.type === 'pool'" class="w-3.5 h-3.5 text-primary-400 flex-shrink-0" />
             <span class="truncate flex-1">{{ entry.name }}</span>
-            <span class="ml-auto text-[9px] text-gray-600">
+            <!-- Singles: render brand-coloured protocol icons (WireGuard
+                 red, OpenVPN orange, IPSec/strongSwan blue) instead of
+                 textual "WG/OVPN/IPSec". Pools keep the existing text
+                 subtitle (member count). -->
+            <span v-if="entry.protocols && entry.protocols.length > 0" class="ml-auto flex items-center gap-1">
+              <ProtocolIcon
+                v-for="p in entry.protocols"
+                :key="p"
+                :protocol="p"
+                class="w-3.5 h-3.5 flex-shrink-0"
+              />
+            </span>
+            <span v-else class="ml-auto text-[9px] text-gray-600">
               {{ entry.subtitle }}
             </span>
           </button>
@@ -882,7 +894,8 @@ interface PickerEntry {
   type: 'single' | 'pool'
   id: string
   name: string
-  subtitle: string
+  subtitle: string         // for pools — member count
+  protocols?: string[]     // for singles — list of protocol IDs to render as icons
   isActive: boolean
 }
 
@@ -901,8 +914,12 @@ const pickerEntries = computed<PickerEntry[]>(() => {
     type: 'single',
     id: c.id,
     name: c.name,
-    subtitle: c.protocols?.map((p: any) => protocolShort(p.protocol)).join('/') || '',
-    // Singles are only "active" if no pool is active (mutual exclusion).
+    subtitle: '',
+    // Pass raw protocol IDs — the template renders ProtocolIcon per
+    // entry. Pre-fix this was a "WG/OVPN/IPSec" text join via
+    // protocolShort, which the user found visually inconsistent with
+    // the rest of the app's brand-coloured icon language.
+    protocols: c.protocols?.map((p: any) => p.protocol) || [],
     isActive: !activePoolId && c.id === activeSingleId,
   }))
   // Pools above singles - matches the ConnectionsView layout so the

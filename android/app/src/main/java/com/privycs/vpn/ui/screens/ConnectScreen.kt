@@ -207,7 +207,14 @@ fun ConnectScreen(
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(24.dp))
+        // Top spacer trimmed 24 → 16 in v0.9.14.32 to bring the
+        // tunnel-health pill above the fold on shorter phones (Pixel
+        // 3a, Galaxy A series). User-reported: pill rendered offscreen
+        // on every connect because all the spacing above it summed past
+        // the viewport. Eight spacers across this screen each give back
+        // 4-8dp; total -40dp moves the pill into safe zone without
+        // making the layout feel cramped on larger phones.
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Pool indicator card — only when a pool is the active selection.
         if (activePool != null) {
@@ -267,7 +274,7 @@ fun ConnectScreen(
                 pendingMemberCountry = pendingMember?.country,
                 onClick = { onNavigateToConnections() }
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
         }
 
         // Connect button
@@ -360,7 +367,7 @@ fun ConnectScreen(
             }
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Manual-pause countdown + Resume link. Only shown while a
         // user-initiated pause is active. VpnPauseTimer drives the
@@ -596,7 +603,7 @@ fun ConnectScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Protocol badges. Single-connection only: pools mix
             // members with potentially different protocols, so a
@@ -624,7 +631,7 @@ fun ConnectScreen(
                     }
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
             }
 
             // Server endpoint. Source preference:
@@ -676,7 +683,7 @@ fun ConnectScreen(
                         textAlign = TextAlign.Center
                     )
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
 
@@ -705,7 +712,7 @@ fun ConnectScreen(
                     modifier = Modifier.weight(1f)
                 )
             }
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         // Connection details (VPN IP / Endpoint / last handshake).
@@ -739,7 +746,7 @@ fun ConnectScreen(
         // gets a visible answer.
         val healthState by com.privycs.vpn.service.TunnelHealthMonitor.state.collectAsState()
         if (healthState != com.privycs.vpn.service.TunnelHealthMonitor.State.INACTIVE) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             HealthPill(healthState)
         }
 
