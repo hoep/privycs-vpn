@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Path B entitlements — Mac App Store distribution.
+
+  STATUS: SCAFFOLD ONLY. The current Privycs architecture (in-process
+  wireguard-go via tun.CreateTUN syscall + LaunchDaemon helper) does
+  NOT run inside the App Store sandbox. App Store apps cannot:
+    - Open utun via raw syscall (sandbox blocks)
+    - Install LaunchDaemons via osascript (no shell invocation)
+    - Read/write /Library/LaunchDaemons (sandbox)
+    - Spawn arbitrary subprocesses with admin privileges
+
+  To distribute via App Store the WireGuard packet pipeline must be
+  refactored into a NetworkExtension PacketTunnelProvider:
+    - New Xcode subproject: PrivycsTunnelProvider.appex
+    - Swift file implementing NEPacketTunnelProvider
+    - WireGuardKit (Swift bindings to wireguard-go-bridge) handles the
+      utun + crypto, same code path as the official WireGuard.app
+    - Wails main app controls the extension via NEVPNManager API
+    - The Privycs LaunchDaemon helper goes away entirely; everything
+      runs inside Apple's blessed VPN APIs
+
+  Estimated effort: 3-4 weeks alongside the iOS NetworkExtension work
+  (which uses the same WireGuardKit + NEPacketTunnelProvider stack).
+
+  This file is staged here so when the migration starts, the
+  entitlements declaration is already in the repo and only needs the
+  team-identifier filled in. NetworkExtension entitlement
+  (packet-tunnel-provider) requires explicit Apple approval via
+  https://developer.apple.com/contact/request/networking-entitlement
+  for non-App-Store distribution; App Store submissions get it
+  approved in-band during App Review.
+-->
+<plist version="1.0">
+<dict>
+    <!-- App Store sandbox is mandatory -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Network access from sandboxed app -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- NetworkExtension capability — packet-tunnel for WireGuard.
+         The tunnel runs in a separate appex bundle; the main app
+         only needs the entitlement to control it via NEVPNManager. -->
+    <key>com.apple.developer.networking.networkextension</key>
+    <array>
+        <string>packet-tunnel-provider</string>
+    </array>
+
+    <!-- App-Group lets the main app and the PacketTunnelProvider
+         extension share preferences (config, on-demand rules, etc).
+         Group ID convention: group.<team-id>.<app-id>. Filled at
+         migration time once the team identifier is finalised. -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.TEAMID.com.privycs.vpn</string>
+    </array>
+</dict>
+</plist>

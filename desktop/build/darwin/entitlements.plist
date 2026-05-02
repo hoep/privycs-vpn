@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Path A entitlements — Developer ID Application signing for direct DMG
+  distribution from privycs.com. No App Store sandbox; the app runs with
+  the user's full privileges and the privileged helper installs as a
+  LaunchDaemon. Hardened Runtime is enabled (required for notarization
+  on macOS 10.14.5+) but we relax three CS restrictions:
+
+  - allow-jit: Wails embeds WebKit which JIT-compiles JavaScript; without
+    this the WebView throws on every script-eval.
+
+  - allow-unsigned-executable-memory: belt-and-suspenders alongside
+    allow-jit for any code that mmap's RWX pages outside the JIT path
+    (Go runtime traceback handler, some cgo bridges).
+
+  - disable-library-validation: we load wireguard-go as a Go module
+    (linked into the binary) plus libpcap, libxar, etc. for various
+    helper paths. Library validation would refuse anything not signed
+    with our team identifier; disabling it lets the Go runtime's
+    dynamic loading work.
+
+  Network entitlements: client (outbound) + server (the privileged
+  helper accepts IPC connections on a Unix domain socket; technically
+  not net.server but Apple bundles all socket capability under it for
+  hardened-runtime auditing).
+
+  Path B (App Store) needs a separate entitlements-appstore.plist with
+  app-sandbox=true and com.apple.developer.networking.networkextension
+  — see that file for the future migration scaffold.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+</dict>
+</plist>
