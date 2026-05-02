@@ -258,29 +258,38 @@ func installHelperMacOS() error {
 }
 
 func uninstallHelperMacOS() error {
-	// Use BOTH bootout (modern, macOS 10.10+) AND unload -w (older
-	// fallback) — Apple deprecated unload for system daemons in
-	// Sequoia/Sonoma but kept it as a compat shim, and bootout
-	// returns non-zero if the service isn't in launchd's registry.
-	// Running both with || true means whichever is appropriate
-	// succeeds; the rm step still happens even if both report
-	// the daemon was already gone.
+	// Minimal script — every additional command in the do-shell-script
+	// chain raises the chance of TCC terminating the AppleEvent. v0.9.14.28
+	// user reported "signal: terminated" because the original four-step
+	// chain (bootout + unload + rm + pkill) was too long for unsigned
+	// app contexts under Sequoia. Reduced to two steps + the most
+	// permissive error suppression. pkill is dropped — bootout itself
+	// SIGTERMs the daemon; pkill was redundant insurance that introduced
+	// a TCC failure surface.
 	//
-	// Pre-fix used a single `unload -w; rm` chain which produced
-	// "kann nicht deinstallieren" on the user's Mac because the
-	// daemon was registered via bootstrap (modern semantics) but
-	// unload couldn't deregister it; rm then ran but the launchd
-	// registration persisted, breaking subsequent reinstall with
-	// "service already loaded".
+	// If this still fails (typical under Sequoia for unsigned apps),
+	// the fallback is the manual Terminal commands documented in the
+	// Settings UI's helper-error banner. Apple's expected install path
+	// for system-level VPN helpers is SMAppService + a signed bundle —
+	// our osascript approach is the unsigned-app workaround that's
+	// inherently fragile under modern macOS.
 	script := fmt.Sprintf(
-		`do shell script "launchctl bootout system %s 2>/dev/null || true; launchctl unload -w %s 2>/dev/null || true; rm -f %s; pkill -f privycs-vpn-helper 2>/dev/null || true" with administrator privileges`,
-		launchDaemonPath, launchDaemonPath, launchDaemonPath,
+		`do shell script "launchctl bootout system '%s' 2>/dev/null; rm -f '%s'" with administrator privileges`,
+		launchDaemonPath, launchDaemonPath,
 	)
 
 	cmd := exec.Command("osascript", "-e", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to uninstall helper daemon: %s: %w", strings.TrimSpace(string(out)), err)
+		// Surface a more actionable error than "signal: terminated".
+		// The user's recourse for TCC-killed osascript is the manual
+		// Terminal-with-sudo path; tell them so directly in the error
+		// shown by the Settings UI banner.
+		errMsg := strings.TrimSpace(string(out))
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+		return fmt.Errorf("uninstall via UI failed (%s) — please run the manual cleanup commands from the helper-info banner in Settings", errMsg)
 	}
 
 	log.Println("Helper daemon uninstalled")

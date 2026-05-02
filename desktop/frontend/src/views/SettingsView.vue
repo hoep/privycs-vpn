@@ -255,6 +255,24 @@
           <p class="text-[10px] text-gray-500 dark:text-gray-400">
             The helper runs as a system service and handles VPN operations without repeated admin prompts. Requires a one-time authorization to install.
           </p>
+          <!-- macOS manual cleanup hint. The osascript-based install/uninstall
+               UI is fragile on unsigned builds because Sequoia's TCC can
+               terminate AppleEvents mid-flight (visible as "signal:
+               terminated" errors). When the in-app buttons fail, these
+               Terminal commands always work because sudo bypasses the TCC
+               path entirely. Hidden by default to keep the UI tidy; click
+               to expand. Linux/Windows users don't need this. -->
+          <details v-if="isMacOS" class="text-[10px]">
+            <summary class="text-gray-500 dark:text-gray-400 cursor-pointer hover:text-primary-400">
+              Helper button stuck or failing? Show manual cleanup commands
+            </summary>
+            <pre class="mt-2 p-2 rounded bg-gray-900/50 text-gray-300 overflow-x-auto whitespace-pre">sudo launchctl bootout system /Library/LaunchDaemons/com.privycs.vpn-helper.plist 2&gt;/dev/null
+sudo rm -f /Library/LaunchDaemons/com.privycs.vpn-helper.plist
+sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
+            <p class="mt-1 text-gray-500 dark:text-gray-400">
+              Run these in Terminal, then reopen this window — Helper status will refresh and "Install Helper" becomes clickable again.
+            </p>
+          </details>
         </div>
       </div>
 
@@ -773,6 +791,12 @@ const platform = ref<any>({
   tray_supported: true,
   platform: '',
 })
+
+// macOS gets the manual-cleanup hint under the Helper section because
+// Sequoia's TCC frequently terminates the osascript Install/Uninstall
+// AppleEvent for unsigned apps. Linux/Windows have stable pkexec/SCM
+// paths and don't need the fallback hint.
+const isMacOS = computed(() => platform.value.platform === 'darwin')
 
 async function loadSettings() {
   try {

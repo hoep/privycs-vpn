@@ -736,6 +736,18 @@ func (w *WireGuardProtocol) parseConfFile(content string) {
 }
 
 func (w *WireGuardProtocol) parseWgShowOutput(output string, status *ProtocolStatus) {
+	// Auto-detect format. The traditional wg-show text output uses
+	// human-readable lines like "endpoint: 1.2.3.4:51820" / "latest
+	// handshake: ..." / "transfer: X received, Y sent". The cross-
+	// platform UAPI format (used on macOS by our in-process tunnel
+	// since v0.9.14.28) uses lowercase `key=value` lines:
+	// `endpoint=1.2.3.4:51820`, `last_handshake_time_sec=N`,
+	// `tx_bytes=N`, `rx_bytes=N`. Detect by looking for `key=value`
+	// patterns; if any line has `=` without `:`, treat as UAPI.
+	if isUAPIFormat(output) {
+		parseUAPIStatus(output, status)
+		return
+	}
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "endpoint:") {
@@ -748,6 +760,102 @@ func (w *WireGuardProtocol) parseWgShowOutput(output string, status *ProtocolSta
 			status.BytesRx, status.BytesTx = parseWgTransfer(line)
 		}
 	}
+}
+
+// isUAPIFormat returns true if the output looks like WireGuard's
+// cross-platform IPC protocol (key=value, all lowercase) rather than
+// `wg show`'s human-readable text. We look for the unmistakable
+// `private_key=` or `public_key=` line that always appears at the
+// top of UAPI dumps and never appears in wg-show output.
+func isUAPIFormat(output string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "private_key=") || strings.HasPrefix(t, "public_key=") {
+			return true
+		}
+	}
+	return false
+}
+
+// parseUAPIStatus extracts ServerAddress / LastHandshake / BytesRx /
+// BytesTx from a WireGuard UAPI dump. The dump can contain multiple
+// peers; we accumulate transfer bytes across all peers (matching
+// wg-show's behavior of summing) and pick the most recent handshake
+// timestamp. ServerAddress comes from the first endpoint we see.
+func parseUAPIStatus(output string, status *ProtocolStatus) {
+	var maxHandshakeSec int64
+	var totalRx, totalTx int64
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		eq := strings.Index(line, "=")
+		if eq < 0 {
+			continue
+		}
+		key := line[:eq]
+		val := line[eq+1:]
+		switch key {
+		case "endpoint":
+			if status.ServerAddress == "" {
+				status.ServerAddress = val
+			}
+		case "last_handshake_time_sec":
+			var ts int64
+			fmt.Sscan(val, &ts)
+			if ts > maxHandshakeSec {
+				maxHandshakeSec = ts
+			}
+		case "rx_bytes":
+			var n int64
+			fmt.Sscan(val, &n)
+			totalRx += n
+		case "tx_bytes":
+			var n int64
+			fmt.Sscan(val, &n)
+			totalTx += n
+		}
+	}
+	status.BytesRx = totalRx
+	status.BytesTx = totalTx
+	if maxHandshakeSec > 0 {
+		// Format as "N seconds ago" string to match wg-show conventions
+		// the frontend expects. The frontend's relative-time formatter
+		// in stores/vpn.ts handles this string; we just need it to be
+		// a non-empty parseable value.
+		ago := time.Now().Unix() - maxHandshakeSec
+		if ago < 0 {
+			ago = 0
+		}
+		status.LastHandshake = formatHandshakeAgo(ago)
+	}
+}
+
+// formatHandshakeAgo formats a "seconds since handshake" duration into
+// the same human-readable string `wg show` produces (e.g. "2 minutes,
+// 30 seconds ago"). Keeps the existing frontend-side parsing path
+// unchanged; this is purely a UAPI→wg-show string-format adapter so
+// stores/vpn.ts can stay format-agnostic.
+func formatHandshakeAgo(sec int64) string {
+	if sec <= 0 {
+		return "Now"
+	}
+	min := sec / 60
+	s := sec % 60
+	if min == 0 {
+		return fmt.Sprintf("%d second%s ago", s, plural(s))
+	}
+	if min < 60 {
+		return fmt.Sprintf("%d minute%s, %d second%s ago", min, plural(min), s, plural(s))
+	}
+	hr := min / 60
+	rmin := min % 60
+	return fmt.Sprintf("%d hour%s, %d minute%s ago", hr, plural(hr), rmin, plural(rmin))
+}
+
+func plural(n int64) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // parseWgTransfer extracts bytes from "transfer: X received, Y sent"
