@@ -1410,13 +1410,46 @@ func (a *App) SwitchActiveConnection(id string, protocol string) (bool, error) {
 		// ActivateConnection has time to complete its native-side
 		// teardown before we fire a new Up().
 		time.Sleep(1500 * time.Millisecond)
-		// Diagnostic: log what we're about to reconnect to. User v0.9.14.32
-		// reported "single picked but pool reconnects" symptom; if this
-		// goroutine somehow sees activePoolID still set (race against
-		// ActivateConnection's clearing path), we'd see it here. Connect
-		// itself uses Connect("" → activeProtocol path) which does NOT
-		// re-read activePoolID, so the only way pool reconnects is if
-		// connectActiveTarget fires from elsewhere with a stale read.
+
+		// CRITICAL: force-tear-down any tunnel that may have come up
+		// during ActivateConnection's disconnectInternal release-lock
+		// window. Race scenario, observed by user on v0.9.14.32/.33:
+		//
+		//   1. User has Pool A connected, picks Single B in dropdown.
+		//   2. ActivateConnection clears activePoolID, then calls
+		//      disconnectInternal which RELEASES a.mu around proto.Down
+		//      (so the slow Down call doesn't freeze the UI).
+		//   3. The Down call triggers a network-interface change, which
+		//      NetworkMonitor picks up and dispatches as onChange →
+		//      autoConnect → connectActiveTarget.
+		//   4. connectActiveTarget reads a.activePoolID="" (already
+		//      cleared) AND a.activeProtocol=<old pool member protocol>.
+		//      Falls through to a.Connect(proto). The protocol handler
+		//      still has the OLD pool-member config because Configure
+		//      runs only AFTER disconnectInternal returns.
+		//   5. Tunnel comes up with the wrong (old pool member's) config.
+		//   6. ActivateConnection finally finishes its Configure phase,
+		//      but the tunnel is already running on the old config.
+		//   7. Our reconnect goroutine here would then short-circuit on
+		//      Status().Connected=true and leave the user stuck on the
+		//      wrong tunnel.
+		//
+		// Force-disconnect first guarantees Status().Connected=false at
+		// our Connect() call site, so the real Up() with the new
+		// single's config runs.
+		a.mu.Lock()
+		wasConnected := a.connected
+		a.mu.Unlock()
+		if wasConnected {
+			log.Printf("SwitchActiveConnection: tunnel was up at reconnect time (likely race-reconnect with stale config) — tearing down before new Up")
+			a.mu.Lock()
+			if err := a.disconnectInternal(); err != nil {
+				log.Printf("SwitchActiveConnection: pre-reconnect disconnect: %v", err)
+			}
+			a.mu.Unlock()
+			time.Sleep(500 * time.Millisecond)
+		}
+
 		a.mu.RLock()
 		curPool := a.activePoolID
 		curProto := a.activeProtocol

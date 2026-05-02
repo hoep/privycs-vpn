@@ -512,11 +512,36 @@ fun ConnectScreen(
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                     Spacer(modifier = Modifier.weight(1f))
-                                    Text(
-                                        text = conn.availableProtocols().joinToString("/") { it.shortLabel },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    // Brand-coloured protocol icons replacing
+                                    // the previous "WG/OVPN/IPSec" text join
+                                    // (joinToString { it.shortLabel }) for
+                                    // visual consistency with the Desktop
+                                    // ConnectionView dropdown and the rest of
+                                    // the app's icon-language. Each protocol
+                                    // gets its own tinted vector drawable.
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        conn.availableProtocols().forEach { p ->
+                                            val iconRes = when (p) {
+                                                VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
+                                                VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
+                                                VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
+                                            }
+                                            // Image (not Icon) so the brand
+                                            // colors in the vector drawable
+                                            // are preserved — Icon would
+                                            // apply a single tint and lose
+                                            // the WG-red / OVPN-orange /
+                                            // IPSec-blue distinction.
+                                            androidx.compose.foundation.Image(
+                                                painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                                                contentDescription = p.shortLabel,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             },
                             onClick = {

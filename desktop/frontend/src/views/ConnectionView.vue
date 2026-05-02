@@ -267,21 +267,31 @@
         </div>
       </div>
 
-      <!-- Protocol Switcher with proper protocol icons and colors -->
+      <!-- Protocol Switcher row. Container always rendered because it
+           also hosts the pool-only "Switch member" button below. The
+           per-protocol buttons + "+" link are wrapped in a template
+           v-if so they hide when a pool drives the connection. Pre-fix
+           this row showed the protocol pills alongside the pool
+           indicator card — nonsensical because pools are mono-protocol
+           per member. Mirrors Android's gate at ConnectScreen.kt:618.
+           Template-wrap (instead of v-if + v-for on the same element)
+           is the Vue 3 lint-clean pattern. -->
       <div class="flex items-center gap-1.5 mb-4">
-        <button
-          v-for="proto in connectionProtocols"
-          :key="proto"
-          @click="switchProtocol(proto)"
-          :disabled="vpn.loading"
-          class="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
-          :class="vpn.status?.active_protocol === proto
-            ? protocolBadgeActive(proto)
-            : 'bg-gray-200 dark:bg-gray-700/50 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
-        >
-          <ProtocolIcon :protocol="proto" size="xs" />
-          {{ protocolLabel(proto) }}
-        </button>
+        <template v-if="!poolStore.activePoolId">
+          <button
+            v-for="proto in connectionProtocols"
+            :key="proto"
+            @click="switchProtocol(proto)"
+            :disabled="vpn.loading"
+            class="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
+            :class="vpn.status?.active_protocol === proto
+              ? protocolBadgeActive(proto)
+              : 'bg-gray-200 dark:bg-gray-700/50 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+          >
+            <ProtocolIcon :protocol="proto" size="xs" />
+            {{ protocolLabel(proto) }}
+          </button>
+        </template>
         <!-- "+" Add-protocol-config link goes to the AddConnection
              flow scoped to the currently-active single connection
              (query.connectionId points to the existing record so
