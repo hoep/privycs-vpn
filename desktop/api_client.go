@@ -31,8 +31,10 @@ type RemoteProfile struct {
 
 // apiRequest makes an authenticated HTTP request to the gateway API
 func (a *App) apiRequest(method, path string) ([]byte, error) {
+	log.Printf("apiRequest: %s %s", method, path)
 	settings := a.settings
 	if settings.GatewayURL == "" || settings.APIKey == "" {
+		log.Printf("apiRequest: missing gateway URL or API key")
 		return nil, fmt.Errorf("gateway URL and API key must be configured in settings")
 	}
 
@@ -41,6 +43,7 @@ func (a *App) apiRequest(method, path string) ([]byte, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
+		log.Printf("apiRequest: NewRequest FAILED: %v", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -49,12 +52,15 @@ func (a *App) apiRequest(method, path string) ([]byte, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("apiRequest: client.Do FAILED: %v", err)
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	log.Printf("apiRequest: HTTP %d", resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Printf("apiRequest: ReadAll FAILED: %v", err)
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
@@ -103,6 +109,7 @@ func (a *App) FetchMyProfile() (*RemoteProfile, error) {
 
 // FetchMyConfig downloads a specific config with full secrets from the gateway
 func (a *App) FetchMyConfig(protocol string, configID int) (string, error) {
+	log.Printf("FetchMyConfig: protocol=%s configID=%d", protocol, configID)
 	path := fmt.Sprintf("/api/v1/connect/my-configs/%s-%d", protocol, configID)
 	// IPSec: request .sswan (JSON) format. Default is iOS .mobileconfig (XML)
 	// which the desktop client cannot parse.
@@ -195,10 +202,13 @@ func (a *App) buildWireGuardConf(body []byte) (string, error) {
 // If connectionID is empty, a new connection is created. Otherwise the config
 // is added as an additional protocol to the existing connection.
 func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName string, connectionID string) error {
+	log.Printf("DownloadAndImportConfig: protocol=%s configID=%d peerName=%q connID=%q", protocol, configID, peerName, connectionID)
 	configContent, err := a.FetchMyConfig(protocol, configID)
 	if err != nil {
+		log.Printf("DownloadAndImportConfig: FetchMyConfig FAILED: %v", err)
 		return fmt.Errorf("download failed: %w", err)
 	}
+	log.Printf("DownloadAndImportConfig: fetched %d bytes, calling ImportConfig", len(configContent))
 
 	filename := fmt.Sprintf("%s.conf", peerName)
 	switch protocol {

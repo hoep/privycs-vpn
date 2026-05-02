@@ -1162,19 +1162,23 @@ type ProtocolInfo struct {
 // If connectionID is provided, the config is added as an additional protocol
 // to an existing connection. Otherwise a new connection is created.
 func (a *App) ImportConfig(protocol string, content string, filename string, connectionName string, connectionID string) error {
+	log.Printf("ImportConfig: protocol=%q len=%d filename=%q connName=%q connID=%q (waiting for mu)", protocol, len(content), filename, connectionName, connectionID)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	log.Printf("ImportConfig: acquired mu, proceeding")
 
 	// Auto-detect protocol if not specified
 	if protocol == "" {
 		protocol = detectProtocol(content, filename)
 		if protocol == "" {
+			log.Printf("ImportConfig: cannot detect protocol")
 			return fmt.Errorf("cannot detect protocol from file content")
 		}
 	}
 
 	proto, ok := a.protocols[protocol]
 	if !ok {
+		log.Printf("ImportConfig: unsupported protocol %q", protocol)
 		return fmt.Errorf("unsupported protocol: %s", protocol)
 	}
 
@@ -1188,8 +1192,10 @@ func (a *App) ImportConfig(protocol string, content string, filename string, con
 
 	// Validate config by configuring the protocol handler
 	if err := proto.Configure(a.applyDnsOverride([]byte(content), proto.Name())); err != nil {
+		log.Printf("ImportConfig: proto.Configure FAILED: %v", err)
 		return fmt.Errorf("invalid config: %w", err)
 	}
+	log.Printf("ImportConfig: proto.Configure ok, calling Status() for server-address extraction")
 
 	// Build protocol config entry
 	pc := &ProtocolConfig{

@@ -292,6 +292,7 @@ async function importFromGateway(rc: any) {
   const key = rc.protocol + '-' + rc.id
   gatewayImportingId.value = key
   error.value = ''
+  gatewayError.value = ''
   try {
     const connID = targetConnection.value?.id || ''
     await DownloadAndImportConfig(rc.protocol, rc.id, rc.peer_name, connID)
@@ -302,7 +303,11 @@ async function importFromGateway(rc: any) {
     router.push('/connection')
   } catch (e: any) {
     const msg = e?.toString()?.replace('Error: ', '') || 'Unknown error'
-    error.value = 'Gateway import failed: ' + msg
+    // Show errors inline inside the gateway panel (where the user just
+    // clicked) instead of in the file-import error slot far below — the
+    // file-import error renders below the gateway list and was easy to
+    // miss when the gateway list is long enough to scroll past it.
+    gatewayError.value = 'Gateway import failed: ' + msg
   } finally {
     gatewayImportingId.value = ''
   }
