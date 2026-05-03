@@ -319,6 +319,7 @@ import { useRouter } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
 import { usePoolStore } from '@/stores/pool'
 import { ListConnections, ActivateConnection, DeleteConnection, RenameConnection, FetchMyProfile, DownloadAndImportConfig, RemoveProtocolFromConnection, ImportConfig, GetSettings, UpdateSettings, SetConnectionDnsOverride, ValidateDnsOverride } from '../../wailsjs/go/main/App'
+import { LogPrint } from '../../wailsjs/runtime/runtime'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import QrScanModal from '@/components/QrScanModal.vue'
 import DnsOverrideField from '@/components/DnsOverrideField.vue'
@@ -493,8 +494,16 @@ function activeConfig(conn: any): any {
 
 // SELECT a connection (activate it, but don't connect)
 async function selectConnection(connId: string) {
+  // Frontend diagnostic — proves the click reached the handler. User
+  // reported v0.9.14.34 that no backend logs appeared after listbox
+  // clicks; this LogPrint goes via Wails runtime → helper log so we
+  // see definitively if the handler fired.
+  try {
+    LogPrint(`selectConnection: connId=${connId} isSelected=${isSelected(connId)} vpn.status.connection_id=${vpn.status?.connection_id} poolStore.activePoolId=${poolStore.activePoolId}`)
+  } catch {}
   if (isSelected(connId)) {
     // Already selected — go to Connect screen
+    try { LogPrint(`selectConnection: returning early — already selected, navigating to /connection`) } catch {}
     router.push('/connection')
     return
   }
@@ -503,6 +512,7 @@ async function selectConnection(connId: string) {
     // Get the connection's active protocol
     const conn = connections.value.find(c => c.id === connId)
     const proto = conn?.active_protocol || conn?.protocols?.[0]?.protocol || ''
+    try { LogPrint(`selectConnection: dispatching ActivateConnection(${connId}, ${proto})`) } catch {}
     await ActivateConnection(connId, proto)
     // Refresh pool store too. Backend ActivateConnection clears
     // activePoolID + persists pools.SetActiveID("") but the frontend

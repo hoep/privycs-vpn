@@ -579,7 +579,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useVpnStore, formatSpeed } from '@/stores/vpn'
 import { usePoolStore, formatDuration } from '@/stores/pool'
 import { SelectProtocol, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause, GetTunnelHealthState } from '../../wailsjs/go/main/App'
-import { EventsOn } from '../../wailsjs/runtime/runtime'
+import { EventsOn, LogPrint } from '../../wailsjs/runtime/runtime'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import SpeedSparkline from '@/components/SpeedSparkline.vue'
 import {
@@ -871,8 +871,14 @@ async function loadConnections() {
 }
 
 async function pickConnection(conn: any) {
+  try {
+    LogPrint(`pickConnection: id=${conn.id} name=${conn.name} active_protocol=${conn.active_protocol} vpn.status.connection_id=${vpn.status?.connection_id} poolStore.activePoolId=${poolStore.activePoolId}`)
+  } catch {}
   showConnectionPicker.value = false
-  if (conn.id === vpn.status?.connection_id && !poolStore.activePoolId) return
+  if (conn.id === vpn.status?.connection_id && !poolStore.activePoolId) {
+    try { LogPrint(`pickConnection: returning early — same conn already active and no pool`) } catch {}
+    return
+  }
   try {
     const proto = conn.active_protocol || conn.protocols?.[0]?.protocol || ''
     // SwitchActiveConnection returns true iff a reconnect will be
@@ -946,22 +952,38 @@ const activeName = computed(() => {
 })
 
 async function pickEntry(entry: PickerEntry) {
+  // Frontend diagnostic — proves the click actually reached this
+  // handler. v0.9.14.34 user reported clicks didn't reach the backend
+  // (no ActivateConnection / SwitchActiveConnection log lines after a
+  // single-pick). LogPrint goes through Wails runtime to the helper
+  // log, so we get a definitive yes/no: if this line appears in the
+  // log, the button click bound and fired; if not, the @click handler
+  // never ran (event propagation blocked, button disabled, etc.).
+  try {
+    LogPrint(`pickEntry: type=${entry.type} id=${entry.id} name=${entry.name} isActive=${entry.isActive}`)
+  } catch {}
   showConnectionPicker.value = false
-  if (entry.isActive) return
+  if (entry.isActive) {
+    try { LogPrint(`pickEntry: returning early — entry.isActive=true`) } catch {}
+    return
+  }
   try {
     if (entry.type === 'pool') {
       // poolStore.activate already calls ActivatePool then refresh().
       // The follow-up vpn.fetchStatus + loadConnections + the
       // refresh inside activate run in parallel rather than serially.
+      try { LogPrint(`pickEntry: dispatching to poolStore.activate(${entry.id})`) } catch {}
       await poolStore.activate(entry.id)
       await Promise.all([vpn.fetchStatus(), loadConnections()])
     } else {
       // Reuse pickConnection's path so KS-warning + reconnect logic
       // is centralised. Find the conn object for the protocol hint.
       const conn = allConnections.value.find((c) => c.id === entry.id)
+      try { LogPrint(`pickEntry: looked up conn for id=${entry.id} in allConnections (size=${allConnections.value.length}), found=${!!conn}`) } catch {}
       if (conn) await pickConnection(conn)
     }
   } catch (e: any) {
+    try { LogPrint(`pickEntry: caught error: ${e?.toString()}`) } catch {}
     vpn.error = e?.toString() || 'failed to switch'
   }
 }
