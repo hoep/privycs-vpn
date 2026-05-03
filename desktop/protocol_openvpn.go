@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -26,13 +25,6 @@ type OpenVPNProtocol struct {
 	connectedAt time.Time
 	serverAddr  string
 	localAddr   string
-
-	// Offset in the OpenVPN log file at the moment we launched the
-	// current session. State detection reads only content after this
-	// offset so stale "Initialization Sequence Completed" lines from
-	// previous sessions don't produce false positives. Set in Up(),
-	// cleared in Down().
-	logStartOffset int64
 
 	// Short-lived state cache. OpenVPN 2.7.1 Windows has a known TCP
 	// management-socket bug (win32.c:332 assertion) that crashes the
@@ -135,16 +127,11 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 	logPath := filepath.Join(appDataDir(), "openvpn.log")
 	pidPath := filepath.Join(appDataDir(), "openvpn.pid")
 
-	// Remember the log file's size at spawn time so Status() can skip
-	// any content written by previous OpenVPN sessions (which would
-	// otherwise contain a stale "Initialization Sequence Completed"
-	// line and cause a false positive for the very first state check).
-	if fi, err := os.Stat(logPath); err == nil {
-		o.logStartOffset = fi.Size()
-	} else {
-		o.logStartOffset = 0
-	}
-	// Reset any cached state from a previous run.
+	// Reset any cached state from a previous run. Stale
+	// "Initialization Sequence Completed" lines from earlier sessions
+	// no longer cause false positives because readOpenVPNStateFromLog
+	// scans for the LAST occurrence and checks for a terminal marker
+	// after it.
 	o.cachedState = ""
 	o.cachedStateTime = time.Time{}
 
@@ -328,52 +315,36 @@ func (o *OpenVPNProtocol) downUnixOpenVPN(ctx context.Context) {
 //     not yet connected"
 func (o *OpenVPNProtocol) readOpenVPNStateFromLog() string {
 	logPath := filepath.Join(appDataDir(), "openvpn.log")
-	f, err := os.Open(logPath)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-
-	// Seek to the offset captured at Up() time so we only read lines
-	// from the current session. If the log rotated since Up() (size <
-	// offset), start from 0 — the file is fresh and everything in it
-	// belongs to the current run.
-	fi, err := f.Stat()
-	if err != nil {
-		return ""
-	}
-	start := o.logStartOffset
-	if fi.Size() < start {
-		start = 0
-	}
-	if _, err := f.Seek(start, io.SeekStart); err != nil {
-		return ""
-	}
-
-	buf, err := io.ReadAll(f)
+	buf, err := os.ReadFile(logPath)
 	if err != nil {
 		return ""
 	}
 	content := string(buf)
 
-	// Terminal states trump initialization-complete. If the process
-	// logged a fatal exit, the tunnel is down even if init-complete
-	// was logged earlier in the same session.
-	if strings.Contains(content, "Exiting due to fatal error") ||
-		strings.Contains(content, "SIGTERM received") ||
-		strings.Contains(content, "process exiting") {
+	// Find the LAST "Initialization Sequence Completed" — that line marks
+	// the most recent successful tunnel bring-up. Reading by offset (the
+	// previous approach) was unreliable: openvpn's --log truncates the
+	// file at spawn, but the offset captured in Up() reflected the OLD
+	// file size; once the new session's log grew past that offset, the
+	// reader seeked PAST the init-complete line and never matched it.
+	lastInit := strings.LastIndex(content, "Initialization Sequence Completed")
+	if lastInit < 0 {
+		return "CONNECTING"
+	}
+
+	// Anything AFTER the last init-complete marker that signals a
+	// terminal state means the tunnel is down. SIGINT is included because
+	// macOS openvpn logs "SIGINT[hard,] received, process exiting" on
+	// helper-driven disconnect.
+	after := content[lastInit:]
+	if strings.Contains(after, "Exiting due to fatal error") ||
+		strings.Contains(after, "SIGTERM received") ||
+		strings.Contains(after, "SIGINT") ||
+		strings.Contains(after, "process exiting") {
 		return "EXITING"
 	}
 
-	// "Initialization Sequence Completed" is OpenVPN's canonical
-	// "tunnel is now up" marker — emitted once after routes are
-	// installed and the data channel is ready. Match case-insensitive
-	// because different log verbosity levels vary capitalisation.
-	if strings.Contains(content, "Initialization Sequence Completed") {
-		return "CONNECTED"
-	}
-
-	return "CONNECTING"
+	return "CONNECTED"
 }
 
 func (o *OpenVPNProtocol) Status() ProtocolStatus {
