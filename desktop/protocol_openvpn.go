@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -38,6 +39,12 @@ type OpenVPNProtocol struct {
 	// re-read + re-scan the log for no reason.
 	cachedState     string
 	cachedStateTime time.Time
+
+	// macOS picks the utun device dynamically (utun0, utun1, ...) so we
+	// can't hard-code it for traffic-stats lookups. Parsed from the
+	// "Opened utun device utunN" log line on the first stats query
+	// after Up() and cached for the session.
+	tunIface string
 }
 
 // NewOpenVPNProtocol creates a new OpenVPN protocol handler
@@ -136,6 +143,7 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 	// after it.
 	o.cachedState = ""
 	o.cachedStateTime = time.Time{}
+	o.tunIface = ""
 
 	log.Printf("Starting OpenVPN via %s", ovpnExe)
 
@@ -423,8 +431,64 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 		)
 	} else if runtime.GOOS == "linux" {
 		status.BytesRx, status.BytesTx = getLinuxInterfaceStats("tun0")
+	} else if runtime.GOOS == "darwin" {
+		if iface := o.findUtunInterface(); iface != "" {
+			status.BytesRx, status.BytesTx = getDarwinInterfaceStats(iface)
+		}
 	}
 	return status
+}
+
+// findUtunInterface discovers the utun device assigned to the current
+// OpenVPN session by scanning the log for the "Opened utun device utunN"
+// line. Result is cached on the OpenVPNProtocol; cleared on Up().
+func (o *OpenVPNProtocol) findUtunInterface() string {
+	if o.tunIface != "" {
+		return o.tunIface
+	}
+	logPath := filepath.Join(appDataDir(), "openvpn.log")
+	buf, err := os.ReadFile(logPath)
+	if err != nil {
+		return ""
+	}
+	// "Opened utun device utun8" — match the LAST occurrence so multi-
+	// session log files resolve to the current session.
+	content := string(buf)
+	const marker = "Opened utun device "
+	idx := strings.LastIndex(content, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := content[idx+len(marker):]
+	end := strings.IndexAny(rest, " \r\n\t")
+	if end < 0 {
+		return ""
+	}
+	o.tunIface = rest[:end]
+	return o.tunIface
+}
+
+// getDarwinInterfaceStats returns RX/TX byte counters for the named
+// network interface by parsing `netstat -ibn`. Returns (0, 0) if the
+// interface is not present in the output.
+func getDarwinInterfaceStats(ifname string) (int64, int64) {
+	out, err := exec.Command("netstat", "-ibn").Output()
+	if err != nil {
+		return 0, 0
+	}
+	// Columns: Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 10 || fields[0] != ifname {
+			continue
+		}
+		rx, _ := strconv.ParseInt(fields[6], 10, 64)
+		tx, _ := strconv.ParseInt(fields[9], 10, 64)
+		if rx != 0 || tx != 0 {
+			return rx, tx
+		}
+	}
+	return 0, 0
 }
 
 // parseBypassNetworksFromOvpn extracts `# PRIVYCS-BYPASS: <cidr>` lines
