@@ -504,6 +504,23 @@ func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
 	if pidPath == "" {
 		pidPath = "/tmp/privycs-openvpn.pid"
 	}
+	// Pre-create log + pid files with mode 0644 so the unprivileged app
+	// can read them. openvpn opens both with O_CREAT|O_TRUNC|O_WRONLY;
+	// when the file already exists, O_CREAT is a no-op and O_TRUNC only
+	// resets size — file mode is preserved. Without this the helper-
+	// spawned openvpn (root) creates them mode 0600 and Status() in the
+	// user app sees "log unreadable", never reports Connected=true and
+	// the UI hangs on the connecting spinner.
+	prepFile := func(p string) {
+		os.MkdirAll(filepath.Dir(p), 0755)
+		if f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+			f.Close()
+		}
+		os.Chmod(p, 0644)
+	}
+	prepFile(logPath)
+	prepFile(pidPath)
+
 	c := exec.Command(ovpnExe,
 		"--config", configPath,
 		"--daemon",
@@ -515,6 +532,9 @@ func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("openvpn start failed: %s", string(out)), Output: string(out)}
 	}
+	// Re-chmod after start in case openvpn delete-recreated either file.
+	os.Chmod(logPath, 0644)
+	os.Chmod(pidPath, 0644)
 	return HelperResponse{Success: true, Output: string(out)}
 }
 
