@@ -507,16 +507,21 @@ function activeConfig(conn: any): any {
 
 // SELECT a connection (activate it, but don't connect)
 async function selectConnection(connId: string) {
-  // Frontend diagnostic — proves the click reached the handler. User
-  // reported v0.9.14.34 that no backend logs appeared after listbox
-  // clicks; this LogPrint goes via Wails runtime → helper log so we
-  // see definitively if the handler fired.
   try {
     LogPrint(`selectConnection: connId=${connId} isSelected=${isSelected(connId)} vpn.status.connection_id=${vpn.status?.connection_id} poolStore.activePoolId=${poolStore.activePoolId}`)
   } catch {}
-  if (isSelected(connId)) {
-    // Already selected — go to Connect screen
-    try { LogPrint(`selectConnection: returning early — already selected, navigating to /connection`) } catch {}
+  // The early-return must ALSO check !poolStore.activePoolId. Pre-fix
+  // it was just `isSelected(connId)` which returned true whenever
+  // `vpn.status.connection_id === connId` — but a pool can be active
+  // alongside a non-empty connection_id (corrupt mutual-exclusion
+  // state from earlier switch failures). In that case the user
+  // clicks the single to switch AWAY from the pool, but isSelected
+  // returns true → we router.push and do nothing → backend never
+  // gets the switch → pool keeps running. Mirrors the dropdown
+  // pickConnection guard which has had the !poolStore.activePoolId
+  // half forever.
+  if (isSelected(connId) && !poolStore.activePoolId) {
+    try { LogPrint(`selectConnection: returning early — already selected and no pool active, navigating to /connection`) } catch {}
     router.push('/connection')
     return
   }

@@ -227,6 +227,23 @@ func (a *App) startup(ctx context.Context) {
 		if a.pools != nil && a.pools.ActiveID != "" && a.pools.Get(a.pools.ActiveID) != nil {
 			a.activePoolID = a.pools.ActiveID
 			log.Printf("Startup: restored active pool %q", a.pools.Get(a.activePoolID).Name)
+
+			// Mutual-exclusion guard: pool and single-connection
+			// active flags must never both be set on disk. If they
+			// are (corrupt persisted state from a prior failed
+			// switch), the picker UI gets confused — vpn.status's
+			// connection_id is non-empty AND poolStore.activePoolId
+			// is non-empty, the listbox's `selectConnection` sees
+			// `isSelected(connId)` returning true, and the early-
+			// return short-circuits before the switch dispatches.
+			// User v0.9.14.36 hit exactly this state. Pool wins
+			// because it owns the running rotator + tunnel; we
+			// silently clear the single's active marker so the
+			// picker UI is back in a consistent state.
+			if singleActive != nil {
+				log.Printf("Startup: WARNING — both pool %q and single %q marked active on disk (corrupt mutual-exclusion state). Pool wins; clearing single's active marker.", a.activePoolID, singleActive.Name)
+				a.connections.SetActive("")
+			}
 		} else if a.pools != nil && a.pools.ActiveID != "" && a.pools.Get(a.pools.ActiveID) == nil {
 			// Stale ActiveID points at a deleted pool. Clear it so
 			// next time this branch does not block the MRU fallback.
