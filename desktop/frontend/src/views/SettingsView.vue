@@ -333,7 +333,7 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
         </p>
         <div class="space-y-2 mb-3">
           <label v-for="opt in [
-            { value: 'auto', label: 'Auto (pool only)' },
+            { value: 'auto', label: 'Auto (recovery for pool & single)' },
             { value: 'always', label: 'Always on' },
             { value: 'off', label: 'Off' },
           ]" :key="opt.value" class="flex items-center gap-2 text-sm cursor-pointer">

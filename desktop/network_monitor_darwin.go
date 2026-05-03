@@ -165,6 +165,22 @@ var darwinCallback struct {
 
 //export goNetworkChanged
 func goNetworkChanged() {
+	// Panic recovery on the cgo callback path. SCNetworkReachability
+	// invokes this from a CFRunLoop callback running on a non-Go
+	// thread; an unrecovered panic in fn() (e.g. anywhere in the
+	// COD-driven connectActiveTarget chain — protocol handlers,
+	// helper IPC, settings, pool registry) crashes the whole app
+	// instead of just terminating the goroutine. User-visible
+	// symptom: clicking Disconnect with COD on triggered a reconnect
+	// that hard-crashed the app while the same Connect path worked
+	// fine after a fresh app launch. Recover + log so we get a
+	// diagnostic instead of a vanishing window.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Network monitor (darwin): callback panic recovered: %v", r)
+		}
+	}()
+
 	darwinCallback.mu.Lock()
 	fn := darwinCallback.fn
 	darwinCallback.mu.Unlock()

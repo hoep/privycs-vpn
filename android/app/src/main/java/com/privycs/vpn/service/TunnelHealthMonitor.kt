@@ -154,18 +154,60 @@ object TunnelHealthMonitor {
     }
 
     private suspend fun triggerRecovery() {
+        val context = PrivycsApp.instance.applicationContext
         try {
-            val context = PrivycsApp.instance.applicationContext
             // USER source so the disconnect respects the same
-            // Coordinator gates as a manual tap, which keeps the
-            // existing Always-On / pause / sinkhole semantics
-            // intact even on automated recovery.
+            // Coordinator gates as a manual tap. Note: it does NOT
+            // stamp AlwaysOnDetector.userDisconnect — that only
+            // fires from VpnServiceManager.disconnect() — so the
+            // post-disconnect 30s manual-cooldown does not block
+            // our follow-up reconnect.
             ConnectCoordinator.requestDisconnect(
                 context,
                 ConnectCoordinator.IntentSource.USER,
             )
         } catch (e: Exception) {
             PrivycsLogger.w(TAG, "recovery requestDisconnect failed: ${e.message}")
+            return
+        }
+
+        // Settle delay: let the disconnect path finish before we
+        // hand a new connect intent to the Coordinator. 2 s is
+        // empirically enough for the service teardown + state
+        // transition back to Idle.
+        delay(2_000L)
+
+        // Drive the reconnect ourselves. The pre-existing path
+        // assumed COD or the pool rotator would re-fire, which left
+        // single-connection users stranded after a health-driven
+        // disconnect when COD was off. Mirror desktop's
+        // app.go:connectActiveTarget — pool wins if active,
+        // otherwise reconnect the active single connection.
+        try {
+            val poolReg = PrivycsApp.instance.poolRepository.registry.value
+            val activePoolId = poolReg.activeId
+            val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
+            if (activePoolId.isNotEmpty() && activePool != null) {
+                ConnectCoordinator.requestPoolConnect(
+                    context,
+                    ConnectCoordinator.IntentSource.ON_DEMAND,
+                    activePoolId,
+                    activePool.name,
+                )
+                return
+            }
+            val connection = PrivycsApp.instance.connectionRepository.getActive()
+            if (connection == null) {
+                PrivycsLogger.w(TAG, "recovery: no active connection or pool, leaving disconnected")
+                return
+            }
+            ConnectCoordinator.requestConnect(
+                context,
+                ConnectCoordinator.IntentSource.ON_DEMAND,
+                connection,
+            )
+        } catch (e: Exception) {
+            PrivycsLogger.w(TAG, "recovery requestConnect failed: ${e.message}")
         }
     }
 }

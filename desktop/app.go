@@ -854,21 +854,22 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	// Tunnel-liveness monitor: 60s ICMP probe to a known reliable
 	// target. Mode resolution (matches Android):
 	//   - "off":    never run
-	//   - "always": always run
-	//   - "auto":   pool=on, single=off (default - pool has
-	//               natural recovery via member rotation)
+	//   - "always": run + recovery (auto disconnect/reconnect)
+	//   - "auto":   run + recovery for pool AND single (default;
+	//               recovery for single is also a disconnect+
+	//               reconnect via connectActiveTarget below)
 	if a.tunnelHealth != nil {
 		mode := a.settings.TunnelHealthMode
 		if mode == "" {
 			mode = "auto"
 		}
 		isPool := a.activePoolID != ""
-		shouldRun := mode == "always" || (mode == "auto" && isPool)
+		shouldRun := mode != "off"
 		// v0.9.14.2: explicit gating-decision log so the user can
 		// diagnose "no healthy dot" without code-tracing. The three
 		// inputs uniquely determine the decision; if shouldRun=false
 		// you read the line and immediately know whether to flip mode
-		// to "always" or activate a pool.
+		// off "off".
 		log.Printf("TunnelHealth: gating mode=%q isPool=%v shouldRun=%v target=%q",
 			mode, isPool, shouldRun, a.settings.TunnelHealthTarget)
 		if shouldRun {

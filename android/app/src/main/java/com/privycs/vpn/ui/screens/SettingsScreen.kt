@@ -836,7 +836,7 @@ fun SettingsScreen(
                 val mode = settings.tunnelHealthMode
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(
-                        "auto" to "Auto (pool only)",
+                        "auto" to "Auto (recovery for pool & single)",
                         "always" to "Always on",
                         "off" to "Off",
                     ).forEach { (value, label) ->

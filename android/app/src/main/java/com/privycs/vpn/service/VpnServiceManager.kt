@@ -634,23 +634,18 @@ class VpnServiceManager private constructor(private val context: Context) {
             // Tunnel is up: decide whether to start the periodic
             // ICMP-based liveness monitor based on user settings.
             //   - mode = "off": never run
-            //   - mode = "always": always run
-            //   - mode = "auto" (default): pool=on, single=off.
-            //     Pools have a natural recovery action via member
-            //     rotation; single connections would just
-            //     disconnect-reconnect which is more disruptive
-            //     on a flaky network so we default to off.
+            //   - mode = "auto" (default): run + recovery for pool
+            //     AND single. Recovery for single is a disconnect+
+            //     reconnect handled inside TunnelHealthMonitor.
+            //   - mode = "always": same as auto today; kept for
+            //     forward-compat / parity with desktop.
             val healthSettings = try {
                 com.privycs.vpn.PrivycsApp.instance.settingsRepository
                     .getSettingsBlocking()
             } catch (_: Exception) { null }
             val healthMode = healthSettings?.tunnelHealthMode ?: "auto"
             val isPool = status.poolId.isNotEmpty()
-            val shouldRun = when (healthMode) {
-                "always" -> true
-                "off" -> false
-                else -> isPool // "auto"
-            }
+            val shouldRun = healthMode != "off"
             if (shouldRun) {
                 val target = healthSettings?.tunnelHealthTarget?.takeIf { it.isNotBlank() }
                     ?: ""
