@@ -466,19 +466,30 @@ func (o *OpenVPNProtocol) findUtunInterface() string {
 // getDarwinInterfaceStats returns RX/TX byte counters for the named
 // network interface by parsing `netstat -ibn`. Returns (0, 0) if the
 // interface is not present in the output.
+//
+// netstat lines on macOS have variable leading columns: the AF_LINK row
+// has no Address column (or has a MAC), AF_INET/INET6 rows have an
+// Address column that may be one token (10.100.121.7) or two
+// (fe80::1%utun8 with prefix). Counting from the START therefore picks
+// up the wrong field. We count from the END instead — the trailing
+// seven columns are always `Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll`.
 func getDarwinInterfaceStats(ifname string) (int64, int64) {
 	out, err := exec.Command("netstat", "-ibn").Output()
 	if err != nil {
 		return 0, 0
 	}
-	// Columns: Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 10 || fields[0] != ifname {
+		if len(fields) < 7 || fields[0] != ifname {
 			continue
 		}
-		rx, _ := strconv.ParseInt(fields[6], 10, 64)
-		tx, _ := strconv.ParseInt(fields[9], 10, 64)
+		n := len(fields)
+		// Trailing layout: ... Ibytes(-5) Opkts(-4) Oerrs(-3) Obytes(-2) Coll(-1)
+		rx, errRx := strconv.ParseInt(fields[n-5], 10, 64)
+		tx, errTx := strconv.ParseInt(fields[n-2], 10, 64)
+		if errRx != nil || errTx != nil {
+			continue
+		}
 		if rx != 0 || tx != 0 {
 			return rx, tx
 		}
