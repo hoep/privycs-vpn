@@ -47,7 +47,10 @@ var allowedActions = map[string]bool{
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.
-var safePathPattern = regexp.MustCompile(`^[a-zA-Z0-9/_\-\.\\:]+$`)
+// Spaces are allowed because macOS uses "Application Support" in the standard
+// per-user data directory. Shell metacharacters ($, ;, |, &, `, etc.) remain blocked,
+// and the path is always passed as an exec.Cmd argument (no shell interpolation).
+var safePathPattern = regexp.MustCompile(`^[a-zA-Z0-9 /_\-\.\\:]+$`)
 
 // safeInterfacePattern validates interface names (alphanumeric, dash, underscore).
 // Length is bounded at 64 chars — enough for any sanitized connection name
