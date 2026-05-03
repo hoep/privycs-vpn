@@ -180,7 +180,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	log.SetFlags(log.Ldate | log.Ltime)
 
-	log.Println("Privycs VPN starting...")
+	log.Printf("Privycs VPN starting... version=%s os=%s arch=%s", AppVersion, runtime.GOOS, runtime.GOARCH)
 
 	// Always clean up stale kill switch rules from previous crash/kill.
 	// If the app was killed without graceful shutdown, iptables DROP rules

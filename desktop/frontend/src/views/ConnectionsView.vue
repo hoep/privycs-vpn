@@ -122,14 +122,27 @@
       </div>
     </div>
 
-    <!-- Loading state -->
+    <!-- Error banner — independent v-if so a sticky actionError does NOT
+         hide the connection cards below. Pre-fix this `<p>` was the root
+         of a v-if/v-else-if/v-else chain that included the empty state
+         AND the connection cards; any non-empty actionError therefore
+         removed all connection cards from the DOM, leaving the user with
+         a layout that LOOKED like the listbox but had no click targets
+         — every click hit empty space, no @click handler, nothing fired,
+         no log line. Dead-locked: actionError stayed sticky because the
+         user could not click anything to trigger a successful action
+         that would clear it. This bug was the root cause of the v0.9.14.34
+         user report: "kann aber nicht zwischen den beiden umschalten ...
+         auch wenn ich in der listbox die connection wähle wird wieder
+         die vpn pool aktiviert". -->
+    <p v-if="actionError" class="text-xs text-red-400 text-center mb-3 bg-red-500/10 rounded-lg py-2 px-3">{{ actionError }}</p>
+
+    <!-- Loading / empty / cards — separate v-if chain, NOT chained off
+         actionError, so the cards always render when connections exist. -->
     <div v-if="loadingConnections" class="text-center mt-12">
       <div class="w-6 h-6 mx-auto border-2 border-primary-400 border-t-transparent rounded-full animate-spin mb-3"></div>
       <p class="text-xs text-gray-500">Loading connections...</p>
     </div>
-
-    <!-- Error banner -->
-    <p v-if="actionError" class="text-xs text-red-400 text-center mb-3 bg-red-500/10 rounded-lg py-2 px-3">{{ actionError }}</p>
 
     <div v-else-if="connections.length === 0" class="text-center mt-12">
       <DocumentTextIcon class="w-12 h-12 mx-auto text-gray-600 mb-3" />
