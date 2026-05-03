@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -368,9 +370,17 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 		if pidData, err := os.ReadFile(pidPath); err == nil {
 			var pid int
 			if _, err := fmt.Sscan(strings.TrimSpace(string(pidData)), &pid); err == nil && pid > 0 {
-				if proc, err := os.FindProcess(pid); err == nil {
-					processRunning = proc.Signal(nil) == nil
-				}
+				// kill(pid, 0) is the standard liveness probe. The previous
+				// implementation called proc.Signal(nil), which Go always
+				// rejects with "unsupported signal type" — so processRunning
+				// was permanently false on macOS, Status() bailed out before
+				// reading the log, and the UI hung forever on the connecting
+				// spinner even though the tunnel was up. EPERM means the
+				// process exists but the unprivileged app can't signal it
+				// (the helper-spawned openvpn runs as root) — that still
+				// counts as "running"; only ESRCH means the process is gone.
+				err := syscall.Kill(pid, 0)
+				processRunning = err == nil || !errors.Is(err, syscall.ESRCH)
 			}
 		}
 	}
