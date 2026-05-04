@@ -165,11 +165,22 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 		// runs alongside the legacy SystemConfiguration store that
 		// scutil reads, without the cross-bridge that pre-13 macOS
 		// used to populate). AppleScript / System Events talks to the
-		// modern path directly. See macOSVPNStatus for the fallback
-		// chain when AppleScript isn't reachable (TCC denied, etc).
+		// modern path directly. See macOSVPNIsConnected for the
+		// fallback chain when AppleScript isn't reachable.
 		if macOSVPNIsConnected(i.connName) {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
+			// Traffic stats: when the Apple IKE stack is up the
+			// default route exits via a utun interface that mirrors
+			// the VPN tunnel. Read RX/TX from netstat for that
+			// utun. Heuristic — split-tunnel setups where default
+			// route still exits via en0 will see zeros here even
+			// though VPN traffic flows on an addressed utun. Good
+			// enough for the common full-tunnel case which is the
+			// default for Privycs gateways.
+			if _, iface, err := defaultRouteIPv4(); err == nil && strings.HasPrefix(iface, "utun") {
+				status.BytesRx, status.BytesTx = getDarwinInterfaceStats(iface)
+			}
 		}
 	case "windows":
 		// Look up both per-user AND machine-wide VPN connections — the helper
