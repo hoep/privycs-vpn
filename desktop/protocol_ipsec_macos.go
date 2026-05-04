@@ -25,6 +25,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 	"text/template"
 
@@ -89,6 +91,12 @@ const macosMobileConfigTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 				<string>{{.CertUUID}}</string>
 				<key>EnablePFS</key>
 				<true/>
+				<key>IncludeAllNetworks</key>
+				<{{if .IncludeAllNetworks}}true{{else}}false{{end}}/>
+				<key>ExcludeLocalNetworks</key>
+				<true/>{{if .HasMTU}}
+				<key>TunnelMTU</key>
+				<integer>{{.MTU}}</integer>{{end}}
 			</dict>{{if .HasDNS}}
 			<key>DNS</key>
 			<dict>
@@ -127,9 +135,19 @@ type macosMobileConfigData struct {
 	PKCS12Password string
 	HasDNS         bool
 	DNSServers     []string
-	ProfileUUID    string
-	VPNUUID        string
-	CertUUID       string
+	HasMTU         bool
+	MTU            int
+	// IncludeAllNetworks=true forces every packet through the tunnel
+	// (full-tunnel). We set it to false when the .sswan profile carries
+	// a non-empty split-tunneling list to defer routing to whatever the
+	// server pushes via IKE traffic-selectors. CIDR-level client-side
+	// bypass is NOT honored by Apple's IKE stack — that would need a
+	// separate post-Up route-manipulation pass via the helper. Until
+	// then, the split-tunneling field flips full-vs-server-decides only.
+	IncludeAllNetworks bool
+	ProfileUUID        string
+	VPNUUID            string
+	CertUUID           string
 }
 
 // configureMacOSFromSSwan generates a .mobileconfig from the parsed
@@ -146,6 +164,18 @@ func (i *IPSecProtocol) configureMacOSFromSSwan(profile *sswanProfile) error {
 		password = "privycs"
 	}
 
+	// DNS resolution priority matches the Linux/Windows IPSec paths:
+	// Settings-driven DnsOverride (populated via SetDnsOverride before
+	// Configure runs — see App.applyDnsOverride wrapping in app.go) wins
+	// over whatever the .sswan profile carried. Empty override falls
+	// back to the .sswan list, which itself may be empty for full
+	// "let-server-push-DNS" behaviour.
+	dnsServers := profile.DNSServers
+	if len(i.dnsOverride) > 0 {
+		log.Printf("DNS override (IPSec/macOS): applied %s", strings.Join(i.dnsOverride, ","))
+		dnsServers = i.dnsOverride
+	}
+
 	data := macosMobileConfigData{
 		ConnName:       i.connName,
 		RemoteAddress:  profile.Remote.Addr,
@@ -153,8 +183,15 @@ func (i *IPSecProtocol) configureMacOSFromSSwan(profile *sswanProfile) error {
 		LocalID:        profile.Local.ID,
 		PKCS12Base64:   profile.Local.P12,
 		PKCS12Password: password,
-		HasDNS:         len(profile.DNSServers) > 0,
-		DNSServers:     profile.DNSServers,
+		HasDNS:         len(dnsServers) > 0,
+		DNSServers:     dnsServers,
+		HasMTU:         profile.MTU > 0,
+		MTU:            profile.MTU,
+		// Empty split-tunneling list -> force full tunnel (the common
+		// case). Non-empty -> defer routing to server-pushed traffic
+		// selectors. CIDR-level bypass is documented as a separate
+		// follow-up (helper-driven post-Up route manipulation).
+		IncludeAllNetworks: len(profile.SplitTunneling) == 0,
 		// Stable per-connection UUIDs so re-running configure does not
 		// produce a "different profile, please replace" prompt — macOS
 		// matches by PayloadUUID. profile.UUID is the .sswan-side UUID
@@ -208,6 +245,133 @@ func isMacOSVPNConfigInstalled(connName string) bool {
 	}
 	needle := `"` + connName + `"`
 	return strings.Contains(string(out), needle)
+}
+
+// configureMacOSFromMobileConfig accepts a pre-built Apple Configuration
+// Profile (.mobileconfig) and hands it to System Settings without going
+// through .sswan translation. We extract the connection name from the
+// IKEv2 payload's UserDefinedName key so subsequent scutil --nc start
+// matches.
+//
+// Plist parsing is intentionally regex-based to avoid pulling in a
+// full plist library for a single key extraction. The format is
+// stable XML and the regex tolerates whitespace + indentation
+// variations.
+func (i *IPSecProtocol) configureMacOSFromMobileConfig(cfg []byte) error {
+	name := extractMobileConfigUserDefinedName(string(cfg))
+	if name == "" {
+		// Fall back to PayloadDisplayName at the root level if the
+		// IKEv2 sub-dict didn't carry UserDefinedName. Still no match
+		// → reject; we cannot drive scutil without a name.
+		name = extractMobileConfigPayloadDisplayName(string(cfg))
+	}
+	if name == "" {
+		return fmt.Errorf("mobileconfig is missing UserDefinedName / PayloadDisplayName — cannot drive scutil")
+	}
+	i.connName = name
+	i.serverAddr = extractMobileConfigRemoteAddress(string(cfg))
+	log.Printf("IPSec: importing pre-built .mobileconfig as connection '%s' -> %s", i.connName, i.serverAddr)
+
+	mcPath := filepath.Join(appDataDir(), i.connName+".mobileconfig")
+	if err := os.WriteFile(mcPath, cfg, 0600); err != nil {
+		return fmt.Errorf("write mobileconfig: %w", err)
+	}
+
+	if isMacOSVPNConfigInstalled(i.connName) {
+		log.Printf("IPSec: macOS VPN config '%s' already installed, skipping open() prompt", i.connName)
+		i.configured = true
+		return nil
+	}
+
+	if err := exec.Command("open", mcPath).Run(); err != nil {
+		return fmt.Errorf("open mobileconfig install dialog: %w", err)
+	}
+	i.configured = true
+	return nil
+}
+
+var (
+	reMobileUserDefinedName    = regexp.MustCompile(`<key>\s*UserDefinedName\s*</key>\s*<string>([^<]+)</string>`)
+	reMobilePayloadDisplayName = regexp.MustCompile(`<key>\s*PayloadDisplayName\s*</key>\s*<string>([^<]+)</string>`)
+	reMobileRemoteAddress      = regexp.MustCompile(`<key>\s*RemoteAddress\s*</key>\s*<string>([^<]+)</string>`)
+)
+
+// openMacOSProfilesPane launches the user's System Settings (or System
+// Preferences on older macOS) into the Profiles pane so they can
+// manually remove a leftover Privycs VPN profile. Modern macOS does
+// not allow programmatic removal of user-installed configuration
+// profiles without MDM context — calling `profiles remove -p <id>`
+// against a user-context profile is silently rejected on Sonoma+.
+//
+// We try the Ventura+ Settings deeplink first, fall back to the
+// legacy preference pane bundle. Either one opens the right place;
+// the Settings app handles the URL gracefully on any reasonably
+// recent macOS. Returns silently on failure — this is purely UX.
+func openMacOSProfilesPane() {
+	deeplinks := []string{
+		"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Profiles",
+		"/System/Library/PreferencePanes/Profiles.prefPane",
+	}
+	for _, link := range deeplinks {
+		if err := exec.Command("open", link).Run(); err == nil {
+			return
+		}
+	}
+}
+
+// macOSDeleteIPSecProfileHint is invoked when the user removes (or
+// renames) an IPSec connection in Privycs. The macOS-side VPN profile
+// installed during configureMacOSFromSSwan stays in System Settings
+// because we cannot remove it programmatically; the best we can do is
+// open the right pane and notify the user. Pure UX, no error path —
+// the connection is already gone from the Privycs registry.
+func macOSDeleteIPSecProfileHint(connName, reason string) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	// Best-effort: also wipe the .mobileconfig file from our
+	// per-connection Application Support cache. Harmless if absent.
+	mcPath := filepath.Join(appDataDir(), connName+".mobileconfig")
+	if err := os.Remove(mcPath); err == nil {
+		log.Printf("IPSec: removed cached %s", mcPath)
+	}
+
+	if !isMacOSVPNConfigInstalled(connName) {
+		// Already gone — nothing for the user to do.
+		return
+	}
+
+	openMacOSProfilesPane()
+	Notify(
+		"VPN profile remains in System Settings",
+		fmt.Sprintf("Privycs %s the %q connection but cannot remove the macOS VPN profile. Open System Settings → Privacy & Security → Profiles and remove %q manually.",
+			reason, connName, connName),
+		NotifyInfo,
+	)
+}
+
+func extractMobileConfigUserDefinedName(content string) string {
+	m := reMobileUserDefinedName.FindStringSubmatch(content)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
+func extractMobileConfigPayloadDisplayName(content string) string {
+	m := reMobilePayloadDisplayName.FindStringSubmatch(content)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
+func extractMobileConfigRemoteAddress(content string) string {
+	m := reMobileRemoteAddress.FindStringSubmatch(content)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
 }
 
 // stableUUID derives a deterministic UUIDv5 from the given seed. macOS

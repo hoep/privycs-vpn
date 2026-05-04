@@ -1637,9 +1637,21 @@ func (a *App) RenameConnection(id string, newName string) error {
 	if conn == nil {
 		return fmt.Errorf("connection not found: %s", id)
 	}
+	oldName := conn.Name
 	conn.Name = newName
 	a.connections.Save()
 	log.Printf("Connection renamed to: %s", newName)
+
+	// macOS IPSec: the System-Settings-installed VPN profile keeps
+	// the OLD UserDefinedName until the user reinstalls. Renaming on
+	// our side creates a name-mismatch between Privycs and macOS that
+	// nothing programmatic can fix on a non-MDM Mac. Fire a UX hint
+	// pointing at the Profiles pane so the user can clean up the
+	// stale-named profile (and a reconnect generates a fresh one with
+	// the new name).
+	if conn.GetProtocol("ipsec") != nil {
+		macOSDeleteIPSecProfileHint(oldName, "renamed")
+	}
 	return nil
 }
 
@@ -1675,12 +1687,47 @@ func (a *App) SetConnectionDnsOverride(id string, dns string) error {
 
 // DeleteConnection removes a saved connection
 func (a *App) DeleteConnection(id string) error {
-	return a.connections.Delete(id)
+	// Snapshot the IPSec/macOS hint inputs before delete: once
+	// connections.Delete returns, the SavedConnection is gone and we
+	// can no longer read its Name or check whether it carried IPSec.
+	var ipsecConnName string
+	if conn := a.connections.Get(id); conn != nil {
+		if conn.GetProtocol("ipsec") != nil {
+			ipsecConnName = conn.Name
+		}
+	}
+
+	if err := a.connections.Delete(id); err != nil {
+		return err
+	}
+
+	if ipsecConnName != "" {
+		macOSDeleteIPSecProfileHint(ipsecConnName, "deleted")
+	}
+	return nil
 }
 
 // RemoveProtocolFromConnection removes a single protocol config from a connection
 func (a *App) RemoveProtocolFromConnection(connectionID string, protocol string) error {
-	return a.connections.RemoveProtocol(connectionID, protocol)
+	// IPSec-on-macOS leaves a System-Settings VPN profile behind that
+	// no longer corresponds to anything in Privycs. Surface the hint
+	// before clearing the protocol so the user can act while the
+	// profile name is still meaningful to them.
+	var ipsecConnName string
+	if protocol == "ipsec" {
+		if conn := a.connections.Get(connectionID); conn != nil {
+			ipsecConnName = conn.Name
+		}
+	}
+
+	if err := a.connections.RemoveProtocol(connectionID, protocol); err != nil {
+		return err
+	}
+
+	if ipsecConnName != "" {
+		macOSDeleteIPSecProfileHint(ipsecConnName, "removed IPSec from")
+	}
+	return nil
 }
 
 // ============================================================================

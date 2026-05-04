@@ -178,7 +178,26 @@ func (i *IPSecProtocol) Configure(cfg []byte) error {
 		return i.configureFromSSwan(cfg)
 	}
 
+	// Try Apple Configuration Profile (.mobileconfig). Only meaningful
+	// on macOS — Windows/Linux can't natively consume an Apple plist
+	// for IKEv2. Power users may already have a .mobileconfig from
+	// their gateway (Privycs gateway emits one for iOS, identical
+	// shape works on macOS) and dropping it directly avoids the
+	// .sswan→.mobileconfig translation roundtrip.
+	if runtime.GOOS == "darwin" && isMobileConfigPlist(content) {
+		return i.configureMacOSFromMobileConfig(cfg)
+	}
+
 	return fmt.Errorf("unrecognized IPSec config format")
+}
+
+// isMobileConfigPlist returns true when content looks like an Apple
+// Configuration Profile (.mobileconfig). We test for the plist DOCTYPE
+// AND a Configuration PayloadType to avoid matching unrelated XML
+// plists (e.g. launchd plists, app preferences).
+func isMobileConfigPlist(content string) bool {
+	return strings.Contains(content, "<!DOCTYPE plist") &&
+		strings.Contains(content, "<string>Configuration</string>")
 }
 
 func (i *IPSecProtocol) configureFromStruct(cfg *IPSecConfig) error {
@@ -214,6 +233,13 @@ type sswanProfile struct {
 		P12         string `json:"p12"`
 		P12Password string `json:"p12-password"`
 	} `json:"local"`
+	// Optional in the .sswan JSON. Mirrors the Android client's
+	// SswanConfig.mtu field. Server emits omitempty so a value of 0
+	// means "use Apple/strongSwan auto-detection". Currently only the
+	// macOS path consumes this (TunnelMTU in the generated
+	// .mobileconfig); Linux/Windows fall through to swanctl/rasdial
+	// auto-detection.
+	MTU            int      `json:"mtu,omitempty"`
 	SplitTunneling []string `json:"split-tunneling"`
 	DNSServers     []string `json:"dns-servers"`
 }
