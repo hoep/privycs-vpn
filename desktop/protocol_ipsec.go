@@ -257,6 +257,8 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 		return i.configureWindowsFromSSwan(&profile)
 	case "linux":
 		return i.configureLinuxFromSSwan(&profile)
+	case "darwin":
+		return i.configureMacOSFromSSwan(&profile)
 	default:
 		log.Printf("Platform %s: .sswan saved, manual configuration required", runtime.GOOS)
 		return nil
@@ -507,6 +509,19 @@ func (i *IPSecProtocol) downLinux(ctx context.Context) error {
 // ============================================================================
 
 func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
+	// scutil --nc start silently no-ops (exit 0, no output) when the
+	// named service is not installed in System Settings. Without a
+	// pre-flight check the UI reports "connecting..." then "not
+	// connected" with no clue why. Surface a clear error pointing at
+	// the install dialog instead.
+	if !isMacOSVPNConfigInstalled(i.connName) {
+		return fmt.Errorf(
+			"VPN profile '%s' not installed in System Settings — "+
+				"approve the profile install dialog (System Settings → "+
+				"Privacy & Security → Profiles), then retry",
+			i.connName,
+		)
+	}
 	out, err := execHiddenContext(ctx, "scutil", "--nc", "start", i.connName).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("scutil start failed: %s: %w", string(out), err)
