@@ -21,6 +21,18 @@ type IPSecProtocol struct {
 	serverAddr  string
 	localAddr   string
 	configured  bool // true after first successful Configure()
+	// splitTunneling holds the .sswan-defined CIDR bypass list. Only
+	// the macOS path consumes it (post-Up route-table manipulation
+	// via the privileged helper); Linux/Windows do split-tunneling
+	// inside the protocol layer (swanctl traffic-selectors / RAS
+	// per-route). Mixed v4 + v6, parser sorts at use-site.
+	splitTunneling []string
+	// usingSwanctl is true on macOS when the .sswan profile carried
+	// RFC 8784 PPK material AND Homebrew strongswan is installed; the
+	// Configure dispatcher routes through swanctl instead of Apple's
+	// IKE stack so the PPK actually negotiates. Determines which
+	// upMacOS/downMacOS sub-path runs.
+	usingSwanctl bool
 	// User-configured DNS-server override from Settings. Populated
 	// at Configure() time via SetDnsOverride. Forwarded to the
 	// privileged helper on Up() so /etc/resolv.conf is rewritten
@@ -130,6 +142,24 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
 		}
 	case "darwin":
+		if i.usingSwanctl {
+			// swanctl path: query via helper (charon's vici socket is
+			// root-only). Connection is up when the IKE_SA shows
+			// state=ESTABLISHED. Mirrors the Linux branch above.
+			client := NewHelperClient()
+			if !client.IsHelperReachable() {
+				return status
+			}
+			resp, err := client.SendCommand("status", map[string]string{
+				"protocol":  "ipsec",
+				"interface": i.connName,
+			})
+			if err == nil && resp.Success && strings.Contains(resp.Output, "ESTABLISHED") {
+				status.Connected = true
+				status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
+			}
+			break
+		}
 		out, err := execHidden("scutil", "--nc", "status", i.connName).CombinedOutput()
 		if err == nil && strings.Contains(string(out), "Connected") {
 			status.Connected = true
@@ -242,6 +272,14 @@ type sswanProfile struct {
 	MTU            int      `json:"mtu,omitempty"`
 	SplitTunneling []string `json:"split-tunneling"`
 	DNSServers     []string `json:"dns-servers"`
+	// RFC 8784 Postquantum Preshared Key. Both fields populated only
+	// when the source server interface is pq_safe. Carried verbatim
+	// to libcharon (Android via vendored strongswan patch, macOS-Pro
+	// via Homebrew swanctl when installed). Apple's built-in IKE
+	// stack ignores them — pq_safe-secured connections downgrade to
+	// cert-only auth on macOS unless Homebrew strongswan is present.
+	PPKID  string `json:"ppk_id,omitempty"`
+	PPKPSK string `json:"ppk_psk,omitempty"`
 }
 
 func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
@@ -258,6 +296,7 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 		i.connName = profile.Name
 	}
 	i.serverAddr = profile.Remote.Addr
+	i.splitTunneling = profile.SplitTunneling
 
 	log.Printf("Parsed .sswan profile: %s -> %s", i.connName, i.serverAddr)
 
@@ -284,6 +323,23 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 	case "linux":
 		return i.configureLinuxFromSSwan(&profile)
 	case "darwin":
+		// Hybrid: PPK material in .sswan + Homebrew swanctl available
+		// → drive libcharon directly (real RFC 8784 PPK negotiation).
+		// PPK without swanctl → Apple-Stack with a notify nudge to
+		// install Homebrew strongswan. No PPK → plain Apple-Stack.
+		hasPPK := profile.PPKID != "" && profile.PPKPSK != ""
+		if hasPPK && findStrongswanBinary("swanctl") != "" {
+			i.usingSwanctl = true
+			return i.configureMacOSFromSSwanViaSwanctl(&profile)
+		}
+		i.usingSwanctl = false
+		if hasPPK {
+			Notify(
+				"PPK requires Homebrew strongswan",
+				"This connection ships RFC 8784 PPK material which Apple's IKE stack cannot consume. Run `brew install strongswan` and reimport the profile to enable PPK. Connecting now without PPK.",
+				NotifyInfo,
+			)
+		}
 		return i.configureMacOSFromSSwan(&profile)
 	default:
 		log.Printf("Platform %s: .sswan saved, manual configuration required", runtime.GOOS)
@@ -535,6 +591,14 @@ func (i *IPSecProtocol) downLinux(ctx context.Context) error {
 // ============================================================================
 
 func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
+	// PPK path: drive libcharon via swanctl. Apple-Stack is bypassed
+	// entirely so the .sswan profile's pq_safe negotiation actually
+	// runs. Configure-time already verified swanctl exists and the
+	// helper installed the swanctl conf + secrets.
+	if i.usingSwanctl {
+		return i.upMacOSViaSwanctl(ctx)
+	}
+
 	// scutil --nc start silently no-ops (exit 0, no output) when the
 	// named service is not installed in System Settings. Without a
 	// pre-flight check the UI reports "connecting..." then "not
@@ -548,15 +612,42 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 			i.connName,
 		)
 	}
+	// Pre-Up snapshot of the current default route. We need this BEFORE
+	// scutil --nc start because Apple's IKEv2 stack rewrites the default
+	// route to point at the utun once the tunnel comes up, at which point
+	// "what was my LAN gateway?" becomes unanswerable. Best-effort: if
+	// the snapshot fails (no internet, weird routing table) we still
+	// bring the tunnel up, just without split-tunneling.
+	gw4, iface4, _ := defaultRouteIPv4()
+	gw6, _, _ := defaultRouteIPv6()
+
 	out, err := execHiddenContext(ctx, "scutil", "--nc", "start", i.connName).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("scutil start failed: %s: %w", string(out), err)
 	}
 	i.connectedAt = time.Now()
+
+	// Post-Up: install bypass routes if the .sswan carries split-
+	// tunneling CIDRs. Apple's NEVPNProtocolIKEv2 has no API for
+	// CIDR-list bypass, so we drive route(8) from the helper after
+	// the tunnel is up. macOS sometimes hasn't fully written the new
+	// default route yet when scutil returns — a brief poll on the
+	// VPN reaching "Connected" status (or a 1.5 s timeout) catches
+	// that race.
+	if len(i.splitTunneling) > 0 {
+		i.installMacOSSplitTunnelRoutes(gw4, iface4, gw6)
+	}
 	return nil
 }
 
 func (i *IPSecProtocol) downMacOS(ctx context.Context) error {
+	if i.usingSwanctl {
+		return i.downMacOSViaSwanctl(ctx)
+	}
+	// Remove our bypass routes BEFORE scutil --nc stop so the route(8)
+	// calls still reference real interfaces. Reversed order would race
+	// against the Apple stack's own route teardown.
+	i.removeMacOSSplitTunnelRoutes()
 	execHiddenContext(ctx, "scutil", "--nc", "stop", i.connName).Run()
 	i.connectedAt = time.Time{}
 	return nil

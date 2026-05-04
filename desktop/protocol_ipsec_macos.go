@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -320,24 +321,42 @@ func openMacOSProfilesPane() {
 }
 
 // macOSDeleteIPSecProfileHint is invoked when the user removes (or
-// renames) an IPSec connection in Privycs. The macOS-side VPN profile
-// installed during configureMacOSFromSSwan stays in System Settings
-// because we cannot remove it programmatically; the best we can do is
-// open the right pane and notify the user. Pure UX, no error path —
-// the connection is already gone from the Privycs registry.
+// renames) an IPSec connection in Privycs. Two cleanup paths run
+// best-effort: (1) wipe the per-connection .mobileconfig cache and
+// nudge the user toward System Settings → Profiles to remove the
+// Apple-Stack profile (macOS does not allow programmatic profile
+// removal without MDM); (2) ask the helper to drop the swanctl conf
+// + PEMs in case this connection was the PPK-via-swanctl variant.
+// Both paths are no-ops if the corresponding artifacts don't exist,
+// so we always run both — the connection's history (Apple-Stack vs
+// swanctl) isn't reliably tracked across delete-time.
 func macOSDeleteIPSecProfileHint(connName, reason string) {
 	if runtime.GOOS != "darwin" {
 		return
 	}
-	// Best-effort: also wipe the .mobileconfig file from our
-	// per-connection Application Support cache. Harmless if absent.
+	// (1a) Wipe cached .mobileconfig.
 	mcPath := filepath.Join(appDataDir(), connName+".mobileconfig")
 	if err := os.Remove(mcPath); err == nil {
 		log.Printf("IPSec: removed cached %s", mcPath)
 	}
 
+	// (1b) Wipe split-tunnel state file (if a CIDR-bypass run was
+	// active), in case Apple-Stack-with-split-tunnel was the variant.
+	deleteMacOSSplitRouteState(connName)
+
+	// (2) swanctl-managed cleanup via helper. Best-effort — if no
+	// helper, no swanctl conf, no swanctl install, all paths return
+	// silently and the connection-delete still completes.
+	if client := NewHelperClient(); client.IsHelperReachable() {
+		if resp, err := client.SendCommand("ipsec_cleanup", map[string]string{
+			"connection_name": connName,
+		}); err == nil && resp.Success {
+			log.Printf("IPSec: helper swanctl cleanup: %s", resp.Output)
+		}
+	}
+
 	if !isMacOSVPNConfigInstalled(connName) {
-		// Already gone — nothing for the user to do.
+		// No Apple-Stack profile to clean up — nothing for the user to do.
 		return
 	}
 
@@ -380,4 +399,266 @@ func extractMobileConfigRemoteAddress(content string) string {
 // "Replace existing profile" path instead of accumulating duplicates.
 func stableUUID(seed string) string {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("privycs-vpn:"+seed)).String()
+}
+
+// ============================================================================
+// macOS split-tunnel: post-Up CIDR bypass via route(8) through helper
+// ============================================================================
+//
+// Apple's IKEv2 stack does not accept a client-side CIDR bypass list —
+// IncludeAllNetworks toggles full vs server-traffic-selectors but the
+// .sswan profile.SplitTunneling list has no native carrier. We
+// recreate it at the route-table layer: capture the user's pre-VPN
+// default gateway + interface, ask the privileged helper to install
+// host-routes pinning each bypass CIDR to that gateway. The Apple
+// stack's own routes (default/0.0.0.0/1, 128.0.0.0/1 inserted after
+// scutil --nc start) overlap but are LESS specific than our /N
+// bypasses, so longest-prefix-match keeps the bypass traffic on en0.
+//
+// Persistence under appDataDir/<connName>.split-routes.json so a
+// crashed-mid-session Privycs can clean up the leftover routes on
+// next launch.
+
+type macosSplitRouteState struct {
+	ConnName string   `json:"conn_name"`
+	CIDRsV4  []string `json:"cidrs_ipv4,omitempty"`
+	CIDRsV6  []string `json:"cidrs_ipv6,omitempty"`
+}
+
+// defaultRouteIPv4 returns the gateway and exit-interface of the
+// current IPv4 default route. Empty strings on any parse failure or
+// missing route. Mirrors `route -n get default` parsing in-process
+// to avoid one more shell-out.
+func defaultRouteIPv4() (gateway, iface string, err error) {
+	out, runErr := exec.Command("/sbin/route", "-n", "get", "default").Output()
+	if runErr != nil {
+		return "", "", runErr
+	}
+	return parseDefaultRouteOutput(string(out))
+}
+
+// defaultRouteIPv6 returns the gateway and exit-interface of the
+// current IPv6 default route. Empty strings on any parse failure or
+// when there is no IPv6 default. Link-local IPv6 gateways carry the
+// %iface suffix (e.g. fe80::1%en0) which the helper passes verbatim
+// to `route add -inet6`.
+func defaultRouteIPv6() (gateway, iface string, err error) {
+	out, runErr := exec.Command("/sbin/route", "-n", "get", "-inet6", "default").Output()
+	if runErr != nil {
+		return "", "", runErr
+	}
+	return parseDefaultRouteOutput(string(out))
+}
+
+// parseDefaultRouteOutput extracts "gateway: <addr>" and
+// "interface: <ifn>" lines from `route -n get default` output. The
+// format is whitespace-aligned key:value pairs, one per line, and
+// has been stable across macOS versions back to at least 10.10.
+func parseDefaultRouteOutput(out string) (gateway, iface string, err error) {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "gateway:") {
+			gateway = strings.TrimSpace(strings.TrimPrefix(line, "gateway:"))
+		} else if strings.HasPrefix(line, "interface:") {
+			iface = strings.TrimSpace(strings.TrimPrefix(line, "interface:"))
+		}
+	}
+	if gateway == "" || iface == "" {
+		return gateway, iface, fmt.Errorf("default route has no gateway/interface fields")
+	}
+	return gateway, iface, nil
+}
+
+// installMacOSSplitTunnelRoutes drives the helper to add the bypass
+// routes. Best-effort: a missing helper or a route(8) failure logs and
+// notifies the user but does NOT tear down the tunnel — full-tunnel
+// connectivity is preferable to "couldn't add bypass route, refuse to
+// connect".
+func (i *IPSecProtocol) installMacOSSplitTunnelRoutes(gw4, iface4, gw6 string) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	if gw4 == "" {
+		log.Printf("IPSec: split-tunnel skipped — no IPv4 default gateway captured pre-VPN")
+		Notify(
+			"Split-tunnel routes not applied",
+			"Privycs could not capture the LAN default gateway before the tunnel came up. Bypass CIDRs will not be honored this session — disconnect and reconnect with the underlying network already up to retry.",
+			NotifyInfo,
+		)
+		return
+	}
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		log.Printf("IPSec: split-tunnel skipped — privileged helper not reachable")
+		Notify(
+			"Split-tunnel routes not applied",
+			"The privileged helper is not running. Install it from Settings → Privileged Helper to enable client-side CIDR bypass on macOS.",
+			NotifyInfo,
+		)
+		return
+	}
+
+	cidrsV4, cidrsV6 := splitCIDRsByFamily(i.splitTunneling)
+	resp, err := client.SendCommand("ipsec_split_routes_add", map[string]string{
+		"gateway_ipv4": gw4,
+		"gateway_ipv6": gw6,
+		"iface":        iface4,
+		"cidrs_ipv4":   strings.Join(cidrsV4, ","),
+		"cidrs_ipv6":   strings.Join(cidrsV6, ","),
+	})
+	if err != nil || !resp.Success {
+		log.Printf("IPSec: split-tunnel helper add failed: err=%v resp=%+v", err, resp)
+		return
+	}
+	log.Printf("IPSec: split-tunnel %s", resp.Output)
+	persistMacOSSplitRouteState(i.connName, cidrsV4, cidrsV6)
+}
+
+// removeMacOSSplitTunnelRoutes loads the persisted state for connName
+// and asks the helper to delete each route. Idempotent — missing
+// state file or helper failure both no-op (the helper itself ignores
+// "not in table" errors). Always wipes the state file last so we
+// don't accumulate stale entries across sessions.
+func (i *IPSecProtocol) removeMacOSSplitTunnelRoutes() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	state, err := loadMacOSSplitRouteState(i.connName)
+	if err != nil || state == nil {
+		return
+	}
+	client := NewHelperClient()
+	if client.IsHelperReachable() {
+		resp, err := client.SendCommand("ipsec_split_routes_remove", map[string]string{
+			"cidrs_ipv4": strings.Join(state.CIDRsV4, ","),
+			"cidrs_ipv6": strings.Join(state.CIDRsV6, ","),
+		})
+		if err != nil || !resp.Success {
+			log.Printf("IPSec: split-tunnel helper remove failed: err=%v resp=%+v", err, resp)
+		} else {
+			log.Printf("IPSec: split-tunnel %s", resp.Output)
+		}
+	}
+	deleteMacOSSplitRouteState(i.connName)
+}
+
+// splitCIDRsByFamily separates a mixed v4/v6 CIDR list into two
+// per-family slices. Heuristic: presence of ":" → IPv6, else IPv4.
+func splitCIDRsByFamily(cidrs []string) (v4, v6 []string) {
+	for _, c := range cidrs {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if strings.Contains(c, ":") {
+			v6 = append(v6, c)
+		} else {
+			v4 = append(v4, c)
+		}
+	}
+	return
+}
+
+// macosSplitRouteStatePath returns the per-connection JSON path. Same
+// directory as the .sswan / .mobileconfig artifacts so a "scrub user
+// state" UI flow can target a single dir.
+func macosSplitRouteStatePath(connName string) string {
+	return filepath.Join(appDataDir(), connName+".split-routes.json")
+}
+
+func persistMacOSSplitRouteState(connName string, v4, v6 []string) {
+	state := macosSplitRouteState{ConnName: connName, CIDRsV4: v4, CIDRsV6: v6}
+	data, err := json.Marshal(state)
+	if err != nil {
+		log.Printf("IPSec: split-tunnel state marshal failed: %v", err)
+		return
+	}
+	if err := os.WriteFile(macosSplitRouteStatePath(connName), data, 0600); err != nil {
+		log.Printf("IPSec: split-tunnel state write failed: %v", err)
+	}
+}
+
+func loadMacOSSplitRouteState(connName string) (*macosSplitRouteState, error) {
+	data, err := os.ReadFile(macosSplitRouteStatePath(connName))
+	if err != nil {
+		return nil, err
+	}
+	var state macosSplitRouteState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+func deleteMacOSSplitRouteState(connName string) {
+	_ = os.Remove(macosSplitRouteStatePath(connName))
+}
+
+// CleanupMacOSSplitRouteOrphans scans the appDataDir for left-over
+// per-connection split-route state files. Each one represents a
+// connection that was active when Privycs last died (or rebooted). We
+// ask the helper to remove the stale routes and wipe the state file.
+// Called once at app start to keep the route table honest after
+// unclean shutdowns. Also asks the helper to restore any orphan
+// DNS-Override backups (separate state under /var/db/privycs-vpn,
+// helper-only-readable, hence helper-driven).
+func CleanupMacOSSplitRouteOrphans() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	// Helper-driven DNS-orphan-cleanup first. /var/db/privycs-vpn is
+	// root-only so the user-app can't enumerate it directly.
+	if client := NewHelperClient(); client.IsHelperReachable() {
+		if resp, err := client.SendCommand("macos_dns_override_clean", nil); err == nil && resp.Success {
+			if !strings.Contains(resp.Output, "no backup directory") &&
+				!strings.HasPrefix(resp.Output, "restored 0 ") {
+				log.Printf("IPSec: %s", resp.Output)
+			}
+		}
+	}
+
+	entries, err := os.ReadDir(appDataDir())
+	if err != nil {
+		return
+	}
+	client := NewHelperClient()
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".split-routes.json") {
+			continue
+		}
+		fullPath := filepath.Join(appDataDir(), name)
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			_ = os.Remove(fullPath)
+			continue
+		}
+		var state macosSplitRouteState
+		if err := json.Unmarshal(data, &state); err != nil {
+			_ = os.Remove(fullPath)
+			continue
+		}
+		// If the connection is still Connected in scutil, Privycs likely
+		// just got restarted while the OS-level VPN survived. Leave the
+		// state file alone — the next downMacOS cleans it up the normal
+		// way.
+		if isMacOSVPNConfigInstalled(state.ConnName) {
+			out, _ := exec.Command("scutil", "--nc", "status", state.ConnName).CombinedOutput()
+			if strings.Contains(string(out), "Connected") {
+				continue
+			}
+		}
+		log.Printf("IPSec: split-tunnel orphan cleanup for '%s' (%d v4 + %d v6 CIDRs)",
+			state.ConnName, len(state.CIDRsV4), len(state.CIDRsV6))
+		if client.IsHelperReachable() {
+			client.SendCommand("ipsec_split_routes_remove", map[string]string{
+				"cidrs_ipv4": strings.Join(state.CIDRsV4, ","),
+				"cidrs_ipv6": strings.Join(state.CIDRsV6, ","),
+			})
+		}
+		_ = os.Remove(fullPath)
+	}
 }

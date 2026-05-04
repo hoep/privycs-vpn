@@ -187,6 +187,13 @@ func (a *App) startup(ctx context.Context) {
 	// remain and block all traffic.
 	NewKillSwitch().Deactivate()
 
+	// Same idea for macOS-IPSec split-tunnel bypass routes installed
+	// via /sbin/route. A crashed Privycs leaves them in the kernel
+	// route table until reboot — scan our state files and ask the
+	// helper to remove any whose connection is no longer Connected.
+	// No-op on Linux/Windows.
+	CleanupMacOSSplitRouteOrphans()
+
 	// Ensure sudoers is configured for passwordless VPN commands (Linux only, shows pkexec prompt once)
 	ensureSudoers()
 

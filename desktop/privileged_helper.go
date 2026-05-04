@@ -33,17 +33,23 @@ type HelperResponse struct {
 
 // allowedActions is the whitelist of commands the helper will execute.
 var allowedActions = map[string]bool{
-	"connect":               true,
-	"disconnect":            true,
-	"killswitch_enable":     true,
-	"killswitch_disable":    true,
-	"sinkhole_engage":       true, // new system: Privycs-Sinkhole-* rules
-	"sinkhole_release":      true, // new system: Privycs-Sinkhole-* cleanup
-	"status":                true,
-	"wg_install_config":     true,
-	"ipsec_configure":       true,
-	"remove_legacy_sudoers": true,
-	"wlan_ssid":             true, // SSID query (bypasses user-level Location GPO)
+	"connect":                  true,
+	"disconnect":               true,
+	"killswitch_enable":        true,
+	"killswitch_disable":       true,
+	"sinkhole_engage":          true, // new system: Privycs-Sinkhole-* rules
+	"sinkhole_release":         true, // new system: Privycs-Sinkhole-* cleanup
+	"status":                   true,
+	"wg_install_config":        true,
+	"ipsec_configure":          true,
+	"ipsec_cleanup":            true, // wipe swanctl conf.d / PEMs (macOS-Pro)
+	"ipsec_split_routes_add":   true, // macOS post-up CIDR-bypass routes
+	"ipsec_split_routes_remove": true,
+	"macos_dns_override_set":     true, // primary-service DNS override (swanctl-darwin)
+	"macos_dns_override_restore": true,
+	"macos_dns_override_clean":   true, // orphan-cleanup at app startup
+	"remove_legacy_sudoers":    true,
+	"wlan_ssid":                true, // SSID query (bypasses user-level Location GPO)
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.
@@ -273,6 +279,18 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdWGHandshake(cmd)
 	case "ipsec_configure":
 		return h.cmdIPSecConfigure(cmd)
+	case "ipsec_cleanup":
+		return h.cmdIPSecCleanup(cmd)
+	case "ipsec_split_routes_add":
+		return h.cmdIPSecSplitRoutesAdd(cmd)
+	case "ipsec_split_routes_remove":
+		return h.cmdIPSecSplitRoutesRemove(cmd)
+	case "macos_dns_override_set":
+		return h.cmdMacOSDNSOverrideSet(cmd)
+	case "macos_dns_override_restore":
+		return h.cmdMacOSDNSOverrideRestore(cmd)
+	case "macos_dns_override_clean":
+		return h.cmdMacOSDNSOverrideClean(cmd)
 	case "remove_legacy_sudoers":
 		return h.cmdRemoveLegacySudoers(cmd)
 	default:
@@ -594,12 +612,19 @@ func (h *PrivilegedHelper) connectIPSec(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: true, Output: string(out)}
 	}
 
-	out, err := exec.Command("swanctl", "--load-all").CombinedOutput()
+	swanctlBin := "swanctl"
+	if runtime.GOOS == "darwin" {
+		swanctlBin = helperFindMacOSStrongswanBinary("swanctl")
+		if swanctlBin == "" {
+			return HelperResponse{Success: false, Error: "swanctl not found — install via `brew install strongswan`"}
+		}
+	}
+	out, err := exec.Command(swanctlBin, "--load-all").CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --load-all failed: %s", string(out))}
 	}
 
-	out, err = exec.Command("swanctl", "--initiate", "--child", connName).CombinedOutput()
+	out, err = exec.Command(swanctlBin, "--initiate", "--child", connName).CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --initiate failed: %s", string(out)), Output: string(out)}
 	}
@@ -693,14 +718,24 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: true, Output: string(out)}
 	}
 
-	out, err := exec.Command("swanctl", "--terminate", "--ike", connName).CombinedOutput()
+	swanctlBin := "swanctl"
+	if runtime.GOOS == "darwin" {
+		swanctlBin = helperFindMacOSStrongswanBinary("swanctl")
+		if swanctlBin == "" {
+			return HelperResponse{Success: false, Error: "swanctl not found — install via `brew install strongswan`"}
+		}
+	}
+	out, err := exec.Command(swanctlBin, "--terminate", "--ike", connName).CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --terminate failed: %s", string(out)), Output: string(out)}
 	}
-	// DNS override restore. No-op when no override was active
-	// (writeIPSecDnsOverride was never called, no backup exists).
-	if rerr := restoreIPSecDnsOverride(); rerr != nil {
-		log.Printf("ipsec dns override restore failed: %v", rerr)
+	// DNS override restore. Linux-only path — macOS via swanctl does
+	// its own DNS via attribute payloads + scutil, no /etc/resolv.conf
+	// hack needed.
+	if runtime.GOOS == "linux" {
+		if rerr := restoreIPSecDnsOverride(); rerr != nil {
+			log.Printf("ipsec dns override restore failed: %v", rerr)
+		}
 	}
 	return HelperResponse{Success: true, Output: string(out)}
 }
@@ -810,11 +845,18 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 			}
 			return HelperResponse{Success: false, Error: "not connected", Output: string(out)}
 		}
+		swanctlBin := "swanctl"
+		if runtime.GOOS == "darwin" {
+			swanctlBin = helperFindMacOSStrongswanBinary("swanctl")
+			if swanctlBin == "" {
+				return HelperResponse{Success: false, Error: "swanctl not found"}
+			}
+		}
 		args := []string{"--list-sas"}
 		if cmd.Interface != "" {
 			args = append(args, "--ike", cmd.Interface)
 		}
-		out, err := exec.Command("swanctl", args...).CombinedOutput()
+		out, err := exec.Command(swanctlBin, args...).CombinedOutput()
 		if err != nil {
 			return HelperResponse{Success: false, Error: "swanctl not available", Output: string(out)}
 		}
@@ -986,7 +1028,21 @@ func (h *PrivilegedHelper) cmdIPSecConfigure(cmd HelperCommand) HelperResponse {
 	if runtime.GOOS == "windows" {
 		return h.cmdIPSecConfigureWindows(cmd)
 	}
+	// macOS Pro PPK path uses Homebrew strongswan, which compiles in
+	// its etc-dir relative to the brew prefix (/opt/homebrew or
+	// /usr/local). Linux uses the canonical /etc/swanctl. Linux's
+	// `swanctl` binary is on the daemon's PATH; macOS gets the
+	// explicit Homebrew path because launchd runs us with a minimal
+	// PATH that excludes Homebrew dirs.
 	certDir := "/etc/swanctl"
+	swanctlBin := "swanctl"
+	if runtime.GOOS == "darwin" {
+		certDir = helperFindMacOSSwanctlConfDir()
+		swanctlBin = helperFindMacOSStrongswanBinary("swanctl")
+		if swanctlBin == "" {
+			return HelperResponse{Success: false, Error: "swanctl not found — install via `brew install strongswan`"}
+		}
+	}
 	files := []struct {
 		path    string
 		content string
@@ -1008,11 +1064,62 @@ func (h *PrivilegedHelper) cmdIPSecConfigure(cmd HelperCommand) HelperResponse {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("write %s: %v", f.path, err)}
 		}
 	}
-	out, err := exec.Command("swanctl", "--load-all").CombinedOutput()
+	out, err := exec.Command(swanctlBin, "--load-all").CombinedOutput()
 	if err != nil {
-		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --load-all: %s", string(out)), Output: string(out)}
+		// On macOS, the most common cause is "could not connect to
+		// 'unix:///opt/homebrew/var/run/charon.vici': No such file or
+		// directory" — i.e. charon is not running. Surface a friendly
+		// hint instead of the raw error.
+		errMsg := fmt.Sprintf("swanctl --load-all: %s", string(out))
+		if runtime.GOOS == "darwin" && strings.Contains(string(out), "No such file") {
+			errMsg += " (charon is not running — try `brew services start strongswan`)"
+		}
+		return HelperResponse{Success: false, Error: errMsg, Output: string(out)}
 	}
 	return HelperResponse{Success: true, Output: string(out)}
+}
+
+// helperFindMacOSSwanctlConfDir mirrors macosSwanctlConfDir() in
+// protocol_ipsec_macos_swanctl.go but lives helper-side. We do not
+// share code across the helper/client boundary because the helper
+// lacks parts of the client's import graph.
+func helperFindMacOSSwanctlConfDir() string {
+	candidates := []string{
+		"/opt/homebrew/etc/swanctl",
+		"/usr/local/etc/swanctl",
+		"/etc/swanctl",
+	}
+	for _, p := range candidates {
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			return p
+		}
+	}
+	if bin := helperFindMacOSStrongswanBinary("swanctl"); bin != "" {
+		root := filepath.Dir(filepath.Dir(bin))
+		return filepath.Join(root, "etc", "swanctl")
+	}
+	return "/etc/swanctl"
+}
+
+// helperFindMacOSStrongswanBinary mirrors findStrongswanBinary client-side.
+func helperFindMacOSStrongswanBinary(name string) string {
+	candidates := []string{
+		"/opt/homebrew/sbin/" + name,
+		"/opt/homebrew/bin/" + name,
+		"/usr/local/sbin/" + name,
+		"/usr/local/bin/" + name,
+		"/usr/sbin/" + name,
+		"/usr/bin/" + name,
+	}
+	for _, p := range candidates {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+	}
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	return ""
 }
 
 // cmdIPSecConfigureWindows handles the Windows-specific IPSec setup:
@@ -1074,6 +1181,405 @@ Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -Authenticati
 
 // cmdRemoveLegacySudoers removes the legacy /etc/sudoers.d/privycs-vpn NOPASSWD
 // file created by older versions before the helper service existed.
+// cmdIPSecCleanup removes the swanctl-managed config + PEM files for a
+// connection that the user is deleting in Privycs (or removing the
+// IPSec protocol from). Then runs `swanctl --load-all` so charon
+// forgets the connection. macOS-Pro only — Linux uses the Linux
+// cleanup hooks (swanctl --terminate at disconnect time) and Windows
+// uses Remove-VpnConnection.
+//
+// Currently the swanctl conf shape is single-connection per host (one
+// privycs-vpn.conf, one privycs-client.pem). If the user adds support
+// for multiple concurrent IPSec-PPK connections this function needs
+// to track per-connection filenames. That gap is shared with
+// configureMacOSFromSSwanViaSwanctl which writes to the same paths.
+func (h *PrivilegedHelper) cmdIPSecCleanup(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: true, Output: "ipsec_cleanup: no-op on non-darwin"}
+	}
+	certDir := helperFindMacOSSwanctlConfDir()
+	swanctlBin := helperFindMacOSStrongswanBinary("swanctl")
+
+	files := []string{
+		certDir + "/conf.d/privycs-vpn.conf",
+		certDir + "/x509ca/privycs-ca.pem",
+		certDir + "/x509/privycs-client.pem",
+		certDir + "/private/privycs-client.pem",
+	}
+	var removed []string
+	for _, f := range files {
+		if err := os.Remove(f); err == nil {
+			removed = append(removed, filepath.Base(f))
+		}
+	}
+
+	out := fmt.Sprintf("removed %d swanctl files: %s", len(removed), strings.Join(removed, ", "))
+	if swanctlBin != "" {
+		// Best-effort reload so charon drops the in-memory conn config.
+		// Failure here just means charon still knows about the conn
+		// until it's restarted — non-fatal.
+		_, _ = exec.Command(swanctlBin, "--load-all").CombinedOutput()
+	}
+	return HelperResponse{Success: true, Output: out}
+}
+
+// safeCIDRPattern validates a CIDR string. Accepts plain IPv4
+// addresses (32-bit), IPv4 with /N, plain IPv6 hex+colon, and IPv6
+// with /N. Anchors prevent shell-metachar injection — the helper
+// passes these as direct exec.Cmd arguments to route(8) rather than
+// through a shell, but anchored regex is defense-in-depth in case
+// some future caller wraps them.
+var safeCIDRPattern = regexp.MustCompile(`^[0-9a-fA-F:./]+$`)
+
+// safeIPv4GatewayPattern validates a dotted-quad IPv4 gateway.
+var safeIPv4GatewayPattern = regexp.MustCompile(`^[0-9.]+$`)
+
+// cmdIPSecSplitRoutesAdd installs per-CIDR bypass routes after the
+// macOS NEVPNProtocolIKEv2 stack has brought a tunnel up. The Apple
+// IKE stack honors only IncludeAllNetworks at the policy level — it
+// has no API to express a CIDR-list of bypass destinations. We
+// install the bypass at the BSD route-table layer instead: each CIDR
+// gets a host route through the user's pre-VPN default gateway, so
+// packets to those destinations exit via en0/en1 (LAN/Ethernet)
+// instead of the utun.
+//
+// macOS-only. On Linux/Windows the protocol-handler injects bypasses
+// at the protocol layer (wg AllowedIPs, openvpn route-nopull, swanctl
+// traffic-selectors), so this command is never invoked there.
+func (h *PrivilegedHelper) cmdIPSecSplitRoutesAdd(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: false, Error: "ipsec_split_routes_add: darwin-only"}
+	}
+	gw := strings.TrimSpace(cmd.Args["gateway_ipv4"])
+	if gw == "" {
+		return HelperResponse{Success: false, Error: "gateway_ipv4 required"}
+	}
+	if !safeIPv4GatewayPattern.MatchString(gw) {
+		return HelperResponse{Success: false, Error: "invalid gateway_ipv4"}
+	}
+	cidrsV4 := splitNonEmpty(cmd.Args["cidrs_ipv4"], ",")
+	cidrsV6 := splitNonEmpty(cmd.Args["cidrs_ipv6"], ",")
+	gwV6 := strings.TrimSpace(cmd.Args["gateway_ipv6"]) // optional, may be empty
+
+	var added, failed []string
+	for _, c := range cidrsV4 {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if !safeCIDRPattern.MatchString(c) {
+			failed = append(failed, c+" (invalid CIDR)")
+			continue
+		}
+		out, err := exec.Command("/sbin/route", "-n", "add", "-net", c, gw).CombinedOutput()
+		if err != nil && !strings.Contains(string(out), "File exists") {
+			failed = append(failed, fmt.Sprintf("%s (%v: %s)", c, err, strings.TrimSpace(string(out))))
+			continue
+		}
+		added = append(added, c)
+	}
+	for _, c := range cidrsV6 {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if !safeCIDRPattern.MatchString(c) {
+			failed = append(failed, c+" (invalid CIDR)")
+			continue
+		}
+		// IPv6 needs either an explicit gateway (link-local with %iface
+		// suffix) or -interface form. We use whichever was supplied.
+		args := []string{"-n", "add", "-inet6", c}
+		if gwV6 != "" && safeCIDRPattern.MatchString(gwV6) {
+			args = append(args, gwV6)
+		} else {
+			// Skip silently when the caller couldn't determine an IPv6
+			// gateway — better no IPv6 bypass than a broken route.
+			continue
+		}
+		out, err := exec.Command("/sbin/route", args...).CombinedOutput()
+		if err != nil && !strings.Contains(string(out), "File exists") {
+			failed = append(failed, fmt.Sprintf("%s (%v: %s)", c, err, strings.TrimSpace(string(out))))
+			continue
+		}
+		added = append(added, c)
+	}
+
+	out := fmt.Sprintf("added %d route(s): %s", len(added), strings.Join(added, " "))
+	if len(failed) > 0 {
+		out += fmt.Sprintf("; %d failed: %s", len(failed), strings.Join(failed, ", "))
+	}
+	return HelperResponse{Success: true, Output: out}
+}
+
+// cmdIPSecSplitRoutesRemove deletes the per-CIDR bypass routes that
+// cmdIPSecSplitRoutesAdd installed. Idempotent — "route delete" of a
+// non-existent route logs but does not fail the request.
+func (h *PrivilegedHelper) cmdIPSecSplitRoutesRemove(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: false, Error: "ipsec_split_routes_remove: darwin-only"}
+	}
+	cidrsV4 := splitNonEmpty(cmd.Args["cidrs_ipv4"], ",")
+	cidrsV6 := splitNonEmpty(cmd.Args["cidrs_ipv6"], ",")
+
+	var removed, failed []string
+	for _, c := range cidrsV4 {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if !safeCIDRPattern.MatchString(c) {
+			failed = append(failed, c+" (invalid CIDR)")
+			continue
+		}
+		out, err := exec.Command("/sbin/route", "-n", "delete", "-net", c).CombinedOutput()
+		if err != nil && !strings.Contains(string(out), "not in table") {
+			failed = append(failed, fmt.Sprintf("%s (%v: %s)", c, err, strings.TrimSpace(string(out))))
+			continue
+		}
+		removed = append(removed, c)
+	}
+	for _, c := range cidrsV6 {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if !safeCIDRPattern.MatchString(c) {
+			failed = append(failed, c+" (invalid CIDR)")
+			continue
+		}
+		out, err := exec.Command("/sbin/route", "-n", "delete", "-inet6", c).CombinedOutput()
+		if err != nil && !strings.Contains(string(out), "not in table") {
+			failed = append(failed, fmt.Sprintf("%s (%v: %s)", c, err, strings.TrimSpace(string(out))))
+			continue
+		}
+		removed = append(removed, c)
+	}
+
+	out := fmt.Sprintf("removed %d route(s): %s", len(removed), strings.Join(removed, " "))
+	if len(failed) > 0 {
+		out += fmt.Sprintf("; %d failed: %s", len(failed), strings.Join(failed, ", "))
+	}
+	return HelperResponse{Success: true, Output: out}
+}
+
+// cmdMacOSDNSOverrideSet applies the user's DNS-Override on macOS by
+// pointing the primary network service at the override list and
+// backing up the previous DNS so cmdMacOSDNSOverrideRestore can revert
+// on disconnect.
+//
+// Why primary-service rather than per-VPN-tunnel: the swanctl path on
+// macOS-Pro does NOT register a NEPacketTunnel (that would require
+// MAS-style Network-Extension entitlements). Without one, macOS's
+// resolver does not know about the IPSec SA's logical existence —
+// DNS lookups go through the system resolver as if there were no VPN.
+// Setting the primary network service's DNS via networksetup is the
+// system-wide override knob that propagates to every resolver pass.
+//
+// Backup is persisted under /var/db/privycs-vpn/<connName>-dns-backup
+// so a crashed Privycs can restore it on next launch (handled by
+// CleanupMacOSSplitRouteOrphans + a similar DNS-orphan check).
+func (h *PrivilegedHelper) cmdMacOSDNSOverrideSet(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: true, Output: "macos_dns_override_set: no-op on non-darwin"}
+	}
+	connName := cmd.Args["connection_name"]
+	if connName == "" {
+		return HelperResponse{Success: false, Error: "connection_name required"}
+	}
+	dnsList := cmd.Args["dns_servers"]
+	if dnsList == "" {
+		return HelperResponse{Success: false, Error: "dns_servers required"}
+	}
+
+	svc := findMacOSPrimaryNetworkService()
+	if svc == "" {
+		return HelperResponse{Success: false, Error: "no primary network service detected"}
+	}
+
+	// Snapshot current DNS for restore.
+	curOut, _ := exec.Command("networksetup", "-getdnsservers", svc).CombinedOutput()
+	current := strings.TrimSpace(string(curOut))
+	// "There aren't any DNS servers set on Wi-Fi." → use the literal
+	// "Empty" sentinel networksetup expects to clear back to DHCP.
+	if strings.Contains(current, "aren't any") {
+		current = "Empty"
+	}
+	if err := persistDNSOverrideBackup(connName, svc, current); err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("backup write: %v", err)}
+	}
+
+	// Apply override. networksetup wants a positional arg list —
+	// dns_servers comes in space-separated.
+	servers := strings.Fields(dnsList)
+	args := append([]string{"-setdnsservers", svc}, servers...)
+	if out, err := exec.Command("networksetup", args...).CombinedOutput(); err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("networksetup -setdnsservers: %s", string(out))}
+	}
+	log.Printf("DNS override (macOS swanctl): primary-service=%q dns=%s", svc, dnsList)
+	return HelperResponse{Success: true, Output: fmt.Sprintf("DNS override applied to %q", svc)}
+}
+
+// cmdMacOSDNSOverrideRestore reads the per-connection backup and
+// restores the previous DNS settings. Idempotent — missing backup or
+// a no-longer-existing primary service both treat as a clean exit.
+func (h *PrivilegedHelper) cmdMacOSDNSOverrideRestore(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: true, Output: "macos_dns_override_restore: no-op on non-darwin"}
+	}
+	connName := cmd.Args["connection_name"]
+	if connName == "" {
+		return HelperResponse{Success: false, Error: "connection_name required"}
+	}
+	svc, prev, err := loadDNSOverrideBackup(connName)
+	if err != nil {
+		// No backup = no override was active; non-error.
+		return HelperResponse{Success: true, Output: "no backup to restore"}
+	}
+
+	// Reapply previous state. "Empty" tells networksetup to clear
+	// back to DHCP-provided DNS.
+	args := []string{"-setdnsservers", svc}
+	if strings.TrimSpace(prev) == "Empty" || strings.TrimSpace(prev) == "" {
+		args = append(args, "Empty")
+	} else {
+		args = append(args, strings.Fields(prev)...)
+	}
+	if out, err := exec.Command("networksetup", args...).CombinedOutput(); err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("networksetup restore: %s", string(out))}
+	}
+	deleteDNSOverrideBackup(connName)
+	log.Printf("DNS override restored: service=%q prev=%s", svc, strings.TrimSpace(prev))
+	return HelperResponse{Success: true, Output: fmt.Sprintf("DNS restored on %q", svc)}
+}
+
+// findMacOSPrimaryNetworkService returns the user-facing service name
+// (e.g. "Wi-Fi", "Ethernet") whose interface carries the IPv4 default
+// route. Maps `route -n get default` interface output through
+// `networksetup -listallhardwareports` (Hardware Port + Device pairs).
+// Returns empty string when no default route or no matching service.
+func findMacOSPrimaryNetworkService() string {
+	out, err := exec.Command("/sbin/route", "-n", "get", "default").Output()
+	if err != nil {
+		return ""
+	}
+	var iface string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "interface:") {
+			iface = strings.TrimSpace(strings.TrimPrefix(line, "interface:"))
+		}
+	}
+	if iface == "" {
+		return ""
+	}
+	out, err = exec.Command("networksetup", "-listallhardwareports").Output()
+	if err != nil {
+		return ""
+	}
+	var currentService string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Hardware Port:") {
+			currentService = strings.TrimSpace(strings.TrimPrefix(line, "Hardware Port:"))
+		} else if strings.HasPrefix(line, "Device:") {
+			device := strings.TrimSpace(strings.TrimPrefix(line, "Device:"))
+			if device == iface {
+				return currentService
+			}
+		}
+	}
+	return ""
+}
+
+const macosDNSBackupDir = "/var/db/privycs-vpn"
+
+func dnsBackupPath(connName string) string {
+	return filepath.Join(macosDNSBackupDir, connName+"-dns-backup.txt")
+}
+
+// persistDNSOverrideBackup writes "<service>\n<dns>\n" so the restore
+// path can split-on-first-newline. networksetup output for the dns
+// list is whitespace-separated IPs, harmless to keep verbatim.
+func persistDNSOverrideBackup(connName, service, current string) error {
+	if err := os.MkdirAll(macosDNSBackupDir, 0700); err != nil {
+		return err
+	}
+	body := service + "\n" + current
+	return os.WriteFile(dnsBackupPath(connName), []byte(body), 0600)
+}
+
+func loadDNSOverrideBackup(connName string) (service, prevDNS string, err error) {
+	data, rErr := os.ReadFile(dnsBackupPath(connName))
+	if rErr != nil {
+		return "", "", rErr
+	}
+	parts := strings.SplitN(string(data), "\n", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("malformed backup")
+	}
+	return parts[0], parts[1], nil
+}
+
+func deleteDNSOverrideBackup(connName string) {
+	_ = os.Remove(dnsBackupPath(connName))
+}
+
+// cmdMacOSDNSOverrideClean restores every DNS-Override backup found
+// in /var/db/privycs-vpn. Called once at app start so a previous
+// crash that left the primary network service pointing at a
+// VPN-only DNS resolver doesn't strand the user offline. Idempotent —
+// a clean state directory is a fast no-op.
+func (h *PrivilegedHelper) cmdMacOSDNSOverrideClean(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: true, Output: "macos_dns_override_clean: no-op on non-darwin"}
+	}
+	entries, err := os.ReadDir(macosDNSBackupDir)
+	if err != nil {
+		// Directory does not exist = no orphans.
+		return HelperResponse{Success: true, Output: "no backup directory"}
+	}
+	var restored []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "-dns-backup.txt") {
+			continue
+		}
+		connName := strings.TrimSuffix(e.Name(), "-dns-backup.txt")
+		svc, prev, lErr := loadDNSOverrideBackup(connName)
+		if lErr != nil {
+			_ = os.Remove(filepath.Join(macosDNSBackupDir, e.Name()))
+			continue
+		}
+		args := []string{"-setdnsservers", svc}
+		if strings.TrimSpace(prev) == "Empty" || strings.TrimSpace(prev) == "" {
+			args = append(args, "Empty")
+		} else {
+			args = append(args, strings.Fields(prev)...)
+		}
+		_, _ = exec.Command("networksetup", args...).CombinedOutput()
+		deleteDNSOverrideBackup(connName)
+		restored = append(restored, connName)
+	}
+	return HelperResponse{Success: true, Output: fmt.Sprintf("restored %d orphan DNS backup(s): %s",
+		len(restored), strings.Join(restored, ","))}
+}
+
+// splitNonEmpty splits s by sep and drops empty fragments. Returns
+// nil for an empty input so callers can range over it safely.
+func splitNonEmpty(s, sep string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, sep)
+	out := parts[:0]
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (h *PrivilegedHelper) cmdRemoveLegacySudoers(cmd HelperCommand) HelperResponse {
 	legacy := "/etc/sudoers.d/privycs-vpn"
 	if _, err := os.Stat(legacy); err != nil {
