@@ -107,9 +107,17 @@ Requires Go 1.23+, Node.js 20+, Wails v2 CLI. Platform-specific deps: GTK3 + Web
 ### Android
 ```bash
 cd android
+
+# One-time submodule prep: autogen strongSwan, build OpenSSL,
+# apply Privycs vendor patches. Re-run after every `git submodule
+# update` (submodule WT gets reset and patches need re-applying).
+ANDROID_NDK_ROOT=/path/to/ndk ./scripts/prepare-strongswan.sh
+
 ./gradlew assembleDebug
 ```
-Requires Android Studio Iguana+, Android SDK 34, JDK 17.
+Requires Android Studio Iguana+, Android SDK 34, JDK 17, NDK 27.3.13750724.
+Vendor-patch workflow is documented in
+[`android/vendor/strongswan-patches/README.md`](android/vendor/strongswan-patches/README.md).
 
 ### iOS *(planned)*
 SwiftUI app with Network Extension. WireGuardKit + native NEVPNProtocolIKEv2. OpenVPN initially excluded — the available open-source iOS wrapper (`OpenVPNAdapter`) is AGPL-3.0, which would force the entire Privycs iOS app to be AGPL'd (compliance risk for a paid Pro tier). The commercial OpenVPN SDK license ($500–2000/year) economically justifies adding it only when iOS-specific OpenVPN demand is significant. Other App Store apps that ship OpenVPN (NordVPN, ExpressVPN, OpenVPN Connect official) either pay for the commercial SDK or are already AGPL/own-IP — their path is open to us, just not in v1.
