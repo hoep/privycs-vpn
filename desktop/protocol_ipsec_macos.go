@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -155,7 +156,60 @@ type macosMobileConfigData struct {
 // .sswan profile and hands it to macOS for user-approved install.
 // Idempotent: if scutil already lists a VPN with this name, the install
 // step is skipped (re-import does not re-prompt the user).
+//
+// Two source flows:
+//   - .sswan carries macos_signed_profile (Privycs gateway >= v0.8.1.179):
+//     write the server-signed bytes directly. System Settings shows
+//     "Verified" on install.
+//   - No signed profile: render the local Apple-template ourselves.
+//     System Settings shows "Unsigned"; user has to override the
+//     warning. Functionally identical tunnel.
 func (i *IPSecProtocol) configureMacOSFromSSwan(profile *sswanProfile) error {
+	// Fast-path: server gave us a signed .mobileconfig. Skip the
+	// local template render entirely so the gateway-side fields
+	// (DoT, OnDemand rules, CA payload, etc) all flow through and
+	// the install dialog reads "Verified".
+	if profile.MacOSSignedProfile != "" {
+		return i.installSignedMacOSMobileConfig(profile)
+	}
+	return i.installUnsignedMacOSMobileConfig(profile)
+}
+
+// installSignedMacOSMobileConfig writes the gateway-emitted, S/MIME
+// signed .mobileconfig blob and hands it to System Settings. We do
+// not re-encode or re-render — the bytes go to disk verbatim so the
+// signature stays valid.
+func (i *IPSecProtocol) installSignedMacOSMobileConfig(profile *sswanProfile) error {
+	signed, err := base64.StdEncoding.DecodeString(profile.MacOSSignedProfile)
+	if err != nil {
+		log.Printf("IPSec: macos_signed_profile base64 decode failed (%v) — falling back to unsigned generation", err)
+		return i.installUnsignedMacOSMobileConfig(profile)
+	}
+	mcPath := filepath.Join(appDataDir(), i.connName+".mobileconfig")
+	if err := os.WriteFile(mcPath, signed, 0600); err != nil {
+		return fmt.Errorf("write signed mobileconfig: %w", err)
+	}
+	log.Printf("IPSec: wrote %d-byte signed mobileconfig to %s", len(signed), mcPath)
+
+	if isMacOSVPNConfigInstalled(i.connName) {
+		log.Printf("IPSec: macOS VPN config '%s' already installed, skipping open() prompt", i.connName)
+		i.configured = true
+		return nil
+	}
+
+	log.Printf("IPSec: opening macOS profile install dialog (signed) for %s", i.connName)
+	if err := exec.Command("open", mcPath).Run(); err != nil {
+		return fmt.Errorf("open mobileconfig install dialog: %w", err)
+	}
+	i.configured = true
+	return nil
+}
+
+// installUnsignedMacOSMobileConfig is the original Phase-1 path:
+// render the local Apple-IKE-stack template and open it. Used when
+// the .sswan came from a server that does not embed a signed profile
+// (older Privycs gateway, non-Privycs strongSwan).
+func (i *IPSecProtocol) installUnsignedMacOSMobileConfig(profile *sswanProfile) error {
 	password := profile.Local.P12Password
 	if password == "" {
 		// Privycs-default mirrors the Windows fallback in
@@ -237,15 +291,50 @@ func (i *IPSecProtocol) configureMacOSFromSSwan(profile *sswanProfile) error {
 }
 
 // isMacOSVPNConfigInstalled returns true when `scutil --nc list` shows
-// a VPN service whose name matches connName. Quote-handling mirrors
-// scutil's output format (it surrounds names with double quotes).
+// a VPN service whose name matches connName. We accept both quoted
+// ("Name") and unquoted (Name) forms because scutil --nc list output
+// has wandered between macOS releases — Sequoia uses quotes, Sonoma
+// occasionally drops them, profiles installed via the new System
+// Settings sometimes show without quotes at all. Word-boundary check
+// (preceding/following whitespace, end-of-line, or the trailing
+// `[IPSec]`/`[IKEv2]` token) keeps false-positive risk low even
+// without quotes.
 func isMacOSVPNConfigInstalled(connName string) bool {
 	out, err := exec.Command("scutil", "--nc", "list").CombinedOutput()
 	if err != nil {
 		return false
 	}
-	needle := `"` + connName + `"`
-	return strings.Contains(string(out), needle)
+	output := string(out)
+	// Quoted form: the canonical pre-Sonoma layout.
+	if strings.Contains(output, `"`+connName+`"`) {
+		return true
+	}
+	// Unquoted form: scan line by line and accept when the trimmed
+	// line ends with the conn name OR contains it surrounded by
+	// whitespace / brackets. Generic Contains() would false-positive
+	// on UUID hex digits that happen to spell short names.
+	for _, line := range strings.Split(output, "\n") {
+		// scutil --nc list line shape (any version):
+		//   * (State) UUID  Type : Name [Type]
+		// We split off the colon-separated tail and match the name
+		// portion against connName ignoring surrounding spaces and
+		// any trailing [Type] tag.
+		colon := strings.Index(line, ":")
+		if colon < 0 {
+			continue
+		}
+		tail := strings.TrimSpace(line[colon+1:])
+		// Strip optional trailing tag like " [IPSec]" / " [IKEv2]".
+		if br := strings.LastIndex(tail, " ["); br > 0 {
+			tail = strings.TrimSpace(tail[:br])
+		}
+		// Strip surrounding double-quotes if still present.
+		tail = strings.Trim(tail, `"`)
+		if tail == connName {
+			return true
+		}
+	}
+	return false
 }
 
 // configureMacOSFromMobileConfig accepts a pre-built Apple Configuration

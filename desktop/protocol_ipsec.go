@@ -280,6 +280,16 @@ type sswanProfile struct {
 	// cert-only auth on macOS unless Homebrew strongswan is present.
 	PPKID  string `json:"ppk_id,omitempty"`
 	PPKPSK string `json:"ppk_psk,omitempty"`
+	// MacOSSignedProfile is a base64-encoded, S/MIME-signed Apple
+	// .mobileconfig built server-side and embedded inline in the
+	// .sswan. When populated AND the local platform is macOS, the
+	// configureMacOSFromSSwan path writes the signed bytes directly
+	// instead of generating an unsigned variant — System Settings
+	// then shows "Verified" on install. Empty for .sswan files that
+	// originate from a non-Privycs strongSwan server (no signing
+	// cert) or older Privycs gateways (pre-v0.8.1.179): client falls
+	// back to local generation in that case.
+	MacOSSignedProfile string `json:"macos_signed_profile,omitempty"`
 }
 
 func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
