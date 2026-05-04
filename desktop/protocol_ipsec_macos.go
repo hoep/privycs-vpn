@@ -179,6 +179,17 @@ func (i *IPSecProtocol) configureMacOSFromSSwan(profile *sswanProfile) error {
 // signed .mobileconfig blob and hands it to System Settings. We do
 // not re-encode or re-render — the bytes go to disk verbatim so the
 // signature stays valid.
+//
+// Idempotency: Configure() runs on every IPSec pill-click in the
+// frontend. We don't want a System Settings dialog to pop up each
+// time. Three short-circuit checks, in order:
+//   1. Cached file on disk has identical bytes -> skip dialog,
+//      profile content didn't change.
+//   2. scutil --nc list / profiles -L show our connection installed
+//      -> skip dialog, system already has the profile (the file
+//      content might have changed but the OS-side state is fine).
+//   3. None of the above -> open the dialog so the user can finalise
+//      the install (the only path that pops System Settings).
 func (i *IPSecProtocol) installSignedMacOSMobileConfig(profile *sswanProfile) error {
 	signed, err := base64.StdEncoding.DecodeString(profile.MacOSSignedProfile)
 	if err != nil {
@@ -186,13 +197,27 @@ func (i *IPSecProtocol) installSignedMacOSMobileConfig(profile *sswanProfile) er
 		return i.installUnsignedMacOSMobileConfig(profile)
 	}
 	mcPath := filepath.Join(appDataDir(), i.connName+".mobileconfig")
+
+	// Short-circuit 1: cached bytes already match the new payload.
+	if existing, rerr := os.ReadFile(mcPath); rerr == nil && bytes.Equal(existing, signed) {
+		log.Printf("IPSec: signed mobileconfig already cached for %s, skipping install dialog", i.connName)
+		i.configured = true
+		return nil
+	}
+
 	if err := os.WriteFile(mcPath, signed, 0600); err != nil {
 		return fmt.Errorf("write signed mobileconfig: %w", err)
 	}
 	log.Printf("IPSec: wrote %d-byte signed mobileconfig to %s", len(signed), mcPath)
 
+	// Short-circuit 2: profile already installed at OS level. We may
+	// have refreshed the disk cache (rotation, manual edit) but the
+	// VPN service in System Settings is still the prior version.
+	// Apple-Stack rejects re-install of the same PayloadIdentifier
+	// without an explicit replace prompt; better not to fire one
+	// implicitly on every pill click.
 	if isMacOSVPNConfigInstalled(i.connName) {
-		log.Printf("IPSec: macOS VPN config '%s' already installed, skipping open() prompt", i.connName)
+		log.Printf("IPSec: macOS VPN config '%s' already installed (scutil/profiles -L), skipping install dialog", i.connName)
 		i.configured = true
 		return nil
 	}
@@ -266,6 +291,16 @@ func (i *IPSecProtocol) installUnsignedMacOSMobileConfig(profile *sswanProfile) 
 	}
 
 	mcPath := filepath.Join(appDataDir(), i.connName+".mobileconfig")
+
+	// Short-circuit 1: cached bytes already match the rendered
+	// payload. Configure() runs on every IPSec pill-click; without
+	// this check the System Settings dialog opens every time.
+	if existing, rerr := os.ReadFile(mcPath); rerr == nil && bytes.Equal(existing, buf.Bytes()) {
+		log.Printf("IPSec: unsigned mobileconfig already cached for %s, skipping install dialog", i.connName)
+		i.configured = true
+		return nil
+	}
+
 	if err := os.WriteFile(mcPath, buf.Bytes(), 0600); err != nil {
 		return fmt.Errorf("write mobileconfig: %w", err)
 	}
@@ -290,45 +325,63 @@ func (i *IPSecProtocol) installUnsignedMacOSMobileConfig(profile *sswanProfile) 
 	return nil
 }
 
-// isMacOSVPNConfigInstalled returns true when `scutil --nc list` shows
-// a VPN service whose name matches connName. We accept both quoted
-// ("Name") and unquoted (Name) forms because scutil --nc list output
-// has wandered between macOS releases — Sequoia uses quotes, Sonoma
-// occasionally drops them, profiles installed via the new System
-// Settings sometimes show without quotes at all. Word-boundary check
-// (preceding/following whitespace, end-of-line, or the trailing
-// `[IPSec]`/`[IKEv2]` token) keeps false-positive risk low even
-// without quotes.
+// isMacOSVPNConfigInstalled returns true when the macOS profile store
+// shows our VPN service. Two detection sources, OR'd, because Apple
+// has shuffled the relevant tooling layouts across recent releases
+// and a single source has been brittle in practice:
+//
+//   1. `scutil --nc list` — historical canonical source. Output
+//      format varies (quoted vs unquoted name, trailing [IPSec]
+//      vs [IKEv2] tag, profile-bundle-installed entries that
+//      show under the `Configuration Profile` type instead of
+//      `IPSec` on Sonoma+).
+//   2. `profiles -L` — lists every installed configuration profile
+//      including those whose VPN payload didn't surface in scutil
+//      for whatever per-version reason. Deprecated for MDM use but
+//      still works for user-installed profiles on Sequoia.
+//
+// A miss in BOTH sources logs a one-shot diagnostic dump so we can
+// spot future format drifts without users having to manually run
+// the tools.
 func isMacOSVPNConfigInstalled(connName string) bool {
-	out, err := exec.Command("scutil", "--nc", "list").CombinedOutput()
-	if err != nil {
-		return false
+	scutilOut, scutilErr := exec.Command("scutil", "--nc", "list").CombinedOutput()
+	if scutilErr == nil && scutilMatchesConnName(string(scutilOut), connName) {
+		return true
 	}
-	output := string(out)
-	// Quoted form: the canonical pre-Sonoma layout.
+	profOut, profErr := exec.Command("profiles", "-L").CombinedOutput()
+	if profErr == nil && strings.Contains(string(profOut), connName) {
+		return true
+	}
+	// Both detection sources failed. Dump them once so the user can
+	// share the actual format with us — we'd rather see real output
+	// than speculate. Goes through the regular log file the user
+	// already tails.
+	log.Printf("isMacOSVPNConfigInstalled(%q): both detection sources reported absent. "+
+		"scutil err=%v output:\n%s\nprofiles -L err=%v output:\n%s",
+		connName, scutilErr, strings.TrimSpace(string(scutilOut)),
+		profErr, strings.TrimSpace(string(profOut)))
+	return false
+}
+
+// scutilMatchesConnName checks scutil --nc list output for a VPN
+// entry whose name matches connName. Accepts the quoted form
+// ("Name") that pre-Sonoma scutil emits AND the unquoted form on
+// recent System-Settings-installed profiles. Per-line walk so we
+// don't false-positive on UUID hex strings that happen to spell
+// short names.
+func scutilMatchesConnName(output, connName string) bool {
 	if strings.Contains(output, `"`+connName+`"`) {
 		return true
 	}
-	// Unquoted form: scan line by line and accept when the trimmed
-	// line ends with the conn name OR contains it surrounded by
-	// whitespace / brackets. Generic Contains() would false-positive
-	// on UUID hex digits that happen to spell short names.
 	for _, line := range strings.Split(output, "\n") {
-		// scutil --nc list line shape (any version):
-		//   * (State) UUID  Type : Name [Type]
-		// We split off the colon-separated tail and match the name
-		// portion against connName ignoring surrounding spaces and
-		// any trailing [Type] tag.
 		colon := strings.Index(line, ":")
 		if colon < 0 {
 			continue
 		}
 		tail := strings.TrimSpace(line[colon+1:])
-		// Strip optional trailing tag like " [IPSec]" / " [IKEv2]".
 		if br := strings.LastIndex(tail, " ["); br > 0 {
 			tail = strings.TrimSpace(tail[:br])
 		}
-		// Strip surrounding double-quotes if still present.
 		tail = strings.Trim(tail, `"`)
 		if tail == connName {
 			return true
