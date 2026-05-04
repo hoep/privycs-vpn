@@ -160,8 +160,14 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			}
 			break
 		}
-		out, err := execHidden("scutil", "--nc", "status", i.connName).CombinedOutput()
-		if err == nil && strings.Contains(string(out), "Connected") {
+		// scutil --nc status is blind to NEConfigurationManager-managed
+		// IPSec services on Sonoma+ (the modern macOS VPN framework
+		// runs alongside the legacy SystemConfiguration store that
+		// scutil reads, without the cross-bridge that pre-13 macOS
+		// used to populate). AppleScript / System Events talks to the
+		// modern path directly. See macOSVPNStatus for the fallback
+		// chain when AppleScript isn't reachable (TCC denied, etc).
+		if macOSVPNIsConnected(i.connName) {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
 		}
@@ -609,31 +615,38 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 		return i.upMacOSViaSwanctl(ctx)
 	}
 
-	// scutil --nc start silently no-ops (exit 0, no output) when the
-	// named service is not installed in System Settings. Without a
-	// pre-flight check the UI reports "connecting..." then "not
-	// connected" with no clue why. Surface a clear error pointing at
-	// the install dialog instead.
-	if !isMacOSVPNConfigInstalled(i.connName) {
+	// Pre-flight via AppleScript / System Events. scutil --nc list /
+	// show / start are blind to NEConfigurationManager-managed VPNs
+	// on Sonoma+ — the legacy SystemConfiguration framework no longer
+	// gets cross-populated when a profile installs a VPN payload, so
+	// scutil reports "no service" even when System Settings → Network
+	// shows the VPN as a normal entry. AppleScript talks to the modern
+	// path directly via System Events.
+	exists, existsErr := macOSVPNExists(i.connName)
+	if existsErr != nil {
 		return fmt.Errorf(
-			"VPN profile '%s' not installed in System Settings — "+
-				"approve the profile install dialog (System Settings → "+
-				"Privacy & Security → Profiles), then retry",
+			"AppleScript / System Events check failed (%v) — open System Settings → Privacy & Security → Automation, allow Privycs VPN to control System Events, then retry",
+			existsErr,
+		)
+	}
+	if !exists {
+		return fmt.Errorf(
+			"VPN profile '%s' not registered in System Settings → Network — approve the profile install dialog (System Settings → General → Device Management or Privacy & Security → Profiles), then retry",
 			i.connName,
 		)
 	}
+
 	// Pre-Up snapshot of the current default route. We need this BEFORE
-	// scutil --nc start because Apple's IKEv2 stack rewrites the default
-	// route to point at the utun once the tunnel comes up, at which point
+	// the VPN comes up because Apple's IKEv2 stack rewrites the default
+	// route to point at the utun once the tunnel is up, at which point
 	// "what was my LAN gateway?" becomes unanswerable. Best-effort: if
-	// the snapshot fails (no internet, weird routing table) we still
-	// bring the tunnel up, just without split-tunneling.
+	// the snapshot fails we still bring the tunnel up, just without
+	// split-tunneling.
 	gw4, iface4, _ := defaultRouteIPv4()
 	gw6, _, _ := defaultRouteIPv6()
 
-	out, err := execHiddenContext(ctx, "scutil", "--nc", "start", i.connName).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("scutil start failed: %s: %w", string(out), err)
+	if err := macOSVPNConnect(i.connName); err != nil {
+		return fmt.Errorf("AppleScript connect failed: %w", err)
 	}
 	i.connectedAt = time.Now()
 
@@ -654,11 +667,13 @@ func (i *IPSecProtocol) downMacOS(ctx context.Context) error {
 	if i.usingSwanctl {
 		return i.downMacOSViaSwanctl(ctx)
 	}
-	// Remove our bypass routes BEFORE scutil --nc stop so the route(8)
-	// calls still reference real interfaces. Reversed order would race
-	// against the Apple stack's own route teardown.
+	// Remove our bypass routes BEFORE the VPN tear-down so the
+	// route(8) calls still reference real interfaces. Reversed order
+	// races against Apple's own route teardown.
 	i.removeMacOSSplitTunnelRoutes()
-	execHiddenContext(ctx, "scutil", "--nc", "stop", i.connName).Run()
+	if err := macOSVPNDisconnect(i.connName); err != nil {
+		log.Printf("IPSec: AppleScript disconnect for %q returned: %v", i.connName, err)
+	}
 	i.connectedAt = time.Time{}
 	return nil
 }

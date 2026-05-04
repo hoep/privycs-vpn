@@ -544,6 +544,103 @@ func stableUUID(seed string) string {
 }
 
 // ============================================================================
+// AppleScript / System Events bridge to NEConfigurationManager VPNs
+// ============================================================================
+//
+// macOS Sonoma+ stopped cross-populating profile-installed VPNs into
+// the legacy SystemConfiguration store, so `scutil --nc list/show/
+// start/stop` is blind to them. The VPN nevertheless registers
+// correctly with NEConfigurationManager and shows up in System
+// Settings → Network. AppleScript / System Events still has the
+// legacy network-preferences object that talks to the modern path,
+// so we drive connect/disconnect/exists/connected via osascript.
+//
+// First call from a process triggers the macOS TCC consent dialog
+// "<App> would like to control 'System Events.app'". The user
+// approves once; from then on every osascript call works without
+// further prompt. For the Privycs Mac App Store variant the same
+// transaction goes through automatically when the
+// `com.apple.security.automation.apple-events` entitlement is
+// present together with the `com.apple.systemevents` temporary
+// exception list.
+
+// macOSVPNExists asks System Events whether the named VPN service is
+// registered in the user's current network preferences. Returns
+// (false, nil) when the script ran successfully but said the service
+// is missing; (false, err) when osascript itself failed (most
+// commonly TCC denied).
+func macOSVPNExists(name string) (bool, error) {
+	script := fmt.Sprintf(
+		`tell application "System Events" to tell current location of network preferences to exists service %q`,
+		name,
+	)
+	out, err := exec.Command("osascript", "-e", script).Output()
+	if err != nil {
+		return false, fmt.Errorf("osascript exists: %w", err)
+	}
+	return strings.TrimSpace(string(out)) == "true", nil
+}
+
+// macOSVPNConnect asks System Events to bring the named VPN service
+// up. AppleScript returns immediately; the actual IKE_AUTH happens
+// async in the OS so callers should poll macOSVPNIsConnected if they
+// need to wait for completion.
+func macOSVPNConnect(name string) error {
+	script := fmt.Sprintf(
+		`tell application "System Events" to tell current location of network preferences to connect service %q`,
+		name,
+	)
+	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("osascript connect: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// macOSVPNDisconnect asks System Events to bring the named VPN
+// service down. As with connect, returns synchronously while
+// teardown happens async in the OS.
+func macOSVPNDisconnect(name string) error {
+	script := fmt.Sprintf(
+		`tell application "System Events" to tell current location of network preferences to disconnect service %q`,
+		name,
+	)
+	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("osascript disconnect: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// macOSVPNIsConnected reports whether the named VPN service is
+// currently up. Tries the AppleScript "connected" property first
+// (the canonical signal); if AppleScript can't reach System Events
+// (TCC denied, "not authorized" error) falls through to a route-
+// table heuristic that flags the VPN as connected when the default
+// route exits via a utun interface (= the Apple IKE stack's tunnel
+// device). The heuristic occasionally false-positives on a WG-only
+// system but the AppleScript path is the trusted source.
+func macOSVPNIsConnected(name string) bool {
+	script := fmt.Sprintf(
+		`tell application "System Events" to tell current location of network preferences to get connected of current configuration of service %q`,
+		name,
+	)
+	if out, err := exec.Command("osascript", "-e", script).Output(); err == nil {
+		if strings.TrimSpace(string(out)) == "true" {
+			return true
+		}
+	}
+	// AppleScript fallback failed or returned false. Check whether
+	// the default route exits a utun (Apple IKE tunnel devices show
+	// up as utunN). Heuristic only — caller should treat this as a
+	// secondary signal.
+	if _, iface, err := defaultRouteIPv4(); err == nil && strings.HasPrefix(iface, "utun") {
+		return true
+	}
+	return false
+}
+
+// ============================================================================
 // macOS split-tunnel: post-Up CIDR bypass via route(8) through helper
 // ============================================================================
 //
