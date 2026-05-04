@@ -1,0 +1,243 @@
+diff --git a/src/frontends/android/app/src/main/java/org/strongswan/android/data/DatabaseHelper.java b/src/frontends/android/app/src/main/java/org/strongswan/android/data/DatabaseHelper.java
+index 7feccbdfe1..a0966080b1 100644
+--- a/src/frontends/android/app/src/main/java/org/strongswan/android/data/DatabaseHelper.java
++++ b/src/frontends/android/app/src/main/java/org/strongswan/android/data/DatabaseHelper.java
+@@ -70,6 +70,12 @@ public class DatabaseHelper extends SQLiteOpenHelper
+ 		new DbColumn(VpnProfileDataSource.KEY_PROXY_HOST, "TEXT", 19),
+ 		new DbColumn(VpnProfileDataSource.KEY_PROXY_PORT, "INTEGER", 19),
+ 		new DbColumn(VpnProfileDataSource.KEY_PROXY_EXCLUSIONS, "TEXT", 19),
++		/* Privycs vendor extension: RFC 8784 PPK material per profile.
++		 * since=20 -> ALTER TABLE adds these columns on first upgrade
++		 * via addNewColumns() in onUpgrade. Old profiles get NULL,
++		 * which the SettingsWriter / JNI side treats as "no PPK". */
++		new DbColumn(VpnProfileDataSource.KEY_PPK_ID, "TEXT", 20),
++		new DbColumn(VpnProfileDataSource.KEY_PPK_PSK, "TEXT", 20),
+ 	});
+ 
+ 	public static final DbTable TABLE_TRUSTED_CERTIFICATE = new DbTable(TABLE_NAME_TRUSTED_CERTIFICATE, 18, new DbColumn[]{
+@@ -87,7 +93,8 @@ public class DatabaseHelper extends SQLiteOpenHelper
+ 		new DbColumn(ManagedUserCertificate.KEY_PASSWORD, "TEXT", 18),
+ 	});
+ 
+-	private static final int DATABASE_VERSION = 19;
++	/* Bumped to 20 for the Privycs PPK columns (ppk_id, ppk_psk). */
++	private static final int DATABASE_VERSION = 20;
+ 
+ 	private static final Set<DbTable> TABLES;
+ 
+diff --git a/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java b/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
+index 52464eb127..8fcb4431d6 100644
+--- a/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
++++ b/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
+@@ -43,6 +43,9 @@ public class VpnProfile implements Cloneable
+ 	private String mName, mGateway, mUsername, mPassword, mCertificate, mUserCertificate;
+ 	private String mRemoteId, mLocalId, mExcludedSubnets, mIncludedSubnets, mSelectedApps;
+ 	private String mIkeProposal, mEspProposal, mDnsServers, mProxyHost, mProxyExclusions;
++	/* Privycs vendor extension: RFC 8784 PPK identifier and 256-bit secret
++	 * (hex-encoded). Both null for legacy profiles. */
++	private String mPPKId, mPPKPsk;
+ 	private Integer mMTU, mPort, mProxyPort, mSplitTunneling, mNATKeepAlive, mFlags;
+ 	private SelectedAppsHandling mSelectedAppsHandling = SelectedAppsHandling.SELECTED_APPS_DISABLE;
+ 	private VpnType mVpnType;
+@@ -353,6 +356,31 @@ public class VpnProfile implements Cloneable
+ 		this.mSplitTunneling = splitTunneling;
+ 	}
+ 
++	/* Privycs vendor extension: RFC 8784 PPK identifier (string sent in the
++	 * PPK_IDENTITY notify) and the matching 64-char hex secret. CharonVpnService
++	 * forwards both to the JNI bridge as connection.ppk_id / connection.ppk_psk;
++	 * android_service.c registers the secret as a SHARED_PPK credential and
++	 * sets peer.ppk_id on peer_cfg_create. */
++	public String getPPKId()
++	{
++		return mPPKId;
++	}
++
++	public void setPPKId(String ppkId)
++	{
++		this.mPPKId = ppkId;
++	}
++
++	public String getPPKPsk()
++	{
++		return mPPKPsk;
++	}
++
++	public void setPPKPsk(String ppkPsk)
++	{
++		this.mPPKPsk = ppkPsk;
++	}
++
+ 	public Integer getFlags()
+ 	{
+ 		return mFlags == null ? 0 : mFlags;
+diff --git a/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfileDataSource.java b/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfileDataSource.java
+index b5289337c7..d3184335b2 100644
+--- a/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfileDataSource.java
++++ b/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfileDataSource.java
+@@ -55,6 +55,9 @@ public interface VpnProfileDataSource
+ 	String KEY_PROXY_PORT = "proxy_port";
+ 	String KEY_PROXY_EXCLUSIONS = "proxy_exclusions";
+ 	String KEY_READ_ONLY = "read_only";
++	/* RFC 8784 PPK material — Privycs vendor extension (DB schema v20). */
++	String KEY_PPK_ID = "ppk_id";
++	String KEY_PPK_PSK = "ppk_psk";
+ 
+ 	/**
+ 	 * Open the VPN profile data source. The database is automatically created
+diff --git a/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfileSqlDataSource.java b/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfileSqlDataSource.java
+index cee26a457d..8684524116 100644
+--- a/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfileSqlDataSource.java
++++ b/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfileSqlDataSource.java
+@@ -154,6 +154,13 @@ public class VpnProfileSqlDataSource implements VpnProfileDataSource
+ 		profile.setProxyHost(cursor.getString(cursor.getColumnIndexOrThrow(KEY_PROXY_HOST)));
+ 		profile.setProxyPort(getInt(cursor, cursor.getColumnIndexOrThrow(KEY_PROXY_PORT)));
+ 		profile.setProxyExclusions(cursor.getString(cursor.getColumnIndexOrThrow(KEY_PROXY_EXCLUSIONS)));
++		/* Privycs PPK columns — added in DB schema v20. getColumnIndex (without
++		 * Throw) returns -1 on legacy DBs that haven't been ALTER'd yet, in
++		 * which case we leave the profile's PPK fields at their default null. */
++		int ppkIdIdx = cursor.getColumnIndex(KEY_PPK_ID);
++		if (ppkIdIdx >= 0) profile.setPPKId(cursor.getString(ppkIdIdx));
++		int ppkPskIdx = cursor.getColumnIndex(KEY_PPK_PSK);
++		if (ppkPskIdx >= 0) profile.setPPKPsk(cursor.getString(ppkPskIdx));
+ 		return profile;
+ 	}
+ 
+@@ -185,6 +192,9 @@ public class VpnProfileSqlDataSource implements VpnProfileDataSource
+ 		values.put(KEY_PROXY_HOST, profile.getProxyHost());
+ 		values.put(KEY_PROXY_PORT, profile.getProxyPort());
+ 		values.put(KEY_PROXY_EXCLUSIONS, profile.getProxyExclusions());
++		/* Privycs PPK material — null for legacy / non-pq-safe profiles. */
++		values.put(KEY_PPK_ID, profile.getPPKId());
++		values.put(KEY_PPK_PSK, profile.getPPKPsk());
+ 		return values;
+ 	}
+ 
+diff --git a/src/frontends/android/app/src/main/java/org/strongswan/android/logic/CharonVpnService.java b/src/frontends/android/app/src/main/java/org/strongswan/android/logic/CharonVpnService.java
+index 97e93e8e04..74d883e9e7 100644
+--- a/src/frontends/android/app/src/main/java/org/strongswan/android/logic/CharonVpnService.java
++++ b/src/frontends/android/app/src/main/java/org/strongswan/android/logic/CharonVpnService.java
+@@ -324,6 +324,13 @@ public class CharonVpnService extends VpnService implements Runnable, VpnStateSe
+ 							writer.setValue("connection.strict_revocation", (mCurrentProfile.getFlags() & VpnProfile.FLAGS_STRICT_REVOCATION) != 0);
+ 							writer.setValue("connection.ike_proposal", mCurrentProfile.getIkeProposal());
+ 							writer.setValue("connection.esp_proposal", mCurrentProfile.getEspProposal());
++							/* Privycs vendor extension: forward RFC 8784 PPK material when
++							 * the profile carries it. android_service.c picks both keys up
++							 * before peer_cfg_create() and registers the PSK as a
++							 * SHARED_PPK credential keyed by the id. Both setValue calls
++							 * are no-ops on legacy profiles where the getters return null. */
++							writer.setValue("connection.ppk_id", mCurrentProfile.getPPKId());
++							writer.setValue("connection.ppk_psk", mCurrentProfile.getPPKPsk());
+ 							initiate(writer.serialize());
+ 						}
+ 						else
+diff --git a/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_creds.c b/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_creds.c
+index 24b612731d..3bdcb5f35b 100644
+--- a/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_creds.c
++++ b/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_creds.c
+@@ -248,6 +248,35 @@ METHOD(android_creds_t, add_username_password, void,
+ 	this->creds->add_shared(this->creds, shared_key, id, NULL);
+ }
+ 
++/* Privycs vendor extension: register a SHARED_PPK credential. */
++METHOD(android_creds_t, add_ppk, void,
++	private_android_creds_t *this, char *ppk_id, char *ppk_psk_hex)
++{
++	shared_key_t *shared_key;
++	identification_t *id;
++	chunk_t hex_in, raw;
++
++	if (!ppk_id || !ppk_psk_hex || !*ppk_id || !*ppk_psk_hex)
++	{
++		return;
++	}
++
++	hex_in = chunk_create(ppk_psk_hex, strlen(ppk_psk_hex));
++	raw = chunk_from_hex(hex_in, NULL);
++	if (!raw.len)
++	{
++		DBG1(DBG_CFG, "android_creds: PPK hex decode failed (id=%s, hex_len=%zu)",
++			 ppk_id, hex_in.len);
++		return;
++	}
++
++	shared_key = shared_key_create(SHARED_PPK, raw);
++	id = identification_create_from_string(ppk_id);
++
++	this->creds->add_shared(this->creds, shared_key, id, NULL);
++	DBG1(DBG_CFG, "android_creds: registered PPK id=%s (%zu bytes)", ppk_id, raw.len);
++}
++
+ METHOD(credential_set_t, create_shared_enumerator, enumerator_t*,
+ 	private_android_creds_t *this, shared_key_type_t type,
+ 	identification_t *me, identification_t *other)
+@@ -364,6 +393,7 @@ android_creds_t *android_creds_create(char *crldir)
+ 				.cache_cert = _cache_cert,
+ 			},
+ 			.add_username_password = _add_username_password,
++			.add_ppk = _add_ppk,
+ 			.load_user_certificate = _load_user_certificate,
+ 			.clear = _clear,
+ 			.destroy = _destroy,
+diff --git a/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_creds.h b/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_creds.h
+index 0279f35758..a19c14392e 100644
+--- a/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_creds.h
++++ b/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_creds.h
+@@ -47,6 +47,20 @@ struct android_creds_t {
+ 	void (*add_username_password)(android_creds_t *this, char *username,
+ 								  char *password);
+ 
++	/**
++	 * Add a Postquantum Preshared Key (RFC 8784) as a SHARED_PPK credential
++	 * keyed by the public ppk_id. The PSK is supplied as a hex string of
++	 * the 256-bit secret (64 chars); it is decoded into raw bytes before
++	 * being stored. libcharon's keymat code looks up the PPK by id during
++	 * IKE_AUTH and mixes it into the SK_d derivation.
++	 *
++	 * Privycs vendor extension.
++	 *
++	 * @param ppk_id			RFC 8784 PPK identifier
++	 * @param ppk_psk_hex		hex-encoded 256-bit secret (64 chars)
++	 */
++	void (*add_ppk)(android_creds_t *this, char *ppk_id, char *ppk_psk_hex);
++
+ 	/**
+ 	 * Load the user certificate and private key
+ 	 *
+diff --git a/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_service.c b/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_service.c
+index 2ab0af9fd8..b623a8c1a6 100644
+--- a/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_service.c
++++ b/src/frontends/android/app/src/main/jni/libandroidbridge/backend/android_service.c
+@@ -778,6 +778,7 @@ static job_requeue_t initiate(private_android_service_t *this)
+ 		.jitter_time = 600, /* 10min */
+ 		.over_time = 1800, /* 30min */
+ 	};
++	char *ppk_id_str, *ppk_psk_str;
+ 	child_cfg_create_t child = {
+ 		.lifetime = {
+ 			.time = {
+@@ -814,6 +815,24 @@ static job_requeue_t initiate(private_android_service_t *this)
+ 		ike_cfg->add_proposal(ike_cfg, proposal_create_default_aead(PROTO_IKE));
+ 	}
+ 
++	/* Privycs vendor extension: RFC 8784 PPK plumbing. When the .sswan
++	 * profile carries a PPK, register it as a SHARED_PPK credential keyed
++	 * by ppk_id and stamp peer.ppk_id so peer_cfg_create wires it onto the
++	 * peer config. We mark PPK as required (OPT_PPK_REQUIRED) — the
++	 * Privycs gateway is the only counterparty for these profiles and it
++	 * always supports RFC 8784, so falling back silently to non-PPK auth
++	 * would defeat the purpose. */
++	ppk_id_str = this->settings->get_str(this->settings, "connection.ppk_id",
++										 NULL);
++	ppk_psk_str = this->settings->get_str(this->settings, "connection.ppk_psk",
++										  NULL);
++	if (ppk_id_str && *ppk_id_str && ppk_psk_str && *ppk_psk_str)
++	{
++		this->creds->add_ppk(this->creds, ppk_id_str, ppk_psk_str);
++		peer.ppk_id = identification_create_from_string(ppk_id_str);
++		peer.options |= OPT_PPK_REQUIRED;
++	}
++
+ 	peer_cfg = peer_cfg_create("android", ike_cfg, &peer);
+ 	peer_cfg->add_virtual_ip(peer_cfg, host_create_any(AF_INET));
+ 	peer_cfg->add_virtual_ip(peer_cfg, host_create_any(AF_INET6));

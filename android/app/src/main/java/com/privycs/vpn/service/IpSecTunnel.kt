@@ -80,7 +80,16 @@ class IpSecTunnel(private val context: Context) {
         val p12: String = "",
         val id: String = "",
         @SerialName("p12-password")
-        val p12Password: String = ""
+        val p12Password: String = "",
+        // RFC 8784 PPK material from a pq_safe interface. Both fields are
+        // empty on legacy / non-pq-safe profiles; in that case
+        // buildVpnProfile() simply skips the PPK setters and the tunnel
+        // negotiates over plain certificate auth. ppk_psk is the
+        // 64-character hex encoding of the 256-bit secret.
+        @SerialName("ppk_id")
+        val ppkId: String = "",
+        @SerialName("ppk_psk")
+        val ppkPsk: String = ""
     )
 
     private val prefs: SharedPreferences =
@@ -257,6 +266,14 @@ class IpSecTunnel(private val context: Context) {
         if (cfg.remote.id.isNotEmpty()) profile.setRemoteId(cfg.remote.id)
         if (cfg.mtu > 0) profile.setMTU(cfg.mtu)
         if (cfg.dnsServers.isNotEmpty()) profile.setDnsServers(cfg.dnsServers.joinToString(" "))
+        // RFC 8784 PPK — emitted by gateway when interface.pq_safe = true.
+        // Setters land on the vendored strongSwan VpnProfile (see
+        // android/vendor/strongswan patch); CharonVpnService persists them
+        // and propagates via SettingsWriter -> JNI -> libcharon.
+        if (cfg.local.ppkId.isNotEmpty() && cfg.local.ppkPsk.isNotEmpty()) {
+            profile.setPPKId(cfg.local.ppkId)
+            profile.setPPKPsk(cfg.local.ppkPsk)
+        }
         // Gateway emits split-tunneling as a CIDR list of bypass subnets. strongSwan
         // uses the "excluded subnets" list for the same purpose (traffic that should
         // bypass the tunnel). Hand them over verbatim.
@@ -331,6 +348,12 @@ class IpSecTunnel(private val context: Context) {
                 existing.setExcludedSubnets(profile.getExcludedSubnets())
                 existing.setSelectedApps(profile.getSelectedApps())
                 existing.setSelectedAppsHandling(profile.getSelectedAppsHandling())
+                // PPK rotates whenever the gateway issues a new pq_safe
+                // profile, so always copy from the freshly-built profile —
+                // including clearing it when we transition from pq_safe back
+                // to plain certificate auth.
+                existing.setPPKId(profile.getPPKId())
+                existing.setPPKPsk(profile.getPPKPsk())
                 source.updateVpnProfile(existing)
                 existing.getUUID()
             } else {
