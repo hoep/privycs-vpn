@@ -1202,6 +1202,20 @@ class PrivycsVpnService : VpnService() {
                         stopSelf()
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Coroutine was cancelled, NOT a connect failure. Common
+                // legitimate triggers: switchProtocol() tearing the
+                // service down to swap protocols, switchActiveConnection
+                // preempt, network-monitor disconnecting on roam,
+                // OS-level VpnService destroy. Re-throwing preserves
+                // structured concurrency; surfacing this as
+                // "Connection failed: Job was cancelled" with stopSelf()
+                // — the previous behaviour — turned every single
+                // protocol-pill switch and every roam into a red error
+                // banner even though the new connect was already in
+                // flight via the new coroutine.
+                PrivycsLogger.d(TAG, "handleConnect cancelled (preempt or service teardown), re-throwing")
+                throw e
             } catch (e: Exception) {
                 PrivycsLogger.e(TAG, "Connect failed", e)
                 val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)

@@ -626,27 +626,6 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 		return i.upMacOSViaSwanctl(ctx)
 	}
 
-	// Pre-flight via AppleScript / System Events. scutil --nc list /
-	// show / start are blind to NEConfigurationManager-managed VPNs
-	// on Sonoma+ — the legacy SystemConfiguration framework no longer
-	// gets cross-populated when a profile installs a VPN payload, so
-	// scutil reports "no service" even when System Settings → Network
-	// shows the VPN as a normal entry. AppleScript talks to the modern
-	// path directly via System Events.
-	exists, existsErr := macOSVPNExists(i.connName)
-	if existsErr != nil {
-		return fmt.Errorf(
-			"AppleScript / System Events check failed (%v) — open System Settings → Privacy & Security → Automation, allow Privycs VPN to control System Events, then retry",
-			existsErr,
-		)
-	}
-	if !exists {
-		return fmt.Errorf(
-			"VPN profile '%s' not registered in System Settings → Network — approve the profile install dialog (System Settings → General → Device Management or Privacy & Security → Profiles), then retry",
-			i.connName,
-		)
-	}
-
 	// Pre-Up snapshot of the current default route. We need this BEFORE
 	// the VPN comes up because Apple's IKEv2 stack rewrites the default
 	// route to point at the utun once the tunnel is up, at which point
@@ -656,7 +635,26 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 	gw4, iface4, _ := defaultRouteIPv4()
 	gw6, _, _ := defaultRouteIPv6()
 
+	// Connect via AppleScript / System Events. We deliberately skip
+	// any pre-flight existence check: macOS-Sonoma+ profile-installed
+	// VPNs have weird visibility states across `scutil --nc`,
+	// `profiles -L`, and AppleScript depending on TCC, profile scope,
+	// and timing. A pre-flight that fails despite the VPN being
+	// usable would block a legitimate connect with a misleading
+	// "profile not installed" error. Instead drive `connect` directly
+	// — AppleScript returns a precise error (service-doesn't-exist,
+	// not-authorized for TCC, etc.) that we forward to the user.
 	if err := macOSVPNConnect(i.connName); err != nil {
+		// Notify in addition to the returned error so the user
+		// sees an actionable banner even if the UI swallows the
+		// proto.Up error path. The most common cause is TCC denial
+		// for Privycs.app — point them at the right settings pane.
+		Notify(
+			"VPN connect failed",
+			fmt.Sprintf("Privycs could not start the IPSec tunnel %q via macOS. If the error mentions 'not allowed' or 'not authorized', open System Settings → Privacy & Security → Automation and allow Privycs VPN to control System Events. If it mentions 'service doesn't exist', re-import the .sswan and approve the profile install dialog. Underlying error: %v",
+				i.connName, err),
+			NotifyError,
+		)
 		return fmt.Errorf("AppleScript connect failed: %w", err)
 	}
 	i.connectedAt = time.Now()
