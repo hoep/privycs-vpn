@@ -140,8 +140,16 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 		conn.Protocols = append(conn.Protocols, pc)
 	}
 
-	// Update name if provided
-	if name != "" {
+	// Set the connection name only on first import (when the
+	// connection had no name yet). Subsequent protocol-additions to
+	// the same connection PRESERVE the user's chosen name — including
+	// any rename they did via RenameConnection. Without this guard
+	// dropping an .ovpn / .sswan / .conf into an existing connection
+	// silently re-baselined the connection name to the new file's
+	// name and the user's "Privycs Obelix Shielded" label became
+	// "Peter-MaxBook-Shielded" the moment they pulled an updated
+	// IPSec profile from the gateway.
+	if conn.Name == "" && name != "" {
 		conn.Name = name
 	}
 

@@ -84,7 +84,15 @@ class ConnectionRepository(private val context: Context) {
             conn.protocols.add(protocolConfig)
         }
 
-        if (cleanName.isNotBlank()) {
+        // Set the connection name only when the connection has none
+        // yet. Subsequent protocol-additions to the same connection
+        // PRESERVE the user's chosen name — including any rename the
+        // user did. Without this guard, dropping a newly-pulled .ovpn
+        // / .sswan / .conf into an existing connection silently
+        // re-baselined the name to the new file's name, so every time
+        // the user pulled an updated IPSec profile from the gateway,
+        // their custom connection label got overwritten.
+        if (conn.name.isBlank() && cleanName.isNotBlank()) {
             conn.name = cleanName
         }
 
