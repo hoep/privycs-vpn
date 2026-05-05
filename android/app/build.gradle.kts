@@ -4,6 +4,35 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Version comes from android/latest_version.txt (single source of
+// truth) instead of being hardcoded here. Rationale: keeping the
+// version inside build.gradle.kts meant every release — even a
+// desktop-only fix — touched android/app/build.gradle.kts and
+// triggered the android-release CI workflow's path-gate (paths:
+// 'android/**'), wasting GitHub Actions minutes on a re-build
+// nobody needed. The new file lets desktop-only tags leave the
+// android/ tree completely untouched, so android-release / android-
+// build skip cleanly. The file format is two key=value lines so a
+// human reader and grep both find it; the parser tolerates trailing
+// whitespace and blank lines.
+val privycsVersion = run {
+    val file = rootProject.file("latest_version.txt")
+    require(file.exists()) {
+        "Missing ${file.absolutePath} — bump the version with the release-dance script"
+    }
+    val props = file.readLines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains("=") }
+        .associate { line ->
+            line.substringBefore("=").trim() to line.substringAfter("=").trim()
+        }
+    val code = props["versionCode"]?.toIntOrNull()
+        ?: error("Missing or non-integer versionCode in ${file.absolutePath}")
+    val name = props["versionName"]
+        ?: error("Missing versionName in ${file.absolutePath}")
+    code to name
+}
+
 android {
     namespace = "com.privycs.vpn"
     compileSdk = 34
@@ -12,8 +41,8 @@ android {
         applicationId = "com.privycs.vpn"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10164
-        versionName = "0.9.14.55"
+        versionCode = privycsVersion.first
+        versionName = privycsVersion.second
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
