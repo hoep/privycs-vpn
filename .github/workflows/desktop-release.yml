@@ -18,33 +18,103 @@ env:
 
 jobs:
   check-changes:
+    # Decides per-OS whether to build. Three orthogonal booleans
+    # (linux / macos / windows) so an _darwin.go-only change doesn't
+    # rebuild Linux + Windows, an iptables-rule fix in
+    # sinkhole_linux.go doesn't rebuild macOS, etc. The classifier
+    # treats anything WITHOUT an OS-suffix or OS-specific path as
+    # "shared" — those still rebuild all three (cross-platform
+    # dispatcher / app.go / Wails frontend / go.mod / wails.json).
+    # Explicit per-OS marker files
+    # (desktop/latest_version_<os>.txt) let the user force a rebuild
+    # of one OS without code changes (re-sign, refresh dep cache).
     runs-on: ubuntu-latest
     outputs:
-      desktop_changed: ${{ steps.changes.outputs.changed }}
+      linux_changed:   ${{ steps.changes.outputs.linux }}
+      macos_changed:   ${{ steps.changes.outputs.macos }}
+      windows_changed: ${{ steps.changes.outputs.windows }}
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
-      - name: Check if desktop/ changed since last tag
+      - name: Classify desktop/ changes since last tag per target OS
         id: changes
         run: |
           PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1)
           if [ -z "$PREV_TAG" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
+            # First tag in repo or detached state — build all.
+            echo "linux=true"   >> "$GITHUB_OUTPUT"
+            echo "macos=true"   >> "$GITHUB_OUTPUT"
+            echo "windows=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          CHANGED=$(git diff --name-only "${PREV_TAG}..HEAD" -- desktop/ | wc -l)
-          if [ "$CHANGED" -gt 0 ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
+
+          CHANGED=$(git diff --name-only "${PREV_TAG}..HEAD" -- desktop/)
+          if [ -z "$CHANGED" ]; then
+            echo "linux=false"   >> "$GITHUB_OUTPUT"
+            echo "macos=false"   >> "$GITHUB_OUTPUT"
+            echo "windows=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Files changed in desktop/ since ${PREV_TAG}:"
+          echo "$CHANGED" | sed 's/^/  /'
+
+          # Patterns:
+          #   *_darwin.go, *_macos.go, *_macos_*.go, build/darwin/**,
+          #   latest_version_macos.txt -> macOS-only
+          #   *_linux.go, *_linux_*.go (rare), build/linux/**,
+          #   latest_version_linux.txt, *_unix.go (also macOS) -> Linux
+          #   *_windows.go, *_win.go, build/windows/**,
+          #   latest_version_windows.txt -> Windows-only
+          #   *_unix.go is non-Windows -> Linux + macOS
+          #   *_other.go has varying build tags ("!windows", "!linux"
+          #   etc.); treat conservatively as shared so we never miss
+          #   a rebuild. Adds a few wasted minutes when only an
+          #   _other.go file changed but avoids breakage.
+          MACOS_RE='(_darwin\.go$|_macos(\.go|_[^/]*\.go)$|^desktop/build/darwin/|^desktop/latest_version_macos\.txt$)'
+          LINUX_RE='(_linux\.go$|_linux_[^/]*\.go$|_unix\.go$|^desktop/build/linux/|^desktop/latest_version_linux\.txt$)'
+          WINDOWS_RE='(_windows\.go$|_windows_[^/]*\.go$|_win\.go$|^desktop/build/windows/|^desktop/latest_version_windows\.txt$)'
+          # _unix.go targets non-Windows = Linux + macOS, so it also
+          # counts as a macOS trigger.
+          MACOS_EXTRA_RE='(_unix\.go$)'
+
+          # "Shared" = any line that doesn't match any OS-specific
+          # pattern. If even one shared file changed, every OS
+          # rebuilds.
+          SHARED=$(echo "$CHANGED" | grep -vE "${MACOS_RE}|${LINUX_RE}|${WINDOWS_RE}|${MACOS_EXTRA_RE}" || true)
+          if [ -n "$SHARED" ]; then
+            echo "Shared (cross-platform) file(s) changed — rebuilding all three:"
+            echo "$SHARED" | sed 's/^/  /'
+            echo "linux=true"   >> "$GITHUB_OUTPUT"
+            echo "macos=true"   >> "$GITHUB_OUTPUT"
+            echo "windows=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Only OS-specific files changed. Set each flag based on
+          # whether any of its patterns matched.
+          if echo "$CHANGED" | grep -qE "${LINUX_RE}"; then
+            echo "linux=true"   >> "$GITHUB_OUTPUT"
           else
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "linux=false"  >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$CHANGED" | grep -qE "${MACOS_RE}|${MACOS_EXTRA_RE}"; then
+            echo "macos=true"   >> "$GITHUB_OUTPUT"
+          else
+            echo "macos=false"  >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$CHANGED" | grep -qE "${WINDOWS_RE}"; then
+            echo "windows=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "windows=false" >> "$GITHUB_OUTPUT"
           fi
 
   build-linux:
     needs: check-changes
-    if: needs.check-changes.outputs.desktop_changed == 'true'
+    if: needs.check-changes.outputs.linux_changed == 'true'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
@@ -109,7 +179,7 @@ jobs:
 
   build-macos:
     needs: check-changes
-    if: needs.check-changes.outputs.desktop_changed == 'true'
+    if: needs.check-changes.outputs.macos_changed == 'true'
     runs-on: macos-latest
     strategy:
       matrix:
@@ -331,7 +401,7 @@ jobs:
 
   build-windows:
     needs: check-changes
-    if: needs.check-changes.outputs.desktop_changed == 'true'
+    if: needs.check-changes.outputs.windows_changed == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -391,7 +461,15 @@ jobs:
 
   release:
     needs: [check-changes, build-linux, build-macos, build-windows]
-    if: always() && needs.check-changes.outputs.desktop_changed == 'true' && startsWith(github.ref, 'refs/tags/')
+    # Run when AT LEAST ONE OS actually built. If all three were
+    # skipped (no desktop changes at all) the propagate job below
+    # handles the release on its own.
+    if: |
+      always()
+      && (needs.check-changes.outputs.linux_changed   == 'true'
+          || needs.check-changes.outputs.macos_changed == 'true'
+          || needs.check-changes.outputs.windows_changed == 'true')
+      && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -417,19 +495,25 @@ jobs:
           fail_on_unmatched_files: false
 
   propagate-previous-desktop:
-    # When desktop/ did not change between the previous and the current tag,
-    # the build-linux/macos/windows jobs all skip and the tag release ends up
-    # with no desktop artefacts attached. A user landing on the "latest"
-    # release would see only the android APKs of an android-only tag.
+    # Propagate per-OS. When at least one OS skipped its build (its
+    # path-gate flag = false), this job walks recent releases, picks
+    # the newest one with that OS's assets, and re-attaches them to
+    # the current tag's release so the user always sees a complete
+    # set of binaries on every release page.
     #
-    # This job mirrors the android-release.yml propagate pattern: walk
-    # recent releases, find the newest one that actually has desktop assets,
-    # download them, and re-attach them to the current tag release. Cost is
-    # a ~1-2 minute download+upload per unchanged tag, compared to ~10-15
-    # minutes for a full cross-platform rebuild.
+    # Runs in parallel with the release job — one creates the
+    # release with freshly-built artefacts, the other uploads
+    # propagated artefacts for the OSes that didn't rebuild. Both
+    # tolerate the release already existing (gh release create is
+    # gated on existence; gh release upload appends).
     name: Propagate previous desktop assets
-    needs: check-changes
-    if: needs.check-changes.outputs.desktop_changed == 'false' && startsWith(github.ref, 'refs/tags/')
+    needs: [check-changes, build-linux, build-macos, build-windows]
+    if: |
+      always()
+      && (needs.check-changes.outputs.linux_changed   == 'false'
+          || needs.check-changes.outputs.macos_changed == 'false'
+          || needs.check-changes.outputs.windows_changed == 'false')
+      && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -442,117 +526,154 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CURRENT_TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
+          # Per-OS skip markers — see check-changes job. Each is the
+          # string "true" or "false". When false, that OS rebuilt
+          # this tag and we must NOT propagate (we'd shadow the fresh
+          # build with stale assets); when true, that OS skipped and
+          # we DO want to fetch its assets from the prior release.
+          LINUX_SKIPPED:   ${{ needs.check-changes.outputs.linux_changed   == 'false' && 'true' || 'false' }}
+          MACOS_SKIPPED:   ${{ needs.check-changes.outputs.macos_changed   == 'false' && 'true' || 'false' }}
+          WINDOWS_SKIPPED: ${{ needs.check-changes.outputs.windows_changed == 'false' && 'true' || 'false' }}
         run: |
           set -euo pipefail
 
-          # Desktop asset filename patterns (matches what build-* jobs upload).
-          # Keep as a regex so grep -E can match any of them.
-          # macOS pattern updated in v0.9.14.30 to include .dmg artefacts
-          # alongside the legacy .zip — once Developer ID signing + notarize
-          # is enabled in CI, the .dmg becomes the user-facing download and
-          # the propagator must re-attach it on android-only tag releases.
-          ASSET_RE='(privycs-vpn-linux-amd64(\.sha256|\.deb(\.sha256)?)?$|privycs-vpn-darwin-(amd64|arm64)\.(zip|dmg)(\.sha256)?$|privycs-vpn-windows-amd64(-setup)?\.exe(\.sha256)?$)'
+          echo "Per-OS propagate plan: linux=$LINUX_SKIPPED macos=$MACOS_SKIPPED windows=$WINDOWS_SKIPPED"
 
-          # SEMVER-SORTED tag list — was previously gh-default ordering
-          # (release-creation-time) which produced a race when the
-          # immediately-prior tag's desktop-release was still building.
-          # Example: v0.9.14.9 (android-only, propagator runs in 26s)
-          # raced against v0.9.14.8's still-running 6-min build → picked
-          # v0.9.14.7 instead. sort -rV (reverse version sort) makes the
-          # propagator pick the highest-semver release with desktop
-          # assets, regardless of the in-flight build's clock.
-          # Plus a one-time wait-loop: if the candidate tag exists but
-          # has no desktop assets yet (build still running), poll the
-          # release for up to 10 minutes before falling through to the
-          # next-highest tag.
+          # Per-OS asset regex used to (a) detect the prior release's
+          # assets while picking PREV_TAG and (b) build the per-OS
+          # download list later. Each OS gets its own regex so we
+          # don't drag a Linux-only previous release's macOS-asset
+          # absence into the picker.
+          LINUX_RE='privycs-vpn-linux-amd64(\.sha256|\.deb(\.sha256)?)?$'
+          MACOS_RE='privycs-vpn-darwin-(amd64|arm64)\.(zip|dmg)(\.sha256)?$'
+          WINDOWS_RE='privycs-vpn-windows-amd64(-setup)?\.exe(\.sha256)?$'
+
+          # Combined regex used by the wait-for-prior-build poll
+          # (any desktop asset means the prior tag is no longer
+          # mid-flight). Keep narrow so an android-only release
+          # doesn't satisfy it.
+          ASSET_RE="(${LINUX_RE}|${MACOS_RE}|${WINDOWS_RE})"
+
+          # SEMVER-SORTED tag list. sort -rV picks the highest-version
+          # prior tag that has the OS's assets, ignoring
+          # release-creation-time ordering (which would race against
+          # in-flight builds of a numerically-earlier tag whose
+          # release was just created).
           TAGS=$(gh release list --repo "$REPO" --limit 50 --json tagName --jq '.[].tagName' \
                  | grep -v "^${CURRENT_TAG}$" \
                  | sort -rV || true)
 
-          # Wait helper: poll the named tag's assets until desktop
-          # patterns appear, with timeout. Returns 0 if assets found,
-          # 1 if timeout. The 600 s (10-min) cap is roughly the worst-
-          # case desktop build time + buffer.
-          wait_for_desktop_assets() {
-            local tag="$1"
-            local deadline=$(( $(date +%s) + 600 ))
-            while [ "$(date +%s)" -lt "$deadline" ]; do
-              local has=$(gh release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null \
-                          | grep -cE "$ASSET_RE" || true)
+          # find_prev_tag_for_os: walks $TAGS, returns the newest one
+          # whose release carries an asset matching $1 (a per-OS
+          # regex). Returns empty string when none found within 50
+          # most-recent releases. Includes the in-flight wait so a
+          # parallel desktop-release that started moments ago doesn't
+          # cause us to skip its eventual assets.
+          find_prev_tag_for_os() {
+            local re="$1"
+            local label="$2"
+            local tag
+            for tag in $TAGS; do
+              local has=$(gh release view "$tag" --repo "$REPO" \
+                          --json assets --jq '.assets[].name' 2>/dev/null \
+                          | grep -cE "$re" || true)
               if [ "$has" -gt 0 ]; then
+                echo "$tag"
                 return 0
               fi
-              echo "  $tag has no desktop assets yet — waiting 30s…"
-              sleep 30
+              # Wait for in-flight builds: if a desktop-release for
+              # this tag is still running, give it up to 10 min.
+              local running=$(gh run list --repo "$REPO" \
+                              --workflow=desktop-release.yml \
+                              --json databaseId,status,headBranch,event \
+                              --jq ".[] | select(.headBranch==\"$tag\" and (.status==\"in_progress\" or .status==\"queued\")) | .databaseId" \
+                              2>/dev/null | head -1)
+              if [ -n "$running" ]; then
+                echo "  ($label) tag $tag has in-flight build $running — waiting up to 10 min" >&2
+                local deadline=$(( $(date +%s) + 600 ))
+                while [ "$(date +%s)" -lt "$deadline" ]; do
+                  has=$(gh release view "$tag" --repo "$REPO" \
+                        --json assets --jq '.assets[].name' 2>/dev/null \
+                        | grep -cE "$re" || true)
+                  if [ "$has" -gt 0 ]; then
+                    echo "$tag"
+                    return 0
+                  fi
+                  sleep 30
+                done
+                echo "  ($label) wait timed out for $tag — moving on" >&2
+              fi
             done
-            return 1
+            echo ""
           }
 
-          PREV_TAG=""
-          for tag in $TAGS; do
-            has_desktop=$(gh release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null \
-                          | grep -cE "$ASSET_RE" || true)
-            if [ "$has_desktop" -gt 0 ]; then
-              PREV_TAG="$tag"
-              break
-            fi
-            # Check if a desktop-release workflow is still running for
-            # this tag. If yes, wait for it. This catches the race where
-            # the immediately-prior tag's build started moments ago and
-            # is still in progress.
-            running=$(gh run list --repo "$REPO" \
-                      --workflow=desktop-release.yml \
-                      --json databaseId,status,headBranch,event \
-                      --jq ".[] | select(.headBranch==\"$tag\" and (.status==\"in_progress\" or .status==\"queued\")) | .databaseId" \
-                      2>/dev/null | head -1)
-            if [ -n "$running" ]; then
-              echo "Tag $tag has an in-flight desktop-release run ($running) — waiting up to 10 min for assets…"
-              if wait_for_desktop_assets "$tag"; then
-                PREV_TAG="$tag"
-                break
-              fi
-              echo "  $tag wait timed out — moving to next-highest tag."
-            fi
-          done
-
-          if [ -z "$PREV_TAG" ]; then
-            echo "No previous release with desktop assets found — nothing to propagate."
-            exit 0
-          fi
-          echo "Previous desktop-bearing tag: $PREV_TAG"
-
           mkdir -p /tmp/desktop-assets
-          echo "Downloading desktop artifacts from $PREV_TAG..."
-          # Download each platform's files. `--pattern` supports glob; list
-          # them explicitly to avoid pulling android APKs into the folder
-          # when the previous release carried both protocols' assets.
-          gh release download "$PREV_TAG" --repo "$REPO" --dir /tmp/desktop-assets \
-            --pattern "privycs-vpn-linux-amd64" \
-            --pattern "privycs-vpn-linux-amd64.sha256" \
-            --pattern "privycs-vpn-linux-amd64.deb" \
-            --pattern "privycs-vpn-linux-amd64.deb.sha256" \
-            --pattern "privycs-vpn-darwin-amd64.zip" \
-            --pattern "privycs-vpn-darwin-amd64.zip.sha256" \
-            --pattern "privycs-vpn-darwin-arm64.zip" \
-            --pattern "privycs-vpn-darwin-arm64.zip.sha256" \
-            --pattern "privycs-vpn-darwin-amd64.dmg" \
-            --pattern "privycs-vpn-darwin-amd64.dmg.sha256" \
-            --pattern "privycs-vpn-darwin-arm64.dmg" \
-            --pattern "privycs-vpn-darwin-arm64.dmg.sha256" \
-            --pattern "privycs-vpn-windows-amd64.exe" \
-            --pattern "privycs-vpn-windows-amd64.exe.sha256" \
-            --pattern "privycs-vpn-windows-amd64-setup.exe" \
-            --pattern "privycs-vpn-windows-amd64-setup.exe.sha256" \
-            || true
+
+          # Per-OS download. Each OS finds its own prev-tag with that
+          # OS's assets — necessary because a prior tag might have
+          # only rebuilt one OS, so different OSes can map to
+          # different prev-tags. Download patterns scoped per OS so
+          # we never accidentally pull a different OS's binary into
+          # the folder.
+          if [ "$LINUX_SKIPPED" = "true" ]; then
+            PREV=$(find_prev_tag_for_os "$LINUX_RE" "linux")
+            if [ -n "$PREV" ]; then
+              echo "Linux: propagating from $PREV"
+              gh release download "$PREV" --repo "$REPO" --dir /tmp/desktop-assets \
+                --pattern "privycs-vpn-linux-amd64" \
+                --pattern "privycs-vpn-linux-amd64.sha256" \
+                --pattern "privycs-vpn-linux-amd64.deb" \
+                --pattern "privycs-vpn-linux-amd64.deb.sha256" \
+                || true
+            else
+              echo "Linux: no prior release with Linux assets — skipping propagation"
+            fi
+          fi
+
+          if [ "$MACOS_SKIPPED" = "true" ]; then
+            PREV=$(find_prev_tag_for_os "$MACOS_RE" "macos")
+            if [ -n "$PREV" ]; then
+              echo "macOS: propagating from $PREV"
+              gh release download "$PREV" --repo "$REPO" --dir /tmp/desktop-assets \
+                --pattern "privycs-vpn-darwin-amd64.zip" \
+                --pattern "privycs-vpn-darwin-amd64.zip.sha256" \
+                --pattern "privycs-vpn-darwin-arm64.zip" \
+                --pattern "privycs-vpn-darwin-arm64.zip.sha256" \
+                --pattern "privycs-vpn-darwin-amd64.dmg" \
+                --pattern "privycs-vpn-darwin-amd64.dmg.sha256" \
+                --pattern "privycs-vpn-darwin-arm64.dmg" \
+                --pattern "privycs-vpn-darwin-arm64.dmg.sha256" \
+                || true
+            else
+              echo "macOS: no prior release with macOS assets — skipping propagation"
+            fi
+          fi
+
+          if [ "$WINDOWS_SKIPPED" = "true" ]; then
+            PREV=$(find_prev_tag_for_os "$WINDOWS_RE" "windows")
+            if [ -n "$PREV" ]; then
+              echo "Windows: propagating from $PREV"
+              gh release download "$PREV" --repo "$REPO" --dir /tmp/desktop-assets \
+                --pattern "privycs-vpn-windows-amd64.exe" \
+                --pattern "privycs-vpn-windows-amd64.exe.sha256" \
+                --pattern "privycs-vpn-windows-amd64-setup.exe" \
+                --pattern "privycs-vpn-windows-amd64-setup.exe.sha256" \
+                || true
+            else
+              echo "Windows: no prior release with Windows assets — skipping propagation"
+            fi
+          fi
 
           echo "Downloaded files:"
           ls -la /tmp/desktop-assets/ || true
 
-          # Ensure the current release exists. desktop-release's own release
-          # job has skipped in this branch (desktop_changed=false); other
-          # workflows (e.g. android-release) may have created it already.
-          # softprops/action-gh-release is idempotent, but gh release upload
-          # needs the release to exist.
+          # Ensure the current release exists. The release job above
+          # might have skipped (no OS rebuilt) or might be running in
+          # parallel (some OSes rebuilt, others propagated). Other
+          # workflows (e.g. android-release) may have created the
+          # release already. softprops/action-gh-release is
+          # idempotent, but gh release upload needs the release to
+          # exist before we can attach files.
           if ! gh release view "$CURRENT_TAG" --repo "$REPO" >/dev/null 2>&1; then
             echo "Release $CURRENT_TAG does not exist yet — creating it."
             gh release create "$CURRENT_TAG" \
@@ -567,12 +688,12 @@ jobs:
           # an asset with the same name (shouldn't, desktop and android asset
           # names are disjoint), --clobber overwrites.
           if compgen -G "/tmp/desktop-assets/*" > /dev/null; then
-            echo "Uploading desktop assets to $CURRENT_TAG..."
+            echo "Uploading propagated desktop assets to $CURRENT_TAG..."
             gh release upload "$CURRENT_TAG" \
               --repo "$REPO" \
               --clobber \
               /tmp/desktop-assets/*
-            echo "Propagated desktop assets from $PREV_TAG to $CURRENT_TAG (no rebuild)."
+            echo "Propagated $(ls /tmp/desktop-assets/ | wc -l) desktop asset(s) to $CURRENT_TAG."
           else
-            echo "Download folder is empty — propagation had nothing to do."
+            echo "Download folder is empty — every skipped OS lacked a prior release with assets, or no OS was actually skipped."
           fi

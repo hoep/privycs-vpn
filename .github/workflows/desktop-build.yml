@@ -19,7 +19,54 @@ permissions:
   contents: read
 
 jobs:
+  check-changes:
+    # Only run the Linux smoke-test when the change actually affects
+    # Linux. Files matching macOS-specific (_darwin.go, _macos.go,
+    # _macos_*.go, build/darwin/**, latest_version_macos.txt) or
+    # Windows-specific (_windows.go, _windows_*.go, build/windows/**,
+    # latest_version_windows.txt) patterns alone don't need a Linux
+    # build kicked off. Anything else under desktop/ — shared code,
+    # frontend, go.mod, latest_version_linux.txt, _unix.go (which
+    # also targets Linux) — does. Mirrors desktop-release's
+    # classifier.
+    runs-on: ubuntu-latest
+    outputs:
+      linux_changed: ${{ steps.changes.outputs.linux }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2
+      - name: Classify changes
+        id: changes
+        run: |
+          # On push, compare against the parent commit. On PR,
+          # compare against the merge-base of base..HEAD.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          else
+            BASE_SHA="HEAD~1"
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE_SHA" HEAD -- desktop/)
+          if [ -z "$CHANGED" ]; then
+            echo "linux=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          MACOS_RE='(_darwin\.go$|_macos(\.go|_[^/]*\.go)$|^desktop/build/darwin/|^desktop/latest_version_macos\.txt$)'
+          WINDOWS_RE='(_windows\.go$|_windows_[^/]*\.go$|_win\.go$|^desktop/build/windows/|^desktop/latest_version_windows\.txt$)'
+          # Anything that's NOT exclusively macOS or Windows = relevant for Linux.
+          NON_LINUX_ONLY=$(echo "$CHANGED" | grep -vE "${MACOS_RE}|${WINDOWS_RE}" || true)
+          if [ -n "$NON_LINUX_ONLY" ]; then
+            echo "linux=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "linux=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-linux:
+    needs: check-changes
+    if: needs.check-changes.outputs.linux_changed == 'true'
     name: Build Linux
     runs-on: ubuntu-22.04
     defaults:
