@@ -142,43 +142,27 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
 		}
 	case "darwin":
-		if i.usingSwanctl {
-			// swanctl path: query via helper (charon's vici socket is
-			// root-only). Connection is up when the IKE_SA shows
-			// state=ESTABLISHED. Mirrors the Linux branch above.
-			client := NewHelperClient()
-			if !client.IsHelperReachable() {
-				return status
-			}
-			resp, err := client.SendCommand("status", map[string]string{
-				"protocol":  "ipsec",
-				"interface": i.connName,
-			})
-			if err == nil && resp.Success && strings.Contains(resp.Output, "ESTABLISHED") {
-				status.Connected = true
-				status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
-			}
-			break
+		// swanctl path is the only macOS path. Query via helper —
+		// charon's vici socket is root-only, so direct client-side
+		// access would fail. SA up when state=ESTABLISHED.
+		client := NewHelperClient()
+		if !client.IsHelperReachable() {
+			return status
 		}
-		// scutil --nc status is blind to NEConfigurationManager-managed
-		// IPSec services on Sonoma+ (the modern macOS VPN framework
-		// runs alongside the legacy SystemConfiguration store that
-		// scutil reads, without the cross-bridge that pre-13 macOS
-		// used to populate). AppleScript / System Events talks to the
-		// modern path directly. See macOSVPNIsConnected for the
-		// fallback chain when AppleScript isn't reachable.
-		if macOSVPNIsConnected(i.connName) {
+		resp, err := client.SendCommand("status", map[string]string{
+			"protocol":  "ipsec",
+			"interface": i.connName,
+		})
+		if err == nil && resp.Success && strings.Contains(resp.Output, "ESTABLISHED") {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
-			// Traffic stats: when the Apple IKE stack is up the
-			// default route exits via a utun interface that mirrors
-			// the VPN tunnel. Read RX/TX from netstat for that
-			// utun. Heuristic — split-tunnel setups where default
-			// route still exits via en0 will see zeros here even
-			// though VPN traffic flows on an addressed utun. Good
-			// enough for the common full-tunnel case which is the
-			// default for Privycs gateways.
-			if _, iface, err := defaultRouteIPv4(); err == nil && strings.HasPrefix(iface, "utun") {
+			// Traffic stats: charon installs a kernel SA without a
+			// per-VPN utun on macOS (XFRM-style policy mode), so
+			// per-interface byte counters often read zero. Best-
+			// effort: when default route exits via a utun (full
+			// tunnel), read its stats. Split-tunnel setups will see
+			// zeros here — known limitation.
+			if _, iface, rerr := defaultRouteIPv4(); rerr == nil && strings.HasPrefix(iface, "utun") {
 				status.BytesRx, status.BytesTx = getDarwinInterfaceStats(iface)
 			}
 		}
@@ -200,9 +184,9 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			// shows up as "WAN Miniport (IKEv2)" or has a sanitized
 			// name. Try several patterns to be robust.
 			status.BytesRx, status.BytesTx = getWindowsTrafficStats(
-				i.connName,        // primary - matches default adapter alias
-				"IKEv2",           // RAS miniport label
-				"WAN Miniport",    // generic RAS catch-all
+				i.connName,     // primary - matches default adapter alias
+				"IKEv2",        // RAS miniport label
+				"WAN Miniport", // generic RAS catch-all
 			)
 		}
 	}
@@ -225,14 +209,16 @@ func (i *IPSecProtocol) Configure(cfg []byte) error {
 		return i.configureFromSSwan(cfg)
 	}
 
-	// Try Apple Configuration Profile (.mobileconfig). Only meaningful
-	// on macOS — Windows/Linux can't natively consume an Apple plist
-	// for IKEv2. Power users may already have a .mobileconfig from
-	// their gateway (Privycs gateway emits one for iOS, identical
-	// shape works on macOS) and dropping it directly avoids the
-	// .sswan→.mobileconfig translation roundtrip.
+	// Apple Configuration Profile (.mobileconfig) direct-import is
+	// no longer supported on the swanctl path. The previous flow
+	// installed the profile in System Settings and drove connect via
+	// AppleScript — both of which Sequoia broke (security boundary
+	// for app-controlled profile-installed VPNs). Users with only a
+	// .mobileconfig should pull the .sswan equivalent from their
+	// gateway, or a future App-Store-flavor build (NEVPNManager-cgo)
+	// will accept .mobileconfig directly via the in-app NE API.
 	if runtime.GOOS == "darwin" && isMobileConfigPlist(content) {
-		return i.configureMacOSFromMobileConfig(cfg)
+		return fmt.Errorf("macOS .mobileconfig direct-import is no longer supported on this build flavor — request a .sswan profile from your gateway instead")
 	}
 
 	return fmt.Errorf("unrecognized IPSec config format")
@@ -350,24 +336,55 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 	case "linux":
 		return i.configureLinuxFromSSwan(&profile)
 	case "darwin":
-		// Hybrid: PPK material in .sswan + Homebrew swanctl available
-		// → drive libcharon directly (real RFC 8784 PPK negotiation).
-		// PPK without swanctl → Apple-Stack with a notify nudge to
-		// install Homebrew strongswan. No PPK → plain Apple-Stack.
-		hasPPK := profile.PPKID != "" && profile.PPKPSK != ""
-		if hasPPK && findStrongswanBinary("swanctl") != "" {
-			i.usingSwanctl = true
-			return i.configureMacOSFromSSwanViaSwanctl(&profile)
-		}
-		i.usingSwanctl = false
-		if hasPPK {
+		// macOS: swanctl-via-Homebrew is the only path. The previous
+		// Apple-Stack approach (.mobileconfig + AppleScript-System-
+		// Events to drive connect) is fundamentally broken on Sequoia
+		// — Apple's security boundary forbids apps from controlling
+		// profile-installed VPNs (DTS-Forum 663468). The Mac-App-Store
+		// flavor will use NEVPNManager-cgo instead (separate build
+		// tag, follow-up tag).
+		//
+		// Pre-flight: ask the helper for the precise install state so
+		// we can surface a targeted hint ("install brew" vs "install
+		// strongswan" vs "start strongswan service") instead of the
+		// generic "swanctl not found".
+		if deps, err := CheckMacOSIPSecDependencies(); err == nil {
+			if !deps.BrewInstalled {
+				Notify(
+					"Homebrew required for IPSec",
+					"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install Homebrew first:\n\n    /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\nThen run:\n\n    brew install strongswan\n    brew services start strongswan\n\nand reimport the profile.",
+					NotifyError,
+				)
+				return fmt.Errorf("Homebrew not installed — see notification for install steps")
+			}
+			if !deps.StrongswanInstalled {
+				Notify(
+					"strongSwan required for IPSec",
+					"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install via Terminal:\n\n    brew install strongswan\n    brew services start strongswan\n\nThen reimport the profile.",
+					NotifyError,
+				)
+				return fmt.Errorf("strongSwan not installed — run `brew install strongswan && brew services start strongswan`")
+			}
+			if !deps.CharonRunning {
+				Notify(
+					"strongSwan service not running",
+					"Privycs detected Homebrew strongSwan but the charon daemon is not running. Start it via Terminal:\n\n    brew services start strongswan\n\nThen reimport the profile.",
+					NotifyError,
+				)
+				return fmt.Errorf("charon not running — run `brew services start strongswan`")
+			}
+		} else if findStrongswanBinary("swanctl") == "" {
+			// Fallback when helper is unreachable — best-effort hint
+			// based on the binary path alone.
 			Notify(
-				"PPK requires Homebrew strongswan",
-				"This connection ships RFC 8784 PPK material which Apple's IKE stack cannot consume. Run `brew install strongswan` and reimport the profile to enable PPK. Connecting now without PPK.",
-				NotifyInfo,
+				"Homebrew strongSwan required",
+				"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install via Terminal:\n\n    brew install strongswan\n    brew services start strongswan\n\nThen reimport the profile.",
+				NotifyError,
 			)
+			return fmt.Errorf("strongSwan not installed (or helper unreachable) — run `brew install strongswan && brew services start strongswan`")
 		}
-		return i.configureMacOSFromSSwan(&profile)
+		i.usingSwanctl = true
+		return i.configureMacOSFromSSwanViaSwanctl(&profile)
 	default:
 		log.Printf("Platform %s: .sswan saved, manual configuration required", runtime.GOOS)
 		return nil
@@ -618,54 +635,21 @@ func (i *IPSecProtocol) downLinux(ctx context.Context) error {
 // ============================================================================
 
 func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
-	// PPK path: drive libcharon via swanctl. Apple-Stack is bypassed
-	// entirely so the .sswan profile's pq_safe negotiation actually
-	// runs. Configure-time already verified swanctl exists and the
-	// helper installed the swanctl conf + secrets.
-	if i.usingSwanctl {
-		return i.upMacOSViaSwanctl(ctx)
-	}
-
-	// Pre-Up snapshot of the current default route. We need this BEFORE
-	// the VPN comes up because Apple's IKEv2 stack rewrites the default
-	// route to point at the utun once the tunnel is up, at which point
-	// "what was my LAN gateway?" becomes unanswerable. Best-effort: if
-	// the snapshot fails we still bring the tunnel up, just without
-	// split-tunneling.
+	// macOS direct-distribution path: drive libcharon via swanctl.
+	// Configure-time already verified swanctl exists and the helper
+	// installed swanctl.conf + secrets. Pre-Up route snapshot for
+	// post-Up split-tunnel route install.
 	gw4, iface4, _ := defaultRouteIPv4()
 	gw6, _, _ := defaultRouteIPv6()
 
-	// Connect via AppleScript / System Events. We deliberately skip
-	// any pre-flight existence check: macOS-Sonoma+ profile-installed
-	// VPNs have weird visibility states across `scutil --nc`,
-	// `profiles -L`, and AppleScript depending on TCC, profile scope,
-	// and timing. A pre-flight that fails despite the VPN being
-	// usable would block a legitimate connect with a misleading
-	// "profile not installed" error. Instead drive `connect` directly
-	// — AppleScript returns a precise error (service-doesn't-exist,
-	// not-authorized for TCC, etc.) that we forward to the user.
-	if err := macOSVPNConnect(i.connName); err != nil {
-		// Notify in addition to the returned error so the user
-		// sees an actionable banner even if the UI swallows the
-		// proto.Up error path. The most common cause is TCC denial
-		// for Privycs.app — point them at the right settings pane.
-		Notify(
-			"VPN connect failed",
-			fmt.Sprintf("Privycs could not start the IPSec tunnel %q via macOS. If the error mentions 'not allowed' or 'not authorized', open System Settings → Privacy & Security → Automation and allow Privycs VPN to control System Events. If it mentions 'service doesn't exist', re-import the .sswan and approve the profile install dialog. Underlying error: %v",
-				i.connName, err),
-			NotifyError,
-		)
-		return fmt.Errorf("AppleScript connect failed: %w", err)
+	if err := i.upMacOSViaSwanctl(ctx); err != nil {
+		return err
 	}
 	i.connectedAt = time.Now()
 
-	// Post-Up: install bypass routes if the .sswan carries split-
-	// tunneling CIDRs. Apple's NEVPNProtocolIKEv2 has no API for
-	// CIDR-list bypass, so we drive route(8) from the helper after
-	// the tunnel is up. macOS sometimes hasn't fully written the new
-	// default route yet when scutil returns — a brief poll on the
-	// VPN reaching "Connected" status (or a 1.5 s timeout) catches
-	// that race.
+	// Post-Up split-tunnel CIDR bypass routes when the .sswan ships
+	// a split-tunneling list. charon doesn't drive route(8) for
+	// client-side bypass; we install via the helper after SA is up.
 	if len(i.splitTunneling) > 0 {
 		i.installMacOSSplitTunnelRoutes(gw4, iface4, gw6)
 	}
@@ -673,18 +657,13 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 }
 
 func (i *IPSecProtocol) downMacOS(ctx context.Context) error {
-	if i.usingSwanctl {
-		return i.downMacOSViaSwanctl(ctx)
-	}
-	// Remove our bypass routes BEFORE the VPN tear-down so the
-	// route(8) calls still reference real interfaces. Reversed order
-	// races against Apple's own route teardown.
+	// Remove bypass routes BEFORE the SA tear-down so route(8) calls
+	// still reference real interfaces. Reverse order races against
+	// the kernel SA teardown.
 	i.removeMacOSSplitTunnelRoutes()
-	if err := macOSVPNDisconnect(i.connName); err != nil {
-		log.Printf("IPSec: AppleScript disconnect for %q returned: %v", i.connName, err)
-	}
+	err := i.downMacOSViaSwanctl(ctx)
 	i.connectedAt = time.Time{}
-	return nil
+	return err
 }
 
 // ============================================================================

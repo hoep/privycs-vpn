@@ -33,23 +33,24 @@ type HelperResponse struct {
 
 // allowedActions is the whitelist of commands the helper will execute.
 var allowedActions = map[string]bool{
-	"connect":                  true,
-	"disconnect":               true,
-	"killswitch_enable":        true,
-	"killswitch_disable":       true,
-	"sinkhole_engage":          true, // new system: Privycs-Sinkhole-* rules
-	"sinkhole_release":         true, // new system: Privycs-Sinkhole-* cleanup
-	"status":                   true,
-	"wg_install_config":        true,
-	"ipsec_configure":          true,
-	"ipsec_cleanup":            true, // wipe swanctl conf.d / PEMs (macOS-Pro)
-	"ipsec_split_routes_add":   true, // macOS post-up CIDR-bypass routes
-	"ipsec_split_routes_remove": true,
+	"connect":                    true,
+	"disconnect":                 true,
+	"killswitch_enable":          true,
+	"killswitch_disable":         true,
+	"sinkhole_engage":            true, // new system: Privycs-Sinkhole-* rules
+	"sinkhole_release":           true, // new system: Privycs-Sinkhole-* cleanup
+	"status":                     true,
+	"wg_install_config":          true,
+	"ipsec_configure":            true,
+	"ipsec_cleanup":              true, // wipe swanctl conf.d / PEMs
+	"ipsec_check_dependencies":   true, // macOS: brew/strongswan/charon health
+	"ipsec_split_routes_add":     true, // macOS post-up CIDR-bypass routes
+	"ipsec_split_routes_remove":  true,
 	"macos_dns_override_set":     true, // primary-service DNS override (swanctl-darwin)
 	"macos_dns_override_restore": true,
 	"macos_dns_override_clean":   true, // orphan-cleanup at app startup
-	"remove_legacy_sudoers":    true,
-	"wlan_ssid":                true, // SSID query (bypasses user-level Location GPO)
+	"remove_legacy_sudoers":      true,
+	"wlan_ssid":                  true, // SSID query (bypasses user-level Location GPO)
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.
@@ -281,6 +282,8 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdIPSecConfigure(cmd)
 	case "ipsec_cleanup":
 		return h.cmdIPSecCleanup(cmd)
+	case "ipsec_check_dependencies":
+		return h.cmdIPSecCheckDependencies(cmd)
 	case "ipsec_split_routes_add":
 		return h.cmdIPSecSplitRoutesAdd(cmd)
 	case "ipsec_split_routes_remove":
@@ -1120,6 +1123,65 @@ func helperFindMacOSStrongswanBinary(name string) string {
 		return p
 	}
 	return ""
+}
+
+// cmdIPSecCheckDependencies reports the macOS Homebrew strongSwan
+// install state. Privycs uses Homebrew swanctl as the macOS IPSec
+// backend (Apple's NEVPNManager would also work but requires the
+// Personal-VPN entitlement which the direct-distribution build
+// doesn't carry — App-Store-flavor will use NEVPNManager).
+//
+// Three signals are returned in Output as `key=true|false` lines:
+//
+//   - brew_installed: `brew` binary findable in either Homebrew prefix
+//   - strongswan_installed: `swanctl` binary findable
+//   - charon_running: vici socket present + accept()'able. We don't
+//     just check pgrep because charon-on-launchd-with-fault might be
+//     started but not listening, and `pgrep` would lie about that.
+//
+// The client uses these to render a precise install-instruction
+// banner ("brew install strongswan" vs "brew services start strongswan"
+// vs "all good, retry connect") instead of guessing.
+func (h *PrivilegedHelper) cmdIPSecCheckDependencies(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: true, Output: "brew_installed=true\nstrongswan_installed=true\ncharon_running=true\n"}
+	}
+
+	brewBin := helperFindMacOSStrongswanBinary("brew")
+	if brewBin == "" {
+		// Apple-Silicon and Intel canonical install paths.
+		for _, p := range []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"} {
+			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+				brewBin = p
+				break
+			}
+		}
+	}
+	swanctlBin := helperFindMacOSStrongswanBinary("swanctl")
+
+	// vici socket location follows the brew prefix. /opt/homebrew on
+	// Apple Silicon, /usr/local on Intel. Falls back to /etc on user
+	// custom installs.
+	viciCandidates := []string{
+		"/opt/homebrew/var/run/charon.vici",
+		"/usr/local/var/run/charon.vici",
+		"/var/run/charon.vici",
+	}
+	charonRunning := false
+	for _, p := range viciCandidates {
+		if fi, err := os.Stat(p); err == nil && (fi.Mode()&os.ModeSocket) != 0 {
+			charonRunning = true
+			break
+		}
+	}
+
+	out := fmt.Sprintf(
+		"brew_installed=%t\nstrongswan_installed=%t\ncharon_running=%t\n",
+		brewBin != "",
+		swanctlBin != "",
+		charonRunning,
+	)
+	return HelperResponse{Success: true, Output: out}
 }
 
 // cmdIPSecConfigureWindows handles the Windows-specific IPSec setup:

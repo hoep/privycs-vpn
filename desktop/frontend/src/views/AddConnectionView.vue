@@ -87,7 +87,7 @@
 
       <!-- Hidden file input -->
       <input ref="fileInput" type="file" class="hidden"
-        accept=".conf,.ovpn,.sswan,.mobileconfig,.p12"
+        accept=".conf,.ovpn,.sswan,.p12"
         @change="handleFileSelect" />
 
       <!-- Drop zone -->
@@ -176,7 +176,7 @@
         </div>
         <div class="flex items-center gap-2">
           <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-          <span class="text-xs text-gray-600 dark:text-gray-300">.sswan / .mobileconfig — IPSec/IKEv2</span>
+          <span class="text-xs text-gray-600 dark:text-gray-300">.sswan — IPSec/IKEv2</span>
         </div>
       </div>
     </div>
@@ -376,10 +376,10 @@ function processFile(file: File) {
   const name = file.name.toLowerCase()
   if (name.endsWith('.conf')) detectedProtocol.value = 'wireguard'
   else if (name.endsWith('.ovpn')) detectedProtocol.value = 'openvpn'
-  else if (name.endsWith('.sswan') || name.endsWith('.mobileconfig')) detectedProtocol.value = 'ipsec'
+  else if (name.endsWith('.sswan')) detectedProtocol.value = 'ipsec'
   else detectedProtocol.value = ''
 
-  connectionName.value = file.name.replace(/\.(conf|ovpn|sswan|mobileconfig|p12)$/i, '')
+  connectionName.value = file.name.replace(/\.(conf|ovpn|sswan|p12)$/i, '')
 
   const reader = new FileReader()
   reader.onload = () => {

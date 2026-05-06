@@ -32,7 +32,6 @@ Import VPN configurations from standard config files:
 | WireGuard | `.conf` | WireGuard | `[Interface]` + `PrivateKey` |
 | OpenVPN | `.ovpn` | OpenVPN | `remote` or `<ca>` directives |
 | strongSwan | `.sswan` | IPSec | JSON with `remote` field |
-| Apple Profile | `.mobileconfig` | IPSec | XML plist payload |
 
 Protocol detection is automatic from file extension and content. Drag-and-drop or file picker.
 

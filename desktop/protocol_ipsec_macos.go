@@ -1,344 +1,45 @@
 package main
 
-// macOS IPSec/IKEv2 configuration: translate a strongSwan .sswan profile
-// into an Apple Configuration Profile (.mobileconfig) and hand it to
-// macOS for user-approved install. Apple's built-in IKEv2 stack
-// (NEVPNProtocolIKEv2 driven by scutil --nc) takes over from there.
+// macOS IPSec/IKEv2 helpers — split-tunnel route management and
+// migration cleanup nudges for users coming from earlier Apple-Stack
+// builds. The actual IPSec connect path lives in
+// protocol_ipsec_macos_swanctl.go (Homebrew strongswan).
 //
-// What this does NOT cover (parity gap with Linux/Windows that the user
-// should be aware of):
-//   - RFC 8784 PPK: Apple's IKE stack does not implement the PPK_IDENTITY
-//     payload, so pq_safe-mixed authentication is silently downgraded to
-//     plain certificate auth. The .sswan ppk_id / ppk_psk fields are
-//     ignored on macOS today. The fix would be an embedded libcharon
-//     (see android/vendor/strongswan path) or a Homebrew swanctl
-//     hand-off — both are out of scope for this Phase-1 change.
-//   - First-time install requires a System Settings click-through. We
-//     cannot bypass that on user-space macOS without an MDM enrollment.
-//     The Up() path will fail with "no such config" until the user
-//     completes the install dialog; the next Connect tap then succeeds.
+// History: pre-Phase-1, this file owned a full .mobileconfig +
+// AppleScript-System-Events flow that drove macOS's built-in IKEv2
+// stack. That entire path was deleted in v0.9.14.x once Sequoia's
+// security boundary made it unworkable (Apple-DTS-Forum 663468:
+// apps cannot programmatically control profile-installed VPNs). The
+// only Apple-Stack remnants kept here are read-only detection
+// (`isMacOSVPNConfigInstalled`, `scutilMatchesConnName`) used to
+// nudge users who installed a profile under the old build to remove
+// it from System Settings.
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
-	"text/template"
-
-	"github.com/google/uuid"
 )
-
-// macosMobileConfigTemplate is a minimal Apple .mobileconfig that wraps
-// one PKCS#12 payload (the client cert + private key, with chain) and
-// one IKEv2 VPN payload referencing it. Mirrors the iOS template the
-// gateway emits for `HandleDownloadIPSecIOSProfile` but trimmed to the
-// fields actually present in a .sswan profile (no separate CA payload,
-// no DoT, no OnDemand — those need server-side data we don't have on
-// the client).
-const macosMobileConfigTemplate = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>PayloadContent</key>
-	<array>
-		<dict>
-			<key>PayloadType</key>
-			<string>com.apple.security.pkcs12</string>
-			<key>PayloadVersion</key>
-			<integer>1</integer>
-			<key>PayloadIdentifier</key>
-			<string>com.privycs.vpn.cert.{{.CertUUID}}</string>
-			<key>PayloadUUID</key>
-			<string>{{.CertUUID}}</string>
-			<key>PayloadDisplayName</key>
-			<string>{{.ConnName}} Certificate</string>
-			<key>PayloadContent</key>
-			<data>{{.PKCS12Base64}}</data>
-			<key>Password</key>
-			<string>{{.PKCS12Password}}</string>
-		</dict>
-		<dict>
-			<key>PayloadType</key>
-			<string>com.apple.vpn.managed</string>
-			<key>PayloadVersion</key>
-			<integer>1</integer>
-			<key>PayloadIdentifier</key>
-			<string>com.privycs.vpn.ikev2.{{.VPNUUID}}</string>
-			<key>PayloadUUID</key>
-			<string>{{.VPNUUID}}</string>
-			<key>PayloadDisplayName</key>
-			<string>{{.ConnName}}</string>
-			<key>UserDefinedName</key>
-			<string>{{.ConnName}}</string>
-			<key>VPNType</key>
-			<string>IKEv2</string>
-			<key>IKEv2</key>
-			<dict>
-				<key>RemoteAddress</key>
-				<string>{{.RemoteAddress}}</string>
-				<key>RemoteIdentifier</key>
-				<string>{{.RemoteID}}</string>
-				<key>LocalIdentifier</key>
-				<string>{{.LocalID}}</string>
-				<key>AuthenticationMethod</key>
-				<string>Certificate</string>
-				<key>PayloadCertificateUUID</key>
-				<string>{{.CertUUID}}</string>
-				<key>EnablePFS</key>
-				<true/>
-				<key>IncludeAllNetworks</key>
-				<{{if .IncludeAllNetworks}}true{{else}}false{{end}}/>
-				<key>ExcludeLocalNetworks</key>
-				<true/>{{if .HasMTU}}
-				<key>TunnelMTU</key>
-				<integer>{{.MTU}}</integer>{{end}}
-			</dict>{{if .HasDNS}}
-			<key>DNS</key>
-			<dict>
-				<key>ServerAddresses</key>
-				<array>{{range .DNSServers}}
-					<string>{{.}}</string>{{end}}
-				</array>
-			</dict>{{end}}
-		</dict>
-	</array>
-	<key>PayloadDisplayName</key>
-	<string>{{.ConnName}}</string>
-	<key>PayloadDescription</key>
-	<string>Privycs IKEv2 VPN profile</string>
-	<key>PayloadIdentifier</key>
-	<string>com.privycs.vpn.profile.{{.ProfileUUID}}</string>
-	<key>PayloadUUID</key>
-	<string>{{.ProfileUUID}}</string>
-	<key>PayloadType</key>
-	<string>Configuration</string>
-	<key>PayloadVersion</key>
-	<integer>1</integer>
-	<key>PayloadOrganization</key>
-	<string>Privycs</string>
-	<key>PayloadRemovalDisallowed</key>
-	<false/>
-</dict>
-</plist>`
-
-type macosMobileConfigData struct {
-	ConnName       string
-	RemoteAddress  string
-	RemoteID       string
-	LocalID        string
-	PKCS12Base64   string
-	PKCS12Password string
-	HasDNS         bool
-	DNSServers     []string
-	HasMTU         bool
-	MTU            int
-	// IncludeAllNetworks=true forces every packet through the tunnel
-	// (full-tunnel). We set it to false when the .sswan profile carries
-	// a non-empty split-tunneling list to defer routing to whatever the
-	// server pushes via IKE traffic-selectors. CIDR-level client-side
-	// bypass is NOT honored by Apple's IKE stack — that would need a
-	// separate post-Up route-manipulation pass via the helper. Until
-	// then, the split-tunneling field flips full-vs-server-decides only.
-	IncludeAllNetworks bool
-	ProfileUUID        string
-	VPNUUID            string
-	CertUUID           string
-}
-
-// configureMacOSFromSSwan generates a .mobileconfig from the parsed
-// .sswan profile and hands it to macOS for user-approved install.
-// Idempotent: if scutil already lists a VPN with this name, the install
-// step is skipped (re-import does not re-prompt the user).
-//
-// Two source flows:
-//   - .sswan carries macos_signed_profile (Privycs gateway >= v0.8.1.179):
-//     write the server-signed bytes directly. System Settings shows
-//     "Verified" on install.
-//   - No signed profile: render the local Apple-template ourselves.
-//     System Settings shows "Unsigned"; user has to override the
-//     warning. Functionally identical tunnel.
-func (i *IPSecProtocol) configureMacOSFromSSwan(profile *sswanProfile) error {
-	// Fast-path: server gave us a signed .mobileconfig. Skip the
-	// local template render entirely so the gateway-side fields
-	// (DoT, OnDemand rules, CA payload, etc) all flow through and
-	// the install dialog reads "Verified".
-	if profile.MacOSSignedProfile != "" {
-		return i.installSignedMacOSMobileConfig(profile)
-	}
-	return i.installUnsignedMacOSMobileConfig(profile)
-}
-
-// installSignedMacOSMobileConfig writes the gateway-emitted, S/MIME
-// signed .mobileconfig blob and hands it to System Settings. We do
-// not re-encode or re-render — the bytes go to disk verbatim so the
-// signature stays valid.
-//
-// Idempotency: Configure() runs on every IPSec pill-click in the
-// frontend. We don't want a System Settings dialog to pop up each
-// time. Three short-circuit checks, in order:
-//   1. Cached file on disk has identical bytes -> skip dialog,
-//      profile content didn't change.
-//   2. scutil --nc list / profiles -L show our connection installed
-//      -> skip dialog, system already has the profile (the file
-//      content might have changed but the OS-side state is fine).
-//   3. None of the above -> open the dialog so the user can finalise
-//      the install (the only path that pops System Settings).
-func (i *IPSecProtocol) installSignedMacOSMobileConfig(profile *sswanProfile) error {
-	signed, err := base64.StdEncoding.DecodeString(profile.MacOSSignedProfile)
-	if err != nil {
-		log.Printf("IPSec: macos_signed_profile base64 decode failed (%v) — falling back to unsigned generation", err)
-		return i.installUnsignedMacOSMobileConfig(profile)
-	}
-	mcPath := filepath.Join(appDataDir(), i.connName+".mobileconfig")
-
-	// Short-circuit 1: cached bytes already match the new payload.
-	if existing, rerr := os.ReadFile(mcPath); rerr == nil && bytes.Equal(existing, signed) {
-		log.Printf("IPSec: signed mobileconfig already cached for %s, skipping install dialog", i.connName)
-		i.configured = true
-		return nil
-	}
-
-	if err := os.WriteFile(mcPath, signed, 0600); err != nil {
-		return fmt.Errorf("write signed mobileconfig: %w", err)
-	}
-	log.Printf("IPSec: wrote %d-byte signed mobileconfig to %s", len(signed), mcPath)
-
-	// Short-circuit 2: profile already installed at OS level. We may
-	// have refreshed the disk cache (rotation, manual edit) but the
-	// VPN service in System Settings is still the prior version.
-	// Apple-Stack rejects re-install of the same PayloadIdentifier
-	// without an explicit replace prompt; better not to fire one
-	// implicitly on every pill click.
-	if isMacOSVPNConfigInstalled(i.connName) {
-		log.Printf("IPSec: macOS VPN config '%s' already installed (scutil/profiles -L), skipping install dialog", i.connName)
-		i.configured = true
-		return nil
-	}
-
-	log.Printf("IPSec: opening macOS profile install dialog (signed) for %s", i.connName)
-	if err := exec.Command("open", mcPath).Run(); err != nil {
-		return fmt.Errorf("open mobileconfig install dialog: %w", err)
-	}
-	i.configured = true
-	return nil
-}
-
-// installUnsignedMacOSMobileConfig is the original Phase-1 path:
-// render the local Apple-IKE-stack template and open it. Used when
-// the .sswan came from a server that does not embed a signed profile
-// (older Privycs gateway, non-Privycs strongSwan).
-func (i *IPSecProtocol) installUnsignedMacOSMobileConfig(profile *sswanProfile) error {
-	password := profile.Local.P12Password
-	if password == "" {
-		// Privycs-default mirrors the Windows fallback in
-		// configureWindowsFromSSwan: when the gateway omits the export
-		// password the bundle was sealed with the literal string
-		// "privycs". Aligns the two desktop platforms.
-		password = "privycs"
-	}
-
-	// DNS resolution priority matches the Linux/Windows IPSec paths:
-	// Settings-driven DnsOverride (populated via SetDnsOverride before
-	// Configure runs — see App.applyDnsOverride wrapping in app.go) wins
-	// over whatever the .sswan profile carried. Empty override falls
-	// back to the .sswan list, which itself may be empty for full
-	// "let-server-push-DNS" behaviour.
-	dnsServers := profile.DNSServers
-	if len(i.dnsOverride) > 0 {
-		log.Printf("DNS override (IPSec/macOS): applied %s", strings.Join(i.dnsOverride, ","))
-		dnsServers = i.dnsOverride
-	}
-
-	data := macosMobileConfigData{
-		ConnName:       i.connName,
-		RemoteAddress:  profile.Remote.Addr,
-		RemoteID:       profile.Remote.ID,
-		LocalID:        profile.Local.ID,
-		PKCS12Base64:   profile.Local.P12,
-		PKCS12Password: password,
-		HasDNS:         len(dnsServers) > 0,
-		DNSServers:     dnsServers,
-		HasMTU:         profile.MTU > 0,
-		MTU:            profile.MTU,
-		// Empty split-tunneling list -> force full tunnel (the common
-		// case). Non-empty -> defer routing to server-pushed traffic
-		// selectors. CIDR-level bypass is documented as a separate
-		// follow-up (helper-driven post-Up route manipulation).
-		IncludeAllNetworks: len(profile.SplitTunneling) == 0,
-		// Stable per-connection UUIDs so re-running configure does not
-		// produce a "different profile, please replace" prompt — macOS
-		// matches by PayloadUUID. profile.UUID is the .sswan-side UUID
-		// and is stable across re-imports.
-		ProfileUUID: stableUUID("profile:" + profile.UUID),
-		VPNUUID:     stableUUID("vpn:" + profile.UUID),
-		CertUUID:    stableUUID("cert:" + profile.UUID),
-	}
-
-	tmpl, err := template.New("mobileconfig").Parse(macosMobileConfigTemplate)
-	if err != nil {
-		return fmt.Errorf("parse mobileconfig template: %w", err)
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return fmt.Errorf("render mobileconfig: %w", err)
-	}
-
-	mcPath := filepath.Join(appDataDir(), i.connName+".mobileconfig")
-
-	// Short-circuit 1: cached bytes already match the rendered
-	// payload. Configure() runs on every IPSec pill-click; without
-	// this check the System Settings dialog opens every time.
-	if existing, rerr := os.ReadFile(mcPath); rerr == nil && bytes.Equal(existing, buf.Bytes()) {
-		log.Printf("IPSec: unsigned mobileconfig already cached for %s, skipping install dialog", i.connName)
-		i.configured = true
-		return nil
-	}
-
-	if err := os.WriteFile(mcPath, buf.Bytes(), 0600); err != nil {
-		return fmt.Errorf("write mobileconfig: %w", err)
-	}
-
-	if isMacOSVPNConfigInstalled(i.connName) {
-		log.Printf("IPSec: macOS VPN config '%s' already installed, skipping open() prompt", i.connName)
-		i.configured = true
-		return nil
-	}
-
-	// `open` hands the .mobileconfig to System Settings → Privacy &
-	// Security → Profiles. The user clicks Install + enters the admin
-	// password to actually finalise it. We cannot block on that here —
-	// macOS gives no programmatic completion signal — so we return
-	// success and let Up() report "scutil: no such service" until the
-	// install completes.
-	log.Printf("IPSec: opening macOS profile install dialog for %s -> %s", i.connName, profile.Remote.Addr)
-	if err := exec.Command("open", mcPath).Run(); err != nil {
-		return fmt.Errorf("open mobileconfig install dialog: %w", err)
-	}
-	i.configured = true
-	return nil
-}
 
 // isMacOSVPNConfigInstalled returns true when the macOS profile store
 // shows our VPN service. Two detection sources, OR'd, because Apple
 // has shuffled the relevant tooling layouts across recent releases
 // and a single source has been brittle in practice:
 //
-//   1. `scutil --nc list` — historical canonical source. Output
-//      format varies (quoted vs unquoted name, trailing [IPSec]
-//      vs [IKEv2] tag, profile-bundle-installed entries that
-//      show under the `Configuration Profile` type instead of
-//      `IPSec` on Sonoma+).
-//   2. `profiles -L` — lists every installed configuration profile
-//      including those whose VPN payload didn't surface in scutil
-//      for whatever per-version reason. Deprecated for MDM use but
-//      still works for user-installed profiles on Sequoia.
+//  1. `scutil --nc list` — historical canonical source. Output
+//     format varies (quoted vs unquoted name, trailing [IPSec]
+//     vs [IKEv2] tag, profile-bundle-installed entries that
+//     show under the `Configuration Profile` type instead of
+//     `IPSec` on Sonoma+).
+//  2. `profiles -L` — lists every installed configuration profile
+//     including those whose VPN payload didn't surface in scutil
+//     for whatever per-version reason. Deprecated for MDM use but
+//     still works for user-installed profiles on Sequoia.
 //
 // A miss in BOTH sources logs a one-shot diagnostic dump so we can
 // spot future format drifts without users having to manually run
@@ -390,66 +91,16 @@ func scutilMatchesConnName(output, connName string) bool {
 	return false
 }
 
-// configureMacOSFromMobileConfig accepts a pre-built Apple Configuration
-// Profile (.mobileconfig) and hands it to System Settings without going
-// through .sswan translation. We extract the connection name from the
-// IKEv2 payload's UserDefinedName key so subsequent scutil --nc start
-// matches.
+// openMacOSProfilesPane launches System Settings into the Profiles
+// pane so the user can manually remove a stale leftover Privycs VPN
+// profile inherited from a pre-Phase-1 build. Modern macOS does not
+// allow programmatic removal of user-installed configuration profiles
+// without MDM context — `profiles remove -p <id>` against a user-
+// context profile is silently rejected on Sonoma+.
 //
-// Plist parsing is intentionally regex-based to avoid pulling in a
-// full plist library for a single key extraction. The format is
-// stable XML and the regex tolerates whitespace + indentation
-// variations.
-func (i *IPSecProtocol) configureMacOSFromMobileConfig(cfg []byte) error {
-	name := extractMobileConfigUserDefinedName(string(cfg))
-	if name == "" {
-		// Fall back to PayloadDisplayName at the root level if the
-		// IKEv2 sub-dict didn't carry UserDefinedName. Still no match
-		// → reject; we cannot drive scutil without a name.
-		name = extractMobileConfigPayloadDisplayName(string(cfg))
-	}
-	if name == "" {
-		return fmt.Errorf("mobileconfig is missing UserDefinedName / PayloadDisplayName — cannot drive scutil")
-	}
-	i.connName = name
-	i.serverAddr = extractMobileConfigRemoteAddress(string(cfg))
-	log.Printf("IPSec: importing pre-built .mobileconfig as connection '%s' -> %s", i.connName, i.serverAddr)
-
-	mcPath := filepath.Join(appDataDir(), i.connName+".mobileconfig")
-	if err := os.WriteFile(mcPath, cfg, 0600); err != nil {
-		return fmt.Errorf("write mobileconfig: %w", err)
-	}
-
-	if isMacOSVPNConfigInstalled(i.connName) {
-		log.Printf("IPSec: macOS VPN config '%s' already installed, skipping open() prompt", i.connName)
-		i.configured = true
-		return nil
-	}
-
-	if err := exec.Command("open", mcPath).Run(); err != nil {
-		return fmt.Errorf("open mobileconfig install dialog: %w", err)
-	}
-	i.configured = true
-	return nil
-}
-
-var (
-	reMobileUserDefinedName    = regexp.MustCompile(`<key>\s*UserDefinedName\s*</key>\s*<string>([^<]+)</string>`)
-	reMobilePayloadDisplayName = regexp.MustCompile(`<key>\s*PayloadDisplayName\s*</key>\s*<string>([^<]+)</string>`)
-	reMobileRemoteAddress      = regexp.MustCompile(`<key>\s*RemoteAddress\s*</key>\s*<string>([^<]+)</string>`)
-)
-
-// openMacOSProfilesPane launches the user's System Settings (or System
-// Preferences on older macOS) into the Profiles pane so they can
-// manually remove a leftover Privycs VPN profile. Modern macOS does
-// not allow programmatic removal of user-installed configuration
-// profiles without MDM context — calling `profiles remove -p <id>`
-// against a user-context profile is silently rejected on Sonoma+.
-//
-// We try the Ventura+ Settings deeplink first, fall back to the
-// legacy preference pane bundle. Either one opens the right place;
-// the Settings app handles the URL gracefully on any reasonably
-// recent macOS. Returns silently on failure — this is purely UX.
+// Tries the Ventura+ Settings deeplink first, falls back to the
+// legacy preference pane bundle. Either lands the user on the right
+// place. Returns silently on failure — this is purely UX.
 func openMacOSProfilesPane() {
 	deeplinks := []string{
 		"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Profiles",
@@ -463,32 +114,24 @@ func openMacOSProfilesPane() {
 }
 
 // macOSDeleteIPSecProfileHint is invoked when the user removes (or
-// renames) an IPSec connection in Privycs. Two cleanup paths run
-// best-effort: (1) wipe the per-connection .mobileconfig cache and
-// nudge the user toward System Settings → Profiles to remove the
-// Apple-Stack profile (macOS does not allow programmatic profile
-// removal without MDM); (2) ask the helper to drop the swanctl conf
-// + PEMs in case this connection was the PPK-via-swanctl variant.
-// Both paths are no-ops if the corresponding artifacts don't exist,
-// so we always run both — the connection's history (Apple-Stack vs
-// swanctl) isn't reliably tracked across delete-time.
+// renames) an IPSec connection in Privycs. Three cleanup paths run
+// best-effort:
+//
+//  1. Wipe the swanctl conf + PEMs via the privileged helper. Primary
+//     cleanup since v0.9.14.x — swanctl-via-Homebrew is the only macOS
+//     IPSec backend now.
+//  2. Wipe leftover .mobileconfig + split-tunnel state from older
+//     Apple-Stack builds. Files only exist if the user upgraded from
+//     a pre-Phase-1 Privycs; harmless no-op otherwise.
+//  3. If a stale Apple-Stack profile is still installed in System
+//     Settings (left behind by an old Privycs build), nudge the user
+//     to remove it manually — macOS does not allow programmatic
+//     profile removal without MDM enrollment.
 func macOSDeleteIPSecProfileHint(connName, reason string) {
 	if runtime.GOOS != "darwin" {
 		return
 	}
-	// (1a) Wipe cached .mobileconfig.
-	mcPath := filepath.Join(appDataDir(), connName+".mobileconfig")
-	if err := os.Remove(mcPath); err == nil {
-		log.Printf("IPSec: removed cached %s", mcPath)
-	}
-
-	// (1b) Wipe split-tunnel state file (if a CIDR-bypass run was
-	// active), in case Apple-Stack-with-split-tunnel was the variant.
-	deleteMacOSSplitRouteState(connName)
-
-	// (2) swanctl-managed cleanup via helper. Best-effort — if no
-	// helper, no swanctl conf, no swanctl install, all paths return
-	// silently and the connection-delete still completes.
+	// (1) swanctl-managed cleanup via helper (primary path).
 	if client := NewHelperClient(); client.IsHelperReachable() {
 		if resp, err := client.SendCommand("ipsec_cleanup", map[string]string{
 			"connection_name": connName,
@@ -497,147 +140,25 @@ func macOSDeleteIPSecProfileHint(connName, reason string) {
 		}
 	}
 
+	// (2) Legacy artifacts from old Apple-Stack builds.
+	mcPath := filepath.Join(appDataDir(), connName+".mobileconfig")
+	if err := os.Remove(mcPath); err == nil {
+		log.Printf("IPSec: removed legacy cached %s", mcPath)
+	}
+	deleteMacOSSplitRouteState(connName)
+
+	// (3) Stale Apple-Stack profile nudge — only fires for users who
+	// upgraded with an installed-profile inherited from the old build.
 	if !isMacOSVPNConfigInstalled(connName) {
-		// No Apple-Stack profile to clean up — nothing for the user to do.
 		return
 	}
-
 	openMacOSProfilesPane()
 	Notify(
-		"VPN profile remains in System Settings",
-		fmt.Sprintf("Privycs %s the %q connection but cannot remove the macOS VPN profile. Open System Settings → Privacy & Security → Profiles and remove %q manually.",
+		"Old VPN profile remains in System Settings",
+		fmt.Sprintf("Privycs %s the %q connection. A leftover macOS VPN profile from an earlier build is still installed and is no longer used. Open System Settings → Privacy & Security → Profiles and remove %q manually.",
 			reason, connName, connName),
 		NotifyInfo,
 	)
-}
-
-func extractMobileConfigUserDefinedName(content string) string {
-	m := reMobileUserDefinedName.FindStringSubmatch(content)
-	if m == nil {
-		return ""
-	}
-	return strings.TrimSpace(m[1])
-}
-
-func extractMobileConfigPayloadDisplayName(content string) string {
-	m := reMobilePayloadDisplayName.FindStringSubmatch(content)
-	if m == nil {
-		return ""
-	}
-	return strings.TrimSpace(m[1])
-}
-
-func extractMobileConfigRemoteAddress(content string) string {
-	m := reMobileRemoteAddress.FindStringSubmatch(content)
-	if m == nil {
-		return ""
-	}
-	return strings.TrimSpace(m[1])
-}
-
-// stableUUID derives a deterministic UUIDv5 from the given seed. macOS
-// uses PayloadUUID to identify a profile across re-installs; using a
-// content-derived UUID keeps "edit and re-import" flowing through the
-// "Replace existing profile" path instead of accumulating duplicates.
-func stableUUID(seed string) string {
-	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("privycs-vpn:"+seed)).String()
-}
-
-// ============================================================================
-// AppleScript / System Events bridge to NEConfigurationManager VPNs
-// ============================================================================
-//
-// macOS Sonoma+ stopped cross-populating profile-installed VPNs into
-// the legacy SystemConfiguration store, so `scutil --nc list/show/
-// start/stop` is blind to them. The VPN nevertheless registers
-// correctly with NEConfigurationManager and shows up in System
-// Settings → Network. AppleScript / System Events still has the
-// legacy network-preferences object that talks to the modern path,
-// so we drive connect/disconnect/exists/connected via osascript.
-//
-// First call from a process triggers the macOS TCC consent dialog
-// "<App> would like to control 'System Events.app'". The user
-// approves once; from then on every osascript call works without
-// further prompt. For the Privycs Mac App Store variant the same
-// transaction goes through automatically when the
-// `com.apple.security.automation.apple-events` entitlement is
-// present together with the `com.apple.systemevents` temporary
-// exception list.
-
-// macOSVPNExists asks System Events whether the named VPN service is
-// registered in the user's current network preferences. Returns
-// (false, nil) when the script ran successfully but said the service
-// is missing; (false, err) when osascript itself failed (most
-// commonly TCC denied).
-func macOSVPNExists(name string) (bool, error) {
-	script := fmt.Sprintf(
-		`tell application "System Events" to tell current location of network preferences to exists service %q`,
-		name,
-	)
-	out, err := exec.Command("osascript", "-e", script).Output()
-	if err != nil {
-		return false, fmt.Errorf("osascript exists: %w", err)
-	}
-	return strings.TrimSpace(string(out)) == "true", nil
-}
-
-// macOSVPNConnect asks System Events to bring the named VPN service
-// up. AppleScript returns immediately; the actual IKE_AUTH happens
-// async in the OS so callers should poll macOSVPNIsConnected if they
-// need to wait for completion.
-func macOSVPNConnect(name string) error {
-	script := fmt.Sprintf(
-		`tell application "System Events" to tell current location of network preferences to connect service %q`,
-		name,
-	)
-	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("osascript connect: %w (%s)", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// macOSVPNDisconnect asks System Events to bring the named VPN
-// service down. As with connect, returns synchronously while
-// teardown happens async in the OS.
-func macOSVPNDisconnect(name string) error {
-	script := fmt.Sprintf(
-		`tell application "System Events" to tell current location of network preferences to disconnect service %q`,
-		name,
-	)
-	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("osascript disconnect: %w (%s)", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// macOSVPNIsConnected reports whether the named VPN service is
-// currently up. Tries the AppleScript "connected" property first
-// (the canonical signal); if AppleScript can't reach System Events
-// (TCC denied, "not authorized" error) falls through to a route-
-// table heuristic that flags the VPN as connected when the default
-// route exits via a utun interface (= the Apple IKE stack's tunnel
-// device). The heuristic occasionally false-positives on a WG-only
-// system but the AppleScript path is the trusted source.
-func macOSVPNIsConnected(name string) bool {
-	script := fmt.Sprintf(
-		`tell application "System Events" to tell current location of network preferences to get connected of current configuration of service %q`,
-		name,
-	)
-	if out, err := exec.Command("osascript", "-e", script).Output(); err == nil {
-		if strings.TrimSpace(string(out)) == "true" {
-			return true
-		}
-	}
-	// AppleScript fallback failed or returned false. Check whether
-	// the default route exits a utun (Apple IKE tunnel devices show
-	// up as utunN). Heuristic only — caller should treat this as a
-	// secondary signal.
-	if _, iface, err := defaultRouteIPv4(); err == nil && strings.HasPrefix(iface, "utun") {
-		return true
-	}
-	return false
 }
 
 // ============================================================================

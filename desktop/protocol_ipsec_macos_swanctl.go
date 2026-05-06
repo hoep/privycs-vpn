@@ -1,22 +1,29 @@
 package main
 
-// macOS Pro: drive libcharon directly via Homebrew strongswan when the
-// .sswan profile carries RFC 8784 PPK material. Apple's built-in IKEv2
-// stack does not implement the PPK_IDENTITY notify, so a pq_safe
-// connection on macOS would silently downgrade to plain certificate
-// authentication. Going through swanctl lets the postquantum mixin
-// actually run.
-//
-// Trigger: protocol_ipsec.go:configureFromSSwan flips i.usingSwanctl
-// when the profile has both PPK fields populated AND
-// findStrongswanBinary("swanctl") returned a usable path. Otherwise
-// the Apple-Stack path (configureMacOSFromSSwan in
-// protocol_ipsec_macos.go) handles it.
+// macOS IPSec/IKEv2: drive libcharon directly via Homebrew strongswan.
+// This is the SOLE macOS IPSec path for the direct-distribution
+// (non-App-Store) build flavor. The previous Apple-Stack approach
+// (.mobileconfig + AppleScript-System-Events) is dead code: Sequoia's
+// security boundary explicitly forbids apps from controlling
+// profile-installed VPNs (Apple-DTS-Forum 663468), so every connect
+// attempt failed with osascript -1728 even though the tunnel itself
+// would have worked. The Mac-App-Store flavor (build-tag `appstore`,
+// arriving in a follow-up tag) takes a third path: NEVPNManager
+// in-app, since that does work for app-owned configs.
 //
 // User-side prerequisites:
 //   - `brew install strongswan`
 //   - `brew services start strongswan`  (or charon already running
 //      with the vici socket reachable at <prefix>/var/run/charon.vici)
+//
+// Surface area:
+//   - configureMacOSFromSSwanViaSwanctl: PEM extraction + swanctl.conf
+//     write via the privileged helper (charon's vici socket is
+//     root-only, so client-side write would fail).
+//   - upMacOSViaSwanctl / downMacOSViaSwanctl: helper-driven
+//     `swanctl --initiate` / `--terminate`.
+//   - buildSwanctlConf: produces conf with optional RFC 8784 PPK block
+//     when the .sswan ships PPK material. Cert-only auth otherwise.
 
 import (
 	"context"
@@ -31,6 +38,47 @@ import (
 
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
+
+// MacOSIPSecDependencies captures the three install-state signals
+// the privileged helper reports for the Homebrew strongSwan stack.
+// Used by the Configure-time pre-flight check to render precise
+// install hints instead of a generic "swanctl not found" error.
+type MacOSIPSecDependencies struct {
+	BrewInstalled       bool
+	StrongswanInstalled bool
+	CharonRunning       bool
+}
+
+// CheckMacOSIPSecDependencies asks the privileged helper for the
+// current Homebrew strongSwan install state. Returns zero-value
+// (all false) and a non-nil error if the helper isn't reachable —
+// callers should treat that as a "helper not running, install/start
+// it first" signal, not a "deps missing" signal.
+func CheckMacOSIPSecDependencies() (MacOSIPSecDependencies, error) {
+	var deps MacOSIPSecDependencies
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		return deps, fmt.Errorf("privileged helper not running")
+	}
+	resp, err := client.SendCommand("ipsec_check_dependencies", nil)
+	if err != nil {
+		return deps, err
+	}
+	if !resp.Success {
+		return deps, fmt.Errorf("helper ipsec_check_dependencies: %s", resp.Error)
+	}
+	for _, line := range strings.Split(resp.Output, "\n") {
+		switch strings.TrimSpace(line) {
+		case "brew_installed=true":
+			deps.BrewInstalled = true
+		case "strongswan_installed=true":
+			deps.StrongswanInstalled = true
+		case "charon_running=true":
+			deps.CharonRunning = true
+		}
+	}
+	return deps, nil
+}
 
 // findStrongswanBinary returns the absolute path to a Homebrew-
 // installed strongswan binary (`swanctl`, `charon`, etc.) or empty
@@ -59,10 +107,11 @@ func findStrongswanBinary(name string) string {
 }
 
 // configureMacOSFromSSwanViaSwanctl extracts PEMs from the .sswan
-// PKCS#12 bundle, builds a swanctl.conf with PPK secrets, and asks
-// the privileged helper to install everything into the Homebrew
-// strongswan config dir + run `swanctl --load-all`. The connection
-// is then ready for upMacOSViaSwanctl to fire `swanctl --initiate`.
+// PKCS#12 bundle, builds a swanctl.conf (with optional PPK block when
+// the profile ships RFC 8784 material), and asks the privileged helper
+// to install everything into the Homebrew strongswan config dir + run
+// `swanctl --load-all`. The connection is then ready for
+// upMacOSViaSwanctl to fire `swanctl --initiate`.
 func (i *IPSecProtocol) configureMacOSFromSSwanViaSwanctl(profile *sswanProfile) error {
 	password := profile.Local.P12Password
 	if password == "" {
@@ -77,7 +126,7 @@ func (i *IPSecProtocol) configureMacOSFromSSwanViaSwanctl(profile *sswanProfile)
 		return fmt.Errorf("extract PKCS#12: %w", err)
 	}
 
-	swanctlConf := buildSwanctlConfWithPPK(swanctlConfParams{
+	swanctlConf := buildSwanctlConf(swanctlConfParams{
 		ConnName:      i.connName,
 		RemoteAddress: profile.Remote.Addr,
 		LocalID:       profile.Local.ID,
@@ -105,7 +154,11 @@ func (i *IPSecProtocol) configureMacOSFromSSwanViaSwanctl(profile *sswanProfile)
 	}
 	i.serverAddr = profile.Remote.Addr
 	i.configured = true
-	log.Printf("IPSec swanctl config installed for %s -> %s (PPK enabled)", i.connName, profile.Remote.Addr)
+	authMode := "cert-only"
+	if profile.PPKID != "" && profile.PPKPSK != "" {
+		authMode = "cert + RFC 8784 PPK"
+	}
+	log.Printf("IPSec swanctl config installed for %s -> %s (%s)", i.connName, profile.Remote.Addr, authMode)
 
 	// Migration nudge: if a previous import used the Apple-Stack path
 	// (.mobileconfig installed in System Settings under the same
@@ -242,15 +295,32 @@ type swanctlConfParams struct {
 	PPKHex        string
 }
 
-// buildSwanctlConfWithPPK assembles a strongswan swanctl.conf that
-// negotiates IKEv2 with certificate auth + RFC 8784 PPK. The PPK
-// secret is hex-encoded inline; libcharon parses 0x-prefixed hex into
-// raw bytes when loading the secrets section.
+// buildSwanctlConf assembles a strongswan swanctl.conf that negotiates
+// IKEv2 with certificate auth, optionally adding an RFC 8784 PPK
+// block when ppk_id + ppk_psk are supplied. The PPK secret is
+// hex-encoded inline; libcharon parses 0x-prefixed hex into raw bytes
+// when loading the secrets section.
 //
 // Cert/key file references resolve relative to the swanctl conf
 // directory's `x509`/`private` subdirs that the helper populates via
 // cmdIPSecConfigure.
-func buildSwanctlConfWithPPK(p swanctlConfParams) string {
+func buildSwanctlConf(p swanctlConfParams) string {
+	hasPPK := p.PPKID != "" && p.PPKHex != ""
+
+	var ppkLines string
+	if hasPPK {
+		ppkLines = fmt.Sprintf(
+			"        ppk_id = %s\n        ppk_required = yes\n",
+			p.PPKID)
+	}
+
+	var ppkSecretBlock string
+	if hasPPK {
+		ppkSecretBlock = fmt.Sprintf(
+			"    ppk-%s {\n        id = %s\n        secret = 0x%s\n    }\n",
+			p.ConnName, p.PPKID, p.PPKHex)
+	}
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, `connections {
     %s {
@@ -259,9 +329,7 @@ func buildSwanctlConfWithPPK(p swanctlConfParams) string {
         encap = yes
         mobike = yes
         dpd_delay = 60s
-        ppk_id = %s
-        ppk_required = yes
-        # vips = 0.0.0.0,:: requests an IPv4 + IPv6 virtual IP from the
+%s        # vips = 0.0.0.0,:: requests an IPv4 + IPv6 virtual IP from the
         # server during IKE_AUTH. Without this the client never asks
         # for one, which most Privycs-style overlay servers expect —
         # the SA establishes but no traffic flows because there's no
@@ -291,13 +359,8 @@ secrets {
     private-privycs-client {
         file = privycs-client.pem
     }
-    ppk-%s {
-        id = %s
-        secret = 0x%s
-    }
-}
+%s}
 `,
-		p.ConnName, p.RemoteAddress, p.PPKID, p.LocalID, p.RemoteID, p.ConnName,
-		p.ConnName, p.PPKID, p.PPKHex)
+		p.ConnName, p.RemoteAddress, ppkLines, p.LocalID, p.RemoteID, p.ConnName, ppkSecretBlock)
 	return sb.String()
 }
