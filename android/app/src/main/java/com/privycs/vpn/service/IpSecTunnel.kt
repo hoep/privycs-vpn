@@ -95,9 +95,20 @@ class IpSecTunnel(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
 
+    // @Volatile on state + connectedSince + rx/tx baselines because
+    // handleStateChanged runs on strongSwan's VpnStateListener thread
+    // (Main) while getStatus runs on the polling coroutine
+    // (Dispatchers.Default). Without the memory barrier the polling
+    // thread can observe state=CONNECTED but a stale rxBaseline=0,
+    // and the very first traffic sample after connect leaks the
+    // per-UID lifetime counter (easily >1 GB if the app has been
+    // around a while). Same pattern as OpenVpnTunnel's @Volatile
+    // declarations.
+    @Volatile
     private var state: State = State.DISCONNECTED
     private var sswanConfig: SswanConfig? = null
     private var profileUuid: UUID? = null
+    @Volatile
     private var connectedSince: Long = 0L
 
     // Snapshot of TrafficStats per-UID totals at CONNECT time, used as the
@@ -107,7 +118,9 @@ class IpSecTunnel(private val context: Context) {
     // non-VPN HTTP the app makes (fetchProfile etc.) but those are rare
     // compared to tunnel data, so the number the user sees is dominated by
     // the tunnel.
+    @Volatile
     private var rxBaseline: Long = 0L
+    @Volatile
     private var txBaseline: Long = 0L
 
     // Long-lived bind to strongSwan's VpnStateService. Bound on connect(),
@@ -503,8 +516,24 @@ class IpSecTunnel(private val context: Context) {
     fun getStatus(connectionName: String, connectionId: String): VpnStatus {
         val up = state == State.CONNECTED
         val (rx, tx) = if (up) {
-            val r = (android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid()) - rxBaseline).coerceAtLeast(0L)
-            val t = (android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid()) - txBaseline).coerceAtLeast(0L)
+            val uid = android.os.Process.myUid()
+            val curRx = android.net.TrafficStats.getUidRxBytes(uid)
+            val curTx = android.net.TrafficStats.getUidTxBytes(uid)
+            // Self-heal lazy baseline. The primary baseline write is
+            // in handleStateChanged on the CONNECTED transition, BEFORE
+            // state is published. With @Volatile the visibility window
+            // is closed in normal operation, but there's still a tiny
+            // window where state=CONNECTED but the polling thread may
+            // not yet observe the baseline write (compiler/CPU
+            // reorder, or — more importantly — when this poll happens
+            // BEFORE handleStateChanged ran at all because charon went
+            // CONNECTED faster than the listener registered).
+            // Latching here on the first observation prevents the
+            // first sample from showing the per-UID lifetime counter.
+            if (rxBaseline == 0L) rxBaseline = curRx
+            if (txBaseline == 0L) txBaseline = curTx
+            val r = (curRx - rxBaseline).coerceAtLeast(0L)
+            val t = (curTx - txBaseline).coerceAtLeast(0L)
             r to t
         } else 0L to 0L
         return VpnStatus(
