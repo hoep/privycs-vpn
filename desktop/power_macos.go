@@ -23,6 +23,7 @@ package main
 // handler — the handler runs on a Go goroutine, never blocks AppKit.
 
 /*
+#cgo CFLAGS: -x objective-c -fobjc-arc
 #cgo LDFLAGS: -framework Foundation -framework AppKit
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
