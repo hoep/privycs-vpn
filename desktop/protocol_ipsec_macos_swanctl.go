@@ -322,13 +322,28 @@ func buildSwanctlConf(p swanctlConfParams) string {
 	}
 
 	var sb strings.Builder
+	// dpd_delay 30s + dpd_timeout 90s + close_action=restart together
+	// form the macOS-sleep-survival baseline: when the system suspends
+	// (lid close / idle sleep), all userspace including charon is
+	// frozen, the UDP NAT mapping at the upstream router expires after
+	// 30-60 s, and on wake the SA is technically dead. Without these
+	// settings the SA stayed in ESTABLISHED state forever, packets
+	// black-holed into a kernel SA that the peer no longer recognised,
+	// and the user had to manually disconnect to clear stuck routes.
+	// With them: 30 s after wake the next DPD goes out, fails, after
+	// 90 s charon declares the peer dead, close_action=restart
+	// terminates the dead SA + initiates a fresh one. Recovery without
+	// user action in ~1-2 min. Privycs-side wake-listener (Phase 2)
+	// still wins on speed (1-3 s) but this is the safety net for when
+	// Privycs itself was killed / not running.
 	fmt.Fprintf(&sb, `connections {
     %s {
         version = 2
         remote_addrs = %s
         encap = yes
         mobike = yes
-        dpd_delay = 60s
+        dpd_delay = 30s
+        dpd_timeout = 90s
 %s        # vips = 0.0.0.0,:: requests an IPv4 + IPv6 virtual IP from the
         # server during IKE_AUTH. Without this the client never asks
         # for one, which most Privycs-style overlay servers expect —
@@ -348,7 +363,7 @@ func buildSwanctlConf(p swanctlConfParams) string {
             %s {
                 remote_ts = 0.0.0.0/0,::/0
                 start_action = none
-                close_action = none
+                close_action = restart
                 esp_proposals = aes256gcm16-noesn,aes256-sha256-modp2048-noesn
             }
         }
