@@ -1202,21 +1202,25 @@ class PrivycsVpnService : VpnService() {
                         stopSelf()
                     }
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                // Coroutine was cancelled, NOT a connect failure. Common
-                // legitimate triggers: switchProtocol() tearing the
-                // service down to swap protocols, switchActiveConnection
-                // preempt, network-monitor disconnecting on roam,
-                // OS-level VpnService destroy. Re-throwing preserves
-                // structured concurrency; surfacing this as
-                // "Connection failed: Job was cancelled" with stopSelf()
-                // — the previous behaviour — turned every single
-                // protocol-pill switch and every roam into a red error
-                // banner even though the new connect was already in
-                // flight via the new coroutine.
-                PrivycsLogger.d(TAG, "handleConnect cancelled (preempt or service teardown), re-throwing")
-                throw e
             } catch (e: Exception) {
+                // Reverted in v0.9.14.59: the v0.9.14.54-introduced
+                // CancellationException catch-and-rethrow pattern was
+                // intended to silence "Connection failed: Job was
+                // cancelled" red banners during legitimate protocol
+                // switches and network roams, but it ALSO swallowed
+                // real failures whose underlying coroutine internals
+                // surface as CancellationException (timeouts, scope
+                // crashes, native-tunnel hangs that cancel the parent
+                // job). The result was protocol-switch instability —
+                // failing connects vanished silently and the user saw
+                // nothing — plus a knock-on effect where stopSelf()
+                // was skipped and zombie tunnels lingered into the
+                // next connect attempt. Honest fail behaviour: every
+                // exception (cancellation included) becomes a visible
+                // error banner + stopSelf(). The cosmetic "Job was
+                // cancelled" banner during a fast protocol switch is
+                // accepted as the lesser evil. Stable behaviour beats
+                // pretty banners.
                 PrivycsLogger.e(TAG, "Connect failed", e)
                 val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
                 manager.updateStatus(VpnStatus(error = "Connection failed: ${e.message}"))
