@@ -78,10 +78,10 @@ type App struct {
 	// persist this across restarts (a fresh app start is implicitly
 	// "user wants to start fresh").
 	lastUserDisconnectAt time.Time
-	stopStats     chan struct{}
-	forceQuit     bool           // set by tray Quit to bypass minimize-to-tray
-	logFile       *os.File       // log file handle for proper cleanup on shutdown
-	wg            sync.WaitGroup // tracks background goroutines for clean shutdown
+	stopStats            chan struct{}
+	forceQuit            bool           // set by tray Quit to bypass minimize-to-tray
+	logFile              *os.File       // log file handle for proper cleanup on shutdown
+	wg                   sync.WaitGroup // tracks background goroutines for clean shutdown
 	// Periodic tunnel-liveness probe. Started after a successful
 	// Connect, stopped from Disconnect / disconnectInternal. Closes
 	// the "tunnel up but no traffic" gap that OpenVPN / IPSec do
@@ -389,6 +389,23 @@ func (a *App) startup(ctx context.Context) {
 			return a.connected
 		})
 	}
+
+	// macOS sleep/wake awareness. NSWorkspace dispatches will-sleep
+	// and did-wake to us so we can force-reconnect after the system
+	// returns from suspend. Without this, on wake the IKE_SA stays in
+	// ESTABLISHED state but the upstream NAT mapping has expired, so
+	// packets black-hole through stuck routes until charon's DPD
+	// (~90 s) or tunnel-health ICMP (~60 s) catches up. With this hook
+	// the recovery starts within ~1 s of wake.
+	//
+	// The handlers fire even when no tunnel is up (idempotent — the
+	// reconnect path no-ops on a disconnected app). Toggle is
+	// AppSettings.ReconnectOnSystemWakeEnabled (default ON, *bool nil
+	// → on). No-op on Linux/Windows.
+	RegisterMacOSPowerEvents(
+		func() { a.handleSystemWillSleep() },
+		func() { a.handleSystemDidWake() },
+	)
 
 	// MIGRATION: clean up legacy PrivycsKS-* rules from prior versions.
 	// The new sinkhole system uses Privycs-Sinkhole-* names so old rules
@@ -941,6 +958,14 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		a.ksManager.Arm()
 	}
 
+	// Prevent display + idle sleep while tunnel is up — opt-in via
+	// PreventDisplaySleep. macOS-only; no-op shim on other platforms.
+	// caffeinate child process gets reaped on stopCaffeinate() in
+	// disconnectInternal or implicitly when the parent process exits.
+	if a.settings.PreventDisplaySleep {
+		startCaffeinate()
+	}
+
 	// Update connection last-used timestamp
 	if conn := a.connections.Active(); conn != nil {
 		conn.LastConnected = time.Now()
@@ -1011,6 +1036,12 @@ func (a *App) disconnectInternal() error {
 	if a.tunnelHealth != nil {
 		a.tunnelHealth.Stop()
 	}
+
+	// Release the prevent-display-sleep assertion. Idempotent —
+	// no-op if PreventDisplaySleep was off or caffeinate was never
+	// started. Killed BEFORE the proto.Down so display can wake/sleep
+	// normally during the brief teardown window even if Down hangs.
+	stopCaffeinate()
 
 	// Block auto-detection while disconnecting. Do NOT set
 	// a.connected=false yet - that depends on proto.Down succeeding.
@@ -2459,6 +2490,66 @@ func protocolDescription(name string) string {
 	default:
 		return ""
 	}
+}
+
+// handleSystemWillSleep is invoked from the NSWorkspace will-sleep
+// notification (macOS only; no-op shim on other platforms). We log
+// the event so post-mortem analysis can correlate sleep timing with
+// any subsequent connection issues. We DO NOT pre-emptively
+// disconnect — leaving the tunnel up across sleep is the right
+// default since the kernel SA is already torn down by the time we
+// could clean it up, and an explicit Down() here would be racing the
+// OS pause anyway.
+func (a *App) handleSystemWillSleep() {
+	a.mu.RLock()
+	connected := a.connected
+	a.mu.RUnlock()
+	log.Printf("PowerEvents: willSleep notification (connected=%v) — no pre-sleep teardown, relying on wake handler", connected)
+}
+
+// handleSystemDidWake is invoked from the NSWorkspace did-wake
+// notification (macOS only). When ReconnectOnSystemWake is enabled
+// (default ON) AND a tunnel was up before sleep, we force a clean
+// disconnect+reconnect via connectActiveTarget. This catches the
+// stuck-route / dead-NAT case described in the v0.9.14.63 commit
+// message — kernel SA still says ESTABLISHED but the upstream NAT
+// mapping has long expired, packets black-hole. connectActiveTarget
+// is the same recovery path tunnel_health_monitor.go uses, so the
+// behaviour is consistent across "wake-detected" and "ICMP-detected"
+// recovery triggers.
+//
+// Brief settle delay before reconnect: macOS's network stack takes
+// 500-1500 ms after wake to re-establish Wi-Fi association + DHCP
+// lease. Reconnecting before that completes would just fail-fast on a
+// fresh "no route to host" and the user would see two failed attempts
+// instead of one successful one. 2 s empirically catches the slow
+// case.
+func (a *App) handleSystemDidWake() {
+	if !a.settings.ReconnectOnSystemWakeEnabled() {
+		log.Printf("PowerEvents: didWake — ReconnectOnSystemWake disabled, no action")
+		return
+	}
+	a.mu.RLock()
+	connected := a.connected
+	a.mu.RUnlock()
+	if !connected {
+		log.Printf("PowerEvents: didWake — no tunnel was up, nothing to recover")
+		return
+	}
+	log.Printf("PowerEvents: didWake — forcing reconnect after 2s settle delay")
+	go func() {
+		time.Sleep(2 * time.Second)
+		a.mu.Lock()
+		if err := a.disconnectInternal(); err != nil {
+			log.Printf("PowerEvents: wake-recovery disconnect: %v", err)
+		}
+		a.mu.Unlock()
+		// Brief pause matching tunnel-health recovery's 2 s gap so
+		// kernel-side teardown completes before the new Up() races
+		// the release.
+		time.Sleep(2 * time.Second)
+		a.connectActiveTarget()
+	}()
 }
 
 // sanitizeTunnelName converts a connection name into a safe tunnel/filename.

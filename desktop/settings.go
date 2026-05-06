@@ -43,12 +43,40 @@ type AppSettings struct {
 	// Tunnel-health monitoring (Phase 1 visible UX). Mode is one
 	// of "auto" / "always" / "off"; auto means pool=on, single=off.
 	// Empty target falls back to built-in default 1.1.1.1.
-	TunnelHealthMode   string                  `json:"tunnel_health_mode,omitempty"`
-	TunnelHealthTarget string                  `json:"tunnel_health_target,omitempty"`
+	TunnelHealthMode   string `json:"tunnel_health_mode,omitempty"`
+	TunnelHealthTarget string `json:"tunnel_health_target,omitempty"`
 	// Per-network rules engine (Phase 2). Default off in v0.9.13.4
 	// after the v0.9.13.0..3 instability reports - opt-in until
 	// the connect-cascade interaction is fully understood.
 	NetworkRulesEnabled bool `json:"network_rules_enabled,omitempty"`
+	// (Phase 3 / connectivity watchdog already lives in
+	// tunnel_health_monitor.go and is exposed as TunnelHealthMode
+	// above — no separate toggle here.)
+	//
+	// ReconnectOnSystemWake (macOS only): subscribe to NSWorkspace
+	// did-wake notifications and force a clean Down → Up immediately
+	// after wake. Recovers from sleep-induced dead SAs in 1-3s vs the
+	// 1-2 min charon-DPD path or the 30-60s watchdog path. No-op on
+	// non-darwin. Default ON.
+	ReconnectOnSystemWake *bool `json:"reconnect_on_system_wake,omitempty"`
+	// PreventDisplaySleep (macOS only): while a tunnel is up, keep
+	// display + idle awake via `caffeinate -di`. Use case is Privacy/
+	// stability-first users who want zero sleep-related VPN drops.
+	// Trades battery life for connection stability. Default OFF — opt-
+	// in. No-op on non-darwin.
+	PreventDisplaySleep bool `json:"prevent_display_sleep,omitempty"`
+}
+
+// ReconnectOnSystemWakeEnabled is the canonical accessor — falls back
+// to ON when the *bool field is nil so existing settings.json files
+// (pre-v0.9.14.64) inherit the new safe default without an explicit
+// migration pass. nil = never-touched-by-user → default-on; explicit
+// false = user-disabled; explicit true = user-enabled.
+func (s *AppSettings) ReconnectOnSystemWakeEnabled() bool {
+	if s.ReconnectOnSystemWake == nil {
+		return true
+	}
+	return *s.ReconnectOnSystemWake
 }
 
 // LoadSettings reads settings from disk or returns defaults

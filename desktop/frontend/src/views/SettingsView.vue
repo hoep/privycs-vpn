@@ -360,6 +360,38 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
         </p>
       </div>
 
+      <!-- Sleep / Wake Recovery (macOS) -->
+      <div v-if="isMacOS" class="card p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Sleep / Wake Recovery</h3>
+        <p class="text-[10px] text-gray-400 mb-3">
+          When macOS wakes from sleep, the upstream NAT mapping for the VPN has typically expired and the tunnel is silently dead — packets black-hole through stuck routes until manually disconnected. These options auto-recover.
+        </p>
+        <label class="flex items-center justify-between mb-3 cursor-pointer">
+          <div>
+            <span class="text-sm text-gray-700 dark:text-gray-300">Reconnect on system wake</span>
+            <p class="text-[10px] text-gray-500">Force-reconnect within ~1 s after wake instead of waiting for the tunnel-health probe (~60 s).</p>
+          </div>
+          <input
+            type="checkbox"
+            :checked="settings.reconnect_on_system_wake !== false"
+            @change="(e) => { settings.reconnect_on_system_wake = (e.target as HTMLInputElement).checked; saveSettings() }"
+            class="accent-primary-600 h-4 w-4"
+          />
+        </label>
+        <label class="flex items-center justify-between cursor-pointer">
+          <div>
+            <span class="text-sm text-gray-700 dark:text-gray-300">Prevent display sleep while tunnel is up</span>
+            <p class="text-[10px] text-gray-500">Uses macOS <code>caffeinate -di</code>. Trades battery for zero sleep-related VPN drops. Default off.</p>
+          </div>
+          <input
+            type="checkbox"
+            v-model="settings.prevent_display_sleep"
+            @change="saveSettings()"
+            class="accent-primary-600 h-4 w-4"
+          />
+        </label>
+      </div>
+
       <!-- Network Rules (Phase 2) -->
       <div class="card p-4">
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network Rules</h3>
@@ -675,6 +707,10 @@ const settings = ref<any>({
   },
   tunnel_health_mode: 'auto',
   tunnel_health_target: '',
+  // null = backend default (ON for ReconnectOnSystemWake — see
+  // settings.go *bool fallback). Toggle UI explicitly sets true/false.
+  reconnect_on_system_wake: null,
+  prevent_display_sleep: false,
 })
 
 // Connect on Demand state
