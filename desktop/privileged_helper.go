@@ -1067,19 +1067,78 @@ func (h *PrivilegedHelper) cmdIPSecConfigure(cmd HelperCommand) HelperResponse {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("write %s: %v", f.path, err)}
 		}
 	}
+	// macOS auto-start: Homebrew's strongswan formula does not ship a
+	// launchd service plist, so `brew services start strongswan` fails
+	// with "Formula has not implemented #plist, #service or provided a
+	// locatable service file." The strongswan-recommended way to bring
+	// charon up is the `ipsec` wrapper script (sets up runtime dirs,
+	// daemonises, uses syslog). We invoke it from the helper —
+	// already-root context, no sudo prompt.
+	if runtime.GOOS == "darwin" {
+		if err := helperEnsureMacOSCharonRunning(); err != nil {
+			return HelperResponse{
+				Success: false,
+				Error:   fmt.Sprintf("could not start charon daemon: %v", err),
+			}
+		}
+	}
 	out, err := exec.Command(swanctlBin, "--load-all").CombinedOutput()
 	if err != nil {
-		// On macOS, the most common cause is "could not connect to
-		// 'unix:///opt/homebrew/var/run/charon.vici': No such file or
-		// directory" — i.e. charon is not running. Surface a friendly
-		// hint instead of the raw error.
 		errMsg := fmt.Sprintf("swanctl --load-all: %s", string(out))
 		if runtime.GOOS == "darwin" && strings.Contains(string(out), "No such file") {
-			errMsg += " (charon is not running — try `brew services start strongswan`)"
+			errMsg += " (charon vici socket missing even after ipsec-start; check /opt/homebrew/var/log/charon.log)"
 		}
 		return HelperResponse{Success: false, Error: errMsg, Output: string(out)}
 	}
 	return HelperResponse{Success: true, Output: string(out)}
+}
+
+// helperEnsureMacOSCharonRunning is darwin-only. It checks whether
+// charon's vici socket is already present; if so, it's a no-op. If
+// not, it shells out to `ipsec start` from the Homebrew prefix and
+// polls the socket for up to 8 seconds. Mirrors what `systemctl start
+// strongswan` does on Linux but for the brew-services-less Homebrew
+// strongswan formula.
+//
+// charon stays running across multiple connect/disconnect cycles. We
+// don't `ipsec stop` on disconnect because the user may have other
+// connections coming up in quick succession; the cost of an idle
+// charon is one daemon process and the vici socket — negligible.
+func helperEnsureMacOSCharonRunning() error {
+	viciCandidates := []string{
+		"/opt/homebrew/var/run/charon.vici",
+		"/usr/local/var/run/charon.vici",
+		"/var/run/charon.vici",
+	}
+	socketPresent := func() bool {
+		for _, p := range viciCandidates {
+			if fi, err := os.Stat(p); err == nil && (fi.Mode()&os.ModeSocket) != 0 {
+				return true
+			}
+		}
+		return false
+	}
+	if socketPresent() {
+		return nil
+	}
+	ipsecBin := helperFindMacOSStrongswanBinary("ipsec")
+	if ipsecBin == "" {
+		return fmt.Errorf("ipsec wrapper not found — is `brew install strongswan` complete?")
+	}
+	out, err := exec.Command(ipsecBin, "start").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ipsec start failed: %s: %v", strings.TrimSpace(string(out)), err)
+	}
+	// charon takes ~0.5–2 s to create the vici socket on a cold start
+	// (cert chain validation + socket bind). Poll up to 8 s.
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		if socketPresent() {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("vici socket did not appear within 8s after `ipsec start`; check /opt/homebrew/var/log/charon.log")
 }
 
 // helperFindMacOSSwanctlConfDir mirrors macosSwanctlConfDir() in

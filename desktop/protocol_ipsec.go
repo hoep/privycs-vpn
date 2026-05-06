@@ -352,7 +352,7 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 			if !deps.BrewInstalled {
 				Notify(
 					"Homebrew required for IPSec",
-					"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install Homebrew first:\n\n    /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\nThen run:\n\n    brew install strongswan\n    brew services start strongswan\n\nand reimport the profile.",
+					"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install Homebrew first:\n\n    /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\nThen install strongSwan:\n\n    brew install strongswan\n\nReimport the profile — Privycs starts the daemon automatically.",
 					NotifyError,
 				)
 				return fmt.Errorf("Homebrew not installed — see notification for install steps")
@@ -360,28 +360,23 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 			if !deps.StrongswanInstalled {
 				Notify(
 					"strongSwan required for IPSec",
-					"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install via Terminal:\n\n    brew install strongswan\n    brew services start strongswan\n\nThen reimport the profile.",
+					"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install via Terminal:\n\n    brew install strongswan\n\nReimport the profile afterwards — Privycs starts the daemon automatically. (Note: do NOT use `brew services start strongswan`, the formula has no service hook.)",
 					NotifyError,
 				)
-				return fmt.Errorf("strongSwan not installed — run `brew install strongswan && brew services start strongswan`")
+				return fmt.Errorf("strongSwan not installed — run `brew install strongswan`")
 			}
-			if !deps.CharonRunning {
-				Notify(
-					"strongSwan service not running",
-					"Privycs detected Homebrew strongSwan but the charon daemon is not running. Start it via Terminal:\n\n    brew services start strongswan\n\nThen reimport the profile.",
-					NotifyError,
-				)
-				return fmt.Errorf("charon not running — run `brew services start strongswan`")
-			}
+			// charon-not-running is no longer a user-facing error: the
+			// privileged helper auto-runs `ipsec start` on demand
+			// during ipsec_configure (helperEnsureMacOSCharonRunning).
+			// We still log it so a stuck charon shows up in the helper
+			// log if the auto-start path itself fails.
 		} else if findStrongswanBinary("swanctl") == "" {
-			// Fallback when helper is unreachable — best-effort hint
-			// based on the binary path alone.
 			Notify(
 				"Homebrew strongSwan required",
-				"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install via Terminal:\n\n    brew install strongswan\n    brew services start strongswan\n\nThen reimport the profile.",
+				"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install via Terminal:\n\n    brew install strongswan\n\nReimport the profile afterwards.",
 				NotifyError,
 			)
-			return fmt.Errorf("strongSwan not installed (or helper unreachable) — run `brew install strongswan && brew services start strongswan`")
+			return fmt.Errorf("strongSwan not installed (or helper unreachable) — run `brew install strongswan`")
 		}
 		i.usingSwanctl = true
 		return i.configureMacOSFromSSwanViaSwanctl(&profile)
