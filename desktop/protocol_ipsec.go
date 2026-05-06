@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -140,11 +142,19 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 		if err == nil && resp.Success && strings.Contains(resp.Output, "ESTABLISHED") {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
+			status.BytesRx, status.BytesTx = parseSwanctlBytes(resp.Output)
 		}
 	case "darwin":
 		// swanctl path is the only macOS path. Query via helper —
 		// charon's vici socket is root-only, so direct client-side
-		// access would fail. SA up when state=ESTABLISHED.
+		// access would fail. SA up when state=ESTABLISHED. Byte
+		// counters come from the same `swanctl --list-sas` output
+		// the helper already returns; we parse the in/out lines
+		// (per-CHILD-SA ESP counters from the kernel SA database).
+		// Per-utun stats won't work on macOS swanctl: charon installs
+		// kernel SAs in XFRM-style policy mode without creating a
+		// dedicated utun, so getDarwinInterfaceStats(utun) is always
+		// zero. The swanctl SA counters are the canonical source.
 		client := NewHelperClient()
 		if !client.IsHelperReachable() {
 			return status
@@ -156,15 +166,7 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 		if err == nil && resp.Success && strings.Contains(resp.Output, "ESTABLISHED") {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
-			// Traffic stats: charon installs a kernel SA without a
-			// per-VPN utun on macOS (XFRM-style policy mode), so
-			// per-interface byte counters often read zero. Best-
-			// effort: when default route exits via a utun (full
-			// tunnel), read its stats. Split-tunnel setups will see
-			// zeros here — known limitation.
-			if _, iface, rerr := defaultRouteIPv4(); rerr == nil && strings.HasPrefix(iface, "utun") {
-				status.BytesRx, status.BytesTx = getDarwinInterfaceStats(iface)
-			}
+			status.BytesRx, status.BytesTx = parseSwanctlBytes(resp.Output)
 		}
 	case "windows":
 		// Look up both per-user AND machine-wide VPN connections — the helper
@@ -487,6 +489,47 @@ func (i *IPSecProtocol) configureLinuxFromSSwan(profile *sswanProfile) error {
 		LocalID:        profile.Local.ID,
 	}
 	return i.configureLinux(ipsecCfg)
+}
+
+// parseSwanctlBytes extracts inbound/outbound byte counters from
+// `swanctl --list-sas` human-readable output. Each ESTABLISHED CHILD
+// SA carries two indented data lines we care about:
+//
+//	in  c1234567,    1234 bytes,     12 packets,     5s ago
+//	out 89abcdef,    2345 bytes,     23 packets,     5s ago
+//
+// `bytes_i` (in) = bytes received on the SA = data from peer to us =
+// the user-visible "RX". `bytes_o` (out) = "TX". Sums across all
+// matching CHILD SAs so multi-tunnel / split-tunnel setups (where
+// bytes are spread across several SAs that share an IKE_SA) report
+// the aggregate. Lines that don't match the regex are ignored, so
+// minor format drifts across strongSwan versions don't crash the
+// parse — they just keep the running total at 0 and we degrade
+// gracefully.
+//
+// Why client-side and not in the helper: the helper already returns
+// the raw output for the connectivity check (ESTABLISHED string match).
+// Parsing client-side avoids a helper API change + reinstall on every
+// release that wants tweaked stats handling.
+func parseSwanctlBytes(output string) (rx, tx int64) {
+	re := regexp.MustCompile(`^\s+(in|out)\s+[0-9a-f]+,\s+(\d+)\s+bytes`)
+	for _, line := range strings.Split(output, "\n") {
+		m := re.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		n, err := strconv.ParseInt(m[2], 10, 64)
+		if err != nil {
+			continue
+		}
+		switch m[1] {
+		case "in":
+			rx += n
+		case "out":
+			tx += n
+		}
+	}
+	return rx, tx
 }
 
 // escapePowerShellString escapes single quotes for nested PowerShell execution
