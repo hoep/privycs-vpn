@@ -149,6 +149,30 @@ class ConnectionRepository(private val context: Context) {
     }
 
     /**
+     * Persist the runtime-assigned VPN inner IP to the matching
+     * ProtocolConfig entry so the Configs screen can render it after
+     * reload, even before the next connect. WireGuard's Address is
+     * static (parsed from the .conf at import) and was already
+     * persisted; OpenVPN + IPSec only learn their inner IP after
+     * IKE_AUTH / TLS, so we update it here whenever PrivycsVpnService
+     * observes a non-empty localAddress in VpnStatus.
+     *
+     * Empty `addr` is treated as a no-op so a transient null status
+     * doesn't wipe out the previously-known address. Same protocol-
+     * config entry replaced by index to keep the rest of the list
+     * stable.
+     */
+    fun updateLocalAddress(connectionId: String, protocol: VpnProtocol, addr: String) {
+        if (addr.isBlank()) return
+        val conn = getById(connectionId) ?: return
+        val idx = conn.protocols.indexOfFirst { it.protocol == protocol }
+        if (idx < 0) return
+        if (conn.protocols[idx].localAddress == addr) return
+        conn.protocols[idx].localAddress = addr
+        save()
+    }
+
+    /**
      * Rename an existing connection. Returns true if the connection was found
      * and the new name is non-blank, false otherwise. Empty or whitespace-only
      * names are rejected to avoid unreadable rows in the connections list.
@@ -218,6 +242,29 @@ class ConnectionRepository(private val context: Context) {
             file.writeText(json.encodeToString(ConnectionRegistry.serializer(), _registry.value))
             // Emit updated state
             _registry.value = _registry.value.copy()
+            // Refresh the home-screen widget too — its protocol-pill
+            // visibility reads availableProtocols() of the active
+            // connection, so adding/removing a protocol from a
+            // connection (or activating a different connection) must
+            // trigger a widget redraw. Without this, the widget sticks
+            // with the previous protocol-set rendering until the next
+            // status update from PrivycsVpnService — which only fires
+            // when a VPN session is running. Editing connections while
+            // disconnected was the case the user reported as
+            // "widget doesn't follow connect screen".
+            try {
+                val intent = android.content.Intent(context, com.privycs.vpn.widget.VpnWidget::class.java).apply {
+                    action = android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                    val ids = android.appwidget.AppWidgetManager.getInstance(context).getAppWidgetIds(
+                        android.content.ComponentName(context, com.privycs.vpn.widget.VpnWidget::class.java)
+                    )
+                    putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+                }
+                context.sendBroadcast(intent)
+            } catch (_: Throwable) {
+                // Widget refresh is purely cosmetic — never let it
+                // break the registry save path.
+            }
         } catch (e: Exception) {
             // Log but do not crash
             e.printStackTrace()

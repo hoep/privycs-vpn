@@ -477,6 +477,21 @@ class OpenVpnTunnel(private val context: Context) {
             )
         }
 
+        // Resolve the live tun-interface inner IP every poll while
+        // connected. Server-pushed IPs (the typical case for provider
+        // .ovpns) only materialise after IKE_AUTH/TLS, and the
+        // assignment can change across reconnects on pool-based
+        // gateways. NetworkInterface lookup is a syscall, cheap, and
+        // already used elsewhere in the traffic-stats fallback chain
+        // — adding the address-read alongside is a single iteration
+        // over the same iface.
+        if (isUp) {
+            val live = readTunInterfaceLocalAddress()
+            if (live.isNotBlank()) {
+                localAddress = live
+            }
+        }
+
         return VpnStatus(
             connected = isUp,
             connectionName = connectionName,
@@ -489,6 +504,33 @@ class OpenVpnTunnel(private val context: Context) {
             localAddress = localAddress,
             error = if (state == State.FAILED) lastErrorMessage else ""
         )
+    }
+
+    /**
+     * Sum of unicast IPv4/v6 CIDR addresses on every UP `tun*` (or
+     * `vpn*` on some OEM ROMs) interface, comma-separated. Returns
+     * "" if no tunnel iface is present yet — caller keeps the
+     * previous localAddress unchanged in that case rather than
+     * wiping. Skips link-local + loopback.
+     */
+    private fun readTunInterfaceLocalAddress(): String {
+        val parts = mutableListOf<String>()
+        try {
+            val ifaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return ""
+            for (iface in ifaces) {
+                if (!iface.isUp) continue
+                val n = iface.name.lowercase()
+                if (!(n.startsWith("tun") || n.startsWith("vpn"))) continue
+                for (ifAddr in iface.interfaceAddresses) {
+                    val ip = ifAddr.address
+                    if (ip.isLinkLocalAddress || ip.isLoopbackAddress) continue
+                    parts.add("${ip.hostAddress}/${ifAddr.networkPrefixLength}")
+                }
+            }
+        } catch (_: Throwable) {
+            return ""
+        }
+        return parts.joinToString(", ")
     }
 
 

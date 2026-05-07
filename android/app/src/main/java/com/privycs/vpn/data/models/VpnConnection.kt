@@ -32,8 +32,15 @@ data class ProtocolConfig(
     val filename: String,
     @SerialName("server_address")
     val serverAddress: String = "",
+    // var (not val) so the post-connect status persistence in
+    // ConnectionRepository.updateLocalAddress can mutate it without
+    // copying the whole ProtocolConfig. WireGuard's address is parsed
+    // from the .conf at import (always present); OpenVPN/IPSec only
+    // learn their inner IP after the server pushes one in IKE_AUTH /
+    // TLS, so we need to update the persisted entry whenever the
+    // tunnel reports a non-empty localAddress in VpnStatus.
     @SerialName("local_address")
-    val localAddress: String = "",
+    var localAddress: String = "",
     @SerialName("added_at")
     val addedAt: String = ""
 )

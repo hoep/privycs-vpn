@@ -933,6 +933,25 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	a.connected = true
 	a.connectedAt = time.Now()
 
+	// Persist the runtime-assigned VPN IP back to the connection
+	// registry so the Configs page can show it after reload, even
+	// before the next connect. WireGuard's Address is static (parsed
+	// from the .conf at import) and was already persisted; OpenVPN +
+	// IPSec only learn their inner IP after IKE_AUTH/TLS so we update
+	// here. Empty status.LocalAddress (no virtual IP pushed by
+	// server) leaves the previous value intact rather than wiping it.
+	if status := proto.Status(); status.LocalAddress != "" {
+		if conn := a.connections.Active(); conn != nil {
+			for idx, pc := range conn.Protocols {
+				if pc.Protocol == activeProto && pc.LocalAddress != status.LocalAddress {
+					conn.Protocols[idx].LocalAddress = status.LocalAddress
+					a.connections.Save()
+					break
+				}
+			}
+		}
+	}
+
 	// Tunnel-liveness monitor: 60s ICMP probe to a known reliable
 	// target. Mode resolution (matches Android):
 	//   - "off":    never run

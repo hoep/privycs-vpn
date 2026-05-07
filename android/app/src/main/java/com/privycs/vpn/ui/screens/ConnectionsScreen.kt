@@ -796,6 +796,28 @@ private fun ConnectionCard(
                             }
                         }
                     }
+
+                    // VPN-IP per protocol-config — last-known inner
+                    // address. WireGuard's address comes from the
+                    // .conf at import (always current). OpenVPN +
+                    // IPSec are populated post-connect once the
+                    // server pushes one and PrivycsVpnService's
+                    // poll-loop persists it via
+                    // ConnectionRepository.updateLocalAddress. Hidden
+                    // when none of the protocols carry an address yet
+                    // (fresh import that never connected).
+                    val vpnIps = connection.protocols.mapNotNull { pc ->
+                        if (pc.localAddress.isBlank()) null
+                        else "${pc.protocol.shortLabel}: ${pc.localAddress}"
+                    }
+                    if (vpnIps.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "VPN IP — ${vpnIps.joinToString(" · ")}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 // Rename button

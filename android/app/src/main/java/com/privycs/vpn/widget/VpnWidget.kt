@@ -525,6 +525,28 @@ class VpnWidget : AppWidgetProvider() {
             else android.view.View.VISIBLE,
         )
 
+        // Hide pills for protocols the active connection does NOT
+        // have configured. Without this gate the widget always shows
+        // all three pills regardless of the connection's actual
+        // protocol set, so a connection with only WireGuard renders
+        // greyed-out IPSec + OpenVPN pills the user can't switch to.
+        // Mirrors the Connect screen's `availableProtocols()`-driven
+        // ProtocolBadges row. Pool-active path already hid the whole
+        // row above; this is the single-connection refinement.
+        val configuredProtocols = com.privycs.vpn.PrivycsApp.instance
+            .connectionRepository.getActive()?.availableProtocols() ?: emptyList()
+        views.setViewVisibility(
+            R.id.widget_protocol_wg,
+            if (configuredProtocols.contains(VpnProtocol.WIREGUARD)) android.view.View.VISIBLE else android.view.View.GONE,
+        )
+        views.setViewVisibility(
+            R.id.widget_protocol_ipsec,
+            if (configuredProtocols.contains(VpnProtocol.IPSEC)) android.view.View.VISIBLE else android.view.View.GONE,
+        )
+        views.setViewVisibility(
+            R.id.widget_protocol_ovpn,
+            if (configuredProtocols.contains(VpnProtocol.OPENVPN)) android.view.View.VISIBLE else android.view.View.GONE,
+        )
         setProtocolPillState(
             context, views, VpnProtocol.WIREGUARD,
             R.id.widget_protocol_wg, R.id.widget_protocol_wg_icon,

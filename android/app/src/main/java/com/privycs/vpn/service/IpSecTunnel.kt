@@ -515,6 +515,7 @@ class IpSecTunnel(private val context: Context) {
      */
     fun getStatus(connectionName: String, connectionId: String): VpnStatus {
         val up = state == State.CONNECTED
+        val localAddrStr = if (up) readTunInterfaceLocalAddress() else ""
         val (rx, tx) = if (up) {
             val uid = android.os.Process.myUid()
             val curRx = android.net.TrafficStats.getUidRxBytes(uid)
@@ -545,8 +546,36 @@ class IpSecTunnel(private val context: Context) {
             rxBytes = rx,
             txBytes = tx,
             serverEndpoint = sswanConfig?.remote?.addr ?: "",
-            localAddress = ""
+            localAddress = localAddrStr
         )
+    }
+
+    /**
+     * Sum of unicast CIDR addresses on every UP `tun*` interface in
+     * the system, comma-separated. strongSwan's CharonVpnService owns
+     * the VpnService.Builder.establish() call which creates the tun;
+     * the inner-IP charon got assigned via IKE_AUTH-CFG_REPLY ends up
+     * here. Same pattern + caveats as OpenVpnTunnel's equivalent —
+     * skip link-local + loopback, return "" if no iface yet.
+     */
+    private fun readTunInterfaceLocalAddress(): String {
+        val parts = mutableListOf<String>()
+        try {
+            val ifaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return ""
+            for (iface in ifaces) {
+                if (!iface.isUp) continue
+                val n = iface.name.lowercase()
+                if (!(n.startsWith("tun") || n.startsWith("vpn"))) continue
+                for (ifAddr in iface.interfaceAddresses) {
+                    val ip = ifAddr.address
+                    if (ip.isLinkLocalAddress || ip.isLoopbackAddress) continue
+                    parts.add("${ip.hostAddress}/${ifAddr.networkPrefixLength}")
+                }
+            }
+        } catch (_: Throwable) {
+            return ""
+        }
+        return parts.joinToString(", ")
     }
 
     /**

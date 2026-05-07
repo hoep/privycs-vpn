@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -411,6 +412,13 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 
 	status.Connected = true
 	status.ConnectedAt = o.connectedAt.Format(time.RFC3339)
+	// Resolve the OS interface this OpenVPN session uses so we can pull
+	// both byte-counters AND the dynamically-assigned local IP off it.
+	// Static `ifconfig-push` in the .ovpn already populated o.localAddr
+	// at parse time (rare with provider-issued profiles); the typical
+	// case is the server PUSHing an IP after TLS-handshake — the
+	// localAddr starts empty and we read it from the live tun/utun.
+	var ovpnIface string
 	if runtime.GOOS == "windows" {
 		// OpenVPN on Windows can use any of three transport drivers
 		// each producing a different adapter friendly-name. Try all
@@ -418,20 +426,89 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 		// share the WG driver. Order does not matter - we take the
 		// first UP adapter that matches.
 		status.BytesRx, status.BytesTx = getWindowsTrafficStats(
-			"OpenVPN",       // OpenVPN Wintun / OpenVPN TAP-Windows6 / OpenVPN Data Channel Offload
-			"ovpn-dco",      // standalone DCO driver naming
-			"TAP-Windows",   // legacy TAP driver
-			"Wintun",        // shared wintun adapter
-			"tap",           // catch-all for tap variants
+			"OpenVPN",     // OpenVPN Wintun / OpenVPN TAP-Windows6 / OpenVPN Data Channel Offload
+			"ovpn-dco",    // standalone DCO driver naming
+			"TAP-Windows", // legacy TAP driver
+			"Wintun",      // shared wintun adapter
+			"tap",         // catch-all for tap variants
 		)
+		ovpnIface = findFirstTunlikeInterface([]string{"OpenVPN", "ovpn", "TAP-Windows", "Wintun", "tap"})
 	} else if runtime.GOOS == "linux" {
-		status.BytesRx, status.BytesTx = getLinuxInterfaceStats("tun0")
+		ovpnIface = "tun0"
+		status.BytesRx, status.BytesTx = getLinuxInterfaceStats(ovpnIface)
 	} else if runtime.GOOS == "darwin" {
 		if iface := o.findUtunInterface(); iface != "" {
+			ovpnIface = iface
 			status.BytesRx, status.BytesTx = getDarwinInterfaceStats(iface)
 		}
 	}
+	if ovpnIface != "" {
+		// Always re-read live from the interface so a server that
+		// rotated the assigned IP between sessions surfaces correctly.
+		// Cheap call (sysctl-backed on darwin/linux, GetAdaptersAddresses
+		// on windows) and only runs on Status() polls (every 2 s) when
+		// the tunnel is up.
+		if addrs := getInterfaceIPAddresses(ovpnIface); addrs != "" {
+			o.localAddr = addrs
+			status.LocalAddress = addrs
+		}
+	}
 	return status
+}
+
+// getInterfaceIPAddresses returns the IPv4 + IPv6 unicast addresses
+// assigned to `ifname`, formatted as a comma-separated CIDR string —
+// e.g. "10.66.0.5/24, fd00:42::5/64". Mirrors the WireGuard config-
+// file Address line so the UI's local-address renderer can apply the
+// same splitAddresses() formatter without protocol-specific branching.
+//
+// Skips link-local (fe80::/10) and loopback addresses; those are
+// noise for the user.
+func getInterfaceIPAddresses(ifname string) string {
+	iface, err := net.InterfaceByName(ifname)
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	var parts []string
+	for _, a := range addrs {
+		ipNet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ipNet.IP.IsLinkLocalUnicast() || ipNet.IP.IsLoopback() {
+			continue
+		}
+		parts = append(parts, ipNet.String())
+	}
+	return strings.Join(parts, ", ")
+}
+
+// findFirstTunlikeInterface scans the system's network interfaces
+// and returns the first UP interface whose name contains any of the
+// given substrings. Used as the Windows-side iface lookup for the
+// IP-address read since the OpenVPN adapter alias varies across
+// driver flavours (TAP / Wintun / DCO). Returns "" if no match.
+func findFirstTunlikeInterface(needles []string) string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		nameLower := strings.ToLower(iface.Name)
+		for _, n := range needles {
+			if strings.Contains(nameLower, strings.ToLower(n)) {
+				return iface.Name
+			}
+		}
+	}
+	return ""
 }
 
 // findUtunInterface discovers the utun device assigned to the current

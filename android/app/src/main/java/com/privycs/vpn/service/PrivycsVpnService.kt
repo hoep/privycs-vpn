@@ -1871,6 +1871,24 @@ class PrivycsVpnService : VpnService() {
                 if (status != null) {
                     manager.updateStatus(status)
                     sendWidgetUpdate(status.connected)
+                    // Persist the runtime-assigned VPN inner IP back
+                    // to the connection registry so the Configs screen
+                    // shows it after reload, even before the next
+                    // connect. WireGuard's Address is parsed from the
+                    // .conf at import (always present); OpenVPN +
+                    // IPSec only learn their inner IP after IKE_AUTH /
+                    // TLS, so we update here once per poll cycle while
+                    // the tunnel is up. Cheap no-op when address is
+                    // unchanged or empty (see updateLocalAddress).
+                    if (status.connected && status.localAddress.isNotBlank() &&
+                        currentConnectionId.isNotBlank() && currentProtocol != null
+                    ) {
+                        PrivycsApp.instance.connectionRepository.updateLocalAddress(
+                            currentConnectionId,
+                            currentProtocol!!,
+                            status.localAddress
+                        )
+                    }
 
                     if (!status.connected) {
                         // Break only on hard DISCONNECTED AND outside the

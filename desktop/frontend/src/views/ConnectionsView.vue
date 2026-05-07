@@ -259,6 +259,16 @@
           {{ activeConfig(conn)?.server_address || activeConfig(conn)?.filename }}
         </div>
 
+        <!-- VPN IP — last-known inner address per protocol. WireGuard:
+             parsed from the .conf at import (always current). OpenVPN /
+             IPSec: server-pushed, captured after first connect, may be
+             stale across server-side IP rotations. Hidden when none
+             stored (fresh import that never connected, or static-IP-
+             less .ovpn). -->
+        <div v-if="activeConfig(conn)?.local_address" class="text-[11px] text-gray-500 font-mono">
+          <span class="text-gray-400">VPN IP:</span> {{ activeConfig(conn)?.local_address }}
+        </div>
+
         <!-- Connected indicator with protocol brand color -->
         <div v-if="isConnected(conn.id)" class="mt-2 flex items-center gap-1.5">
           <div class="w-1.5 h-1.5 rounded-full animate-pulse" :class="protocolDotColor(vpn.status?.active_protocol)"></div>

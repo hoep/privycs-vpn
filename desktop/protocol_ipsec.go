@@ -143,18 +143,22 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
 			status.BytesRx, status.BytesTx = parseSwanctlBytes(resp.Output)
+			if vip := parseSwanctlVirtualIP(resp.Output); vip != "" {
+				i.localAddr = vip
+				status.LocalAddress = vip
+			}
 		}
 	case "darwin":
 		// swanctl path is the only macOS path. Query via helper —
 		// charon's vici socket is root-only, so direct client-side
 		// access would fail. SA up when state=ESTABLISHED. Byte
-		// counters come from the same `swanctl --list-sas` output
-		// the helper already returns; we parse the in/out lines
-		// (per-CHILD-SA ESP counters from the kernel SA database).
-		// Per-utun stats won't work on macOS swanctl: charon installs
-		// kernel SAs in XFRM-style policy mode without creating a
-		// dedicated utun, so getDarwinInterfaceStats(utun) is always
-		// zero. The swanctl SA counters are the canonical source.
+		// counters AND the negotiated virtual IP come from the same
+		// `swanctl --list-sas` output the helper already returns —
+		// per-CHILD-SA ESP counters + the IKE_AUTH-CFG_REPLY-assigned
+		// inner IP. Per-utun stats won't work on macOS swanctl:
+		// charon installs kernel SAs in XFRM-style policy mode
+		// without creating a dedicated utun, so the counters from the
+		// SA database are the canonical source.
 		client := NewHelperClient()
 		if !client.IsHelperReachable() {
 			return status
@@ -167,6 +171,10 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
 			status.BytesRx, status.BytesTx = parseSwanctlBytes(resp.Output)
+			if vip := parseSwanctlVirtualIP(resp.Output); vip != "" {
+				i.localAddr = vip
+				status.LocalAddress = vip
+			}
 		}
 	case "windows":
 		// Look up both per-user AND machine-wide VPN connections — the helper
@@ -489,6 +497,69 @@ func (i *IPSecProtocol) configureLinuxFromSSwan(profile *sswanProfile) error {
 		LocalID:        profile.Local.ID,
 	}
 	return i.configureLinux(ipsecCfg)
+}
+
+// parseSwanctlVirtualIP extracts the negotiated virtual IPv4/v6
+// addresses from `swanctl --list-sas` output. charon emits them on a
+// `local` line right after the IKE_SA peer addresses, e.g.:
+//
+//	local 'foo@bar' @ 1.2.3.4[4500] [10.100.113.6]
+//
+// or on a separate line:
+//
+//	local  10.100.113.6/32
+//
+// (depending on swanctl version + whether vips were negotiated). We
+// match BOTH forms because charon switched format twice between 5.9
+// and 5.10 — the bracket form is the older one, the indented `local`
+// is current. Returns the addresses as a comma-separated CIDR string
+// matching the WireGuard format the UI's splitAddresses() expects.
+//
+// Returns empty string if no virtual IP could be parsed (server
+// didn't push one, or the SA is in negotiation). Caller should keep
+// the previous localAddr in that case rather than wiping it.
+func parseSwanctlVirtualIP(output string) string {
+	// Form 1: bracketed virtual IP on the local-id line (older).
+	reBracket := regexp.MustCompile(`^\s+local\s+'[^']*'\s+@\s+\S+\s+\[([0-9a-fA-F:.,/\s]+)\]`)
+	// Form 2: dedicated indented local-CIDR line (current).
+	reLocal := regexp.MustCompile(`^\s+local\s+([0-9a-fA-F:.]+/\d+)(?:\s|$)`)
+
+	var parts []string
+	for _, line := range strings.Split(output, "\n") {
+		if m := reBracket.FindStringSubmatch(line); m != nil {
+			for _, p := range strings.Split(m[1], ",") {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				if !strings.Contains(p, "/") {
+					// Bracket form omits the prefix — assume host route.
+					if strings.Contains(p, ":") {
+						p += "/128"
+					} else {
+						p += "/32"
+					}
+				}
+				parts = append(parts, p)
+			}
+			continue
+		}
+		if m := reLocal.FindStringSubmatch(line); m != nil {
+			parts = append(parts, m[1])
+		}
+	}
+	// Dedup — both regexes can match concurrently on some swanctl
+	// versions. Preserve order.
+	seen := map[string]bool{}
+	uniq := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		uniq = append(uniq, p)
+	}
+	return strings.Join(uniq, ", ")
 }
 
 // parseSwanctlBytes extracts inbound/outbound byte counters from
