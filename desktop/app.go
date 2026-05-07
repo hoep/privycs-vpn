@@ -749,6 +749,29 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		if _, ok := a.protocols[protocol]; !ok {
 			return nil, fmt.Errorf("unknown protocol: %s", protocol)
 		}
+		// Tear down the currently-active protocol BEFORE switching the
+		// pointer. Without this two protocols can run in parallel: the
+		// previous Up()'s native session (e.g. ics-openvpn UDP socket
+		// + management thread) keeps sending keepalives to the server,
+		// the new Up() establishes its own tunnel, and the server's
+		// connection list shows BOTH as connected forever. Observed
+		// 2026-05-07 with Peter-Android-Shielded reporting connected
+		// via OpenVPN AND IPSec simultaneously even though only one
+		// was actively routing user traffic — the other one was a
+		// zombie native session leftover from a previous Connect()
+		// with a different protocol arg. SwitchConnectionProtocol
+		// (further down in this file) already does the right thing
+		// via disconnectInternal(); the missing piece was here.
+		if a.connected && a.activeProtocol != "" {
+			if prevProto, ok := a.protocols[a.activeProtocol]; ok {
+				downCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if err := prevProto.Down(downCtx); err != nil {
+					log.Printf("Connect: warning during pre-switch teardown of %s: %v", a.activeProtocol, err)
+				}
+				cancel()
+				a.connected = false
+			}
+		}
 		a.activeProtocol = protocol
 		a.settings.ActiveProtocol = protocol
 		SaveSettings(a.settings)
@@ -813,6 +836,25 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		// up X" and then nothing, while the actual wg-quick stderr
 		// (passed back via helper IPC) was discarded.
 		log.Printf("Connect: %s.Up FAILED: %v", activeProto, upErr)
+
+		// Multi-protocol failover: if the connection has alternate
+		// protocols configured, try them in order before surfacing
+		// the failure to the user. This implements the user-expected
+		// "if one protocol fails, try the next" behaviour that was
+		// missing pre-v0.9.14.66. Failover only fires for connections
+		// with >1 protocol; single-protocol connections still get the
+		// original error path. tryFailoverProtocol commits the new
+		// activeProtocol on success and returns the protocol name.
+		if successProto, ferr := a.tryFailoverProtocol(activeProto); ferr == nil {
+			log.Printf("Connect: failover succeeded via %q after %q failed", successProto, activeProto)
+			Notify("VPN connection failed over",
+				fmt.Sprintf("%s could not start; connected via %s instead", activeProto, successProto),
+				NotifyInfo)
+			return a.statusLocked(), nil
+		} else {
+			log.Printf("Connect: failover unsuccessful: %v — surfacing original %s error", ferr, activeProto)
+		}
+
 		// New sinkhole model: we did NOT pre-activate, so there is
 		// nothing to roll back here - the firewall stayed open during
 		// the failed connect attempt. User retains internet
@@ -866,6 +908,22 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		a.mu.Unlock()
 		_ = proto.Down(appCtx)
 		a.mu.Lock()
+
+		// Failover on tunnel-didn't-come-up: same logic as the Up()
+		// error path above. The protocol's daemon either started but
+		// stalled (OpenVPN TLS hang, IPSec SA negotiation timeout) or
+		// the kernel side never registered. Try alternate protocols
+		// before giving up.
+		if successProto, ferr := a.tryFailoverProtocol(activeProto); ferr == nil {
+			log.Printf("Connect: failover succeeded via %q after %q timed out", successProto, activeProto)
+			Notify("VPN connection failed over",
+				fmt.Sprintf("%s timed out; connected via %s instead", activeProto, successProto),
+				NotifyInfo)
+			return a.statusLocked(), nil
+		} else {
+			log.Printf("Connect: failover unsuccessful after timeout: %v", ferr)
+		}
+
 		errMsg := fmt.Sprintf("%s tunnel did not come up within %v — check logs", activeProto, connectTimeout)
 		wailsRuntime.EventsEmit(appCtx, "vpn:error", errMsg)
 		Notify("VPN connection timed out", errMsg, NotifyError)
@@ -916,11 +974,12 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 			// no-ops on a phantom-running tunnel. Re-enabling the
 			// real recovery closes that hole.
 			a.tunnelHealth.Start(target, func() {
-				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + reconnecting")
+				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + trying failover")
 				// Tear down the stale connected state so the
 				// reconnect goes through the normal Up path
 				// instead of short-circuiting on Status().Connected.
 				a.mu.Lock()
+				deadProto := a.activeProtocol
 				if err := a.disconnectInternal(); err != nil {
 					log.Printf("TunnelHealth: recovery disconnect: %v", err)
 				}
@@ -930,6 +989,25 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 				// release. 2s is empirically the minimum on
 				// Windows for a clean restart.
 				time.Sleep(2 * time.Second)
+
+				// Failover-first recovery: blindly reconnecting with
+				// the same protocol that just died is rarely the
+				// right move — if ICMP through the tunnel is broken,
+				// the protocol's transport (or the server's exit) is
+				// likely the problem. Try an alternate protocol
+				// first; only if the connection is single-protocol or
+				// failover itself fails do we fall back to the
+				// original-protocol reconnect via connectActiveTarget.
+				a.mu.Lock()
+				if successProto, ferr := a.tryFailoverProtocol(deadProto); ferr == nil {
+					log.Printf("TunnelHealth: recovery via failover %s → %s", deadProto, successProto)
+					a.mu.Unlock()
+					return
+				} else {
+					log.Printf("TunnelHealth: failover not viable (%v), falling back to same-protocol reconnect", ferr)
+				}
+				a.mu.Unlock()
+
 				// connectActiveTarget respects connectMu, COD pause,
 				// kill switch sinkhole, and the configured rule
 				// resolution, so this single call is the right

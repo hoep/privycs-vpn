@@ -201,6 +201,38 @@ object TunnelHealthMonitor {
                 PrivycsLogger.w(TAG, "recovery: no active connection or pool, leaving disconnected")
                 return
             }
+
+            // Multi-protocol failover: if the connection has more than one
+            // protocol configured, try a DIFFERENT one before reconnecting.
+            // Blindly reconnecting with the same protocol that just died
+            // (per the ICMP probe) is rarely the right move — if the
+            // tunnel's transport is broken, the same transport will likely
+            // break again. Switch the active protocol to the next available
+            // alternative; if that connect fails ConnectCoordinator's
+            // failure path will surface it and the user can manually
+            // re-select. If only one protocol is configured we fall through
+            // to the same-protocol reconnect below (no-op failover).
+            val deadProto = connection.activeProtocol
+            val nextProto = connection.availableProtocols().firstOrNull { it != deadProto }
+            if (nextProto != null) {
+                PrivycsLogger.i(
+                    TAG,
+                    "recovery: failover ${deadProto.label} → ${nextProto.label} " +
+                        "(available: ${connection.availableProtocols().map { it.label }})",
+                )
+                PrivycsApp.instance.connectionRepository.setActiveProtocol(connection.id, nextProto)
+                // Refresh the connection model after the protocol swap
+                // so requestConnect sees the new activeProtocol on the
+                // VpnConnection it queues.
+                val refreshed = PrivycsApp.instance.connectionRepository.getById(connection.id) ?: connection
+                ConnectCoordinator.requestConnect(
+                    context,
+                    ConnectCoordinator.IntentSource.ON_DEMAND,
+                    refreshed,
+                )
+                return
+            }
+
             ConnectCoordinator.requestConnect(
                 context,
                 ConnectCoordinator.IntentSource.ON_DEMAND,

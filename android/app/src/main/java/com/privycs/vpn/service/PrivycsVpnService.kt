@@ -15,6 +15,7 @@ import com.privycs.vpn.data.models.VpnStatus
 import com.privycs.vpn.util.PrivycsLogger
 import com.privycs.vpn.widget.VpnWidget
 import com.wireguard.android.backend.GoBackend
+import de.blinkt.openvpn.core.OpenVPNService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -89,6 +90,33 @@ class PrivycsVpnService : VpnService() {
         super.onCreate()
         goBackend = GoBackend(this)
         PrivycsLogger.d(TAG, "VPN service created")
+
+        // Cold-start zombie cleanup: a previous PrivycsVpnService instance may
+        // have crashed (process death, OOM kill, OS restart) and left a
+        // SEPARATE foreground service running. ics-openvpn's OpenVPNService is
+        // its own android.app.Service — it survives PrivycsVpnService death
+        // and keeps its UDP socket open, sending keepalives to our gateway.
+        // teardownAllProtocols() walks the three singleton tunnel fields
+        // (wireGuardTunnel/openVpnTunnel/ipSecTunnel) which on cold-start are
+        // all null, so its disconnect calls become no-ops and the zombie
+        // OpenVPNService keeps running parallel to whatever new connect we're
+        // about to attempt. Server-side this manifests as the SAME client
+        // appearing connected via TWO protocols simultaneously even though
+        // the user only triggered one — observed 2026-05-07 with Peter-
+        // Android-Shielded showing as connected via OpenVPN AND IPSec.
+        //
+        // Force-stop any leftover protocol-specific service unconditionally.
+        // stopService is a no-op if the service isn't running, so this is
+        // safe on a true fresh start. We only have a separate-service problem
+        // for OpenVPN today; charon/IPSec runs in our own process via
+        // libcharon.so (no separate service to clean up), and WireGuard's
+        // GoBackend lives in our process too. If we ever add separate
+        // services for those, mirror the call here.
+        try {
+            stopService(Intent(this, OpenVPNService::class.java))
+        } catch (e: Exception) {
+            PrivycsLogger.w(TAG, "Cold-start zombie cleanup: stopService(OpenVPNService) failed: ${e.message}")
+        }
 
         // If the service is being created (or recreated via
         // START_STICKY) while the process-global KillSwitchManager
