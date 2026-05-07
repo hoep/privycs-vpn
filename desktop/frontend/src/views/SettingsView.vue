@@ -366,30 +366,34 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
         <p class="text-[10px] text-gray-400 mb-3">
           When macOS wakes from sleep, the upstream NAT mapping for the VPN has typically expired and the tunnel is silently dead — packets black-hole through stuck routes until manually disconnected. These options auto-recover.
         </p>
-        <label class="flex items-center justify-between mb-3 cursor-pointer">
-          <div>
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex-1 pr-3">
             <span class="text-sm text-gray-700 dark:text-gray-300">Reconnect on system wake</span>
             <p class="text-[10px] text-gray-500">Force-reconnect within ~1 s after wake instead of waiting for the tunnel-health probe (~60 s).</p>
           </div>
-          <input
-            type="checkbox"
-            :checked="settings.reconnect_on_system_wake !== false"
-            @change="(e) => { settings.reconnect_on_system_wake = (e.target as HTMLInputElement).checked; saveSettings() }"
-            class="accent-primary-600 h-4 w-4"
-          />
-        </label>
-        <label class="flex items-center justify-between cursor-pointer">
-          <div>
+          <Switch
+            :model-value="settings.reconnect_on_system_wake !== false"
+            @update:model-value="(v: boolean) => { settings.reconnect_on_system_wake = v; saveSettings() }"
+            :class="settings.reconnect_on_system_wake !== false ? 'toggle-enabled' : 'toggle-disabled'"
+            class="toggle"
+          >
+            <span class="toggle-knob" :class="settings.reconnect_on_system_wake !== false ? 'translate-x-5' : 'translate-x-0'" />
+          </Switch>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="flex-1 pr-3">
             <span class="text-sm text-gray-700 dark:text-gray-300">Prevent display sleep while tunnel is up</span>
             <p class="text-[10px] text-gray-500">Uses macOS <code>caffeinate -di</code>. Trades battery for zero sleep-related VPN drops. Default off.</p>
           </div>
-          <input
-            type="checkbox"
-            v-model="settings.prevent_display_sleep"
-            @change="saveSettings()"
-            class="accent-primary-600 h-4 w-4"
-          />
-        </label>
+          <Switch
+            :model-value="!!settings.prevent_display_sleep"
+            @update:model-value="(v: boolean) => { settings.prevent_display_sleep = v; saveSettings() }"
+            :class="settings.prevent_display_sleep ? 'toggle-enabled' : 'toggle-disabled'"
+            class="toggle"
+          >
+            <span class="toggle-knob" :class="settings.prevent_display_sleep ? 'translate-x-5' : 'translate-x-0'" />
+          </Switch>
+        </div>
       </div>
 
       <!-- Network Rules (Phase 2) -->
@@ -401,12 +405,14 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
         </p>
         <div class="flex items-center justify-between mb-1">
           <span class="text-sm text-gray-700 dark:text-gray-300">Engine enabled</span>
-          <input
-            type="checkbox"
-            :checked="settings.network_rules_enabled"
-            @change="settings.network_rules_enabled = $event.target.checked; saveSettings()"
-            class="w-4 h-4 accent-primary-600"
-          />
+          <Switch
+            :model-value="!!settings.network_rules_enabled"
+            @update:model-value="(v: boolean) => { settings.network_rules_enabled = v; saveSettings() }"
+            :class="settings.network_rules_enabled ? 'toggle-enabled' : 'toggle-disabled'"
+            class="toggle"
+          >
+            <span class="toggle-knob" :class="settings.network_rules_enabled ? 'translate-x-5' : 'translate-x-0'" />
+          </Switch>
         </div>
         <p class="text-[10px] text-gray-500 mb-3">
           Requires Connect-on-Demand to be enabled. Rules are not evaluated when COD is off — manual control wins.
@@ -552,6 +558,7 @@ import { useVpnStore } from '@/stores/vpn'
 import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath, ValidateDnsOverride, TestDnsResolution, GetDnsProviders } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
 import DnsOverrideField from '@/components/DnsOverrideField.vue'
+import { Switch } from '@headlessui/vue'
 
 const vpn = useVpnStore()
 
