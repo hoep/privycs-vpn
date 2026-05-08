@@ -189,18 +189,61 @@ func getSSIDViaNmcli() string {
 }
 
 // getNetworkTypePlatform returns "wifi", "ethernet", or "none" on Linux.
+//
+// VPN-aware: when a Privycs (or any other) VPN is up, the system
+// default route exits via tun0/utun and the older `ip route show
+// default` check would falsely return "ethernet". v0.9.14.73 walks
+// the route table and skips tun*/utun*/wireguard* / VPN-style
+// interface names, returning the first non-VPN default-route iface's
+// transport class.
 func getNetworkTypePlatform() string {
 	ssid := getCurrentSSIDPlatform()
 	if ssid != "" {
 		return "wifi"
 	}
-
-	out, err := exec.Command("ip", "route", "show", "default").Output()
-	if err != nil {
-		return "none"
-	}
-	if strings.TrimSpace(string(out)) != "" {
+	if hasNonVpnDefaultRouteLinux() {
 		return "ethernet"
 	}
 	return "none"
+}
+
+// hasNonVpnDefaultRouteLinux returns true when at least one default-
+// route exits via a NON-VPN interface (rules out tun*/utun*/wg*).
+func hasNonVpnDefaultRouteLinux() bool {
+	out, err := exec.Command("ip", "route", "show", "default").Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: `default via <gw> dev <iface> [proto …]` — read
+		// the iface after `dev`.
+		idx := strings.Index(line, " dev ")
+		if idx < 0 {
+			continue
+		}
+		rest := strings.TrimSpace(line[idx+len(" dev "):])
+		iface := strings.Fields(rest)[0]
+		if isVpnInterfaceName(iface) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// isVpnInterfaceName reports whether `iface` looks like a VPN
+// virtual interface — tun0 / utunN / wg0 / etc. Used to bias
+// network-type detection toward physical transport when the
+// system default route exits via a tunnel.
+func isVpnInterfaceName(iface string) bool {
+	low := strings.ToLower(iface)
+	return strings.HasPrefix(low, "tun") ||
+		strings.HasPrefix(low, "utun") ||
+		strings.HasPrefix(low, "wg") ||
+		strings.HasPrefix(low, "wireguard") ||
+		strings.HasPrefix(low, "ipsec")
 }

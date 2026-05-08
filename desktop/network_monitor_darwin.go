@@ -242,18 +242,51 @@ func getCurrentSSIDPlatform() string {
 }
 
 // getNetworkTypePlatform returns "wifi", "ethernet", or "none" on macOS.
+//
+// VPN-aware: when a VPN tunnel is up, `route -n get default` returns
+// the utun (or ipsec0) gateway and the pre-v0.9.14.73 check then
+// lied "ethernet" even though the underlying physical transport was
+// gone. v0.9.14.73 reads `interface:` from the route output and
+// rejects tun*/utun*/ipsec* / wg* names, falling through to "none"
+// so the rules engine doesn't trigger COD on a tunnel-only state.
 func getNetworkTypePlatform() string {
 	ssid := getCurrentSSIDPlatform()
 	if ssid != "" {
 		return "wifi"
 	}
-
 	out, err := exec.Command("route", "-n", "get", "default").Output()
 	if err != nil {
 		return "none"
 	}
-	if strings.Contains(string(out), "gateway:") {
-		return "ethernet"
+	hasGateway := false
+	iface := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "gateway:") {
+			hasGateway = true
+		}
+		if strings.HasPrefix(line, "interface:") {
+			iface = strings.TrimSpace(strings.TrimPrefix(line, "interface:"))
+		}
 	}
-	return "none"
+	if !hasGateway {
+		return "none"
+	}
+	if isVpnInterfaceNameMacOS(iface) {
+		return "none"
+	}
+	return "ethernet"
+}
+
+// isVpnInterfaceNameMacOS reports whether `iface` looks like a VPN
+// virtual interface on macOS — utunN / ipsec0 / wg0 / etc. Used to
+// avoid mis-classifying a tunnel-only state as "ethernet" when the
+// underlying physical transport is actually gone.
+func isVpnInterfaceNameMacOS(iface string) bool {
+	low := strings.ToLower(iface)
+	return strings.HasPrefix(low, "utun") ||
+		strings.HasPrefix(low, "tun") ||
+		strings.HasPrefix(low, "ipsec") ||
+		strings.HasPrefix(low, "wg") ||
+		strings.HasPrefix(low, "wireguard")
 }

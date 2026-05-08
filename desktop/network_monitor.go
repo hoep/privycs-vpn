@@ -395,27 +395,63 @@ func evaluateRules(settings *ConnectOnDemandSettings, state *NetworkState) bool 
 		return false
 	}
 
-	// If on WiFi, check SSID filter rules
-	if state.NetworkType == "wifi" && state.SSID != "" {
+	// SSID filter rules. Apply ONLY when on WiFi; for non-WiFi
+	// transports (mobile / ethernet) the trigger-type check above
+	// is sufficient and we already passed it. Empty-SSID handling
+	// matches the Android NetworkMonitor.evaluateRules() defaults
+	// so identical user-configured rules behave the same on both
+	// platforms (v0.9.14.73 alignment).
+	if state.NetworkType == "wifi" {
 		switch settings.SSIDMode {
 		case "only":
-			// Only connect on listed SSIDs
-			if !ssidInList(state.SSID, settings.SSIDList) {
+			// Only connect on listed SSIDs. Empty-SSID = cannot
+			// determine which WiFi we're on → conservative refuse:
+			// the whole point of "only [home, office]" is to NOT
+			// connect on unknown networks. Pre-v0.9.14.73 desktop
+			// fell through to the unconditional `return true` below
+			// when SSID detection failed and silently connected
+			// against user intent.
+			list := filterNonBlank(settings.SSIDList)
+			switch {
+			case len(list) == 0:
+				return false
+			case state.SSID == "":
+				return false
+			case !ssidInList(state.SSID, list):
 				return false
 			}
 		case "except":
-			// Connect on all SSIDs except listed ones
-			if ssidInList(state.SSID, settings.SSIDList) {
+			// Connect on all SSIDs except listed ones. Empty-SSID
+			// here is treated as "untrusted by default" → connect.
+			// Symmetric mirror of the "only" empty-SSID-conservative
+			// path: when in doubt, the more-protective decision wins.
+			list := filterNonBlank(settings.SSIDList)
+			if len(list) > 0 && state.SSID != "" && ssidInList(state.SSID, list) {
 				return false
 			}
 		case "all":
-			// Connect on any WiFi - no filtering needed
+			// Connect on any WiFi - no filtering needed.
 		default:
-			// Unknown mode, treat as "all"
+			// Unknown mode, treat as "all".
 		}
 	}
 
 	return true
+}
+
+// filterNonBlank returns a copy of list with empty / whitespace-only
+// entries removed. The Settings UI accepts an editable comma-list and
+// blank entries can leak in if the user types ", ," — without this
+// filter an unintentionally-blank list would short-circuit "only"
+// to false-on-everything.
+func filterNonBlank(list []string) []string {
+	out := make([]string, 0, len(list))
+	for _, s := range list {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // ssidInList checks whether ssid appears in the list (case-insensitive)
