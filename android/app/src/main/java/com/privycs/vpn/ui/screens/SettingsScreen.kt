@@ -687,6 +687,48 @@ fun SettingsScreen(
                         )
                     }
                 }
+
+                // v0.9.14.75 — opt-in foreground-keepalive. Default
+                // off; turning it on starts PrivycsVpnService as a
+                // foreground service even without a tunnel so
+                // NetworkMonitor's tick + system NetworkCallback
+                // survive Doze and on-demand reaction in standby
+                // stays <1 s. Trade-off: persistent low-priority
+                // notification entry. Without this, on-demand can
+                // take up to 15 min to react when the screen is off
+                // (WorkManager backstop is the OS hard floor).
+                if (settings.connectOnDemand.enabled) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SettingsToggle(
+                        title = "Always monitor (faster reaction in standby)",
+                        description = "Keeps a low-priority notification so on-demand rules apply within 1-2 seconds even when the screen is off. Off = up to 15 min in deep idle.",
+                        checked = settings.keepMonitorAlive,
+                        onCheckedChange = { enabled ->
+                            persistScope.launch {
+                                settingsRepo.setKeepMonitorAlive(enabled)
+                                if (enabled) {
+                                    val intent = android.content.Intent(
+                                        context,
+                                        com.privycs.vpn.service.PrivycsVpnService::class.java,
+                                    ).apply {
+                                        action = com.privycs.vpn.service.PrivycsVpnService.ACTION_START_MONITOR
+                                    }
+                                    androidx.core.content.ContextCompat.startForegroundService(
+                                        context, intent
+                                    )
+                                } else {
+                                    val intent = android.content.Intent(
+                                        context,
+                                        com.privycs.vpn.service.PrivycsVpnService::class.java,
+                                    ).apply {
+                                        action = com.privycs.vpn.service.PrivycsVpnService.ACTION_STOP_MONITOR
+                                    }
+                                    context.startService(intent)
+                                }
+                            }
+                        }
+                    )
+                }
             }
 
             // -- Network --

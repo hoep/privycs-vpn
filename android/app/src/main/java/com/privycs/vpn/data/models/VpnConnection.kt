@@ -194,7 +194,19 @@ data class AppSettings(
     // ICMP to 1.1.1.1 specifically, or who prefer pinging an
     // internal target (Pi-hole, gateway).
     @SerialName("tunnel_health_target")
-    val tunnelHealthTarget: String = ""
+    val tunnelHealthTarget: String = "",
+    // v0.9.14.75 — opt-in foreground-keepalive for on-demand
+    // reaction in standby. When true AND connectOnDemand.enabled,
+    // PrivycsApp starts PrivycsVpnService with ACTION_START_MONITOR
+    // at app boot so the service runs as a foreground service even
+    // without an active tunnel. Trade-off: persistent low-priority
+    // notification, but NetworkMonitor's 30 s tick + system
+    // NetworkCallback survive Doze and on-demand reaction stays
+    // <1 s instead of the ≤15 min WorkManager fallback. Default
+    // off so users opt in only if they value reaction speed over
+    // a persistent notification entry.
+    @SerialName("keep_monitor_alive")
+    val keepMonitorAlive: Boolean = false
 )
 
 // Gateway API models matching desktop api_client.go

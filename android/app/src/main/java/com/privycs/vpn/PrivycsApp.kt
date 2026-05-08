@@ -206,13 +206,40 @@ class PrivycsApp : StrongSwanApplication() {
         // Users reported repeatedly: "manual disconnect while on-demand
         // rules match does not reconnect" - root cause exactly this.
         appScope.launch {
-            val codEnabled = settingsRepository.getSettingsBlocking().connectOnDemand.enabled
+            val s = settingsRepository.getSettingsBlocking()
+            val codEnabled = s.connectOnDemand.enabled
             if (codEnabled) {
                 try {
                     com.privycs.vpn.service.NetworkMonitor.getInstance(applicationContext).start()
                     Log.i("PrivycsApp", "NetworkMonitor auto-started (on-demand enabled)")
                 } catch (t: Throwable) {
                     Log.e("PrivycsApp", "NetworkMonitor auto-start failed", t)
+                }
+
+                // v0.9.14.75 — opt-in foreground-keepalive: if the
+                // user has enabled "Always monitor" in settings, fire
+                // ACTION_START_MONITOR so PrivycsVpnService comes up
+                // as a foreground service (without a tunnel) and the
+                // NetworkMonitor + system NetworkCallback survive
+                // Doze. Default is OFF so this branch is a no-op for
+                // users who didn't opt in. The service is idempotent
+                // — if a tunnel is already up we skip the monitor-
+                // mode notification and let the connection one stay.
+                if (s.keepMonitorAlive) {
+                    try {
+                        val intent = android.content.Intent(
+                            applicationContext,
+                            com.privycs.vpn.service.PrivycsVpnService::class.java,
+                        ).apply {
+                            action = com.privycs.vpn.service.PrivycsVpnService.ACTION_START_MONITOR
+                        }
+                        androidx.core.content.ContextCompat.startForegroundService(
+                            applicationContext, intent
+                        )
+                        Log.i("PrivycsApp", "Foreground-keepalive monitor started")
+                    } catch (t: Throwable) {
+                        Log.e("PrivycsApp", "Foreground-keepalive start failed", t)
+                    }
                 }
             }
         }

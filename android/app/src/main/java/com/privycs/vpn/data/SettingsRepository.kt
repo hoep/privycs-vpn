@@ -35,6 +35,7 @@ class SettingsRepository(private val context: Context) {
         val FIRST_LAUNCH_COMPLETED = booleanPreferencesKey("first_launch_completed")
         val TUNNEL_HEALTH_MODE = stringPreferencesKey("tunnel_health_mode")
         val TUNNEL_HEALTH_TARGET = stringPreferencesKey("tunnel_health_target")
+        val KEEP_MONITOR_ALIVE = booleanPreferencesKey("keep_monitor_alive")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -57,7 +58,8 @@ class SettingsRepository(private val context: Context) {
             ),
             firstLaunchCompleted = prefs[Keys.FIRST_LAUNCH_COMPLETED] ?: false,
             tunnelHealthMode = prefs[Keys.TUNNEL_HEALTH_MODE] ?: "auto",
-            tunnelHealthTarget = prefs[Keys.TUNNEL_HEALTH_TARGET] ?: ""
+            tunnelHealthTarget = prefs[Keys.TUNNEL_HEALTH_TARGET] ?: "",
+            keepMonitorAlive = prefs[Keys.KEEP_MONITOR_ALIVE] ?: false
         )
     }
 
@@ -87,6 +89,19 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.FIRST_LAUNCH_COMPLETED] = settings.firstLaunchCompleted
             prefs[Keys.TUNNEL_HEALTH_MODE] = settings.tunnelHealthMode
             prefs[Keys.TUNNEL_HEALTH_TARGET] = settings.tunnelHealthTarget
+            prefs[Keys.KEEP_MONITOR_ALIVE] = settings.keepMonitorAlive
+        }
+    }
+
+    /**
+     * Targeted setter for the foreground-keepalive toggle (v0.9.14.75).
+     * Used by the in-notification "Stop monitoring" action and any
+     * other code path that wants to flip the bit without rewriting
+     * the whole AppSettings document.
+     */
+    suspend fun setKeepMonitorAlive(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.KEEP_MONITOR_ALIVE] = enabled
         }
     }
 

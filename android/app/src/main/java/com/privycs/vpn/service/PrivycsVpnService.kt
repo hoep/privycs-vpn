@@ -35,6 +35,16 @@ class PrivycsVpnService : VpnService() {
         const val ACTION_KILL_SWITCH_RETRY = "com.privycs.vpn.KILL_SWITCH_RETRY"
         const val ACTION_ENGAGE_SINKHOLE = "com.privycs.vpn.ENGAGE_SINKHOLE"
 
+        // v0.9.14.75: opt-in foreground-keepalive for on-demand
+        // reaction in standby. PrivycsApp fires START_MONITOR at app
+        // start when both Connect-on-Demand and KeepMonitorAlive are
+        // enabled in settings; the service then runs as a foreground
+        // service WITHOUT a tunnel, just to keep NetworkMonitor's
+        // 30 s tick + NetworkCallback alive across Doze. STOP_MONITOR
+        // tears it back down (notification action or settings toggle).
+        const val ACTION_START_MONITOR = "com.privycs.vpn.START_MONITOR"
+        const val ACTION_STOP_MONITOR = "com.privycs.vpn.STOP_MONITOR"
+
         // Pool actions — fired by PoolAlarmReceiver via AlarmManager
         // and by direct user-tap on a pool-activate button.
         const val ACTION_POOL_CONNECT = "com.privycs.vpn.POOL_CONNECT"
@@ -488,6 +498,50 @@ class PrivycsVpnService : VpnService() {
 
             ACTION_DISCONNECT -> {
                 handleDisconnect()
+            }
+
+            ACTION_START_MONITOR -> {
+                // Foreground-monitor mode (v0.9.14.75 opt-in). Keep
+                // the service alive in the background so NetworkMonitor's
+                // tick + NetworkCallback survive Doze. No tunnel is
+                // started; the notification is min-priority so the
+                // user-drawer listing is unobtrusive. Idempotent —
+                // if a tunnel already brought us to foreground, this
+                // call replaces the connecting/connected notification
+                // with the monitor one only when the service is
+                // otherwise idle (currentProtocol == null).
+                if (currentProtocol == null) {
+                    PrivycsLogger.i(TAG, "ACTION_START_MONITOR — entering foreground-monitor mode")
+                    startForeground(
+                        PrivycsApp.NOTIFICATION_ID_VPN,
+                        buildNotification(
+                            "Watching for network changes for on-demand rules.",
+                            monitorMode = true,
+                        ),
+                    )
+                    // Bootstrap NetworkMonitor too — PrivycsApp also
+                    // does this on its own COD-enabled branch, but
+                    // we re-run idempotently in case start-monitor
+                    // landed via a different code path (e.g. Settings
+                    // toggle flip while app was in background).
+                    com.privycs.vpn.service.NetworkMonitor.getInstance(applicationContext).start()
+                }
+            }
+
+            ACTION_STOP_MONITOR -> {
+                PrivycsLogger.i(TAG, "ACTION_STOP_MONITOR — leaving foreground-monitor mode")
+                // Persist the toggle off so the next app start doesn't
+                // re-arm monitor. If a tunnel is currently running,
+                // we leave the service alive — only the user-visible
+                // notification action gets disarmed; the running
+                // tunnel's notification stays.
+                scope.launch {
+                    PrivycsApp.instance.settingsRepository.setKeepMonitorAlive(false)
+                    if (currentProtocol == null) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
+                }
             }
 
             ACTION_KILL_SWITCH_RETRY -> {
@@ -1742,6 +1796,30 @@ class PrivycsVpnService : VpnService() {
                 return@launch
             }
 
+            // v0.9.14.75 — keep-monitor-alive opt-in. If the user
+            // turned on "Always monitor" + has Connect-on-Demand
+            // enabled, swap the connecting/connected notification
+            // for the low-priority monitor one and stay foreground.
+            // NetworkMonitor's tick + NetworkCallback survive Doze
+            // because the service stays foreground. Without this
+            // check we'd stopSelf and fall back to the 15-min
+            // WorkManager backstop.
+            val s = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
+            if (s.connectOnDemand.enabled && s.keepMonitorAlive) {
+                PrivycsLogger.i(TAG, "handleDisconnect: keep-monitor-alive enabled - staying foreground in monitor mode")
+                currentProtocol = null
+                currentConnectionId = ""
+                currentConnectionName = ""
+                startForeground(
+                    PrivycsApp.NOTIFICATION_ID_VPN,
+                    buildNotification(
+                        "Watching for network changes for on-demand rules.",
+                        monitorMode = true,
+                    ),
+                )
+                return@launch
+            }
+
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -1938,23 +2016,61 @@ class PrivycsVpnService : VpnService() {
         }
     }
 
-    private fun buildNotification(text: String, sinkholeMode: Boolean = false): Notification {
+    private fun buildNotification(
+        text: String,
+        sinkholeMode: Boolean = false,
+        monitorMode: Boolean = false,
+    ): Notification {
         val openIntent = Intent(this, MainActivity::class.java)
         val pendingOpen = PendingIntent.getActivity(
             this, 0, openIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val title = when {
+            sinkholeMode -> "Privycs VPN — Kill Switch Active"
+            monitorMode -> "Privycs VPN — Monitoring network"
+            else -> getString(R.string.vpn_notification_title)
+        }
+
         val builder = NotificationCompat.Builder(this, PrivycsApp.NOTIFICATION_CHANNEL_VPN)
-            .setContentTitle(
-                if (sinkholeMode) "Privycs VPN — Kill Switch Active"
-                else getString(R.string.vpn_notification_title)
-            )
+            .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pendingOpen)
             .setOngoing(true)
             .setSilent(true)
+            .also { b ->
+                // Monitor mode = lowest visible priority + min
+                // importance per-notification so the user-drawer
+                // listing is as quiet as the "Charging" indicator.
+                // Channel is already IMPORTANCE_LOW; this trims the
+                // per-notification rank further on Android 7's pre-
+                // channel devices and stays harmless on newer.
+                if (monitorMode) {
+                    b.priority = NotificationCompat.PRIORITY_MIN
+                    b.setCategory(NotificationCompat.CATEGORY_SERVICE)
+                }
+            }
+
+        if (monitorMode) {
+            // Monitor-mode action: "Stop monitoring" disables the
+            // keep-alive setting and lets the service stop. Faster
+            // than diving into Settings.
+            val stopIntent = Intent(this, PrivycsVpnService::class.java).apply {
+                action = ACTION_STOP_MONITOR
+            }
+            val pendingStop = PendingIntent.getService(
+                this, 3, stopIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            builder.addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Stop monitoring",
+                pendingStop,
+            )
+            return builder.build()
+        }
 
         if (sinkholeMode) {
             // Sinkhole mode: offer a Retry Connect action that

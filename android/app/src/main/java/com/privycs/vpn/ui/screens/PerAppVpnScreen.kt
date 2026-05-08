@@ -99,19 +99,33 @@ fun PerAppVpnScreen(
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             val pm = context.packageManager
-            val installedApps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                .filter { app ->
-                    // Show user-installed apps and common system apps with launcher intent
-                    (app.flags and ApplicationInfo.FLAG_SYSTEM == 0) ||
-                        pm.getLaunchIntentForPackage(app.packageName) != null
+            // v0.9.14.75: switched from getInstalledApplications +
+            // FLAG_SYSTEM/launcher heuristic to getInstalledPackages
+            // with GET_PERMISSIONS, filtering on the INTERNET
+            // permission. The old filter excluded system apps that
+            // had no launcher activity — Android Auto
+            // (com.google.android.projection.gearhead) is exactly
+            // such an app: pre-installed system, launches itself when
+            // the phone connects to a car, never appears in the
+            // launcher. User-reported missing.
+            //
+            // The INTERNET-permission filter is the canonical "this
+            // app uses the network" signal — exactly what matters
+            // for VPN scoping. Apps without INTERNET would never
+            // see the tunnel anyway, so showing them only adds noise.
+            val installedApps = pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
+                .filter { pkg ->
+                    val perms = pkg.requestedPermissions ?: return@filter false
+                    perms.contains("android.permission.INTERNET")
                 }
                 .filter { it.packageName != context.packageName } // Exclude self
-                .map { app ->
+                .mapNotNull { pkg ->
+                    val app = pkg.applicationInfo ?: return@mapNotNull null
                     AppEntry(
-                        packageName = app.packageName,
+                        packageName = pkg.packageName,
                         label = pm.getApplicationLabel(app).toString(),
                         icon = try { pm.getApplicationIcon(app) } catch (e: Exception) { null },
-                        selected = savedPackages.contains(app.packageName)
+                        selected = savedPackages.contains(pkg.packageName)
                     )
                 }
                 .sortedWith(compareByDescending<AppEntry> { it.selected }.thenBy { it.label.lowercase() })
