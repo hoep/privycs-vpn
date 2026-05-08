@@ -1,29 +1,39 @@
 <template>
-  <div class="flex flex-col flex-1 min-h-0">
-    <div v-if="state === 'loading'" class="flex-1 flex items-center justify-center">
-      <div class="flex flex-col items-center gap-2">
-        <div class="w-8 h-8 border-2 border-primary-400 border-t-transparent rounded-full animate-spin"></div>
-        <span class="text-xs text-gray-500 dark:text-gray-400">Loading help…</span>
-      </div>
+  <!-- Plain content block; scrolling is handled by the parent
+       <main class="flex-1 overflow-y-auto"> in App.vue. The earlier
+       flex/overflow-y-auto wrapper here built a SECOND scroll
+       container that broke the App.vue flex layout — the resulting
+       overflow pushed the bottom nav out of the viewport (v0.9.14.79
+       fix). All other views (ConnectionView etc.) follow this same
+       pattern and rely on App.vue's <main> for scroll. -->
+  <div class="text-sm leading-relaxed">
+    <div v-if="state === 'loading'" class="flex flex-col items-center justify-center py-16 gap-2">
+      <div class="w-8 h-8 border-2 border-primary-400 border-t-transparent rounded-full animate-spin"></div>
+      <span class="text-xs text-gray-500 dark:text-gray-400">Loading help…</span>
     </div>
 
-    <div v-else-if="state === 'error'" class="flex-1 flex items-center justify-center px-6">
-      <div class="text-center max-w-md">
-        <p class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">Could not load help</p>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">{{ errorMessage }}</p>
-        <button
-          @click="load"
-          class="px-3 py-1.5 text-xs rounded-md bg-primary-500 hover:bg-primary-600 text-white transition-colors"
-        >
-          Retry
-        </button>
-      </div>
+    <div v-else-if="state === 'error'" class="flex flex-col items-center justify-center py-16 px-6 text-center">
+      <p class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">Could not load help</p>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-4 max-w-sm">{{ errorMessage }}</p>
+      <button
+        @click="load"
+        class="px-3 py-1.5 text-xs rounded-md bg-primary-500 hover:bg-primary-600 text-white transition-colors"
+      >
+        Retry
+      </button>
     </div>
 
+    <!-- @click-capture intercepts every <a> click and routes it
+         through Wails' BrowserOpenURL, which calls the OS default
+         browser. target="_blank" alone is a dead-end inside the
+         Wails Webview (Webview2 on Win / WKWebView on Mac /
+         WebKitGTK on Linux all silently drop window.open by
+         default). v0.9.14.79: was non-functional in v0.9.14.78. -->
     <div
       v-else
-      class="markdown-body flex-1 overflow-y-auto px-6 py-5 text-sm leading-relaxed"
+      class="markdown-body px-6 py-5"
       v-html="renderedHtml"
+      @click.capture="onMarkdownClick"
     ></div>
   </div>
 </template>
@@ -31,6 +41,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import MarkdownIt from 'markdown-it'
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 
 // Live source for the desktop-client doc. Bumped per release with the
 // rest of the doc tree; the help screen always shows the current
@@ -46,31 +57,39 @@ const md = new MarkdownIt({
   breaks: false,
 })
 
-// Make every link open in the user's default browser instead of the
-// embedded webview that Wails uses by default. Wails-bound webview
-// has no top-bar and no back button, so an in-frame navigation
-// would strand the user. This adds target="_blank" + rel attributes
-// to every <a> rendered by markdown-it.
-const defaultRender =
-  md.renderer.rules.link_open ||
-  function (tokens, idx, options, _env, self) {
-    return self.renderToken(tokens, idx, options)
+// Note: target="_blank" / window.open are dead-ends inside Wails'
+// embedded Webview (Webview2 on Windows, WKWebView on macOS,
+// WebKitGTK on Linux all silently drop window.open by default).
+// Instead we attach an @click.capture handler to the rendered
+// container (see template) that routes every <a href> through
+// runtime.BrowserOpenURL, which crosses the Wails IPC bridge and
+// calls the OS default browser. The markdown-it link_open rule
+// stays at default — no target munging needed.
+
+function onMarkdownClick(e: MouseEvent) {
+  // Walk up the event-target chain to the nearest <a>. Markdown-rendered
+  // anchors can have nested <code> or <strong> children that fire the
+  // click; we want the href on the parent link, not those inner spans.
+  let el = e.target as HTMLElement | null
+  while (el && el.tagName !== 'A') {
+    el = el.parentElement
   }
-md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
-  const t = tokens[idx]
-  const aIndex = t.attrIndex('target')
-  if (aIndex < 0) {
-    t.attrPush(['target', '_blank'])
-  } else {
-    t.attrs![aIndex][1] = '_blank'
+  if (!el) return
+  const href = (el as HTMLAnchorElement).getAttribute('href')
+  if (!href) return
+  // In-page anchor links (#section) are scrolled to natively; do not
+  // hijack those into the system browser.
+  if (href.startsWith('#')) return
+  e.preventDefault()
+  e.stopPropagation()
+  try {
+    BrowserOpenURL(href)
+  } catch {
+    // Wails runtime missing (rare — only happens when not running
+    // inside the Wails container, e.g. vite dev preview). Fall
+    // back to a regular open which still might work in dev.
+    window.open(href, '_blank')
   }
-  const relIndex = t.attrIndex('rel')
-  if (relIndex < 0) {
-    t.attrPush(['rel', 'noopener noreferrer'])
-  } else {
-    t.attrs![relIndex][1] = 'noopener noreferrer'
-  }
-  return defaultRender(tokens, idx, options, env, self)
 }
 
 const state = ref<'loading' | 'error' | 'loaded'>('loading')
