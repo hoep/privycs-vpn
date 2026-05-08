@@ -234,25 +234,41 @@ class ConnectionRepository(private val context: Context) {
         } catch (e: Exception) {
             ConnectionRegistry()
         }
-        // One-time heal for the IPSec server-address corruption from
-        // ConfigParser's pre-fix line-based parser (see parseIpSec
-        // comment). Affected entries had server_address = "{" because
-        // the parser matched the JSON-object-opening line of the
-        // .sswan content. Wipe any obviously-bogus server address
-        // (single non-alphanumeric glyph, JSON-syntax char) so the
+        // Heal IPSec server-address corruption from ConfigParser's
+        // pre-fix line-based parser (see parseIpSec comment).
+        // Affected entries had server_address = "{" because the
+        // parser matched the JSON-object-opening line of the .sswan
+        // content. Wipe any obviously-bogus server address so the
         // Connect screen's fallback (status.serverEndpoint) doesn't
-        // render the corrupt value. A blank server_address falls
-        // through to the next live status push, which carries the
-        // real endpoint from charon. No save() here — the heal lives
-        // only in the in-memory registry until the next mutation
-        // triggers a save naturally; that's enough to fix the visible
-        // glitch without surprising the user with a write on first
-        // launch.
+        // render the corrupt value.
+        //
+        // v0.9.14.76: persist the healed state to disk immediately.
+        // The previous version (v0.9.14.70) did the heal in-memory
+        // only and waited for the next user-driven mutation to
+        // trigger save(). That left a window where the on-disk
+        // file kept the corrupt value and a process restart re-
+        // applied the in-memory heal but disk stayed dirty.
+        // User-reported as "the '{' is still there after upgrade".
+        // Now: any heal triggers an immediate save() so the disk
+        // matches the in-memory state from launch onwards.
+        var healed = false
         registry.connections.forEach { conn ->
             conn.protocols.forEach { pc ->
                 if (isCorruptServerAddress(pc.serverAddress)) {
                     pc.serverAddress = ""
+                    healed = true
                 }
+            }
+        }
+        if (healed) {
+            try {
+                file.parentFile?.mkdirs()
+                file.writeText(json.encodeToString(ConnectionRegistry.serializer(), registry))
+            } catch (e: Exception) {
+                // Heal-save best-effort. If it fails the in-memory
+                // heal still protects the UI for this session;
+                // next launch will re-attempt.
+                e.printStackTrace()
             }
         }
         return registry

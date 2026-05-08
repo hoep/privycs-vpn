@@ -48,41 +48,42 @@
     android:padding="8dp"
     android:background="@drawable/widget_background">
 
-    <!-- 1. Connect button row.
-         Outer LinearLayout takes weight=1 to grow vertically.
-         Inner FrameLayout is FIXED 140dp square, gravity=center to
-         keep it horizontally centered. Whitespace on either side is
-         intentional click pass-through to the root → open-app intent.
-         The button-container ID is preserved so VpnWidget.kt's
-         Toggle PendingIntent attaches to the right View. -->
+    <!-- 1. Header row (v6 redesign per user request 2026-05-08):
+         left = compact 96x96 connect button, right = vertical stack
+         of status / uptime / connection-name. Replaces the v5 full-
+         width-centered button which felt oversized on 4x3 widgets.
+         The button-container id is kept so VpnWidget.kt's
+         availableProtocols visibility toggle still resolves; the
+         actual ACTION_TOGGLE PendingIntent is now attached to the
+         inner widget_button FrameLayout (= the visible disc area).
+
+         Whitespace between the right column's text rows is click-
+         pass-through to the root @android:id/background → opens
+         the app, same affordance as the traffic cards. Only the
+         96dp disc dispatches ACTION_TOGGLE. -->
     <LinearLayout
         android:id="@+id/widget_button_container"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:minHeight="140dp">
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
         <FrameLayout
             android:id="@+id/widget_button"
-            android:layout_width="140dp"
-            android:layout_height="140dp">
+            android:layout_width="96dp"
+            android:layout_height="96dp">
 
             <!-- Halo: soft radial glow behind the main circle. Drawn
                  first (= behind the solid disk). Visibility is
                  toggled from VpnWidget.kt: shown only when the
                  tunnel is up so disconnected widgets stay visually
-                 quiet. The drawable is a radial-gradient shape oval
-                 with alpha center→edge, sized larger than the disk
-                 via -10dp negative margin so glow extends past the
-                 edge instead of being hidden behind it. -->
+                 quiet. -->
             <ImageView
                 android:id="@+id/widget_button_halo"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:layout_gravity="center"
-                android:layout_margin="-10dp"
+                android:layout_margin="-8dp"
                 android:src="@drawable/widget_button_halo"
                 android:scaleType="fitCenter"
                 android:visibility="gone"
@@ -98,78 +99,102 @@
                 android:contentDescription="@string/widget_description"
                 android:adjustViewBounds="true" />
 
-            <!-- Icon + label stacked vertically inside the circle, matching
-                 the ConnectScreen ConnectButton composition (snake/protocol
-                 icon on top, status label "Connected" / "Disconnected" /
-                 "Kill Switch" beneath, both white on the tinted disk). -->
-            <LinearLayout
+            <!-- Icon centered inside the circle. Removed the inline
+                 "Connected" label that v5 had in the disc — with the
+                 smaller 96dp disc the label cramped the icon. The
+                 status text now lives in the right column where it
+                 has room to breathe. -->
+            <ImageView
+                android:id="@+id/widget_button_icon"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:padding="22dp">
+                android:layout_gravity="center"
+                android:padding="22dp"
+                android:src="@drawable/ic_protocol_wireguard"
+                android:scaleType="fitCenter"
+                android:contentDescription="@null" />
 
-                <ImageView
-                    android:id="@+id/widget_button_icon"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:src="@drawable/ic_protocol_wireguard"
-                    android:scaleType="fitCenter" />
+            <!-- Hidden in v6: button_label moved to widget_status_text
+                 in the right column. Kept in XML so VpnWidget.kt's
+                 setViewVisibility / setTextViewText calls still
+                 resolve without code-side cleanup. -->
+            <TextView
+                android:id="@+id/widget_button_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                android:text="@string/widget_status_disconnected"
+                android:textSize="11sp"
+                android:textColor="#FFFFFFFF"
+                android:singleLine="true" />
+        </FrameLayout>
+
+        <!-- Right column: status / uptime / connection-name dropdown -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:orientation="vertical">
+
+            <!-- Status text (Connected / Disconnected / Kill Switch
+                 Active). v6 splits this out of widget_uptime so the
+                 right column has a clear "label + value" reading
+                 order: label = status, value = uptime, then the
+                 connection name dropdown. -->
+            <TextView
+                android:id="@+id/widget_status_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_status_disconnected"
+                android:textSize="12sp"
+                android:textColor="@color/widget_text_secondary"
+                android:singleLine="true" />
+
+            <!-- Uptime — big monospace clock. visibility=GONE when
+                 disconnected (set from VpnWidget.kt) so the right
+                 column doesn't show a stale 00:00:00 below
+                 "Disconnected". -->
+            <TextView
+                android:id="@+id/widget_uptime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="00:00:00"
+                android:textSize="20sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/widget_text_primary"
+                android:singleLine="true" />
+
+            <!-- Connection name + chevron. Chevron is decorative
+                 (RemoteViews can't make ImageView click-distinct);
+                 a tap on this whole row goes to the root → opens
+                 the app, where the picker lives. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:orientation="horizontal"
+                android:gravity="start|center_vertical">
 
                 <TextView
-                    android:id="@+id/widget_button_label"
-                    android:layout_width="wrap_content"
+                    android:id="@+id/widget_connection_name"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp"
-                    android:text="@string/widget_status_disconnected"
+                    android:layout_weight="1"
+                    android:text="@string/app_name"
                     android:textSize="11sp"
-                    android:textColor="#FFFFFFFF"
-                    android:singleLine="true" />
+                    android:textColor="@color/widget_text_secondary"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+                <ImageView
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:layout_marginStart="4dp"
+                    android:src="@drawable/ic_widget_chevron_down"
+                    android:contentDescription="@null" />
             </LinearLayout>
-        </FrameLayout>
-    </LinearLayout>
-
-    <!-- 2. Uptime - big monospace text, centered -->
-    <TextView
-        android:id="@+id/widget_uptime"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:gravity="center"
-        android:text="00:00:00"
-        android:textSize="18sp"
-        android:fontFamily="monospace"
-        android:textColor="@color/widget_text_primary"
-        android:singleLine="true" />
-
-    <!-- 3. Connection name + chevron.
-         Chevron is decorative (not clickable in RemoteViews - click
-         falls through to the root body → open-app intent), purely
-         to signal "this is the active connection you could switch". -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="1dp"
-        android:orientation="horizontal"
-        android:gravity="center">
-
-        <TextView
-            android:id="@+id/widget_connection_name"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/app_name"
-            android:textSize="12sp"
-            android:textColor="@color/widget_text_primary"
-            android:singleLine="true"
-            android:ellipsize="end" />
-
-        <ImageView
-            android:layout_width="10dp"
-            android:layout_height="10dp"
-            android:layout_marginStart="4dp"
-            android:src="@drawable/ic_widget_chevron_down"
-            android:contentDescription="@null" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 4. Protocol pills (WG / IPSec / OVPN). Each pill is a

@@ -665,9 +665,22 @@ fun ConnectScreen(
             //   2. single-connection's stored config endpoint
             //   3. blank (pool with no broadcast yet - the pool
             //      indicator card carries the member info instead)
-            val endpoint = status.serverEndpoint.ifBlank {
+            // v0.9.14.76: defensive filter against "{" / "[" / "<"
+            // glyphs leaking through. The pre-v0.9.14.70 ConfigParser
+            // line-based parser would extract "{" from the .sswan
+            // JSON-object-opening line and persist it as
+            // ProtocolConfig.serverAddress. The v0.9.14.70 heal
+            // (ConnectionRepository.load → isCorruptServerAddress)
+            // catches the disk values, but if any code path
+            // resurrects a corrupt value at runtime (e.g. a stale
+            // VpnStatus.serverEndpoint after disconnect, or a
+            // future edge case nobody anticipated), the UI must
+            // still render gracefully. Same condition mirrored from
+            // the repository heal — keep them in sync.
+            val rawEndpoint = status.serverEndpoint.ifBlank {
                 activeConnection?.getActiveConfig()?.serverAddress.orEmpty()
             }
+            val endpoint = sanitizeEndpointForDisplay(rawEndpoint)
             if (endpoint.isNotBlank()) {
                 Text(
                     text = endpoint,
@@ -755,7 +768,7 @@ fun ConnectScreen(
         if (activeConnection != null || activePool != null) {
             ConnectionDetails(
                 localAddress = status.localAddress,
-                serverAddress = status.serverEndpoint,
+                serverAddress = sanitizeEndpointForDisplay(status.serverEndpoint),
                 lastHandshake = status.lastHandshake
             )
         }
@@ -1292,4 +1305,30 @@ private fun formatBytes(bytes: Long): String {
     val digitGroups = (Math.log(bytes.toDouble()) / Math.log(1024.0)).toInt()
     val idx = digitGroups.coerceIn(0, units.size - 1)
     return "%.1f %s".format(bytes / Math.pow(1024.0, idx.toDouble()), units[idx])
+}
+
+/**
+ * v0.9.14.76 defensive endpoint sanitiser. Mirrors the rule used by
+ * ConnectionRepository.isCorruptServerAddress so the on-screen
+ * server-endpoint row never renders parse-artefact glyphs even if a
+ * corrupt value sneaks past the load-time heal.
+ *
+ * Returns "" for any of:
+ *   - blank
+ *   - single non-alphanumeric glyph ("{", "[", "<", "-" etc.)
+ *   - starts with "{", "[", "<", or "-----" (= JSON / XML / PEM
+ *     opening tokens — not valid hostnames or IPs)
+ *
+ * Real hostnames and IPs always start with an alphanumeric character
+ * and have length > 1, so the bar is high enough that no legitimate
+ * endpoint matches.
+ */
+private fun sanitizeEndpointForDisplay(s: String): String {
+    val t = s.trim()
+    if (t.isEmpty()) return ""
+    if (t.length == 1 && !t[0].isLetterOrDigit()) return ""
+    if (t.startsWith("{") || t.startsWith("[") ||
+        t.startsWith("<") || t.startsWith("-----")
+    ) return ""
+    return t
 }

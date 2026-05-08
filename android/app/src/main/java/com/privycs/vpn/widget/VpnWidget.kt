@@ -474,16 +474,28 @@ class VpnWidget : AppWidgetProvider() {
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
 
-        // --- Section 2: Uptime (big monospace) ---
-        views.setTextViewText(
-            R.id.widget_uptime,
-            when {
-                killSwitchSinkhole -> context.getString(R.string.widget_status_kill_switch_active)
-                connected -> formatUptimeClock(uptime)
-                else -> context.getString(R.string.widget_status_disconnected)
-            },
-        )
-        views.setTextColor(R.id.widget_uptime, statusColor)
+        // --- Section 2: Status text + uptime (right column of the
+        // v6 two-column header). Pre-v6 the single widget_uptime
+        // TextView did duty for both: it showed either the uptime
+        // clock OR the "Disconnected" / "Kill Switch Active"
+        // status text. v6 splits them: widget_status_text is
+        // always-visible label, widget_uptime is the clock and
+        // hides when disconnected. ---
+        val statusLabel = when {
+            killSwitchSinkhole -> context.getString(R.string.widget_status_kill_switch_active)
+            connected -> context.getString(R.string.widget_status_connected)
+            else -> context.getString(R.string.widget_status_disconnected)
+        }
+        views.setTextViewText(R.id.widget_status_text, statusLabel)
+        views.setTextColor(R.id.widget_status_text, statusColor)
+
+        if (connected && !killSwitchSinkhole) {
+            views.setViewVisibility(R.id.widget_uptime, android.view.View.VISIBLE)
+            views.setTextViewText(R.id.widget_uptime, formatUptimeClock(uptime))
+            views.setTextColor(R.id.widget_uptime, statusColor)
+        } else {
+            views.setViewVisibility(R.id.widget_uptime, android.view.View.GONE)
+        }
 
         // --- Section 3: Connection name (+ chevron is in XML, decorative) ---
         // Pool-aware label. When a pool is the active selection the
@@ -563,26 +575,12 @@ class VpnWidget : AppWidgetProvider() {
             R.id.widget_protocol_ovpn_label, activeProtocol == VpnProtocol.OPENVPN,
         )
 
-        // --- Section 4b: Status label inside the circle.
-        //
-        // The Connect-screen screenshot shows "Connected" inside the
-        // green disc as a white label beneath the icon. We mirror that
-        // ONLY in the connected state. In disconnected / sinkhole
-        // states the widget_uptime field directly below the circle
-        // already carries the same status text (grey / red), so
-        // duplicating it inside the disc would print "Kill Switch
-        // Active" twice on screen. Hide the inner label in those
-        // states; the icon expands into the freed space because of
-        // weight=1 on the icon ImageView.
-        if (connected && !killSwitchSinkhole) {
-            views.setViewVisibility(R.id.widget_button_label, android.view.View.VISIBLE)
-            views.setTextViewText(
-                R.id.widget_button_label,
-                context.getString(R.string.widget_status_connected),
-            )
-        } else {
-            views.setViewVisibility(R.id.widget_button_label, android.view.View.GONE)
-        }
+        // v6 layout: status label moved out of the disc into the
+        // right column (widget_status_text). The in-disc
+        // widget_button_label TextView is kept as visibility=gone in
+        // the XML for binary compatibility with launchers caching
+        // the older layout, but we never set its text or visibility
+        // anymore.
 
         // --- Section 5: Endpoint (centered below pills) ---
         // Compose a richer location line: "<flag> <ip> · <city>, <country>"
