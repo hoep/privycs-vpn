@@ -2,6 +2,9 @@ package com.privycs.vpn.config
 
 import com.privycs.vpn.data.models.ProtocolConfig
 import com.privycs.vpn.data.models.VpnProtocol
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.time.Instant
 
 /**
@@ -165,20 +168,50 @@ object ConfigParser {
 
     // -- IPSec parsing --
 
-    private fun parseIpSec(content: String, filename: String): ParseResult {
-        var server = ""
+    // Minimal subset of strongSwan's .sswan profile schema — only the
+    // fields ConfigParser cares about for the Configs page server-
+    // address column. The full schema (including PKCS12, split-tunnel,
+    // PPK material, etc.) is parsed inside IpSecTunnel.SswanConfig at
+    // connect time. We deliberately don't share that struct here
+    // because ConfigParser must NOT trip on schema additions — the
+    // Json instance below sets ignoreUnknownKeys = true so any future
+    // gateway-emitted field is silently passed over.
+    @Serializable
+    private data class SswanProfileMinimal(
+        val name: String = "",
+        val remote: SswanRemoteMinimal = SswanRemoteMinimal()
+    )
 
-        // Try to parse .sswan JSON-like format
-        for (line in content.lines()) {
-            val trimmed = line.trim()
-            if (trimmed.contains("\"remote\"") || trimmed.contains("\"server\"")) {
-                val value = trimmed.substringAfter(":").trim().trim('"', ',', ' ')
-                if (value.isNotBlank()) {
-                    server = value
-                    break
-                }
-            }
-        }
+    @Serializable
+    private data class SswanRemoteMinimal(
+        val addr: String = "",
+        @SerialName("id") val id: String = ""
+    )
+
+    private val sswanJson = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    private fun parseIpSec(content: String, filename: String): ParseResult {
+        // PROPERLY parse the .sswan JSON. The previous line-based
+        // matcher ("contains \"remote\"") would catch the
+        //
+        //     "remote": {
+        //
+        // object-opening line and then `substringAfter(":").trim('"',
+        // ',', ' ')` reduced that to a literal "{" string, which then
+        // got persisted as ProtocolConfig.serverAddress and surfaced
+        // as a "{" glyph on the Connect screen's server-endpoint row
+        // after disconnect (when the live status fell back to the
+        // registry's stored address). User-reported as the "server
+        // endpoint shows '{' after IPSec disconnect" glitch.
+        //
+        // kotlinx.serialization.Json is already a project dependency
+        // (used in IpSecTunnel.kt and elsewhere), so the proper-JSON
+        // path costs nothing extra. ignoreUnknownKeys + isLenient
+        // make the parse tolerant of gateway schema additions and
+        // hand-edited .sswan files with extra whitespace.
+        val server = runCatching {
+            sswanJson.decodeFromString(SswanProfileMinimal.serializer(), content).remote.addr
+        }.getOrDefault("")
 
         return ParseResult(
             protocol = VpnProtocol.IPSEC,

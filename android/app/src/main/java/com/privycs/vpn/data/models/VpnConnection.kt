@@ -30,8 +30,15 @@ data class ProtocolConfig(
     @SerialName("config_content")
     val configContent: String,
     val filename: String,
+    // var (not val) so the load-time sanitization in
+    // ConnectionRepository.load() can rewrite obviously-broken values
+    // — historically the IPSec parser at ConfigParser.parseIpSec()
+    // mis-extracted "{" from the .sswan JSON-object-opening line and
+    // persisted that as the server address. Existing affected
+    // installations get auto-healed on next app launch instead of
+    // having to manually re-import.
     @SerialName("server_address")
-    val serverAddress: String = "",
+    var serverAddress: String = "",
     // var (not val) so the post-connect status persistence in
     // ConnectionRepository.updateLocalAddress can mutate it without
     // copying the whole ProtocolConfig. WireGuard's address is parsed

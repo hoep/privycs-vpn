@@ -225,7 +225,7 @@ class ConnectionRepository(private val context: Context) {
     }
 
     private fun load(): ConnectionRegistry {
-        return try {
+        val registry = try {
             if (file.exists()) {
                 json.decodeFromString<ConnectionRegistry>(file.readText())
             } else {
@@ -234,6 +234,50 @@ class ConnectionRepository(private val context: Context) {
         } catch (e: Exception) {
             ConnectionRegistry()
         }
+        // One-time heal for the IPSec server-address corruption from
+        // ConfigParser's pre-fix line-based parser (see parseIpSec
+        // comment). Affected entries had server_address = "{" because
+        // the parser matched the JSON-object-opening line of the
+        // .sswan content. Wipe any obviously-bogus server address
+        // (single non-alphanumeric glyph, JSON-syntax char) so the
+        // Connect screen's fallback (status.serverEndpoint) doesn't
+        // render the corrupt value. A blank server_address falls
+        // through to the next live status push, which carries the
+        // real endpoint from charon. No save() here — the heal lives
+        // only in the in-memory registry until the next mutation
+        // triggers a save naturally; that's enough to fix the visible
+        // glitch without surprising the user with a write on first
+        // launch.
+        registry.connections.forEach { conn ->
+            conn.protocols.forEach { pc ->
+                if (isCorruptServerAddress(pc.serverAddress)) {
+                    pc.serverAddress = ""
+                }
+            }
+        }
+        return registry
+    }
+
+    /**
+     * True when the stored server address looks like a parse artifact
+     * rather than a real hostname / IP. Catches:
+     *
+     *   - "{" / "[" / "<"  (JSON / XML / OpenVPN-cert opening glyph)
+     *   - single non-alphanumeric character
+     *   - empty after trim
+     *
+     * Real hostnames + IPs always start with an alphanumeric character
+     * and contain at least one dot or colon, so the bar is high enough
+     * that no legitimate value matches.
+     */
+    private fun isCorruptServerAddress(s: String): Boolean {
+        val t = s.trim()
+        if (t.isEmpty()) return false  // empty is fine, lets live status fill it
+        if (t.length == 1 && !t[0].isLetterOrDigit()) return true
+        if (t.startsWith("{") || t.startsWith("[") || t.startsWith("<") ||
+            t.startsWith("-----")
+        ) return true
+        return false
     }
 
     private fun save() {
