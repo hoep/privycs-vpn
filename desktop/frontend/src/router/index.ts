@@ -46,11 +46,6 @@ const routes = [
     component: () => import('@/views/LogsView.vue'),
   },
   {
-    path: '/split-tunnel',
-    name: 'SplitTunnel',
-    component: () => import('@/views/SplitTunnelView.vue'),
-  },
-  {
     path: '/network-rules',
     name: 'NetworkRules',
     component: () => import('@/views/NetworkRulesView.vue'),

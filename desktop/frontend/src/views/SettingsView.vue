@@ -310,17 +310,6 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
               </span>
             </p>
           </div>
-          <div class="flex items-center justify-between">
-            <span class="text-sm text-gray-700 dark:text-gray-300">Routing Mode</span>
-            <AppSelect
-              :model-value="settings.routing_mode"
-              @update:model-value="settings.routing_mode = $event; saveSettings()"
-              :options="[
-                { value: 'full', label: 'Full Tunnel' },
-                { value: 'split', label: 'Split Tunnel' },
-              ]"
-            />
-          </div>
         </div>
       </div>
 
@@ -702,7 +691,6 @@ const settings = ref<any>({
   autostart_enabled: false,
   minimize_to_tray: true,
   dns_override: '',
-  routing_mode: 'full',
   theme: 'system',
   gateway_url: '',
   api_key: '',

@@ -36,8 +36,7 @@ type AppSettings struct {
 	MinimizeToTray     bool                    `json:"minimize_to_tray"`
 	Theme              string                  `json:"theme"` // dark, light, system
 	DNSOverride        string                  `json:"dns_override,omitempty"`
-	RoutingMode        string                  `json:"routing_mode"` // full, split
-	LogLevel           string                  `json:"log_level"`    // debug, info, warn, error
+	LogLevel           string                  `json:"log_level"` // debug, info, warn, error
 	GatewayURL         string                  `json:"gateway_url,omitempty"`
 	APIKey             string                  `json:"api_key,omitempty"`
 	// Tunnel-health monitoring (Phase 1 visible UX). Mode is one
@@ -135,7 +134,6 @@ func defaultSettings() *AppSettings {
 	return &AppSettings{
 		ActiveProtocol: "wireguard",
 		Theme:          "dark",
-		RoutingMode:    "full",
 		LogLevel:       "info",
 		MinimizeToTray: true,
 	}
