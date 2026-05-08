@@ -55,6 +55,11 @@ const routes = [
     name: 'NetworkRules',
     component: () => import('@/views/NetworkRulesView.vue'),
   },
+  {
+    path: '/help',
+    name: 'Help',
+    component: () => import('@/views/HelpView.vue'),
+  },
 ]
 
 const router = createRouter({

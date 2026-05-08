@@ -773,17 +773,18 @@ fun ConnectScreen(
             )
         }
 
-        // Tunnel-health pill. Visible only while the monitor is
-        // running (state != INACTIVE). Three-state traffic light:
-        //   HEALTHY (green): all recent pings ok
-        //   DEGRADED (orange): 1-2 consecutive failures
-        //   RECOVERING (red): >=3 fails, recovery just fired
-        // Gives the user inline feedback that the periodic
-        // liveness check is active without burying it in the
-        // logs - "is my VPN actually flowing traffic?" question
-        // gets a visible answer.
+        // Tunnel-health pill. Visible only while a tunnel is up
+        // AND the monitor is running (state != INACTIVE). The
+        // AND-with-connected gate is defensive: TunnelHealthMonitor
+        // is a process singleton whose state persists across screen
+        // recompositions; relying on stop() alone leaves the pill
+        // visible if the connected->disconnected transition is
+        // missed (e.g. status-poll dropped or stop() raced by a
+        // recompose). connected == false plainly means there is no
+        // tunnel to be healthy/degraded about, so hide the pill.
         val healthState by com.privycs.vpn.service.TunnelHealthMonitor.state.collectAsState()
-        if (healthState != com.privycs.vpn.service.TunnelHealthMonitor.State.INACTIVE) {
+        if (status.connected &&
+            healthState != com.privycs.vpn.service.TunnelHealthMonitor.State.INACTIVE) {
             Spacer(modifier = Modifier.height(4.dp))
             HealthPill(healthState)
         }

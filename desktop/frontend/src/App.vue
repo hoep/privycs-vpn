@@ -60,6 +60,7 @@ import {
   Cog6ToothIcon,
   PlusCircleIcon,
   QueueListIcon,
+  QuestionMarkCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -71,6 +72,7 @@ const navItems = [
   { path: '/connections', label: 'Configs', icon: markRaw(QueueListIcon) },
   { path: '/add', label: 'Add', icon: markRaw(PlusCircleIcon) },
   { path: '/settings', label: 'Settings', icon: markRaw(Cog6ToothIcon) },
+  { path: '/help', label: 'Help', icon: markRaw(QuestionMarkCircleIcon) },
 ]
 
 function isActiveRoute(path: string) {

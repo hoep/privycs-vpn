@@ -3,10 +3,12 @@ package com.privycs.vpn.ui.components
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
@@ -31,6 +33,7 @@ private val navItems = listOf(
     NavItem(Routes.CONNECTIONS, "Configs", Icons.Filled.Dns, Icons.Outlined.Dns),
     NavItem(Routes.ADD, "Add", Icons.Filled.Add, Icons.Outlined.Add),
     NavItem(Routes.SETTINGS, "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
+    NavItem(Routes.HELP, "Help", Icons.Filled.HelpOutline, Icons.Outlined.HelpOutline),
 )
 
 @Composable

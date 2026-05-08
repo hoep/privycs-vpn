@@ -434,11 +434,15 @@
       <!-- Tunnel-health pill. Sits at the BOTTOM of the connection
            card per user feedback (v0.9.14.3) — it was previously
            between connection details and the Edit Config button which
-           split the visual focus. Visible only when the periodic
-           ICMP-ping monitor is running (state != inactive).
-           Three-state traffic light driven by the
-           tunnelHealth:state Wails event. -->
-      <div v-if="tunnelHealthState !== 'inactive'" class="w-full max-w-sm mt-3 flex justify-center">
+           split the visual focus. Visible only while a tunnel is
+           UP and the periodic ICMP-ping monitor is running. The
+           extra AND-on-isConnected gate is defensive: the Go-side
+           tunnelHealth:state event is the only mechanism that
+           drives the ref back to 'inactive' on disconnect, and a
+           dropped/late event would leave the pill visible without
+           a tunnel underneath it. connected==false trivially means
+           there is nothing to be healthy/degraded about. -->
+      <div v-if="isConnected && tunnelHealthState !== 'inactive'" class="w-full max-w-sm mt-3 flex justify-center">
         <span
           class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-medium"
           :class="healthPillClass"

@@ -33,6 +33,7 @@ object Routes {
     const val LOGS = "logs"
     const val PER_APP_VPN = "per_app_vpn"
     const val NETWORK_RULES = "network_rules"
+    const val HELP = "help"
 
     // Pool routes. POOL_ADD reuses the "Add" tab via a flag so the
     // BottomNavBar's Add button surfaces a chooser between Single
@@ -165,6 +166,10 @@ fun AppNavigation(
                         navController.popBackStack()
                     }
                 )
+            }
+
+            composable(Routes.HELP) {
+                com.privycs.vpn.ui.screens.HelpScreen()
             }
 
             // Pool: import + create flow.

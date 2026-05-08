@@ -242,6 +242,17 @@ dependencies {
     // so this reader works with either.
     implementation("com.maxmind.db:maxmind-db:3.1.0")
 
+    // Markwon — markdown renderer for the in-app Help screen. Drives
+    // a TextView wrapped inside an AndroidView so the full Compose
+    // theme (including dark mode) flows through. Pulls in core +
+    // tables + linkify + html (for inline <kbd> / <sup> in our docs).
+    // Total APK impact ~250 KB. Used only by HelpScreen; no other
+    // call sites.
+    implementation("io.noties.markwon:core:4.6.2")
+    implementation("io.noties.markwon:ext-tables:4.6.2")
+    implementation("io.noties.markwon:linkify:4.6.2")
+    implementation("io.noties.markwon:html:4.6.2")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
