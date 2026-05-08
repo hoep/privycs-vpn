@@ -680,11 +680,17 @@ class VpnWidget : AppWidgetProvider() {
             ),
         )
 
-        // Big circle = toggle. Click target is the entire
-        // FrameLayout container so a mis-hit within the 68dp circle
-        // area can't be routed to the root by the launcher.
+        // Big circle = toggle. v0.9.14.70: click target moved from
+        // the outer LinearLayout container to the inner FIXED 140dp
+        // FrameLayout. The container's gravity-center wrapper has
+        // whitespace on either side of the disk on wide widgets;
+        // user-reported as "tapping near the button toggles by
+        // accident". Now whitespace falls through to the root
+        // background → opens the app, same affordance as a tap on
+        // the traffic / VPN-IP / endpoint cards. ACTION_TOGGLE only
+        // fires from inside the visible button area.
         views.setOnClickPendingIntent(
-            R.id.widget_button_container,
+            R.id.widget_button,
             PendingIntent.getBroadcast(
                 context, appWidgetId,
                 Intent(context, VpnWidget::class.java).apply { action = ACTION_TOGGLE },

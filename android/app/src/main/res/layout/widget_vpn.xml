@@ -1,26 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Privycs VPN home-screen widget - Connect-screen mirror (v4).
+    Privycs VPN home-screen widget - Connect-screen mirror (v5).
 
-    User spec (v1.0.0): "Exactly like screenshots/widget.png, minus
-    the bottom whitespace of the Connect screen." That means 9 rows
-    stacked vertically, no large empty regions:
+    v5 changes from v4 (v0.9.14.70 redesign per user request):
 
-      1. Big circular status button (scales with widget height)
-      2. Uptime (big monospace, centered)
-      3. Connection name + chevron
-      4. Protocol pills (WG / IPSec / OVPN, active one tinted)
-      5. Endpoint text (small, centered, mono)
-      6. Two traffic cards side-by-side (Download / Upload) -
-         each: label, cumulative total, per-second speed, sparkline
-      7. VPN IP card (label + value)
-      8. Endpoint card (label + value)
+      - Connect button is a FIXED-SIZE 140dp square centered inside
+        its row, instead of filling the row's match_parent width.
+        Clicks ONLY register inside the square; whitespace around the
+        button on wide widgets falls through to the root → opens the
+        app, same as a tap on the traffic / VPN-IP cards. Pre-fix the
+        toggle PendingIntent was on widget_button_container which
+        included all that whitespace, and a single clumsy thumb-tap
+        next to the disk would (dis)connect the tunnel.
+
+      - Traffic cards collapsed: the sparkline used to live in its
+        own 18dp row beneath label + total + speed (4 stacked rows).
+        v5 puts the sparkline INLINE next to the speed value (single
+        row), saving ~16dp per card row. Same data density, less
+        vertical real-estate.
+
+      - The 16dp saved goes back into the connect button's minHeight
+        (120 → 140dp) so the visual button is bigger / easier to hit
+        even on the smallest 4x3 widget cell.
+
+    Click targets summary:
+      - widget_button (fixed 140dp square)  → ACTION_TOGGLE
+      - widget_protocol_wg/ipsec/ovpn       → ACTION_SWITCH_PROTOCOL
+      - android.R.id.background (everywhere else) → open MainActivity
 
     Kill-Switch Sinkhole state: when KillSwitchManager reports
-    SINKHOLE, the circle gets tinted red (#DC2626 / red-600) and
-    its icon swaps to ic_kill_switch_sinkhole so the user sees
-    the active block state directly on the home screen without
-    opening the app.
+    SINKHOLE, the circle gets tinted red (#DC2626) and its icon swaps
+    to ic_kill_switch_sinkhole — same as v4.
 
     RemoteViews whitelist constraints: LinearLayout, FrameLayout,
     ImageView, TextView allowed; no View/Space/CardView. Rounded
@@ -38,32 +48,35 @@
     android:padding="8dp"
     android:background="@drawable/widget_background">
 
-    <!-- 1. Big circular status button.
-         Gets weight=1 so it takes remaining space after fixed rows
-         below claim their wrap_content heights. FrameLayout + fitCenter
-         circle means a mostly-square circle even on wide widgets. -->
+    <!-- 1. Connect button row.
+         Outer LinearLayout takes weight=1 to grow vertically.
+         Inner FrameLayout is FIXED 140dp square, gravity=center to
+         keep it horizontally centered. Whitespace on either side is
+         intentional click pass-through to the root → open-app intent.
+         The button-container ID is preserved so VpnWidget.kt's
+         Toggle PendingIntent attaches to the right View. -->
     <LinearLayout
         android:id="@+id/widget_button_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:gravity="center_horizontal"
-        android:minHeight="120dp">
+        android:gravity="center"
+        android:minHeight="140dp">
 
         <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent">
+            android:id="@+id/widget_button"
+            android:layout_width="140dp"
+            android:layout_height="140dp">
 
             <!-- Halo: soft radial glow behind the main circle. Drawn
                  first (= behind the solid disk). Visibility is
                  toggled from VpnWidget.kt: shown only when the
-                 tunnel is up (Connected state) so disconnected
-                 widgets stay visually quiet. The drawable itself is
-                 a radial-gradient shape oval with alpha center→edge,
-                 sized slightly larger than the button bg via the
-                 -10dp negative margin so the glow extends past the
-                 disk's edge instead of being hidden behind it. -->
+                 tunnel is up so disconnected widgets stay visually
+                 quiet. The drawable is a radial-gradient shape oval
+                 with alpha center→edge, sized larger than the disk
+                 via -10dp negative margin so glow extends past the
+                 edge instead of being hidden behind it. -->
             <ImageView
                 android:id="@+id/widget_button_halo"
                 android:layout_width="match_parent"
@@ -94,7 +107,7 @@
                 android:layout_height="match_parent"
                 android:orientation="vertical"
                 android:gravity="center"
-                android:padding="18dp">
+                android:padding="22dp">
 
                 <ImageView
                     android:id="@+id/widget_button_icon"
@@ -108,7 +121,7 @@
                     android:id="@+id/widget_button_label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
+                    android:layout_marginTop="3dp"
                     android:text="@string/widget_status_disconnected"
                     android:textSize="11sp"
                     android:textColor="#FFFFFFFF"
@@ -165,7 +178,10 @@
          The whole row is hidden by VpnWidget.kt when a pool is
          the active selection - pools mix members with different
          protocols, so a single-protocol picker UI is meaningless
-         for them, mirroring the same gate on ConnectScreen. -->
+         for them, mirroring the same gate on ConnectScreen.
+         Per-pill visibility is also gated on the active
+         connection's availableProtocols() in VpnWidget.kt
+         (v0.9.14.68). -->
     <LinearLayout
         android:id="@+id/widget_protocol_pills_row"
         android:layout_width="match_parent"
@@ -276,7 +292,11 @@
         android:singleLine="true"
         android:ellipsize="middle" />
 
-    <!-- 6. Two traffic cards (Download / Upload) side by side. -->
+    <!-- 6. Traffic cards (Download / Upload), side-by-side.
+         v5 layout: sparkline INLINE next to the per-second speed
+         value instead of in its own dedicated row. Saves ~16dp
+         vertical per cards-row, redirected into the connect
+         button's minHeight bump. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -327,24 +347,36 @@
                 android:singleLine="true"
                 android:ellipsize="end" />
 
-            <TextView
-                android:id="@+id/widget_rx_value"
+            <!-- speed value + inline sparkline (right-aligned). The
+                 sparkline ImageView gets a fixed width so it never
+                 squeezes the speed text on tiny widgets. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="0 B/s"
-                android:textSize="10sp"
-                android:fontFamily="monospace"
-                android:textColor="@color/widget_text_secondary"
-                android:singleLine="true"
-                android:ellipsize="end" />
-
-            <ImageView
-                android:id="@+id/widget_sparkline_rx"
-                android:layout_width="match_parent"
-                android:layout_height="18dp"
                 android:layout_marginTop="2dp"
-                android:scaleType="fitXY"
-                android:contentDescription="@string/widget_sparkline_rx_description" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/widget_rx_value"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="0 B/s"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/widget_text_secondary"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+                <ImageView
+                    android:id="@+id/widget_sparkline_rx"
+                    android:layout_width="56dp"
+                    android:layout_height="14dp"
+                    android:layout_marginStart="4dp"
+                    android:scaleType="fitXY"
+                    android:contentDescription="@string/widget_sparkline_rx_description" />
+            </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
@@ -391,24 +423,33 @@
                 android:singleLine="true"
                 android:ellipsize="end" />
 
-            <TextView
-                android:id="@+id/widget_tx_value"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="0 B/s"
-                android:textSize="10sp"
-                android:fontFamily="monospace"
-                android:textColor="@color/widget_text_secondary"
-                android:singleLine="true"
-                android:ellipsize="end" />
-
-            <ImageView
-                android:id="@+id/widget_sparkline_tx"
-                android:layout_width="match_parent"
-                android:layout_height="18dp"
                 android:layout_marginTop="2dp"
-                android:scaleType="fitXY"
-                android:contentDescription="@string/widget_sparkline_tx_description" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/widget_tx_value"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="0 B/s"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/widget_text_secondary"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+                <ImageView
+                    android:id="@+id/widget_sparkline_tx"
+                    android:layout_width="56dp"
+                    android:layout_height="14dp"
+                    android:layout_marginStart="4dp"
+                    android:scaleType="fitXY"
+                    android:contentDescription="@string/widget_sparkline_tx_description" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 
