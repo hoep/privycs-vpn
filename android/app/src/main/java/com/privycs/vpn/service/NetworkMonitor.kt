@@ -33,8 +33,29 @@ data class NetworkState(
  * Monitors network state changes and evaluates connect-on-demand rules.
  * When rules match, automatically connects or disconnects the VPN.
  *
- * Uses ConnectivityManager.registerDefaultNetworkCallback() for network changes
- * and WifiManager for SSID detection (requires ACCESS_FINE_LOCATION on Android 8+).
+ * Callback strategy (v0.9.14.71):
+ *   - Android 12+ (API 31+): registerSystemDefaultNetworkCallback()
+ *     fires for the SYSTEM physical default, which stays the
+ *     underlying WiFi/Cellular network even while a VPN tunnel is
+ *     active. This is what tells us about WiFi↔Mobile handovers
+ *     under an active VPN.
+ *   - Android <12: registerNetworkCallback(NetworkRequest) with
+ *     NET_CAPABILITY_NOT_VPN. Same idea, just the older API. We
+ *     deliberately use registerNetworkCallback (observation-only),
+ *     NOT requestNetwork (would actively keep the network up).
+ *
+ * Pre-v0.9.14.71 we used registerDefaultNetworkCallback which
+ * silently switches to "the VPN itself" once the tunnel comes up,
+ * making all underlying transport changes invisible to us. User-
+ * reported as "WiFi → Mobile handover doesn't trigger on-demand."
+ *
+ * SSID detection (v0.9.14.71): WifiManager.connectionInfo is
+ * unreliable once VPN is active on Android 10+ (returns
+ * "<unknown ssid>" or empty). We prefer NetworkCapabilities
+ * .transportInfo (which carries the real WifiInfo for the underlying
+ * network) on API 29+, fall back to wifiManager.connectionInfo on
+ * older releases. Sticky-cache lastResolvedSsid is still in place
+ * as a third layer.
  */
 class NetworkMonitor private constructor(private val context: Context) {
 
@@ -96,6 +117,17 @@ class NetworkMonitor private constructor(private val context: Context) {
     // WiFi switch picks up the new SSID instead of reusing the old.
     private var lastResolvedSsid: String = ""
     private var lastResolvedNetworkType: String = ""
+
+    // v0.9.14.71 fix: how many consecutive evaluator-skip cycles we
+    // tolerate when SSID detection comes back empty AND no cached
+    // SSID is available. After the threshold we force-evaluate
+    // anyway, accepting that we'll evaluate the rules with ssid=""
+    // — better than staying silently passive forever, which the
+    // earlier code did in the "VPN up + no cache" sticky-skip path.
+    // Three skips ≈ 90 s with the 30 s in-process tick, plenty of
+    // time for SSID resolution to recover after a VPN-up flurry.
+    private var indeterminateSkipCount: Int = 0
+    private val maxIndeterminateSkips: Int = 3
 
     // Tracks the last applied rule resolution so the engine fires
     // its applier only on transition (= resolved target changed),
@@ -203,17 +235,33 @@ class NetworkMonitor private constructor(private val context: Context) {
             }
         }
 
-        // Register-then-store: only set networkCallback AFTER
-        // registerDefaultNetworkCallback returns successfully so a
-        // failed registration doesn't leave a stale reference that
-        // stop() would later try to unregister (system would throw
-        // IllegalArgumentException because nothing was registered).
-        // Conversely, a successful registration always pairs with
-        // a matching unregister in stop(). This closes the leak the
-        // audit flagged: failed start() left the field set but no
-        // backing registration.
+        // Register-then-store: only set networkCallback AFTER the
+        // system call returns successfully so a failed registration
+        // doesn't leave a stale reference that stop() would later
+        // try to unregister (system would throw IAE because nothing
+        // was registered). Conversely, a successful registration
+        // always pairs with a matching unregister in stop(). This
+        // closes the leak the audit flagged: failed start() left the
+        // field set but no backing registration.
+        //
+        // VPN-bypass callback selection — see class kdoc for the
+        // full rationale. The two API paths are observation-only
+        // (no network is forcibly kept up); the older path attaches
+        // its filter via NetworkRequest.NET_CAPABILITY_NOT_VPN.
         try {
-            connectivityManager.registerDefaultNetworkCallback(callback)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                @Suppress("NewApi")
+                connectivityManager.registerSystemDefaultNetworkCallback(callback)
+            } else {
+                val req = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+                    .build()
+                connectivityManager.registerNetworkCallback(req, callback)
+            }
             networkCallback = callback
         } catch (e: Exception) {
             PrivycsLogger.e(TAG, "Failed to register network callback", e)
@@ -222,6 +270,23 @@ class NetworkMonitor private constructor(private val context: Context) {
             // no callback wedges the monitor in a half-up state.
             started = false
             return
+        }
+
+        // In-process backstop tick (v0.9.14.71). NetworkCallback is
+        // the primary fast path; this 30 s tick catches the cases
+        // where the callback doesn't fire — Doze mode batching, OEM
+        // power-management throttling, and the rare missed event
+        // during Wi-Fi/Cellular handover under load. The
+        // PrivycsVpnService that hosts NetworkMonitor is a foreground
+        // service while a tunnel is up, so the OS doesn't pause this
+        // coroutine. AutoTunnelWorker (15-min WorkManager) remains
+        // the long-term safety net for after-process-death scenarios.
+        scope.launch {
+            while (started) {
+                kotlinx.coroutines.delay(30_000)
+                if (!started) break
+                evaluateCurrentNetwork()
+            }
         }
 
         // Evaluate current state immediately
@@ -283,19 +348,38 @@ class NetworkMonitor private constructor(private val context: Context) {
             val (shouldConnect, ruleMatch) = evaluateRules(codSettings, networkType, effectiveSsid)
 
             // Stability guard: while VPN is up AND SSID detection is
-            // still uncertain (empty raw AND no cache), do NOT act on
-            // this evaluation at all. We have insufficient information
-            // to decide; acting on "safety-first shouldConnect=true"
-            // plus the previous "correctly detected in-except false"
-            // created the disconnect/reconnect oscillation reported
-            // after manual OpenVPN connect on trusted-except WiFi.
+            // still uncertain (empty raw AND no cache), be cautious —
+            // acting on "safety-first shouldConnect=true" plus the
+            // previous "correctly detected in-except false" created
+            // the disconnect/reconnect oscillation reported after
+            // manual OpenVPN connect on trusted-except WiFi.
+            //
+            // BUT: v0.9.14.71 limits how many consecutive ticks the
+            // skip can fire. After maxIndeterminateSkips we evaluate
+            // anyway with ssid="" — the rule outcome may be
+            // suboptimal for one tick, but the alternative (silent
+            // forever-skip) is worse: user moves WiFi → Mobile under
+            // VPN, the rule no longer applies (mobile not in WiFi
+            // SSID-list), but we never act on it.
             val vpnManagerForGuard = VpnServiceManager.getInstance(context)
-            if (vpnManagerForGuard.isConnected && networkType == "wifi" &&
+            val indeterminate = vpnManagerForGuard.isConnected && networkType == "wifi" &&
                 rawSsid.isEmpty() && lastResolvedSsid.isEmpty()
-            ) {
-                PrivycsLogger.d(TAG, "Skipping evaluate: VPN up but SSID indeterminate (no cache)")
-                return@launch
+            if (indeterminate) {
+                if (indeterminateSkipCount < maxIndeterminateSkips) {
+                    indeterminateSkipCount++
+                    PrivycsLogger.d(
+                        TAG,
+                        "Skipping evaluate: VPN up but SSID indeterminate (no cache) — " +
+                            "skip $indeterminateSkipCount/$maxIndeterminateSkips"
+                    )
+                    return@launch
+                }
+                PrivycsLogger.w(
+                    TAG,
+                    "Indeterminate-skip threshold reached, evaluating with empty ssid (forcing decision)"
+                )
             }
+            indeterminateSkipCount = 0
 
             // Use effective SSID from here on for state reporting so
             // the UI banner reflects the value we actually decided on.
@@ -482,17 +566,49 @@ class NetworkMonitor private constructor(private val context: Context) {
     @Suppress("unused") fun onUserConnect() { /* no-op */ }
 
     /**
-     * Detect the current network type from ConnectivityManager capabilities.
+     * Detect the current physical network transport, ignoring the
+     * VPN itself. v0.9.14.71 fix: previous version queried
+     * `cm.activeNetwork` which becomes the VPN once the tunnel is
+     * up, and the VPN's NetworkCapabilities don't reliably inherit
+     * the underlying transport bits across all OEMs/Android versions.
+     * Result was on-demand mis-firing for users whose VPN was up.
+     *
+     * New strategy: walk all networks, skip anything that has
+     * TRANSPORT_VPN, return the first non-VPN network with INTERNET
+     * cap. Picks WiFi over cellular over ethernet by simple iteration
+     * order — typically Android lists the system default first.
      */
     private fun detectNetworkType(): String {
-        val network = connectivityManager.activeNetwork ?: return "none"
-        val caps = connectivityManager.getNetworkCapabilities(network) ?: return "none"
+        val networks = try {
+            connectivityManager.allNetworks
+        } catch (e: Exception) {
+            PrivycsLogger.w(TAG, "Failed to enumerate networks: ${e.message}")
+            return "none"
+        }
+        // Two-pass to bias toward the system default if it's non-VPN:
+        // first try the system default explicitly, then fall back to
+        // any other non-VPN network with INTERNET capability.
+        connectivityManager.activeNetwork?.let { active ->
+            val caps = connectivityManager.getNetworkCapabilities(active)
+            if (caps != null && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                classifyTransport(caps)?.let { return it }
+            }
+        }
+        for (n in networks) {
+            val c = connectivityManager.getNetworkCapabilities(n) ?: continue
+            if (c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+            if (!c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
+            classifyTransport(c)?.let { return it }
+        }
+        return "none"
+    }
 
+    private fun classifyTransport(c: NetworkCapabilities): String? {
         return when {
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
-            else -> "none"
+            c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+            c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> null
         }
     }
 
@@ -500,16 +616,45 @@ class NetworkMonitor private constructor(private val context: Context) {
      * Detect the current WiFi SSID.
      * Requires ACCESS_FINE_LOCATION permission on Android 8+.
      * Returns empty string if not on WiFi or SSID cannot be determined.
+     *
+     * v0.9.14.71 strategy:
+     *   1. API 29+: prefer NetworkCapabilities.transportInfo on the
+     *      first non-VPN WiFi network. transportInfo carries a
+     *      WifiInfo even when VPN is the system default — the path
+     *      WifiManager.connectionInfo can't honour that on Android
+     *      10+ once VPN is active and starts returning empty/
+     *      "<unknown ssid>".
+     *   2. Fallback: WifiManager.connectionInfo (legacy API 26-28).
+     *   3. Cleaner: the sticky-cache lastResolvedSsid in
+     *      evaluateCurrentNetwork() runs as a third layer.
      */
     @Suppress("DEPRECATION")
     private fun detectCurrentSsid(): String {
-        val networkType = detectNetworkType()
-        if (networkType != "wifi") return ""
-
+        // We do NOT early-return on `detectNetworkType() != "wifi"`
+        // here any more — under VPN, detectNetworkType might return
+        // "wifi" / "mobile" depending on which non-VPN network
+        // surfaced first. If we're on WiFi physically, the
+        // TransportInfo lookup below succeeds; if not, it falls
+        // through to "" naturally.
         return try {
+            // Path 1 (Android 10+): TransportInfo of a non-VPN WiFi
+            // network. Walk allNetworks, find the first WiFi-bearing
+            // non-VPN, read its transportInfo as WifiInfo.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                for (n in connectivityManager.allNetworks) {
+                    val c = connectivityManager.getNetworkCapabilities(n) ?: continue
+                    if (c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                    if (!c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+                    val info = c.transportInfo as? android.net.wifi.WifiInfo ?: continue
+                    val raw = info.ssid?.removeSurrounding("\"") ?: continue
+                    if (raw.isNotEmpty() && raw != "<unknown ssid>") return raw
+                }
+            }
+            // Path 2: legacy WifiManager. Reliable pre-Android-10,
+            // best-effort post-10 (often returns "" / unknown when
+            // VPN is up — sticky-cache in evaluator handles that).
             val wifiInfo = wifiManager.connectionInfo
             val ssid = wifiInfo?.ssid ?: return ""
-            // Android wraps SSID in quotes
             ssid.removeSurrounding("\"").let { cleaned ->
                 if (cleaned == "<unknown ssid>") "" else cleaned
             }
@@ -592,8 +737,21 @@ class NetworkMonitor private constructor(private val context: Context) {
      */
     @Suppress("DEPRECATION")
     private fun detectCurrentBssid(): String {
-        if (detectNetworkType() != "wifi") return ""
+        // Same VPN-aware pattern as detectCurrentSsid: prefer
+        // TransportInfo on API 29+ so an active VPN doesn't blank
+        // out the BSSID (used by Network Rules' BSSID-match path).
         return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                for (n in connectivityManager.allNetworks) {
+                    val c = connectivityManager.getNetworkCapabilities(n) ?: continue
+                    if (c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                    if (!c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+                    val info = c.transportInfo as? android.net.wifi.WifiInfo ?: continue
+                    val bssid = info.bssid ?: continue
+                    if (bssid == "02:00:00:00:00:00" || bssid.isBlank()) continue
+                    return bssid.lowercase()
+                }
+            }
             val wifiInfo = wifiManager.connectionInfo
             val bssid = wifiInfo?.bssid ?: return ""
             // Android sometimes returns "02:00:00:00:00:00" when
