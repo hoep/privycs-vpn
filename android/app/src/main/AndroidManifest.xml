@@ -54,7 +54,18 @@
             android:name=".service.PrivycsVpnService"
             android:exported="false"
             android:foregroundServiceType="specialUse"
+            android:stopWithTask="false"
             android:permission="android.permission.BIND_VPN_SERVICE">
+            <!-- v0.9.14.77: stopWithTask="false" makes our intent
+                 explicit. For foreground services it's the implicit
+                 default, but on aggressive OEMs (Samsung One UI,
+                 Xiaomi MIUI, Huawei EMUI, Oppo, Vivo) the system
+                 task-killer ignores the implicit default and
+                 terminates the service on user-swipe-from-recents
+                 anyway. The explicit attribute combined with the
+                 onTaskRemoved restart-self handler in
+                 PrivycsVpnService is the industry-standard mitigation
+                 for keep-alive VPN apps on those OEMs. -->
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>

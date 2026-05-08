@@ -1108,6 +1108,77 @@ class PrivycsVpnService : VpnService() {
         )
     }
 
+    /**
+     * Called by the OS when the user swipes the app out of the
+     * Recent-Apps screen. v0.9.14.77 mitigation for aggressive OEM
+     * task-killers (Samsung One UI, Xiaomi MIUI, Huawei EMUI, Oppo,
+     * Vivo): even though we're a foreground service that should
+     * survive task removal per Android spec, those OEMs kill the
+     * service anyway. We schedule a self-restart via AlarmManager
+     * with `setExactAndAllowWhileIdle` so the service comes back
+     * within ~5 s even if the OEM killed us — and the alarm itself
+     * survives Doze.
+     *
+     * Only re-arms when:
+     *   - Foreground-keep-monitor-alive is enabled (otherwise the
+     *     user explicitly opted out of always-on monitoring)
+     *   - OR a tunnel is currently up (so user-data flow shouldn't
+     *     vanish on a swipe)
+     */
+    override fun onTaskRemoved(rootIntent: android.content.Intent?) {
+        super.onTaskRemoved(rootIntent)
+        scope.launch {
+            val s = try {
+                PrivycsApp.instance.settingsRepository.getSettingsBlocking()
+            } catch (_: Throwable) {
+                null
+            }
+            val keepAlive = s?.keepMonitorAlive == true && s.connectOnDemand.enabled
+            val haveTunnel = currentProtocol != null
+            if (!keepAlive && !haveTunnel) {
+                PrivycsLogger.d(TAG, "onTaskRemoved: no keep-alive + no tunnel — letting service die naturally")
+                return@launch
+            }
+
+            PrivycsLogger.i(
+                TAG,
+                "onTaskRemoved: scheduling self-restart in 5s (keepAlive=$keepAlive haveTunnel=$haveTunnel)"
+            )
+            try {
+                val intent = android.content.Intent(
+                    applicationContext,
+                    PrivycsVpnService::class.java,
+                ).apply {
+                    action = if (haveTunnel) {
+                        // No connect-id; service comes back, sees
+                        // currentProtocol still set in-memory IF the
+                        // process survived; if not, the OS-level
+                        // Always-On VPN reconnect code path engages.
+                        ACTION_START_MONITOR
+                    } else {
+                        ACTION_START_MONITOR
+                    }
+                }
+                val pi = android.app.PendingIntent.getForegroundService(
+                    applicationContext,
+                    7777,
+                    intent,
+                    android.app.PendingIntent.FLAG_IMMUTABLE or
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                val am = applicationContext.getSystemService(android.content.Context.ALARM_SERVICE)
+                    as android.app.AlarmManager
+                am.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    android.os.SystemClock.elapsedRealtime() + 5_000L,
+                    pi,
+                )
+            } catch (t: Throwable) {
+                PrivycsLogger.e(TAG, "onTaskRemoved: self-restart schedule failed", t)
+            }
+        }
+    }
+
     override fun onDestroy() {
         killSwitchNetworkCallback?.let { cb ->
             try {
