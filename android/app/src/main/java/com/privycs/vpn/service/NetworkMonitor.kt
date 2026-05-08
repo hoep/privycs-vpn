@@ -249,28 +249,24 @@ class NetworkMonitor private constructor(private val context: Context) {
         // (no network is forcibly kept up); the older path attaches
         // its filter via NetworkRequest.NET_CAPABILITY_NOT_VPN.
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // API 31+ overload requires a Handler arg — there's
-                // no single-callback variant. Main looper matches
-                // our existing scope (Dispatchers.Main); putting the
-                // callback on its own background HandlerThread would
-                // gain nothing because all our callback bodies just
-                // launch a coroutine into `scope` anyway.
-                @Suppress("NewApi")
-                connectivityManager.registerSystemDefaultNetworkCallback(
-                    callback,
-                    android.os.Handler(android.os.Looper.getMainLooper()),
-                )
-            } else {
-                val req = NetworkRequest.Builder()
-                    .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                    .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
-                    .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
-                    .build()
-                connectivityManager.registerNetworkCallback(req, callback)
-            }
+            // VPN-bypass via NetworkRequest (works on all API levels
+            // 26+). Originally v0.9.14.71 split this into a
+            // registerSystemDefaultNetworkCallback path for API 31+
+            // — but that method is @SystemApi(MODULE_LIBRARIES) and
+            // not callable from regular apps even with compileSdk=34
+            // (compile failed on .71-.72 with "Unresolved reference").
+            // The NetworkRequest variant is observation-only,
+            // unprivileged, and gets us the same outcome: callbacks
+            // fire on every non-VPN physical transport change, even
+            // while a VPN tunnel is the system default.
+            val req = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+                .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+                .build()
+            connectivityManager.registerNetworkCallback(req, callback)
             networkCallback = callback
         } catch (e: Exception) {
             PrivycsLogger.e(TAG, "Failed to register network callback", e)

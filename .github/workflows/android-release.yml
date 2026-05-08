@@ -183,6 +183,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # actions: read needed by `gh run list` inside the propagation
+      # script when it polls for an in-flight android-release run on
+      # the candidate prior tag. v0.9.14.73 propagator failed at
+      # 1.7 s with no stdout because gh run list returned permission-
+      # denied to stderr (silenced via 2>/dev/null) and the for-loop
+      # state went haywire under set -e.
+      actions: read
     steps:
       - name: Checkout (for gh CLI auth context)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
