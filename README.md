@@ -15,8 +15,10 @@
     https://img.shields.io/github/stars/hoep/privycs-vpn?style=social
 -->
 
-[![Latest Release](https://img.shields.io/badge/release-v0.9.14.69-blue)](https://github.com/hoep/privycs-vpn/releases/latest)
-[![Platforms](https://img.shields.io/badge/platforms-Android%20%7C%20Desktop-green)](https://github.com/hoep/privycs-vpn/releases)
+[![macOS](https://img.shields.io/badge/macOS-v0.9.14.69-000000?logo=apple&logoColor=white)](https://github.com/hoep/privycs-vpn/releases/latest)
+[![Linux](https://img.shields.io/badge/Linux-v0.9.14.69-FCC624?logo=linux&logoColor=black)](https://github.com/hoep/privycs-vpn/releases/latest)
+[![Windows](https://img.shields.io/badge/Windows-v0.9.14.69-0078D4?logo=windows&logoColor=white)](https://github.com/hoep/privycs-vpn/releases/latest)
+[![Android](https://img.shields.io/badge/Android-v0.9.14.69-3DDC84?logo=android&logoColor=white)](https://github.com/hoep/privycs-vpn/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL--3.0-orange)](#license)
 
 <p align="center">

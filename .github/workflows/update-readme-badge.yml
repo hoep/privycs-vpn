@@ -1,11 +1,20 @@
-name: Update README badge
+name: Update README badges
 
-# Bumps the "release-vX.Y.Z" shields.io badge in README.md to match
-# the latest pushed tag. Static badges are used (instead of dynamic
-# shields.io GitHub-API queries) because the repo is private and
-# shields.io can't authenticate against the GitHub API for private
-# repos. Switch back to the dynamic ones when the repo is public
-# and this workflow can be deleted.
+# Bumps four per-platform shields.io badges in README.md (macOS,
+# Linux, Windows, Android) to match the version pinned in their
+# respective `latest_version*.txt` source-of-truth files. The single
+# umbrella "release-vX.Y.Z-blue" badge from earlier privycs-vpn was
+# misleading once we adopted the per-platform-versioning system in
+# v0.9.14.56–.57: a tag like v0.9.14.69 might re-build only macOS
+# (the OS that actually changed), with Linux/Windows/Android assets
+# propagated unchanged from their last-bumped tags. The single badge
+# would jump to .69 even though the Android user got .68's APK.
+# Per-platform badges show what each user's binary actually claims.
+#
+# Static badges (vs shields.io's dynamic GH-API ones) are kept even
+# now that the repo can go public, because shields.io can't read our
+# version-text-file structure — only the GH release API. So this
+# workflow stays as the badge-source-of-truth.
 
 on:
   push:
@@ -16,7 +25,7 @@ permissions:
   contents: write
 
 jobs:
-  update-badge:
+  update-badges:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
@@ -26,32 +35,42 @@ jobs:
           # so the subsequent push has the full history to fast-forward.
           ref: main
           fetch-depth: 0
-          # Use a token that can push back. GITHUB_TOKEN with
-          # contents:write does this.
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update release badge to ${{ github.ref_name }}
+      - name: Update per-platform badges from version files
         id: bump
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          echo "Updating README badge to $TAG"
-          # The badge URL pattern: release-vX.Y.Z-blue. The version
-          # part may contain dots and digits and the v prefix; we
-          # replace the WHOLE matched version segment between
-          # "release-" and "-blue" so we don't depend on knowing
-          # the previous version explicitly.
-          sed -i -E \
-            "s|release-v[0-9A-Za-z._-]+-blue|release-${TAG}-blue|g" \
-            README.md
-          # Detect whether sed actually changed anything. If the
-          # README already has the new tag (rare, e.g. manual
-          # update before tag push), we exit clean without an
-          # empty commit.
+          # Read each platform's pinned version. Source-of-truth lives
+          # in the version files, NOT the tag, because per-OS
+          # propagate-previous logic (desktop-release.yml /
+          # android-release.yml) means a single tag may rebuild only
+          # a subset of platforms. The version files only advance
+          # when the corresponding platform was actually re-released.
+          MACOS=$(tr -d '[:space:]' < desktop/latest_version_macos.txt)
+          LINUX=$(tr -d '[:space:]' < desktop/latest_version_linux.txt)
+          WINDOWS=$(tr -d '[:space:]' < desktop/latest_version_windows.txt)
+          ANDROID=$(grep '^versionName=' android/latest_version.txt | cut -d= -f2 | tr -d '[:space:]')
+
+          echo "macOS=v${MACOS} Linux=v${LINUX} Windows=v${WINDOWS} Android=v${ANDROID}"
+
+          # The badge URL pattern is `<Platform>-v<version>-<colorhex>`
+          # where colorhex is the brand colour we picked (kept stable
+          # across releases so the regex anchor never needs touching).
+          # Using `[0-9.]+` for the version because privycs-vpn tags
+          # follow plain dotted-numeric semver — no letters, no `-rcN`
+          # suffix. If we ever ship pre-releases this regex needs
+          # broadening.
+          sed -i -E "s|macOS-v[0-9.]+-000000|macOS-v${MACOS}-000000|g"     README.md
+          sed -i -E "s|Linux-v[0-9.]+-FCC624|Linux-v${LINUX}-FCC624|g"     README.md
+          sed -i -E "s|Windows-v[0-9.]+-0078D4|Windows-v${WINDOWS}-0078D4|g" README.md
+          sed -i -E "s|Android-v[0-9.]+-3DDC84|Android-v${ANDROID}-3DDC84|g" README.md
+
           if git diff --quiet README.md; then
-            echo "README badge already at $TAG, nothing to commit"
+            echo "README badges already at current versions, nothing to commit"
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            git --no-pager diff README.md
           fi
 
       - name: Commit and push (with retry-on-race)
@@ -64,7 +83,7 @@ jobs:
           # from re-triggering on the resulting push (the trigger
           # is tag-push only, but defence-in-depth in case the
           # trigger gets broadened later).
-          git commit -m "docs: bump README badge to ${GITHUB_REF_NAME} [skip ci]"
+          git commit -m "docs: bump README badges for ${GITHUB_REF_NAME} [skip ci]"
 
           # Retry-with-rebase loop. v0.9.14.17 hit the race on its
           # tag-push: a manual `git push origin main` + `git push
@@ -85,8 +104,8 @@ jobs:
             git fetch origin main
             # Rebase our single badge-bump commit onto the new tip.
             # Conflicts shouldn't happen — the badge-bump only touches
-            # one line in README.md and concurrent commits aren't
-            # likely to touch the same line. If they do, abort.
+            # the four shields.io URL lines and concurrent commits
+            # aren't likely to touch them. If they do, abort.
             if ! git rebase origin/main; then
               echo "Rebase conflict — aborting badge bump for this run."
               git rebase --abort || true
