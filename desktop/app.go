@@ -2531,11 +2531,22 @@ func (a *App) statusLocked() *StatusResponse {
 	return resp
 }
 
+// statusEmitterInterval is the cadence at which Status() is polled
+// + emitted to the frontend. v0.9.14.69 dropped from 2 s → 1 s so
+// the connection-time + traffic readouts feel live (the visible
+// uptime tick was perceptibly laggy at 2 s, and the speed sparkline
+// jumped in 2 s steps which read as "stuttering" on fast tunnels).
+// 1 s keeps syscall load trivial — Status() is a few in-process
+// reads on Linux/macOS, ~300 ms of PowerShell on Windows in the
+// disconnected idle case which is now gated by the
+// "skip Status() when not connected" branch in Status() itself.
+const statusEmitterInterval = 1 * time.Second
+
 // statusEmitter periodically sends status updates to the frontend via events.
 // Includes panic recovery so a single Status() failure doesn't crash the emitter
 // goroutine (which would leave the UI frozen without updates).
 func (a *App) statusEmitter() {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(statusEmitterInterval)
 	defer ticker.Stop()
 
 	for {

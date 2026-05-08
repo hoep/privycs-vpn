@@ -122,6 +122,34 @@ export const useVpnStore = defineStore('vpn', () => {
       return
     }
 
+    // Defensive guard against the "0 B/s glitch" the user reported.
+    // The backend's protocol Status() readers can briefly report
+    // bytes_rx=0 / bytes_tx=0 when:
+    //   - swanctl --list-sas runs during a CHILD-SA rekey (no in/out
+    //     lines in the output, parseSwanctlBytes sums to 0)
+    //   - OpenVPN's ByteCountListener desync window after reconnect
+    //   - WireGuard tunnel briefly down between handshakes
+    // The previous code clamped the resulting negative delta to 0
+    // via Math.max(0,…) BUT still wrote rxBytes (= 0) into
+    // lastBytesRx, corrupting the baseline. Next real sample then
+    // computed (real_now - 0) → spike → ring buffer cycled
+    // 0 / spike / 0 / spike, which the user perceives as "Traffic
+    // 0 B/s" alternating since the ring-buffer mean is what the
+    // sparkline area maps to.
+    //
+    // Treat any non-monotonic counter regression as "transient
+    // backend hiccup, ignore this sample" — keep lastBytesRx +
+    // lastSampleAt unchanged so the NEXT real reading produces a
+    // delta against the last good baseline. Push 0 to the ring
+    // buffer for that interval (no traffic-data-known is the same
+    // visual as no-traffic-flowing — a flat second on the chart),
+    // but DON'T mutate the baseline.
+    if (rxBytes < lastBytesRx || txBytes < lastBytesTx) {
+      rxSpeedHistory.value = [...rxSpeedHistory.value.slice(1), 0]
+      txSpeedHistory.value = [...txSpeedHistory.value.slice(1), 0]
+      return
+    }
+
     const elapsedSec = Math.max(0.001, (now - lastSampleAt) / 1000)
     const rxSpeed = Math.max(0, (rxBytes - lastBytesRx) / elapsedSec)
     const txSpeed = Math.max(0, (txBytes - lastBytesTx) / elapsedSec)

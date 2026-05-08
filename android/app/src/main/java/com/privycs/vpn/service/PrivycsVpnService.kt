@@ -47,7 +47,12 @@ class PrivycsVpnService : VpnService() {
         const val EXTRA_CONNECTION_NAME = "connection_name"
         const val EXTRA_POOL_ID = "pool_id"
 
-        private const val STATUS_POLL_INTERVAL_MS = 2000L
+        // v0.9.14.69 — dropped from 2000 → 1000 to match desktop's
+        // statusEmitterInterval bump. Connection-time + traffic feel
+        // live instead of stepping in 2 s chunks. Both tunnel
+        // implementations' getStatus() is cheap enough that doubling
+        // the call rate is invisible in CPU/battery profiles.
+        private const val STATUS_POLL_INTERVAL_MS = 1000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
