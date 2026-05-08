@@ -250,8 +250,17 @@ class NetworkMonitor private constructor(private val context: Context) {
         // its filter via NetworkRequest.NET_CAPABILITY_NOT_VPN.
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // API 31+ overload requires a Handler arg — there's
+                // no single-callback variant. Main looper matches
+                // our existing scope (Dispatchers.Main); putting the
+                // callback on its own background HandlerThread would
+                // gain nothing because all our callback bodies just
+                // launch a coroutine into `scope` anyway.
                 @Suppress("NewApi")
-                connectivityManager.registerSystemDefaultNetworkCallback(callback)
+                connectivityManager.registerSystemDefaultNetworkCallback(
+                    callback,
+                    android.os.Handler(android.os.Looper.getMainLooper()),
+                )
             } else {
                 val req = NetworkRequest.Builder()
                     .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
