@@ -1,12 +1,15 @@
 <template>
-  <!-- Plain content block; scrolling is handled by the parent
-       <main class="flex-1 overflow-y-auto"> in App.vue. The earlier
-       flex/overflow-y-auto wrapper here built a SECOND scroll
-       container that broke the App.vue flex layout — the resulting
-       overflow pushed the bottom nav out of the viewport (v0.9.14.79
-       fix). All other views (ConnectionView etc.) follow this same
-       pattern and rely on App.vue's <main> for scroll. -->
-  <div class="text-sm leading-relaxed">
+  <!-- Self-constraining height + own scroll container — same
+       pattern as SettingsView / LogsView / etc. The App.vue
+       <main class="flex-1 overflow-y-auto"> wrapper does NOT
+       reliably bound child height (a Tailwind flex-1 + overflow
+       interaction that lets the child grow past its allocation,
+       pushing siblings — including the bottom <nav> — out of
+       the viewport). The other long-content views already work
+       around this with max-h-[calc(100vh-7rem)]; HelpView now
+       follows suit. v0.9.14.79's outer-flex fix wasn't enough
+       on its own; v0.9.14.80 adopts the project convention. -->
+  <div class="text-sm leading-relaxed overflow-y-auto max-h-[calc(100vh-7rem)]">
     <div v-if="state === 'loading'" class="flex flex-col items-center justify-center py-16 gap-2">
       <div class="w-8 h-8 border-2 border-primary-400 border-t-transparent rounded-full animate-spin"></div>
       <span class="text-xs text-gray-500 dark:text-gray-400">Loading help…</span>
