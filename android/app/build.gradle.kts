@@ -246,10 +246,18 @@ dependencies {
     // a TextView wrapped inside an AndroidView so the full Compose
     // theme (including dark mode) flows through. Pulls in core +
     // tables + linkify + html (for inline <kbd> / <sup> in our docs).
-    // Total APK impact ~250 KB. Used only by HelpScreen; no other
+    // ext-strikethrough is REQUIRED even though we don't use the
+    // ~~strike~~ syntax explicitly: Markwon's html plugin contains
+    // a StrikeHandler that references org.commonmark.ext.gfm.
+    // strikethrough.Strikethrough at compile time. Without ext-
+    // strikethrough on the classpath, R8 minify-release fails with
+    // "Missing class" and the APK does not build (v0.9.14.78 first
+    // hit this — fixed in v0.9.14.82).
+    // Total APK impact ~270 KB. Used only by HelpScreen; no other
     // call sites.
     implementation("io.noties.markwon:core:4.6.2")
     implementation("io.noties.markwon:ext-tables:4.6.2")
+    implementation("io.noties.markwon:ext-strikethrough:4.6.2")
     implementation("io.noties.markwon:linkify:4.6.2")
     implementation("io.noties.markwon:html:4.6.2")
 
