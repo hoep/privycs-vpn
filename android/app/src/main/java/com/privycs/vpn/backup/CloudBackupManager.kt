@@ -147,12 +147,21 @@ class CloudBackupManager(private val context: Context) {
 
         val backupJson = json.encodeToString(EncryptedBackup.serializer(), backup)
 
-        context.contentResolver.openOutputStream(outputUri)?.use { stream ->
+        // Mode "wt" = WRITE+TRUNCATE. The default mode "w" is provider-
+        // dependent: most SAF providers truncate, but some (Drive,
+        // OneDrive, certain file managers) only overwrite-from-pos-0
+        // without truncating, leaving trailing bytes from a previous
+        // export hanging at the tail. The next import then errors
+        // with "Unexpected JSON Token at Offset N: Expected EOF after
+        // parsing" because the outer JSON parser hits the leftover
+        // bytes after the new content ends. v0.9.14.87 fix: force "wt"
+        // so truncation is guaranteed regardless of provider.
+        context.contentResolver.openOutputStream(outputUri, "wt")?.use { stream ->
             stream.write(backupJson.toByteArray(Charsets.UTF_8))
             stream.flush()
         } ?: throw IllegalStateException("Cannot open output stream for URI: $outputUri")
 
-        Log.d(TAG, "Backup exported successfully")
+        Log.d(TAG, "Backup exported successfully (${backupJson.length} bytes)")
     }
 
     /**
@@ -197,9 +206,27 @@ class CloudBackupManager(private val context: Context) {
     private fun importBackupPayload(password: String, inputUri: Uri): DecodedBackup {
         require(password.isNotEmpty()) { "Password must not be empty" }
 
-        val backupJson = context.contentResolver.openInputStream(inputUri)?.use { stream ->
+        val rawText = context.contentResolver.openInputStream(inputUri)?.use { stream ->
             stream.bufferedReader(Charsets.UTF_8).readText()
         } ?: throw IllegalStateException("Cannot open input stream for URI: $inputUri")
+
+        // Recovery for files written with the pre-v0.9.14.87 export
+        // path (which used openOutputStream() without "wt" — some SAF
+        // providers overwrote without truncating, leaving trailing
+        // bytes from the previous backup at the end of the file).
+        // Strict decode first; if it fails with the canonical
+        // "Expected EOF after parsing" error, trim down to the first
+        // complete JSON object via brace-counting and retry.
+        val backupJson = trimToFirstJsonObject(rawText)
+        if (backupJson.length != rawText.length) {
+            Log.w(
+                TAG,
+                "Backup file had ${rawText.length - backupJson.length} trailing bytes — " +
+                    "trimmed to the first valid JSON object. " +
+                    "(Likely written by a pre-v0.9.14.87 client on a SAF provider " +
+                    "that does not truncate on overwrite.)",
+            )
+        }
 
         val backup = json.decodeFromString(EncryptedBackup.serializer(), backupJson)
 
@@ -364,5 +391,62 @@ class CloudBackupManager(private val context: Context) {
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val keyBytes = factory.generateSecret(keySpec).encoded
         return SecretKeySpec(keyBytes, "AES")
+    }
+
+    /**
+     * Recovery helper for backup files corrupted by the pre-v0.9.14.87
+     * SAF-no-truncate-on-overwrite issue.
+     *
+     * If the file contains a valid JSON object followed by trailing
+     * bytes (leftover from a previous, larger export), this finds the
+     * end of the FIRST complete top-level object via brace-counting
+     * and returns the substring up to that point. The trailing bytes
+     * are silently dropped — they are an artifact of the bug, not
+     * legitimate content.
+     *
+     * Brace-counting only walks the OUTER object's structure: depth
+     * counter increments on `{` outside strings, decrements on `}`,
+     * and we stop when depth returns to 0. String literals (where
+     * `{` and `}` are NOT structural) are skipped using a tiny state
+     * machine that respects backslash escapes.
+     *
+     * If the input does not start with `{` or no balanced object can
+     * be found, the original text is returned unchanged so the
+     * downstream parser produces its normal error.
+     */
+    private fun trimToFirstJsonObject(s: String): String {
+        // Skip leading whitespace.
+        var i = 0
+        while (i < s.length && s[i].isWhitespace()) i++
+        if (i >= s.length || s[i] != '{') return s
+        val start = i
+
+        var depth = 0
+        var inString = false
+        var escaped = false
+        while (i < s.length) {
+            val c = s[i]
+            if (inString) {
+                when {
+                    escaped -> escaped = false
+                    c == '\\' -> escaped = true
+                    c == '"' -> inString = false
+                }
+            } else {
+                when (c) {
+                    '"' -> inString = true
+                    '{' -> depth++
+                    '}' -> {
+                        depth--
+                        if (depth == 0) {
+                            return s.substring(start, i + 1)
+                        }
+                    }
+                }
+            }
+            i++
+        }
+        // Unbalanced — let the caller handle the failure.
+        return s
     }
 }
