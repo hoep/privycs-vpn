@@ -175,6 +175,28 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 				i.localAddr = vip
 				status.LocalAddress = vip
 			}
+			// v0.9.14.90: defensive fallback for the wake-restart path.
+			// If the per-IKE-filtered query returned ESTABLISHED but
+			// zero bytes after we know traffic is flowing (the new
+			// CHILD SA's name might not exactly match cmd.Interface
+			// post-restart, or charon may report a freshly-rekeyed
+			// SA under a temporary alias), retry without the --ike
+			// filter so we sum every active CHILD SA on the daemon.
+			// Only kicks in when the filtered query showed no traffic
+			// at all — never overwrites a non-zero reading.
+			if status.BytesRx == 0 && status.BytesTx == 0 {
+				if resp2, err2 := client.SendCommand("status", map[string]string{
+					"protocol":  "ipsec",
+					"interface": "", // no --ike filter — sum everything
+				}); err2 == nil && resp2.Success &&
+					strings.Contains(resp2.Output, "ESTABLISHED") {
+					rx2, tx2 := parseSwanctlBytes(resp2.Output)
+					if rx2 > 0 || tx2 > 0 {
+						status.BytesRx = rx2
+						status.BytesTx = tx2
+					}
+				}
+			}
 		}
 	case "windows":
 		// Look up both per-user AND machine-wide VPN connections — the helper

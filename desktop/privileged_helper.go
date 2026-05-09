@@ -1144,6 +1144,25 @@ func (h *PrivilegedHelper) cmdMacOSRestartCharon(cmd HelperCommand) HelperRespon
 		time.Sleep(100 * time.Millisecond)
 	}
 
+	// v0.9.14.90: flush the kernel SA database before starting the
+	// fresh daemon. `ipsec stop` tells charon to tear down its SAs,
+	// but on macOS the kernel-level SADB entries can survive a
+	// stuck/zombie charon — the user sees: traffic flows (because
+	// the kernel still has policy + SA pointing at the OLD ESP
+	// tunnel), but the NEW charon's `swanctl --list-sas` reports
+	// near-zero bytes because it doesn't own those orphan kernel
+	// entries. setkey -F flushes all SAs; setkey -FP flushes all
+	// policies. Both are macOS base utilities (/usr/sbin/setkey),
+	// no install needed. We log the output rather than gate on it
+	// — if setkey isn't present we want the restart to continue
+	// anyway because the user reports it usually still works.
+	flushOut, _ := exec.Command("/usr/sbin/setkey", "-F").CombinedOutput()
+	flushPolOut, _ := exec.Command("/usr/sbin/setkey", "-FP").CombinedOutput()
+	log.Printf("charon-restart: setkey -F output=%q; setkey -FP output=%q",
+		strings.TrimSpace(string(flushOut)),
+		strings.TrimSpace(string(flushPolOut)),
+	)
+
 	// Start fresh. Reuses the existing helper which polls vici
 	// socket up to 8 s.
 	if err := helperEnsureMacOSCharonRunning(); err != nil {
@@ -1155,7 +1174,7 @@ func (h *PrivilegedHelper) cmdMacOSRestartCharon(cmd HelperCommand) HelperRespon
 			),
 		}
 	}
-	return HelperResponse{Success: true, Output: "charon restarted"}
+	return HelperResponse{Success: true, Output: "charon restarted (kernel SADB+SPD flushed)"}
 }
 
 // helperEnsureMacOSCharonRunning is darwin-only. It checks whether
