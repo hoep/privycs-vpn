@@ -337,7 +337,7 @@ class NetworkMonitor private constructor(private val context: Context) {
         }
 
         // In-process backstop tick (v0.9.14.71). NetworkCallback is
-        // the primary fast path; this 30 s tick catches the cases
+        // the primary fast path; this 10 s tick catches the cases
         // where the callback doesn't fire — Doze mode batching, OEM
         // power-management throttling, and the rare missed event
         // during Wi-Fi/Cellular handover under load. The
@@ -345,9 +345,17 @@ class NetworkMonitor private constructor(private val context: Context) {
         // service while a tunnel is up, so the OS doesn't pause this
         // coroutine. AutoTunnelWorker (15-min WorkManager) remains
         // the long-term safety net for after-process-death scenarios.
+        // v0.9.14.96: tightened from 30 s → 10 s per user request
+        // ("ich brauche aber schnellere action als 60s"). Battery
+        // cost is one Coroutine-delay every 10 s plus the
+        // evaluateCurrentNetwork() call (~5 ms CPU, no I/O on the
+        // happy path) — negligible. The win: when the OEM defers
+        // our NetworkCallback for >10 s but our process is alive,
+        // the SSID-in-except-list disconnect now fires within 10 s
+        // instead of 30 s.
         scope.launch {
             while (started) {
-                kotlinx.coroutines.delay(30_000)
+                kotlinx.coroutines.delay(10_000)
                 if (!started) break
                 evaluateCurrentNetwork()
             }
@@ -616,11 +624,16 @@ class NetworkMonitor private constructor(private val context: Context) {
                 // says "disconnect here". requestDisconnect is
                 // idempotent (returns AlreadyIdle if tunnel is
                 // already down), so re-firing is free.
-                PrivycsLogger.d(TAG, "Rules say no-match while connected, disconnecting VPN: $ruleMatch")
-                com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                // v0.9.14.96: log the result so a disconnect that
+                // didn't actually tear down the tunnel can be
+                // diagnosed (the new desync-safety in
+                // ConnectCoordinator.requestDisconnect logs WARN on
+                // the desync path).
+                val r = com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
                     context,
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
                 )
+                PrivycsLogger.i(TAG, "on-demand disconnect requested ($ruleMatch) -> $r")
             } else if (transitioned) {
                 PrivycsLogger.d(TAG, "Rules transitioned but already in desired state: $ruleMatch")
             }

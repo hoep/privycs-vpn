@@ -713,7 +713,7 @@ class PrivycsVpnService : VpnService() {
             // / OpenVPN profile sees the modified AllowedIPs /
             // route directives. Disabled / inapplicable configs
             // pass through unchanged with a log message.
-            val effectiveConfig = if (splitTunnel != null && splitTunnel.isActive()) {
+            var effectiveConfig = if (splitTunnel != null && splitTunnel.isActive()) {
                 val result = com.privycs.vpn.data.SplitTunnelInjector.inject(
                     configContent = member.config.configContent,
                     protocol = member.config.protocol,
@@ -725,6 +725,23 @@ class PrivycsVpnService : VpnService() {
                 result.patched
             } else {
                 member.config.configContent
+            }
+            // v0.9.14.96: chain in IPv6 leak killswitch injection. Runs
+            // AFTER the split-tunnel patch so the split-tunnel's
+            // AllowedIPs rewrite (which can collapse the v6 catch-all)
+            // is followed by our re-add of ::/0. Always-on (no
+            // setting); IpV6KillswitchInjector is idempotent so
+            // already-v6-covered configs pass through unchanged.
+            run {
+                val v6 = com.privycs.vpn.data.IpV6KillswitchInjector.inject(
+                    effectiveConfig, member.config.protocol
+                )
+                if (v6.applied) {
+                    PrivycsLogger.i(TAG, "pool ${member.name}: ipv6-killswitch injected ::/0 sink")
+                    effectiveConfig = v6.patched
+                } else if (v6.skippedReason != null) {
+                    PrivycsLogger.d(TAG, "pool ${member.name}: ipv6-killswitch skipped (${v6.skippedReason})")
+                }
             }
 
             return try {
@@ -1422,13 +1439,15 @@ class PrivycsVpnService : VpnService() {
         val tunnel = WireGuardTunnel(backend)
         wireGuardTunnel = tunnel
 
-        // Two text-level patches before the WG parser sees the
-        // config: Per-App VPN allow/exclude (existing) and the
-        // user's manual DNS override (added in v0.9.11.53). Both
-        // work the same way - patch the [Interface] section so
-        // the parser builds a VpnService.Builder that honours them.
+        // Three text-level patches before the WG parser sees the
+        // config: Per-App VPN allow/exclude (existing), DNS
+        // override (v0.9.11.53), and IPv6 leak killswitch
+        // (v0.9.14.96). Each patches a different aspect of the
+        // [Interface]/[Peer] sections so the parser builds a
+        // VpnService.Builder that honours them.
         val perAppPatched = patchWireGuardPerAppVpn(configContent)
-        val patchedConfig = patchWireGuardDnsOverride(perAppPatched)
+        val dnsPatched = patchWireGuardDnsOverride(perAppPatched)
+        val patchedConfig = ipv6PatchOrPassThrough(dnsPatched, com.privycs.vpn.data.models.VpnProtocol.WIREGUARD)
         tunnel.connect(patchedConfig, "privycs0")
 
         connectStartTime = System.currentTimeMillis()
@@ -1490,6 +1509,68 @@ class PrivycsVpnService : VpnService() {
      * zero callers in the connect path. v0.9.11.53 closes that
      * gap for all three protocols, this is the WireGuard arm.
      */
+
+    /**
+     * v0.9.14.96 — passive IPv6 leak detection. Returns true when
+     * the OS has a non-VPN underlying network with an IPv6 default
+     * route AND our active VPN does NOT have an IPv6 default route
+     * — i.e. v6 traffic will exit via the underlying network instead
+     * of our tunnel. Used post-IPSec-connect to detect when
+     * server-side traffic-selector negotiation narrowed our v6
+     * route away.
+     *
+     * Pure ConnectivityManager query — no network probes, no I/O.
+     * Safe to call at any time; returns false (no leak) on any
+     * indeterminate state (no underlying v6 to leak through).
+     */
+    private fun detectV6Leak(): Boolean {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        var underlyingHasV6Default = false
+        var vpnHasV6Default = false
+        for (network in cm.allNetworks) {
+            val caps = cm.getNetworkCapabilities(network) ?: continue
+            val link = cm.getLinkProperties(network) ?: continue
+            val isVpn = caps.hasTransport(
+                android.net.NetworkCapabilities.TRANSPORT_VPN
+            )
+            for (route in link.routes) {
+                val dest = route.destination ?: continue
+                val addr = dest.address ?: continue
+                if (dest.prefixLength != 0) continue
+                if (addr !is java.net.Inet6Address) continue
+                if (isVpn) {
+                    vpnHasV6Default = true
+                } else {
+                    underlyingHasV6Default = true
+                }
+            }
+        }
+        return underlyingHasV6Default && !vpnHasV6Default
+    }
+
+    /**
+     * v0.9.14.96 — central wrapper around IpV6KillswitchInjector.
+     * Always-on per user requirement: leaving v6 leakable through
+     * a v4-only tunnel is a critical security bug, so there is
+     * NO setting to disable this. The injector itself is idempotent
+     * (no-op on configs that already cover v6), and IPSec falls
+     * back to best-effort negotiation with the server. Used by
+     * connectWireGuard / connectOpenVpn / connectIpSec on the
+     * single-connection path. Pool path also calls this directly.
+     */
+    private fun ipv6PatchOrPassThrough(
+        configContent: String,
+        protocol: com.privycs.vpn.data.models.VpnProtocol,
+    ): String {
+        val res = com.privycs.vpn.data.IpV6KillswitchInjector.inject(configContent, protocol)
+        if (res.applied) {
+            PrivycsLogger.i(TAG, "ipv6-killswitch: patched ${protocol.name} config")
+        } else if (res.skippedReason != null) {
+            PrivycsLogger.d(TAG, "ipv6-killswitch: skipped ${protocol.name} — ${res.skippedReason}")
+        }
+        return res.patched
+    }
+
     private fun patchWireGuardDnsOverride(configContent: String): String {
         val servers = resolveDnsOverrideServers()
         if (servers.isEmpty()) return configContent
@@ -1655,7 +1736,13 @@ class PrivycsVpnService : VpnService() {
         // recognises both directives; the resulting profile has
         // mDns1/mDns2 set from our override instead of the
         // server's value.
-        val patchedConfigOvpn = patchOpenVpnDnsOverride(configContent)
+        val dnsPatchedOvpn = patchOpenVpnDnsOverride(configContent)
+        // v0.9.14.96: chain in IPv6 leak killswitch — appends
+        // route-ipv6 ::/0 + redirect-gateway ipv6 directives if
+        // not already present and the user setting is on.
+        val patchedConfigOvpn = ipv6PatchOrPassThrough(
+            dnsPatchedOvpn, com.privycs.vpn.data.models.VpnProtocol.OPENVPN
+        )
 
         // Pass currentConnectionId (the stable VpnConnection.id we hand
         // through from VpnServiceManager) so OpenVpnTunnel forces the
@@ -1719,12 +1806,46 @@ class PrivycsVpnService : VpnService() {
             sendWidgetUpdate(connected = connected)
         }
 
+        // v0.9.14.96: IPv6 leak killswitch for IPSec — best-effort
+        // patches remote_ts in the .sswan JSON to include ::/0.
+        // strongSwan negotiates traffic selectors with the server
+        // during IKE_AUTH; a v4-only server may narrow back to
+        // 0.0.0.0/0, in which case v6 still leaks (server-side
+        // limitation, see IpV6KillswitchInjector kdoc). Costs
+        // nothing on negotiation when server agrees.
+        val patchedSswan = ipv6PatchOrPassThrough(
+            configContent, com.privycs.vpn.data.models.VpnProtocol.IPSEC
+        )
+
         tunnel.connect(
-            configContent,
+            patchedSswan,
             currentConnectionName,
             this@PrivycsVpnService,
             dnsOverrideServers = resolveDnsOverrideServers()
         )
+
+        // v0.9.14.96: post-connect IPv6 leak check for IPSec.
+        // strongSwan negotiates traffic selectors with the server
+        // during IKE_AUTH; a v4-only server may narrow our requested
+        // ::/0 back to 0.0.0.0/0, leaving v6 unprotected. Our config
+        // injection happened best-effort; this passive check
+        // determines whether the negotiated tunnel actually captured
+        // v6, and warns the user if not. WireGuard / OpenVPN don't
+        // need this — their routes are unilateral, no negotiation.
+        scope.launch {
+            kotlinx.coroutines.delay(5_000) // wait for tunnel to fully establish
+            if (detectV6Leak()) {
+                PrivycsLogger.w(TAG, "ipv6-leak-warning: IPSec tunnel does not capture v6, native v6 default route active")
+                // Surface to UI via VpnServiceManager error field; UI
+                // can subscribe via status flow and show a banner.
+                VpnServiceManager.getInstance(this@PrivycsVpnService).emitWarning(
+                    "IPv6 traffic may bypass the VPN — server didn't accept IPv6 traffic-selector. " +
+                        "Switch to WireGuard for full v6 protection."
+                )
+            } else {
+                PrivycsLogger.d(TAG, "ipv6-leak check: tunnel captures v6 OR OS has no v6 — clean")
+            }
+        }
 
         connectStartTime = System.currentTimeMillis()
         sendWidgetUpdate(connected = false)

@@ -299,6 +299,10 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdRemoveLegacySudoers(cmd)
 	case "macos_restart_charon":
 		return h.cmdMacOSRestartCharon(cmd)
+	case "ipv6_block":
+		return h.cmdIPv6Block(cmd)
+	case "ipv6_unblock":
+		return h.cmdIPv6Unblock(cmd)
 	default:
 		return HelperResponse{Success: false, Error: "unhandled action"}
 	}

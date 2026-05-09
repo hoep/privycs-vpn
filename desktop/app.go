@@ -435,6 +435,15 @@ func (a *App) startup(ctx context.Context) {
 	// is idempotent (delete-not-found is silently ignored).
 	a.killSwitch.Disable()
 
+	// v0.9.14.96: orphan-IPv6-killswitch cleanup. If the previous app
+	// session crashed mid-tunnel, the helper-installed v6-block rules
+	// would persist (failsafe — fail closed) until the next
+	// connect+disconnect cycle. On startup we always clear them
+	// once: idempotent helper RPC, no-op when there's nothing to clear,
+	// and prevents the user landing on a v6-blocked desktop after a
+	// crash with no active VPN session to release it.
+	a.clearIPv6Killswitch()
+
 	// Start the new sinkhole controller. It first runs RecoverFromCrash
 	// (cleans up any Privycs-Sinkhole-* leftovers from a previous crashed
 	// run via the snapshot file) then subscribes to ksManager and
@@ -1010,6 +1019,19 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	a.connected = true
 	a.connectedAt = time.Now()
 
+	// v0.9.14.96: enable IPv6 leak killswitch if the tunnel is
+	// IPv4-only and the OS has live IPv6 connectivity. The decision
+	// is made INSIDE applyIPv6Killswitch — it consults the user
+	// setting + interface state and is a no-op when block isn't
+	// warranted. tunV4 is the protocol's reported LocalAddress
+	// (the inner v4 of the tunnel). Run in a goroutine so the
+	// connect path returns to the UI quickly; the helper RPC takes
+	// 50-200 ms typically.
+	go func() {
+		tunV4 := proto.Status().LocalAddress
+		a.applyIPv6Killswitch(tunV4)
+	}()
+
 	// Persist the runtime-assigned VPN IP back to the connection
 	// registry so the Configs page can show it after reload, even
 	// before the next connect. WireGuard's Address is static (parsed
@@ -1272,10 +1294,23 @@ func (a *App) disconnectInternal() error {
 				strings.ToUpper(activeProtocol), downErr.Error()),
 			NotifyError)
 		a.connected = false
+		// v0.9.14.96: also clear v6-killswitch on error-disconnect
+		// so we don't leave the user's v6 connectivity blocked when
+		// proto.Down failed but App-state moved to disconnected.
+		a.clearIPv6Killswitch()
 		return nil
 	}
 
 	a.connected = false
+
+	// v0.9.14.96: clear IPv6 leak killswitch firewall rules. Always
+	// called — clearIPv6Killswitch is idempotent so it's safe even
+	// when the tunnel session never triggered enable. Runs sync so
+	// the user's v6 connectivity is restored BEFORE the disconnect
+	// completion notification fires (otherwise users would see
+	// "disconnected" but their websites still won't reach v6 sites
+	// for the few hundred ms it takes to call the helper).
+	a.clearIPv6Killswitch()
 
 	// Hardcore Kill Switch: a user-initiated disconnect with KS
 	// enabled engages the sinkhole - traffic stays blocked until

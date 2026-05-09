@@ -220,6 +220,27 @@ object ConnectCoordinator {
 
             when (val s = _state.value) {
                 is State.Connected -> {
+                    // v0.9.14.96: symmetric desync defence. If the
+                    // Coordinator says Connected but the actual
+                    // VpnServiceManager reports the tunnel is down
+                    // (something tore down the service externally —
+                    // OS revoke, kill via Settings → VPN, crash
+                    // recovery loss), short-circuiting to
+                    // AlreadyConnected here would silently absorb a
+                    // legitimate connect intent and leave the user
+                    // waiting forever for a tunnel that will never
+                    // come back. Force a real connect instead.
+                    val mgr = com.privycs.vpn.service.VpnServiceManager.getInstance(context)
+                    if (!mgr.isConnected) {
+                        PrivycsLogger.w(
+                            TAG,
+                            "requestConnect($source, ${target.targetId}): state=Connected but VpnServiceManager reports disconnected — DESYNC, forcing real connect"
+                        )
+                        fireConnectIntent(context, target)
+                        _state.value = State.Connecting(System.currentTimeMillis(), source, target.targetId)
+                        startWatchdog()
+                        return@withLock Result.Accepted
+                    }
                     PrivycsLogger.d(TAG, "requestConnect($source, ${target.targetId}): already connected")
                     Result.AlreadyConnected
                 }
@@ -266,6 +287,43 @@ object ConnectCoordinator {
         return mutex.withLock {
             when (_state.value) {
                 is State.Idle -> {
+                    // v0.9.14.96: defensive desync detection. The Coordinator
+                    // state machine is updated by markConnected/markDisconnected
+                    // calls from VpnServiceManager.updateStatus AND by the
+                    // request* APIs. A spurious markDisconnected (e.g. transient
+                    // status glitch during VPN-up) or a Coordinator init while
+                    // VPN was already running can leave _state=Idle while the
+                    // actual VpnService is alive and routing traffic. Without
+                    // this guard, the on-demand disconnect path on a
+                    // shouldConnect=false transition fires requestDisconnect →
+                    // sees Idle → returns AlreadyIdle → tunnel STAYS UP. User
+                    // sits inside a "VPN will not connect" SSID with a tunnel
+                    // they expected to be torn down. v0.9.14.91 user report
+                    // matched this exactly: "kein disconnect statt".
+                    val mgr = com.privycs.vpn.service.VpnServiceManager.getInstance(context)
+                    if (mgr.isConnected) {
+                        PrivycsLogger.w(
+                            TAG,
+                            "requestDisconnect($source): state=Idle but VpnServiceManager reports connected — DESYNC, forcing real disconnect"
+                        )
+                        // Kill Switch handling mirrors the Connecting/Connected
+                        // branch below — disarm only on user-class sources when
+                        // KS is off; otherwise leave armed so the natural
+                        // connected=false transition engages the sinkhole.
+                        val killSwitchEnabled = com.privycs.vpn.PrivycsApp.instance
+                            .settingsRepository.getSettingsBlocking().killSwitchEnabled
+                        if (!killSwitchEnabled &&
+                            (source == IntentSource.USER ||
+                                source == IntentSource.WIDGET ||
+                                source == IntentSource.TILE)
+                        ) {
+                            KillSwitchManager.disarm()
+                        }
+                        fireDisconnectIntent(context)
+                        _state.value = State.Disconnecting(System.currentTimeMillis())
+                        startDisconnectWatchdog()
+                        return@withLock Result.Accepted
+                    }
                     PrivycsLogger.d(TAG, "requestDisconnect($source): already idle")
                     Result.AlreadyIdle
                 }

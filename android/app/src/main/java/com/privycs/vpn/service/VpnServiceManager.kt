@@ -87,6 +87,23 @@ class VpnServiceManager private constructor(private val context: Context) {
     }
 
     /**
+     * v0.9.14.96 — non-error warning channel. Surfaces a soft
+     * warning into the status flow so the UI can show a banner
+     * without flipping connected=false. Used by post-connect
+     * IPv6-leak-detection in PrivycsVpnService.connectIpSec when
+     * the server narrowed our v6 traffic-selector during IKE_AUTH.
+     * Updates only the `error` field; connected stays as-is.
+     */
+    fun emitWarning(text: String) {
+        val cur = _status.value
+        // Don't override a real connect-time error.
+        if (cur.error != null && cur.error.isNotBlank()) {
+            return
+        }
+        _status.value = cur.copy(error = "WARNING: $text")
+    }
+
+    /**
      * Connect using the active connection's active protocol.
      *
      * All the heavy lifting (Intent firing, state serialisation,
