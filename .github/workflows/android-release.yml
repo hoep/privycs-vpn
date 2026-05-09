@@ -263,7 +263,18 @@ jobs:
 
           wait_for_android_assets() {
             local tag="$1"
-            local deadline=$(( $(date +%s) + 600 ))
+            # Bumped from 600 s (10 min) to 2100 s (35 min) — full
+            # Android builds with native OpenVPN+strongSwan compile
+            # routinely take 25–30 min, and the previous timeout
+            # let propagate-previous skip past an in-flight build
+            # of the prior tag and fall back to two-tags-back. The
+            # symptom was: after tagging v0.9.14.91 (Android-bumped)
+            # immediately followed by .92/.93 (macOS-only),
+            # propagate-previous of .92 timed out waiting for .91
+            # and grabbed .88's APK instead. Heal cycle was manual
+            # `gh release upload`. 35 min covers a full clean
+            # Android build with margin.
+            local deadline=$(( $(date +%s) + 2100 ))
             while [ "$(date +%s)" -lt "$deadline" ]; do
               # Check for either APK OR AAB — both are Android assets
               # we want to forward. v0.9.14.91: was "apk-only" before,
