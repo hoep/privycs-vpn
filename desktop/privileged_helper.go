@@ -752,17 +752,55 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 		log.Printf("swanctl --terminate failed (continuing to flush kernel state): %s: %v",
 			strings.TrimSpace(string(out)), err)
 	}
-	// v0.9.14.92: also flush the kernel-level SADB+SPD on macOS so
-	// no orphan kernel SAs/policies survive the user-disconnect.
-	// User report: after Disconnect, ipinfo.io still resolved to a
-	// VPN exit IP — meaning traffic was still being routed through
-	// a kernel SA that swanctl's --terminate did not actually clean
-	// up at the kernel level. Same root cause as the v0.9.14.90 wake-
-	// recovery fix; we now apply it on the user-driven disconnect
-	// path too, so a clean Disconnect leaves zero IPSec kernel state.
-	// No-op on Linux (xfrm flush is a separate path; current Linux
-	// IPSec connections don't show this symptom in testing).
+	// v0.9.14.93: bulletproof IPSec teardown on macOS — charon stop
+	// + kernel-SADB+SPD flush. Why charon-stop and not just terminate:
+	// `swanctl --terminate` only tells charon to delete the SA, but
+	// charon's userspace session-state (IKE_SA, CHILD_SA descriptors,
+	// rekey timers, DPD timers) can persist even after termination
+	// reports success. If the user immediately disconnect→connect→
+	// disconnect-cycles, that lingering userspace state can spawn
+	// new kernel SAs via rekey/DPD between our flushes, and traffic
+	// keeps flowing through them — exactly the user-reported "ipinfo
+	// zeigt vpn exit nach disconnect" symptom. Killing charon
+	// entirely guarantees no userspace session-state survives.
+	// helperEnsureMacOSCharonRunning() respawns charon at the next
+	// connect (~1-2 s startup cost is acceptable for the safety
+	// guarantee). No-op on Linux (xfrm flush is a separate path;
+	// Linux IPSec connections don't show this symptom in testing).
 	if runtime.GOOS == "darwin" {
+		ipsecBin := helperFindMacOSStrongswanBinary("ipsec")
+		if ipsecBin != "" {
+			if stopOut, stopErr := exec.Command(ipsecBin, "stop").CombinedOutput(); stopErr != nil {
+				log.Printf("ipsec stop (post-disconnect daemon kill) failed: %s: %v",
+					strings.TrimSpace(string(stopOut)), stopErr)
+			} else {
+				log.Printf("ipsec stop (post-disconnect) OK: %s",
+					strings.TrimSpace(string(stopOut)))
+			}
+			// Brief poll for vici socket disappearance — confirms
+			// charon has actually exited before we declare success.
+			viciCandidates := []string{
+				"/opt/homebrew/var/run/charon.vici",
+				"/usr/local/var/run/charon.vici",
+				"/var/run/charon.vici",
+			}
+			deadline := time.Now().Add(3 * time.Second)
+			for time.Now().Before(deadline) {
+				gone := true
+				for _, p := range viciCandidates {
+					if fi, err := os.Stat(p); err == nil && (fi.Mode()&os.ModeSocket) != 0 {
+						gone = false
+						break
+					}
+				}
+				if gone {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		// Flush kernel state AFTER charon stops, so charon can't
+		// reinstall SAs via rekey/DPD on its way out.
 		if flushOut, flushErr := exec.Command("/usr/sbin/setkey", "-F").CombinedOutput(); flushErr != nil {
 			log.Printf("setkey -F (post-disconnect SADB flush) failed: %s: %v",
 				strings.TrimSpace(string(flushOut)), flushErr)
