@@ -1,0 +1,23 @@
+# Signing material — must NEVER be committed.
+#
+# The Android upload-key keystore (privycs-upload.keystore) and the
+# Play Store-downloaded App-Signing certificate (deployment_cert.der)
+# both live in .privycs-keys/. Anything in that directory is local-
+# only; CI gets the keystore via base64-encoded GitHub Secret
+# (ANDROID_KEYSTORE_B64), not from this tree.
+.privycs-keys/
+
+# Defensive: catch any other key/cert material that might end up
+# elsewhere in the tree by accident. *.pem covers exported public
+# certs (still better not committed — they're identifiers); the
+# rest are explicitly secret-bearing formats.
+*.keystore
+*.jks
+*.der
+*.pem
+*.p12
+*.pfx
+
+# Specifically the Play Console "Download deployment_cert" file —
+# regardless of where saved.
+deployment_cert*

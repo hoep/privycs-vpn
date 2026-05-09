@@ -136,6 +136,20 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon
 
+      # Build the Android App Bundle (.aab) for Play Store upload.
+      # Same signing config as the APK — Play registers the upload-key
+      # certificate at first AAB upload, so we MUST sign with the
+      # privycs-upload keystore (the same one in ANDROID_KEYSTORE_B64
+      # that signs the GitHub-released APK). bundleRelease produces
+      # app/build/outputs/bundle/release/app-release.aab.
+      - name: Build release AAB (Play Store)
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/upload.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew bundleRelease --no-daemon
+
       - name: Extract version from tag
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
@@ -144,6 +158,8 @@ jobs:
         run: |
           cd app/build/outputs/apk
           find . -name "*.apk" -exec sh -c 'sha256sum "$1" > "$1.sha256"' _ {} \;
+          cd ../bundle
+          find . -name "*.aab" -exec sh -c 'sha256sum "$1" > "$1.sha256"' _ {} \;
 
       - name: Upload release APK artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -152,6 +168,18 @@ jobs:
           path: |
             android/app/build/outputs/apk/release/*.apk
             android/app/build/outputs/apk/release/*.sha256
+          retention-days: 90
+
+      # Separate artifact for the AAB so it can be downloaded
+      # independently and uploaded to the Play Console (manually for
+      # the first time, automated via google-play-action later).
+      - name: Upload release AAB artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: privycs-vpn-aab-${{ steps.version.outputs.version }}
+          path: |
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/bundle/release/*.aab.sha256
           retention-days: 90
 
       - name: Upload debug APK artifact
@@ -175,6 +203,8 @@ jobs:
             android/app/build/outputs/apk/release/*.sha256
             android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/apk/debug/*.sha256
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/bundle/release/*.aab.sha256
 
   propagate-previous-android:
     name: Propagate previous Android APKs
