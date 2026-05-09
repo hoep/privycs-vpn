@@ -68,6 +68,18 @@ type App struct {
 	connected     bool
 	disconnecting bool // true while proto.Down() is running — blocks auto-detect
 	connectedAt   time.Time
+	// Session-level byte counter baseline. The IPSec protocol on
+	// macOS reads its byte counters from the active CHILD SA. Auto-
+	// charon-restart on system wake (v0.9.14.88) tears that SA down
+	// and replaces it with a fresh one — the new SA starts at 0 bytes,
+	// which made the user-visible counter reset to 0 mid-session.
+	// Fix (v0.9.14.89): before the wake-driven restart we snapshot
+	// the current bytes_rx/tx, store here, and Status() adds them on
+	// top of the new SA's counter so the user sees a continuous
+	// session total. Reset to 0 on user-initiated disconnect (so a
+	// fresh connect starts a fresh count). Set/read under a.mu.
+	sessionByteBaselineRx int64
+	sessionByteBaselineTx int64
 	// lastUserDisconnectAt tracks the wall-clock time of the most
 	// recent App.Disconnect() call (= user clicked the big disconnect
 	// button or the tray menu). poolKeepaliveLoop consults this so
@@ -650,6 +662,22 @@ func (a *App) Status() *StatusResponse {
 		}
 	}
 
+	// v0.9.14.89: roll the session byte baseline into the protocol's
+	// reported counters. The baseline is non-zero only after a
+	// wake-driven charon-restart on macOS-IPSec: it captures the
+	// pre-restart bytes so the user-visible session total stays
+	// continuous instead of resetting to 0 when the new IKE_SA's
+	// counter starts fresh. For all other paths and at fresh-connect
+	// time the baseline is 0 and this is a no-op.
+	a.mu.RLock()
+	baselineRx := a.sessionByteBaselineRx
+	baselineTx := a.sessionByteBaselineTx
+	a.mu.RUnlock()
+	if baselineRx > 0 || baselineTx > 0 {
+		protoStatus.BytesRx += baselineRx
+		protoStatus.BytesTx += baselineTx
+	}
+
 	// No auto-detection here. a.connected is managed exclusively by:
 	// - startup() for detecting tunnels running from a previous session
 	// - Connect() when user explicitly connects
@@ -1115,6 +1143,13 @@ func (a *App) Disconnect() error {
 	// drop-recovery scenario. Mirrors Android's
 	// AlwaysOnDetector.stampUserDisconnect.
 	a.lastUserDisconnectAt = time.Now()
+	// v0.9.14.89: reset the session byte baseline on user-driven
+	// disconnect. The baseline is a wake-recovery accumulator;
+	// when the user explicitly ends the session, a fresh connect
+	// should start from 0 again, not pile on top of the prior
+	// session's bytes.
+	a.sessionByteBaselineRx = 0
+	a.sessionByteBaselineTx = 0
 	return a.disconnectInternal()
 }
 
@@ -2661,6 +2696,26 @@ func (a *App) handleSystemDidWake() {
 	}
 	a.mu.RUnlock()
 	needsCharonRestart := runtime.GOOS == "darwin" && activeProto == "ipsec"
+
+	// v0.9.14.89: snapshot current byte counters BEFORE the wake-
+	// driven restart cycle so the session total survives the new
+	// IKE_SA replacing the old one. Without this the counter
+	// visibly resets to 0 mid-session whenever the user opens the
+	// laptop lid. Only meaningful on macOS-IPSec where we do the
+	// hard charon-restart; for other paths the existing IKE_SA
+	// stays cached across reconnect and the counter is preserved
+	// natively.
+	if needsCharonRestart {
+		if proto, ok := a.protocols[a.activeProtocol]; ok {
+			s := proto.Status()
+			a.mu.Lock()
+			a.sessionByteBaselineRx += s.BytesRx
+			a.sessionByteBaselineTx += s.BytesTx
+			a.mu.Unlock()
+			log.Printf("PowerEvents: snapshotted pre-restart bytes rx=%d tx=%d for session continuity",
+				s.BytesRx, s.BytesTx)
+		}
+	}
 
 	go func() {
 		time.Sleep(2 * time.Second)
