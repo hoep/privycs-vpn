@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -742,14 +743,32 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 			return HelperResponse{Success: false, Error: "swanctl not found — install via `brew install strongswan`"}
 		}
 	}
-	out, err := exec.Command(swanctlBin, "--terminate", "--ike", connName).CombinedOutput()
+	// v0.9.14.94: bound swanctl --terminate with a 3-second timeout.
+	// User report: even with v0.9.14.93's "kill charon on disconnect"
+	// path, the manual `ipsec stop && ipsec start` workaround was
+	// still required after sleep/wake. Diagnosis: when charon is
+	// in a zombie state post-sleep, `swanctl --terminate` hangs
+	// indefinitely waiting for an ack from the unresponsive daemon.
+	// The whole helper RPC was blocked at this step — the
+	// subsequent `ipsec stop` (which is what the user does manually
+	// and which actually kills the daemon via SIGTERM) was never
+	// reached.
+	//
+	// With CommandContext + 3s timeout: if --terminate doesn't
+	// complete in 3 s we abort it (Process.Kill from context
+	// cancellation) and proceed straight to `ipsec stop`. Best of
+	// both worlds: clean termination when charon is healthy,
+	// guaranteed progression to forced kill when it isn't.
+	tctx, tcancel := context.WithTimeout(context.Background(), 3*time.Second)
+	out, err := exec.CommandContext(tctx, swanctlBin, "--terminate", "--ike", connName).CombinedOutput()
+	tcancel()
 	if err != nil {
-		// Even on terminate-failure, fall through to the kernel-SADB
-		// flush below — `swanctl --terminate` can fail when charon
-		// is in a stale state (frequent after sleep), but the kernel
-		// SAs may still need flushing regardless. We log the
-		// terminate error but don't return.
-		log.Printf("swanctl --terminate failed (continuing to flush kernel state): %s: %v",
+		// Even on terminate-failure or timeout, fall through to
+		// the kernel-SADB flush below — `swanctl --terminate` can
+		// fail when charon is in a stale state (frequent after
+		// sleep), but the kernel SAs may still need flushing
+		// regardless. We log the terminate error but don't return.
+		log.Printf("swanctl --terminate failed/timed-out (continuing to ipsec-stop + kernel flush): %s: %v",
 			strings.TrimSpace(string(out)), err)
 	}
 	// v0.9.14.93: bulletproof IPSec teardown on macOS — charon stop
