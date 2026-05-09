@@ -270,7 +270,12 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                // v0.9.14.91: asymmetric padding (8dp bottom instead
+                // of 16dp) reclaims wasted space between the last
+                // card and the bottom-nav bar. Top stays at 12dp so
+                // the first card has visible breathing room below
+                // the TopAppBar; horizontal stays at 16dp.
+                .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // -- Privycs Gateway --
@@ -1069,7 +1074,11 @@ fun SettingsScreen(
                 SettingsInfoRow("Protocols", "WireGuard, OpenVPN, IPSec")
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            // v0.9.14.91: dropped the 32dp trailing spacer that
+            // was creating ~48dp of black wasted area between the
+            // last card and the bottom-nav bar (32dp Spacer +
+            // 16dp Column padding-bottom). The Column's own
+            // bottom padding is enough breathing room.
         }
     }
 }

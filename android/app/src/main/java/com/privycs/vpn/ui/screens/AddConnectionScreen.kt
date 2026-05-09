@@ -283,7 +283,10 @@ fun AddConnectionScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                // v0.9.14.91: asymmetric padding (8dp bottom)
+                // reclaims wasted space between content and the
+                // bottom-nav bar. Same trim as SettingsScreen.
+                .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Target indicator when adding a protocol to an existing connection.

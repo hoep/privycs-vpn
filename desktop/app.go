@@ -2674,12 +2674,41 @@ func (a *App) handleSystemDidWake() {
 	}
 	a.mu.RLock()
 	connected := a.connected
+	activeConn := a.connections.Active()
+	lastDisconnect := a.lastUserDisconnectAt
 	a.mu.RUnlock()
-	if !connected {
-		log.Printf("PowerEvents: didWake — no tunnel was up, nothing to recover")
+	// v0.9.14.91: gate-by-active-connection instead of gate-by-connected.
+	// User report: "nach sleep restored sich vpn nach wie vor nicht (nur
+	// ipsec)". Previous gate (`if !connected return`) bailed when the OS
+	// had already torn down the tunnel during sleep and the periodic
+	// status poll happened to update a.connected to false BEFORE the
+	// wake notification fired — which on macOS is a frequent timing
+	// outcome on lid-close, especially for IPSec where the helper-side
+	// SA goes silent and our Status() polling sees ESTABLISHED disappear
+	// quickly. The right semantics for "should we restore": "the user
+	// had a connection set up that they expected to remain on, AND they
+	// did not just manually disconnect within the past few minutes".
+	if activeConn == nil {
+		log.Printf("PowerEvents: didWake — no active connection configured, nothing to recover")
 		return
 	}
-	log.Printf("PowerEvents: didWake — forcing reconnect after 2s settle delay")
+	// Honour a recent user-initiated disconnect — we don't want to
+	// auto-reconnect within the same minute the user explicitly hit
+	// Disconnect, even if they then close the lid. 5 min covers a
+	// "Disconnect, close laptop, walk away, open later" pattern as
+	// not-needing-recovery while keeping recovery responsive after a
+	// long sleep.
+	if !lastDisconnect.IsZero() && time.Since(lastDisconnect) < 5*time.Minute {
+		log.Printf(
+			"PowerEvents: didWake — user disconnected %v ago, skipping wake-recovery (cooldown)",
+			time.Since(lastDisconnect).Round(time.Second),
+		)
+		return
+	}
+	log.Printf(
+		"PowerEvents: didWake — wake-recovery for %s (was-connected=%v, will reconnect after 2s settle)",
+		activeConn.Name, connected,
+	)
 	// Capture the active protocol BEFORE disconnect so we can decide
 	// whether to do the macOS-IPSec-only charon-restart step. We
 	// only do the heavy charon-restart for IPSec on macOS because

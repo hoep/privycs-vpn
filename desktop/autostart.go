@@ -100,12 +100,25 @@ func launchAgentPath() string {
 func setAutostartMacOS(enable bool) error {
 	path := launchAgentPath()
 
+	// v0.9.14.91: ALWAYS unload + remove any pre-existing plist before
+	// either disabling or re-writing. Without this, when the user
+	// toggled autostart off-on (or moved the .app to a different
+	// location and re-enabled autostart), macOS's Login Items
+	// database held onto the OLD plist's cached exec path even after
+	// we wrote the new one. Result: System Settings → General →
+	// Login Items showed a ghost entry with a missing icon (because
+	// the cached exec path no longer resolves), alongside the
+	// freshly-written one. User report: "einmal gelöscht jetzt
+	// doppelt mit fehlendem icon".
+	exec.Command("launchctl", "unload", path).Run()
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		// Removal failure is non-fatal for the enable path
+		// (we'll just overwrite below); for the disable path
+		// we'd return below if !enable.
+		log.Printf("Autostart: unable to remove existing plist at %s: %v (continuing)", path, err)
+	}
+
 	if !enable {
-		// Unload and remove
-		exec.Command("launchctl", "unload", path).Run()
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove launch agent: %w", err)
-		}
 		log.Println("Autostart: disabled (macOS)")
 		return nil
 	}
