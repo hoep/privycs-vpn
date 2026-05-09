@@ -623,6 +623,18 @@ func (h *PrivilegedHelper) connectIPSec(cmd HelperCommand) HelperResponse {
 		if swanctlBin == "" {
 			return HelperResponse{Success: false, Error: "swanctl not found — install via `brew install strongswan`"}
 		}
+		// v0.9.14.92: defensive flush BEFORE the new --initiate.
+		// If a previous session left orphan kernel SAs/policies in
+		// the SADB+SPD (e.g. crash recovery, helper restart, or
+		// prior --terminate that didn't cascade through to the
+		// kernel), they could intercept traffic for the new tunnel
+		// before our fresh SA's policies are installed. Flushing
+		// here makes every connect start from a known-clean kernel
+		// IPSec state. setkey is a base macOS utility (no install
+		// needed). Linux IPSec connections don't currently exhibit
+		// this, so we keep the flush darwin-only.
+		_, _ = exec.Command("/usr/sbin/setkey", "-F").CombinedOutput()
+		_, _ = exec.Command("/usr/sbin/setkey", "-FP").CombinedOutput()
 	}
 	out, err := exec.Command(swanctlBin, "--load-all").CombinedOutput()
 	if err != nil {
@@ -732,7 +744,39 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 	}
 	out, err := exec.Command(swanctlBin, "--terminate", "--ike", connName).CombinedOutput()
 	if err != nil {
-		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --terminate failed: %s", string(out)), Output: string(out)}
+		// Even on terminate-failure, fall through to the kernel-SADB
+		// flush below — `swanctl --terminate` can fail when charon
+		// is in a stale state (frequent after sleep), but the kernel
+		// SAs may still need flushing regardless. We log the
+		// terminate error but don't return.
+		log.Printf("swanctl --terminate failed (continuing to flush kernel state): %s: %v",
+			strings.TrimSpace(string(out)), err)
+	}
+	// v0.9.14.92: also flush the kernel-level SADB+SPD on macOS so
+	// no orphan kernel SAs/policies survive the user-disconnect.
+	// User report: after Disconnect, ipinfo.io still resolved to a
+	// VPN exit IP — meaning traffic was still being routed through
+	// a kernel SA that swanctl's --terminate did not actually clean
+	// up at the kernel level. Same root cause as the v0.9.14.90 wake-
+	// recovery fix; we now apply it on the user-driven disconnect
+	// path too, so a clean Disconnect leaves zero IPSec kernel state.
+	// No-op on Linux (xfrm flush is a separate path; current Linux
+	// IPSec connections don't show this symptom in testing).
+	if runtime.GOOS == "darwin" {
+		if flushOut, flushErr := exec.Command("/usr/sbin/setkey", "-F").CombinedOutput(); flushErr != nil {
+			log.Printf("setkey -F (post-disconnect SADB flush) failed: %s: %v",
+				strings.TrimSpace(string(flushOut)), flushErr)
+		} else {
+			log.Printf("setkey -F (post-disconnect SADB flush) OK: %s",
+				strings.TrimSpace(string(flushOut)))
+		}
+		if flushOut, flushErr := exec.Command("/usr/sbin/setkey", "-FP").CombinedOutput(); flushErr != nil {
+			log.Printf("setkey -FP (post-disconnect SPD flush) failed: %s: %v",
+				strings.TrimSpace(string(flushOut)), flushErr)
+		} else {
+			log.Printf("setkey -FP (post-disconnect SPD flush) OK: %s",
+				strings.TrimSpace(string(flushOut)))
+		}
 	}
 	// DNS override restore. Linux-only path — macOS via swanctl does
 	// its own DNS via attribute payloads + scutil, no /etc/resolv.conf
