@@ -80,6 +80,16 @@ type App struct {
 	// fresh connect starts a fresh count). Set/read under a.mu.
 	sessionByteBaselineRx int64
 	sessionByteBaselineTx int64
+
+	// v0.9.14.95: silent-fail debounce counter. Increments when the
+	// 2-second Status() poll sees app-level connected=true but the
+	// protocol-side check disagrees (no ESTABLISHED SA / no running
+	// handshake / no openvpn process). Two consecutive disagreements
+	// (~4 s) trigger a force-flip of a.connected to false — the UI
+	// then immediately shows disconnected. Single-tick disagreements
+	// from transient swanctl/rasdial command failures are absorbed
+	// without flipping. Reset on agreement.
+	silentFailTickCount int
 	// lastUserDisconnectAt tracks the wall-clock time of the most
 	// recent App.Disconnect() call (= user clicked the big disconnect
 	// button or the tray menu). poolKeepaliveLoop consults this so
@@ -684,6 +694,45 @@ func (a *App) Status() *StatusResponse {
 	// - disconnectInternal() when user explicitly disconnects
 	// Running auto-detect in the poll loop caused disconnect to "reconnect"
 	// because the process was still briefly visible after SIGTERM.
+
+	// v0.9.14.95: SAFETY OVERRIDE for silent-fail tunnel death.
+	// User report: "ca 30s nach connect tunnel weg, UI zeigt aber
+	// connected, whatsmyip zeigt echte IP, traffic 0B 0B" — i.e. the
+	// tunnel SA died (SA expiry, OS network reset, charon crash)
+	// but a.connected still says true because no explicit
+	// disconnectInternal was called. UI then misled the user into
+	// thinking traffic was protected when it was flowing direct.
+	//
+	// If the App-level connected flag says true but the protocol's
+	// authoritative status check disagrees (no ESTABLISHED SA, no
+	// running handshake, no openvpn process), force a state
+	// reconciliation: flip a.connected to false so the UI shows
+	// disconnected and any other recovery paths (TunnelHealthMonitor,
+	// auto-reconnect, KS-engage) see the correct state.
+	//
+	// Two-tick gate: require the protocol-disagreement to persist
+	// across two consecutive Status() polls (~4 s) before flipping.
+	// One-tick would flip on transient swanctl/rasdial command
+	// failures. Two ticks is enough to filter those while keeping
+	// the safety reaction within the same human-perception window
+	// as the silent fail itself.
+	if connected && !protoStatus.Connected {
+		a.silentFailTickCount++
+		log.Printf(
+			"Status: silent-fail probe %d/2 — app-state=connected proto-state=disconnected (%s)",
+			a.silentFailTickCount, activeProtocol,
+		)
+		if a.silentFailTickCount >= 2 {
+			log.Printf("Status: SILENT-FAIL CONFIRMED — flipping a.connected to false")
+			a.connected = false
+			a.silentFailTickCount = 0
+			connected = false // override the local copy so the response below shows disconnected
+			wailsRuntime.EventsEmit(a.ctx, "vpn:silent_fail", activeProtocol)
+		}
+	} else if a.silentFailTickCount > 0 {
+		// Recovered before two consecutive ticks confirmed — reset.
+		a.silentFailTickCount = 0
+	}
 
 	// 3. Defensive Kill Switch arming. When the user has KS enabled
 	// AND the tunnel is up AND ksManager is not yet ARMED, arm it.
