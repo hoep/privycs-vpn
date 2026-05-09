@@ -261,16 +261,20 @@ jobs:
                  | grep -v "^${CURRENT_TAG}$" \
                  | sort -rV || true)
 
-          wait_for_apk_assets() {
+          wait_for_android_assets() {
             local tag="$1"
             local deadline=$(( $(date +%s) + 600 ))
             while [ "$(date +%s)" -lt "$deadline" ]; do
+              # Check for either APK OR AAB — both are Android assets
+              # we want to forward. v0.9.14.91: was "apk-only" before,
+              # which made AAB releases stranded on .88 because the
+              # next .89/.90 propagated only the APK, never the AAB.
               local has=$(gh release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null \
-                          | grep -cE '\.apk$' || true)
+                          | grep -cE '\.(apk|aab)$' || true)
               if [ "$has" -gt 0 ]; then
                 return 0
               fi
-              echo "  $tag has no APK assets yet — waiting 30s…"
+              echo "  $tag has no APK/AAB assets yet — waiting 30s…"
               sleep 30
             done
             return 1
@@ -278,9 +282,9 @@ jobs:
 
           PREV_TAG=""
           for tag in $TAGS; do
-            has_apk=$(gh release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null \
-                      | grep -cE '\.apk$' || true)
-            if [ "$has_apk" -gt 0 ]; then
+            has_android=$(gh release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null \
+                          | grep -cE '\.(apk|aab)$' || true)
+            if [ "$has_android" -gt 0 ]; then
               PREV_TAG="$tag"
               break
             fi
@@ -290,8 +294,8 @@ jobs:
                       --jq ".[] | select(.headBranch==\"$tag\" and (.status==\"in_progress\" or .status==\"queued\")) | .databaseId" \
                       2>/dev/null | head -1)
             if [ -n "$running" ]; then
-              echo "Tag $tag has an in-flight android-release run ($running) — waiting up to 10 min for APK…"
-              if wait_for_apk_assets "$tag"; then
+              echo "Tag $tag has an in-flight android-release run ($running) — waiting up to 10 min for assets…"
+              if wait_for_android_assets "$tag"; then
                 PREV_TAG="$tag"
                 break
               fi
@@ -300,18 +304,20 @@ jobs:
           done
 
           if [ -z "$PREV_TAG" ]; then
-            echo "No previous release with Android APKs found — nothing to propagate."
+            echo "No previous release with Android APK/AAB found — nothing to propagate."
             exit 0
           fi
           echo "Previous Android-bearing tag: $PREV_TAG"
 
-          mkdir -p /tmp/apks
-          echo "Downloading Android artifacts from $PREV_TAG..."
+          mkdir -p /tmp/android-assets
+          echo "Downloading Android artifacts (APK + AAB) from $PREV_TAG..."
           gh release download "$PREV_TAG" \
             --repo "$REPO" \
             --pattern "*.apk" \
             --pattern "*.apk.sha256" \
-            --dir /tmp/apks
+            --pattern "*.aab" \
+            --pattern "*.aab.sha256" \
+            --dir /tmp/android-assets
 
           # Ensure the current release exists. desktop-release.yml may still
           # be running; if it hasn't created the release yet, we create it
@@ -327,10 +333,17 @@ jobs:
             echo "Release $CURRENT_TAG already exists — uploading to it."
           fi
 
-          echo "Uploading APKs to $CURRENT_TAG..."
-          gh release upload "$CURRENT_TAG" \
-            --repo "$REPO" \
-            --clobber \
-            /tmp/apks/*.apk /tmp/apks/*.apk.sha256
+          echo "Uploading Android assets to $CURRENT_TAG..."
+          # nullglob so an empty pattern just expands to nothing instead
+          # of literal "*.aab" — keeps the upload silent when a propagated
+          # tag predates the AAB introduction (v0.9.14.84 was the first).
+          shopt -s nullglob
+          ASSETS=( /tmp/android-assets/*.apk /tmp/android-assets/*.apk.sha256 /tmp/android-assets/*.aab /tmp/android-assets/*.aab.sha256 )
+          if [ "${#ASSETS[@]}" -gt 0 ]; then
+            gh release upload "$CURRENT_TAG" \
+              --repo "$REPO" \
+              --clobber \
+              "${ASSETS[@]}"
+          fi
 
-          echo "Propagated Android APKs from $PREV_TAG to $CURRENT_TAG (no rebuild)."
+          echo "Propagated Android assets from $PREV_TAG to $CURRENT_TAG (no rebuild)."
