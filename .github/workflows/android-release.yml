@@ -154,6 +154,22 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      # Rename AAB to match the APK's release-naming convention.
+      # The APK gets renamed to privycs-vpn-X.Y.Z(-debug).apk via
+      # build.gradle.kts's applicationVariants.all { outputFileName }
+      # block, but that rename hook only fires for APK builds —
+      # bundleRelease produces the bare 'app-release.aab'. Renaming
+      # here keeps GitHub Release asset names consistent.
+      # (Play Console doesn't care about filenames; it reads the
+      # AAB's internal metadata. This is purely for download UX.)
+      - name: Rename AAB to release naming
+        run: |
+          cd app/build/outputs/bundle/release
+          if [ -f "app-release.aab" ]; then
+            mv app-release.aab "privycs-vpn-${{ steps.version.outputs.version }}.aab"
+          fi
+          ls -la
+
       - name: Generate SHA256 checksums
         run: |
           cd app/build/outputs/apk
