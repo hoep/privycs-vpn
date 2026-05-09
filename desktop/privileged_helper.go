@@ -296,6 +296,8 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdMacOSDNSOverrideClean(cmd)
 	case "remove_legacy_sudoers":
 		return h.cmdRemoveLegacySudoers(cmd)
+	case "macos_restart_charon":
+		return h.cmdMacOSRestartCharon(cmd)
 	default:
 		return HelperResponse{Success: false, Error: "unhandled action"}
 	}
@@ -1091,6 +1093,69 @@ func (h *PrivilegedHelper) cmdIPSecConfigure(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: false, Error: errMsg, Output: string(out)}
 	}
 	return HelperResponse{Success: true, Output: string(out)}
+}
+
+// cmdMacOSRestartCharon performs a hard restart of the macOS charon
+// daemon (`ipsec stop` -> wait for vici socket to disappear ->
+// `ipsec start` -> wait for vici socket to reappear). Used as the
+// post-wake recovery step on macOS IPSec when the daemon's IKE_SA
+// state has gone stale across a long sleep — which manifests as
+// the user-reported symptom "after lid close+open IPSec hangs;
+// must `ipsec restart` manually". v0.9.14.88 wires this into the
+// NSWorkspaceDidWakeNotification handler so the recovery is
+// automatic.
+//
+// Linux/Windows are no-ops — they have other recovery paths
+// (systemd-restart on Linux is fast and rarely needed; Windows
+// has its own service-control story).
+func (h *PrivilegedHelper) cmdMacOSRestartCharon(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: false, Error: "macos_restart_charon is darwin-only"}
+	}
+	ipsecBin := helperFindMacOSStrongswanBinary("ipsec")
+	if ipsecBin == "" {
+		return HelperResponse{Success: false, Error: "ipsec wrapper not found"}
+	}
+	// Stop. Output captured for diagnosis on failure; ipsec stop
+	// returns 0 even if charon was already down so we don't gate
+	// on the exit code — only on the socket disappearing.
+	stopOut, _ := exec.Command(ipsecBin, "stop").CombinedOutput()
+
+	viciCandidates := []string{
+		"/opt/homebrew/var/run/charon.vici",
+		"/usr/local/var/run/charon.vici",
+		"/var/run/charon.vici",
+	}
+	socketPresent := func() bool {
+		for _, p := range viciCandidates {
+			if fi, err := os.Stat(p); err == nil && (fi.Mode()&os.ModeSocket) != 0 {
+				return true
+			}
+		}
+		return false
+	}
+	// Poll for socket-disappear up to 5 s. Charon-shutdown is
+	// typically <1 s but a hung daemon can take longer.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !socketPresent() {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Start fresh. Reuses the existing helper which polls vici
+	// socket up to 8 s.
+	if err := helperEnsureMacOSCharonRunning(); err != nil {
+		return HelperResponse{
+			Success: false,
+			Error: fmt.Sprintf(
+				"charon-restart: stop output=%q; start failed: %v",
+				strings.TrimSpace(string(stopOut)), err,
+			),
+		}
+	}
+	return HelperResponse{Success: true, Output: "charon restarted"}
 }
 
 // helperEnsureMacOSCharonRunning is darwin-only. It checks whether

@@ -95,6 +95,14 @@ class NetworkMonitor private constructor(private val context: Context) {
     private var started = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    // v0.9.14.88: extra-wakeup BroadcastReceiver registered at
+    // runtime. Fires on Intent.ACTION_SCREEN_ON (instant reaction
+    // when user wakes the display) and CONNECTIVITY_ACTION (legacy
+    // connectivity-change broadcast that often beats the modern
+    // NetworkCallback by a few seconds, especially during the OS's
+    // captive-portal-validation phase). Unregistered in stop().
+    private var wakeReceiver: android.content.BroadcastReceiver? = null
+
     // Edge-trigger state. Only used on the DISCONNECT side so that a
     // flipping rule does not keep issuing redundant disconnect calls while
     // the VPN is already torn down. The connect side intentionally does
@@ -259,15 +267,66 @@ class NetworkMonitor private constructor(private val context: Context) {
             // unprivileged, and gets us the same outcome: callbacks
             // fire on every non-VPN physical transport change, even
             // while a VPN tunnel is the system default.
+            // v0.9.14.88: NET_CAPABILITY_INTERNET dropped from the
+            // request. The capability is added by the system AFTER
+            // captive-portal validation completes (5-30 s after the
+            // physical Wi-Fi association). With INTERNET in the
+            // filter, our onAvailable / onCapabilitiesChanged is
+            // delayed by that whole validation window — visible to
+            // the user as "VPN doesn't react when phone enters home
+            // Wi-Fi until ~30 s later" and indistinguishable from
+            // Doze deferral. Without INTERNET we get the callback at
+            // physical association time; the rules engine still
+            // works because we only need the SSID/transport to
+            // resolve a rule, not Internet reachability.
             val req = NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                 .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
                 .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
                 .build()
             connectivityManager.registerNetworkCallback(req, callback)
             networkCallback = callback
+
+            // Runtime BroadcastReceiver for instant-wake triggers.
+            // The system delivers Intent.ACTION_SCREEN_ON the moment
+            // the display turns on (instant — there is NO Doze
+            // deferral on this broadcast). CONNECTIVITY_ACTION is the
+            // legacy connectivity-change pathway and sometimes
+            // arrives before the NetworkCallback in the small window
+            // where the system has associated with a Wi-Fi but not
+            // yet resolved the captive-portal probe. Both call back
+            // into evaluateCurrentNetwork() so the rules engine
+            // re-runs with fresh state.
+            try {
+                val r = object : android.content.BroadcastReceiver() {
+                    override fun onReceive(context: Context, intent: android.content.Intent) {
+                        PrivycsLogger.d(
+                            TAG,
+                            "Wake receiver fired: ${intent.action}",
+                        )
+                        evaluateCurrentNetwork()
+                    }
+                }
+                val filter = android.content.IntentFilter().apply {
+                    addAction(android.content.Intent.ACTION_SCREEN_ON)
+                    @Suppress("DEPRECATION")
+                    addAction(android.net.ConnectivityManager.CONNECTIVITY_ACTION)
+                }
+                if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    context.registerReceiver(
+                        r,
+                        filter,
+                        Context.RECEIVER_NOT_EXPORTED,
+                    )
+                } else {
+                    @Suppress("UnspecifiedRegisterReceiverFlag")
+                    context.registerReceiver(r, filter)
+                }
+                wakeReceiver = r
+            } catch (e: Exception) {
+                PrivycsLogger.e(TAG, "Failed to register wake receiver", e)
+            }
         } catch (e: Exception) {
             PrivycsLogger.e(TAG, "Failed to register network callback", e)
             // started flag must be reset too so a retry can
@@ -314,6 +373,15 @@ class NetworkMonitor private constructor(private val context: Context) {
             }
         }
         networkCallback = null
+
+        wakeReceiver?.let {
+            try {
+                context.unregisterReceiver(it)
+            } catch (e: Exception) {
+                PrivycsLogger.e(TAG, "Failed to unregister wake receiver", e)
+            }
+        }
+        wakeReceiver = null
     }
 
     /**

@@ -2645,6 +2645,23 @@ func (a *App) handleSystemDidWake() {
 		return
 	}
 	log.Printf("PowerEvents: didWake — forcing reconnect after 2s settle delay")
+	// Capture the active protocol BEFORE disconnect so we can decide
+	// whether to do the macOS-IPSec-only charon-restart step. We
+	// only do the heavy charon-restart for IPSec on macOS because
+	// the swanctl backend's daemon-cached IKE_SA state goes stale
+	// across long sleep — symptom (per user): "after lid close+open
+	// IPSec hangs; must `ipsec restart` manually before reconnect
+	// works". WireGuard / OpenVPN don't have a long-lived daemon
+	// with cached state, so the standard disconnect+reconnect path
+	// is enough. v0.9.14.88 fix.
+	a.mu.RLock()
+	activeProto := ""
+	if conn := a.connections.Active(); conn != nil {
+		activeProto = strings.ToLower(string(conn.ActiveProtocol))
+	}
+	a.mu.RUnlock()
+	needsCharonRestart := runtime.GOOS == "darwin" && activeProto == "ipsec"
+
 	go func() {
 		time.Sleep(2 * time.Second)
 		a.mu.Lock()
@@ -2656,6 +2673,21 @@ func (a *App) handleSystemDidWake() {
 		// kernel-side teardown completes before the new Up() races
 		// the release.
 		time.Sleep(2 * time.Second)
+
+		if needsCharonRestart {
+			log.Printf("PowerEvents: macOS IPSec — restarting charon daemon to clear stale IKE_SA state")
+			helperClient := NewHelperClient()
+			resp, err := helperClient.SendCommand("macos_restart_charon", nil)
+			if err != nil || !resp.Success {
+				log.Printf("PowerEvents: charon-restart failed (continuing anyway): err=%v resp=%+v", err, resp)
+			} else {
+				log.Printf("PowerEvents: charon-restart OK: %s", strings.TrimSpace(resp.Output))
+			}
+			// Tiny extra settle delay after charon-restart so the
+			// fresh daemon has time to load configs before our
+			// connect attempt issues swanctl --initiate.
+			time.Sleep(1 * time.Second)
+		}
 		a.connectActiveTarget()
 	}()
 }
