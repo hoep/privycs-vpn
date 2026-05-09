@@ -35,12 +35,17 @@ val privycsVersion = run {
 
 android {
     namespace = "com.privycs.vpn"
-    compileSdk = 34
+    // Bumped from 34 → 35 in v0.9.14.86: Play Console requires
+    // targetSdk ≥ 35 for new submissions since 2025-08-31. We were
+    // previously at 34 because the GitHub-Releases distribution
+    // path didn't enforce this. Bumping to 35 unblocks Play Store
+    // upload. Android 15 (API 35) is API-stable since 2024-10-15.
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.privycs.vpn"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = privycsVersion.first
         versionName = privycsVersion.second
 
@@ -53,6 +58,13 @@ android {
             // Must match the ABI filter in strongswan-lib so both modules
             // contribute native libs for the same architectures.
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            // Bundle full native debug symbols into the AAB so Play
+            // Console can de-symbolicate crashes / ANRs in libcharon,
+            // libopenvpn, libwireguard, etc. Without this, every
+            // upload triggers the "no symbols" warning. FULL adds
+            // ~10-20 MB to the AAB (Play Store users still get a
+            // stripped APK — symbols are stored separately).
+            debugSymbolLevel = "FULL"
         }
     }
 
