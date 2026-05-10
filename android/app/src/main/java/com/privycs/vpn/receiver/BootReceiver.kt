@@ -60,6 +60,15 @@ class BootReceiver : BroadcastReceiver() {
                 if (settings.connectOnDemand.enabled) {
                     Log.d(TAG, "Connect on demand enabled, starting NetworkMonitor")
                     NetworkMonitor.getInstance(context).start()
+                    // v0.9.14.97: also register the process-death-surviving
+                    // PendingIntent NetworkCallback so OEM battery-killer
+                    // terminations don't strand us with a dead runtime
+                    // callback until the user opens the app.
+                    try {
+                        com.privycs.vpn.util.CodWakeRegistrar.register(context)
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "CodWakeRegistrar registration failed", t)
+                    }
                 }
 
                 if (!settings.autoConnectOnStart) {

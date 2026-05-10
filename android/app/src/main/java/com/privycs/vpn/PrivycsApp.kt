@@ -216,6 +216,20 @@ class PrivycsApp : StrongSwanApplication() {
                     Log.e("PrivycsApp", "NetworkMonitor auto-start failed", t)
                 }
 
+                // v0.9.14.97 — also register the process-death-surviving
+                // PendingIntent-based NetworkCallback. The runtime callback
+                // started inside NetworkMonitor.start() above dies with the
+                // process if an aggressive OEM battery-killer terminates
+                // our foreground service. The PendingIntent variant
+                // (Manifest-bound) keeps firing even after our process is
+                // dead — Android spawns a fresh process to handle it.
+                // Idempotent.
+                try {
+                    com.privycs.vpn.util.CodWakeRegistrar.register(applicationContext)
+                } catch (t: Throwable) {
+                    Log.e("PrivycsApp", "CodWakeRegistrar registration failed", t)
+                }
+
                 // v0.9.14.75 — opt-in foreground-keepalive: if the
                 // user has enabled "Always monitor" in settings, fire
                 // ACTION_START_MONITOR so PrivycsVpnService comes up

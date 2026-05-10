@@ -94,6 +94,21 @@
             </intent-filter>
         </receiver>
 
+        <!-- v0.9.14.97: process-death-surviving network-change wake.
+             Fired by the PendingIntent-based ConnectivityManager
+             callback registered in CodWakeRegistrar (API 31+).
+             Android delivers this Intent even when our process has
+             been killed by the OEM battery-killer; the framework
+             spawns a fresh process to handle it, which then
+             re-evaluates Connect-on-Demand rules and fires any
+             pending connect/disconnect within ~2 s. Not exported —
+             only the framework's PendingIntent-callback dispatcher
+             can target this receiver. -->
+        <receiver
+            android:name=".receiver.CodWakeReceiver"
+            android:exported="false"
+            android:enabled="true" />
+
         <!-- Quick Settings Tile -->
         <service
             android:name=".tile.VpnQuickSettingsTile"
