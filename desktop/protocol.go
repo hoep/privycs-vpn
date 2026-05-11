@@ -29,8 +29,16 @@ type VPNProtocol interface {
 
 // ProtocolStatus represents the current state of a VPN protocol connection
 type ProtocolStatus struct {
-	Connected     bool    `json:"connected"`
-	Protocol      string  `json:"protocol"`
+	Connected     bool   `json:"connected"`
+	Protocol      string `json:"protocol"`
+	// Variant differentiates WireGuard-class implementations: empty
+	// or "wireguard" means vanilla WG (wg-quick on Linux/Win,
+	// in-process wireguard-go on macOS). "amneziawg" means the
+	// DPI-evasion fork (awg-quick on Linux, in-process amneziawg-go
+	// on macOS, sidecar on Windows). Other protocols ignore it.
+	// Filled in by the protocol handler at Up() time after parsing
+	// the conf for AWG-specific fields (Jc, Jmin, Jmax, S1-4, H1-4).
+	Variant       string  `json:"variant,omitempty"`
 	ServerAddress string  `json:"server_address,omitempty"`
 	LocalAddress  string  `json:"local_address,omitempty"`
 	BytesRx       int64   `json:"bytes_rx"`
