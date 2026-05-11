@@ -338,13 +338,38 @@ func (h *PrivilegedHelper) cmdDisconnect(cmd HelperCommand) HelperResponse {
 
 // connectWireGuard installs the tunnel service (Windows) or runs wg-quick (Unix).
 // The helper runs as SYSTEM/root so neither path triggers UAC/sudo prompts.
+// v0.9.15.x AmneziaWG: variant carries via cmd.Args["variant"]. When
+// "amneziawg" we route through awg-quick (Linux), in-process
+// amneziawg-go (macOS), or in-process amneziawg-go (Windows — no
+// official Tunnel-Service equivalent for AWG, so we own the Wintun
+// fd ourselves the same way the macOS in-process path owns utun).
 func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 	ifaceName := cmd.Interface
 	if ifaceName == "" {
 		ifaceName = "privycs0"
 	}
+	variant := cmd.Args["variant"]
+	isAwg := variant == "amneziawg"
 
 	if runtime.GOOS == "windows" {
+		if isAwg {
+			// AWG on Windows: in-process via amneziawg-go. No
+			// external wireguard.exe / awg.exe service needed —
+			// the helper itself drives the Wintun device. See
+			// wg_windows_awg.go.
+			confPath := cmd.ConfigPath
+			if confPath == "" {
+				confPath = windowsWGConfigPath(ifaceName)
+			}
+			content, err := os.ReadFile(confPath)
+			if err != nil {
+				return HelperResponse{Success: false, Error: fmt.Sprintf("read %s: %v", confPath, err)}
+			}
+			if err := wgWindowsUpAwg(ifaceName, string(content)); err != nil {
+				return HelperResponse{Success: false, Error: fmt.Sprintf("wgWindowsUpAwg failed: %v", err)}
+			}
+			return HelperResponse{Success: true, Output: fmt.Sprintf("AmneziaWG tunnel up on %s (in-process)", ifaceName)}
+		}
 		wgExe := findWireGuardExe()
 		if wgExe == "" {
 			return HelperResponse{Success: false, Error: "wireguard.exe not found"}
@@ -366,22 +391,33 @@ func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: true, Output: string(out)}
 	}
 
-	// Linux/macOS: copy config to /etc/wireguard. Linux then proceeds with
-	// wg-quick; macOS branches into the in-process wireguard-go path that
-	// avoids launchd's wg-quick foreground-wait trap entirely (see
-	// wg_macos.go for the architecture).
+	// Linux/macOS: copy config to /etc/wireguard (vanilla) or
+	// /etc/amnezia/amneziawg (AWG, where awg-quick looks).
+	etcDir := "/etc/wireguard"
+	if isAwg {
+		etcDir = "/etc/amnezia/amneziawg"
+	}
+	etcConf := filepath.Join(etcDir, ifaceName+".conf")
 	if cmd.ConfigPath != "" {
-		etcConf := filepath.Join("/etc/wireguard", ifaceName+".conf")
+		if err := os.MkdirAll(etcDir, 0755); err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("mkdir %s: %v", etcDir, err)}
+		}
 		if err := h.copyConfigFile(cmd.ConfigPath, etcConf); err != nil {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("failed to install config: %v", err)}
 		}
 	}
 
 	if runtime.GOOS == "darwin" {
-		etcConf := filepath.Join("/etc/wireguard", ifaceName+".conf")
 		content, err := os.ReadFile(etcConf)
 		if err != nil {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("read %s: %v", etcConf, err)}
+		}
+		if isAwg {
+			realIface, err := wgDarwinUpAwg(ifaceName, string(content))
+			if err != nil {
+				return HelperResponse{Success: false, Error: fmt.Sprintf("wgDarwinUpAwg failed: %v", err)}
+			}
+			return HelperResponse{Success: true, Output: fmt.Sprintf("AmneziaWG tunnel up on %s (in-process)", realIface)}
 		}
 		realIface, err := wgDarwinUp(ifaceName, string(content))
 		if err != nil {
@@ -390,17 +426,27 @@ func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: true, Output: fmt.Sprintf("WireGuard tunnel up on %s (in-process)", realIface)}
 	}
 
-	// Linux: wg-quick (untouched — works fine, kernel-WG, no userspace driver).
-	wgQuick := findWGBinary("wg-quick")
+	// Linux: variant-aware userland CLI. awg-quick handles both
+	// kernel-mode (DKMS module loaded) and userspace fallback
+	// internally — we just hand it the conf and let it pick.
+	bin := "wg-quick"
+	if isAwg {
+		bin = "awg-quick"
+	}
+	wgQuick := findWGBinary(bin)
 	if wgQuick == "" {
-		return HelperResponse{Success: false, Error: "wg-quick not found — install wireguard-tools"}
+		hint := "install wireguard-tools"
+		if isAwg {
+			hint = "install amneziawg-tools (apt add ppa:amnezia/ppa)"
+		}
+		return HelperResponse{Success: false, Error: fmt.Sprintf("%s not found — %s", bin, hint)}
 	}
 	wgUp := exec.Command(wgQuick, "up", ifaceName)
 	wgUp.Env = wgExecEnv()
 	applyDetachedSession(wgUp)
 	out, err := wgUp.CombinedOutput()
 	if err != nil {
-		return HelperResponse{Success: false, Error: fmt.Sprintf("wg-quick up failed: %s", string(out)), Output: string(out)}
+		return HelperResponse{Success: false, Error: fmt.Sprintf("%s up failed: %s", bin, string(out)), Output: string(out)}
 	}
 	return HelperResponse{Success: true, Output: string(out)}
 }
@@ -411,8 +457,15 @@ func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse
 	if ifaceName == "" {
 		ifaceName = "privycs0"
 	}
+	isAwg := cmd.Args["variant"] == "amneziawg"
 
 	if runtime.GOOS == "windows" {
+		if isAwg {
+			if err := wgWindowsDownAwg(ifaceName); err != nil {
+				return HelperResponse{Success: false, Error: fmt.Sprintf("wgWindowsDownAwg failed: %v", err)}
+			}
+			return HelperResponse{Success: true, Output: fmt.Sprintf("AmneziaWG tunnel down (%s, in-process)", ifaceName)}
+		}
 		wgExe := findWireGuardExe()
 		if wgExe == "" {
 			return HelperResponse{Success: false, Error: "wireguard.exe not found"}
@@ -425,21 +478,31 @@ func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse
 	}
 
 	if runtime.GOOS == "darwin" {
+		if isAwg {
+			if err := wgDarwinDownAwg(ifaceName); err != nil {
+				return HelperResponse{Success: false, Error: fmt.Sprintf("wgDarwinDownAwg failed: %v", err)}
+			}
+			return HelperResponse{Success: true, Output: fmt.Sprintf("AmneziaWG tunnel down (%s, in-process)", ifaceName)}
+		}
 		if err := wgDarwinDown(ifaceName); err != nil {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("wgDarwinDown failed: %v", err)}
 		}
 		return HelperResponse{Success: true, Output: fmt.Sprintf("WireGuard tunnel down (%s, in-process)", ifaceName)}
 	}
 
-	wgQuick := findWGBinary("wg-quick")
+	bin := "wg-quick"
+	if isAwg {
+		bin = "awg-quick"
+	}
+	wgQuick := findWGBinary(bin)
 	if wgQuick == "" {
-		return HelperResponse{Success: false, Error: "wg-quick not found — install wireguard-tools"}
+		return HelperResponse{Success: false, Error: fmt.Sprintf("%s not found", bin)}
 	}
 	wgDown := exec.Command(wgQuick, "down", ifaceName)
 	wgDown.Env = wgExecEnv()
 	out, err := wgDown.CombinedOutput()
 	if err != nil {
-		return HelperResponse{Success: false, Error: fmt.Sprintf("wg-quick down failed: %s", string(out)), Output: string(out)}
+		return HelperResponse{Success: false, Error: fmt.Sprintf("%s down failed: %s", bin, string(out)), Output: string(out)}
 	}
 	return HelperResponse{Success: true, Output: string(out)}
 }

@@ -13,10 +13,22 @@ import (
 	"time"
 )
 
-// WireGuardProtocol implements VPNProtocol for WireGuard connections
+// WireGuardProtocol implements VPNProtocol for WireGuard connections.
+// Handles BOTH vanilla WireGuard AND AmneziaWG (DPI-evasion fork) —
+// the variant is detected from the .conf content at Configure() time
+// via DetectVariant in awg_obfuscation.go and routed to the right
+// backend (wg-quick vs awg-quick on Linux; wireguard-go vs amneziawg-go
+// in-process on macOS + Windows). Server-side enrollment controls
+// which variant the user gets; the client has no user-facing toggle
+// (see AMNEZIAWG_CLIENT_PLAN.md §1).
 type WireGuardProtocol struct {
 	confPath    string
 	ifaceName   string
+	// variant: "wireguard" (default) or "amneziawg". Set by
+	// Configure() based on content detection; consulted by
+	// IsAvailable/Up/Down/Status. Empty == vanilla, treated same as
+	// "wireguard".
+	variant     string
 	connectedAt time.Time
 	serverAddr  string
 	localAddr   string
@@ -34,7 +46,13 @@ func (w *WireGuardProtocol) Name() string { return "wireguard" }
 
 func (w *WireGuardProtocol) IsAvailable() bool {
 	if runtime.GOOS == "windows" {
-		// Check for wireguard.exe
+		// Windows AmneziaWG path is in-process via amneziawg-go (linked
+		// into this same binary); no external wireguard.exe needed
+		// for AWG. Vanilla WG keeps the wireguard.exe tunnel-service
+		// requirement.
+		if w.variant == VariantAmnezia {
+			return true
+		}
 		for _, p := range []string{
 			`C:\Program Files\WireGuard\wireguard.exe`,
 			`C:\Program Files (x86)\WireGuard\wireguard.exe`,
@@ -46,9 +64,19 @@ func (w *WireGuardProtocol) IsAvailable() bool {
 		_, err := exec.LookPath("wireguard.exe")
 		return err == nil
 	}
-	// Linux/macOS: search Homebrew + standard system paths in addition
-	// to PATH — see findWGBinary for the launchd-PATH gotcha.
-	return findWGBinary("wg-quick") != ""
+	if runtime.GOOS == "darwin" {
+		// macOS path is in-process for BOTH variants — wireguard-go
+		// statically linked for vanilla, amneziawg-go statically
+		// linked for AWG. Always available.
+		return true
+	}
+	// Linux: search for the right userland CLI for the active variant.
+	// awg-quick if AmneziaWG; wg-quick for vanilla.
+	bin := "wg-quick"
+	if w.variant == VariantAmnezia {
+		bin = "awg-quick"
+	}
+	return findWGBinary(bin) != ""
 }
 
 func (w *WireGuardProtocol) Up(ctx context.Context) error {
@@ -66,8 +94,15 @@ func (w *WireGuardProtocol) Down(ctx context.Context) error {
 }
 
 func (w *WireGuardProtocol) Status() ProtocolStatus {
+	// Variant flows from Configure() through Status() so the UI knows
+	// to show the "Obfuscation: AmneziaWG" badge. Empty here = vanilla.
+	variantOut := w.variant
+	if variantOut == "" {
+		variantOut = VariantWireGuard
+	}
 	status := ProtocolStatus{
 		Protocol:      "wireguard",
+		Variant:       variantOut,
 		ServerAddress: w.serverAddr,
 		LocalAddress:  w.localAddr,
 	}
@@ -155,6 +190,15 @@ func (w *WireGuardProtocol) Configure(cfg []byte) error {
 	// pinpoint which.
 	log.Printf("WireGuard.Configure: enter (confPath=%s, cfg=%d bytes)", w.confPath, len(cfg))
 
+	// v0.9.15.x AmneziaWG — variant detection. If the conf carries
+	// any AWG-specific [Interface] key (Jc, Jmin, Jmax, S1-4, H1-4,
+	// I1-5), route Up/Down through the AWG backend. Vanilla wg-quick
+	// and wireguard-go reject these unknown keys with a parse error
+	// at tunnel-start time, so detection MUST happen here before the
+	// conf hits any parser. See awg_obfuscation.go DetectVariant.
+	w.variant = DetectVariant(string(cfg))
+	log.Printf("WireGuard.Configure: variant=%s", w.variant)
+
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(w.confPath), 0700); err != nil {
 		log.Printf("WireGuard.Configure: MkdirAll FAILED: %v", err)
@@ -229,18 +273,26 @@ func (w *WireGuardProtocol) upUnix(ctx context.Context) error {
 		return fmt.Errorf("config install failed: %s", installResp.Error)
 	}
 
-	log.Printf("Using privileged helper for wg-quick up %s", w.ifaceName)
+	toolLabel := "wg-quick"
+	if w.variant == VariantAmnezia {
+		toolLabel = "awg-quick (amneziawg)"
+	}
+	log.Printf("Using privileged helper for %s up %s", toolLabel, w.ifaceName)
 	resp, err := client.SendCommand("connect", map[string]string{
 		"protocol":  "wireguard",
 		"interface": w.ifaceName,
+		// v0.9.15.x AWG — variant passed to helper so it picks the
+		// matching userland (awg-quick on Linux; in-process
+		// amneziawg-go on macOS + Windows).
+		"variant": w.variant,
 	})
 	if err != nil {
 		log.Printf("WireGuard.upUnix: helper IPC FAILED: %v", err)
 		return fmt.Errorf("helper connect failed: %w", err)
 	}
 	if !resp.Success {
-		log.Printf("WireGuard.upUnix: wg-quick up FAILED. helper.Error=%q helper.Output=%q", resp.Error, resp.Output)
-		return fmt.Errorf("wg-quick up failed: %s", resp.Error)
+		log.Printf("WireGuard.upUnix: %s up FAILED. helper.Error=%q helper.Output=%q", toolLabel, resp.Error, resp.Output)
+		return fmt.Errorf("%s up failed: %s", toolLabel, resp.Error)
 	}
 	w.connectedAt = time.Now()
 	// Log the wg-quick stdout/stderr even on success — exit-0 from
@@ -262,10 +314,15 @@ func (w *WireGuardProtocol) downUnix(ctx context.Context) error {
 	if !client.IsHelperReachable() {
 		return fmt.Errorf("privileged helper not running — install it in Settings → Privileged Helper")
 	}
-	log.Printf("Using privileged helper for wg-quick down %s", w.ifaceName)
+	toolLabel := "wg-quick"
+	if w.variant == VariantAmnezia {
+		toolLabel = "awg-quick (amneziawg)"
+	}
+	log.Printf("Using privileged helper for %s down %s", toolLabel, w.ifaceName)
 	resp, err := client.SendCommand("disconnect", map[string]string{
 		"protocol":  "wireguard",
 		"interface": w.ifaceName,
+		"variant":   w.variant,
 	})
 	if err != nil {
 		return fmt.Errorf("helper disconnect failed: %w", err)
