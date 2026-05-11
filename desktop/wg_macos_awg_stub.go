@@ -17,3 +17,7 @@ func wgDarwinUpAwg(friendlyName, configContent string) (string, error) {
 func wgDarwinDownAwg(friendlyName string) error {
 	return fmt.Errorf("wgDarwinDownAwg invoked on non-darwin build (should never happen)")
 }
+
+func wgDarwinStatusAwg(friendlyName string) (string, bool, error) {
+	return "", false, fmt.Errorf("wgDarwinStatusAwg invoked on non-darwin build (should never happen)")
+}

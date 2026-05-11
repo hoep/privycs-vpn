@@ -3,9 +3,6 @@
 package main
 
 import (
-	"bufio"
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
@@ -31,25 +28,6 @@ import (
 // which is the next architectural layer above this; we deliberately stay
 // below it to avoid the Apple Developer Program + entitlement workflow.
 
-// wgPeer holds the parsed [Peer] block from a .conf file.
-type wgPeer struct {
-	PublicKey           string // base64, 32-byte
-	PresharedKey        string // base64, 32-byte (optional)
-	Endpoint            string // host:port — hostname is resolved to IP at apply time
-	AllowedIPs          []string
-	PersistentKeepalive int
-}
-
-// wgConfigParsed holds the parsed [Interface] block + all [Peer] blocks.
-type wgConfigParsed struct {
-	PrivateKey string // base64, 32-byte
-	Addresses  []string
-	DNS        []string
-	MTU        int
-	ListenPort int
-	Peers      []wgPeer
-}
-
 // wgDarwinTunnel is the per-tunnel runtime state we own once Up returns.
 type wgDarwinTunnel struct {
 	dev          *device.Device
@@ -66,161 +44,6 @@ var (
 	wgDarwinTunnels   = make(map[string]*wgDarwinTunnel) // friendly name → state
 	wgDarwinTunnelsMu sync.Mutex
 )
-
-// parseWGConf reads a wg-quick-style .conf and returns the parsed structure.
-// The grammar tolerates whitespace, comments (# or ;), and the standard wg
-// camelCase keys (PrivateKey, AllowedIPs, ...). Multiple comma-separated
-// values per line are split. AllowedIPs aggregate across multiple lines
-// within a [Peer] block.
-func parseWGConf(text string) (*wgConfigParsed, error) {
-	cfg := &wgConfigParsed{}
-	var currentPeer *wgPeer
-	section := ""
-
-	scanner := bufio.NewScanner(strings.NewReader(text))
-	for scanner.Scan() {
-		raw := scanner.Text()
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-			continue
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section = strings.ToLower(strings.Trim(line, "[]"))
-			if section == "peer" {
-				cfg.Peers = append(cfg.Peers, wgPeer{})
-				currentPeer = &cfg.Peers[len(cfg.Peers)-1]
-			}
-			continue
-		}
-		// Skip wg-quick directives we don't honor in-process (PostUp/PreDown
-		// are handled by our own routing/DNS code below, not by re-running
-		// shell snippets). These keys are silently dropped, same as wg
-		// userspace tooling treats them.
-		eq := strings.Index(line, "=")
-		if eq < 0 {
-			continue
-		}
-		key := strings.TrimSpace(line[:eq])
-		val := strings.TrimSpace(line[eq+1:])
-		keyLower := strings.ToLower(key)
-
-		switch section {
-		case "interface":
-			switch keyLower {
-			case "privatekey":
-				cfg.PrivateKey = val
-			case "address":
-				for _, p := range splitCSV(val) {
-					cfg.Addresses = append(cfg.Addresses, p)
-				}
-			case "dns":
-				for _, p := range splitCSV(val) {
-					cfg.DNS = append(cfg.DNS, p)
-				}
-			case "mtu":
-				if n, err := strconv.Atoi(val); err == nil {
-					cfg.MTU = n
-				}
-			case "listenport":
-				if n, err := strconv.Atoi(val); err == nil {
-					cfg.ListenPort = n
-				}
-			}
-		case "peer":
-			if currentPeer == nil {
-				continue
-			}
-			switch keyLower {
-			case "publickey":
-				currentPeer.PublicKey = val
-			case "presharedkey":
-				currentPeer.PresharedKey = val
-			case "endpoint":
-				currentPeer.Endpoint = val
-			case "allowedips":
-				for _, p := range splitCSV(val) {
-					currentPeer.AllowedIPs = append(currentPeer.AllowedIPs, p)
-				}
-			case "persistentkeepalive":
-				if n, err := strconv.Atoi(val); err == nil {
-					currentPeer.PersistentKeepalive = n
-				}
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan conf: %w", err)
-	}
-	if cfg.PrivateKey == "" {
-		return nil, fmt.Errorf("missing PrivateKey in [Interface]")
-	}
-	if len(cfg.Peers) == 0 {
-		return nil, fmt.Errorf("no [Peer] blocks")
-	}
-	if cfg.MTU == 0 {
-		cfg.MTU = 1420 // wireguard-go default; wg-quick on Mac uses 1340 for our endpoint but 1420 is the safe upstream default
-	}
-	return cfg, nil
-}
-
-// splitCSV splits "a, b , c" into ["a", "b", "c"].
-func splitCSV(s string) []string {
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		t := strings.TrimSpace(p)
-		if t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// b64ToHex decodes a 32-byte WireGuard key encoded as base64 (the .conf
-// format) and re-encodes it as hex (the UAPI format). Returns "" if val
-// is empty so we can branch on emptiness in the caller.
-func b64ToHex(val string) (string, error) {
-	if val == "" {
-		return "", nil
-	}
-	raw, err := base64.StdEncoding.DecodeString(val)
-	if err != nil {
-		return "", fmt.Errorf("base64 decode: %w", err)
-	}
-	if len(raw) != 32 {
-		return "", fmt.Errorf("expected 32-byte key, got %d", len(raw))
-	}
-	return hex.EncodeToString(raw), nil
-}
-
-// resolveEndpoint takes "hostname:port" or "ip:port" (v4 or v6 in brackets)
-// and returns "ip:port" suitable for the UAPI endpoint= directive. The
-// wireguard-go device does not resolve hostnames itself — passing a host
-// name results in the peer being permanently unrouted.
-func resolveEndpoint(ep string) (string, error) {
-	host, port, err := net.SplitHostPort(ep)
-	if err != nil {
-		return "", fmt.Errorf("split endpoint %q: %w", ep, err)
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ep, nil
-	}
-	addrs, err := net.LookupIP(host)
-	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", host, err)
-	}
-	if len(addrs) == 0 {
-		return "", fmt.Errorf("no addresses for %s", host)
-	}
-	// Prefer IPv4 when available — matches wg-quick's behavior. The bypass
-	// route logic at the caller side relies on the IP family choice here.
-	for _, a := range addrs {
-		if v4 := a.To4(); v4 != nil {
-			return net.JoinHostPort(v4.String(), port), nil
-		}
-	}
-	return net.JoinHostPort(addrs[0].String(), port), nil
-}
 
 // buildUAPI assembles the WireGuard userspace IPC configuration string from
 // the parsed conf. Format documented at https://www.wireguard.com/xplatform/.
@@ -554,22 +377,6 @@ func wgDarwinStatus(friendlyName string) (uapi string, connected bool, err error
 	}
 	connected = uapiHasRecentHandshake(out)
 	return out, connected, nil
-}
-
-// uapiHasRecentHandshake parses an IpcGet output for a non-zero
-// last_handshake_time_sec. WireGuard sends a handshake at most every 120s
-// when traffic is flowing; presence of any non-zero handshake time means
-// the peer responded at least once and the tunnel is alive.
-func uapiHasRecentHandshake(uapi string) bool {
-	for _, line := range strings.Split(uapi, "\n") {
-		if strings.HasPrefix(line, "last_handshake_time_sec=") {
-			val := strings.TrimPrefix(line, "last_handshake_time_sec=")
-			if n, _ := strconv.ParseInt(strings.TrimSpace(val), 10, 64); n > 0 {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // splitDefaultRoute mirrors wg-quick's split of 0.0.0.0/0 → /1+/1 and

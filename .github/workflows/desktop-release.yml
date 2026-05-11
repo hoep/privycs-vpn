@@ -432,6 +432,22 @@ jobs:
           $version = "$env:GITHUB_REF" -replace 'refs/tags/', ''
           if (-not $version) { $version = "dev" }
           wails build -platform windows/amd64 -nsis -ldflags "-X main.AppVersion=$version"
+      - name: Fetch wintun.dll
+        shell: pwsh
+        # AmneziaWG on Windows runs in-process via amneziawg-go, which
+        # uses Wintun. wintun.dll must sit next to privycs-vpn.exe (or
+        # in System32). We download the official build from wintun.net
+        # and ship the amd64 DLL in the binary artifact + NSIS
+        # installer. Pinned 0.14.1 — last release at time of writing.
+        run: |
+          $wintunZip = "$env:TEMP\wintun.zip"
+          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile $wintunZip
+          $extractDir = "$env:TEMP\wintun-extracted"
+          Expand-Archive -Path $wintunZip -DestinationPath $extractDir -Force
+          $dll = Join-Path $extractDir "wintun\bin\amd64\wintun.dll"
+          if (-not (Test-Path $dll)) { throw "wintun.dll not found at $dll after extraction" }
+          Copy-Item $dll desktop/build/bin/wintun.dll
+          Write-Host "wintun.dll bundled into build/bin/"
       - name: Prepare artifacts
         shell: pwsh
         run: |
@@ -450,6 +466,7 @@ jobs:
           path: |
             desktop/build/bin/privycs-vpn-windows-amd64.exe
             desktop/build/bin/privycs-vpn-windows-amd64.exe.sha256
+            desktop/build/bin/wintun.dll
       - name: Upload installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

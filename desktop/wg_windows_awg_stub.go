@@ -16,3 +16,7 @@ func wgWindowsUpAwg(ifaceName, configContent string) error {
 func wgWindowsDownAwg(ifaceName string) error {
 	return fmt.Errorf("wgWindowsDownAwg invoked on non-windows build (should never happen)")
 }
+
+func wgWindowsStatusAwg(ifaceName string) (string, bool, error) {
+	return "", false, fmt.Errorf("wgWindowsStatusAwg invoked on non-windows build (should never happen)")
+}

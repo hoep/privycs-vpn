@@ -2,21 +2,360 @@
 
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"log"
+	"net"
+	"strconv"
+	"strings"
+	"sync"
 
-// wgWindowsUpAwg / wgWindowsDownAwg — Stage 4 Windows in-process
-// AmneziaWG entry points. Stubbed in Stage 2 (this commit) so the
-// helper-side compile is clean. Stage 4 will implement using
-// amneziawg-go's Wintun-driven path, parallel to the macOS
-// in-process pattern. No official AWG Windows tunnel-service
-// exists today (AmneziaWG project ships their own client only),
-// so we own the Wintun fd ourselves from inside the privileged
-// helper process.
+	awgconn "github.com/amnezia-vpn/amneziawg-go/conn"
+	awgdevice "github.com/amnezia-vpn/amneziawg-go/device"
+	awgtun "github.com/amnezia-vpn/amneziawg-go/tun"
+)
 
-func wgWindowsUpAwg(ifaceName, configContent string) error {
-	return fmt.Errorf("AmneziaWG on Windows is not yet implemented — Stage 4 of AMNEZIAWG_CLIENT_PLAN.md")
+// In-process AmneziaWG tunnel for Windows — Stage 4 of
+// AMNEZIAWG_CLIENT_PLAN.md. There is no AmneziaWG tunnel-service
+// equivalent of wireguard.exe — the AmneziaWG project ships only
+// their own end-user client. So we own the Wintun adapter and the
+// AWG device ourselves from inside the privileged helper process
+// (running as LocalSystem under a Windows service).
+//
+// Wintun.dll bundling: amneziawg-go's tun.CreateTUN loads wintun.dll
+// at runtime. The installer must ship wintun.dll alongside the
+// helper binary (or in System32). Without it, CreateTUN returns an
+// "Error loading wintun.dll" error and the tunnel never comes up.
+// CI for the Windows release should download wintun-amd64.dll from
+// wintun.net and place it next to privycs-vpn.exe — same recipe
+// used by tailscaled, wg-quick-windows, and the official WireGuard
+// installer.
+
+type awgWindowsTunnelState struct {
+	dev    *awgdevice.Device
+	tunDev awgtun.Device
+	iface  string // wintun adapter name (matches what we requested)
+	// We track which interface-scope addresses + routes + DNS we
+	// installed so Down can roll them back cleanly. netsh doesn't
+	// support a true transactional API, so this is best-effort
+	// undo-list.
+	addedAddrsV4    []string
+	addedAddrsV6    []string
+	addedRoutesV4   []string
+	addedRoutesV6   []string
+	savedDNS        []string // previous DNS servers on the same adapter; not used for restore here because Wintun adapter is destroyed on Down
+	previousAdapter string   // adapter name that was holding the default route, for DNS restore — not implemented in this minimum-viable stage
 }
 
+var (
+	awgWinTunnels   = make(map[string]*awgWindowsTunnelState)
+	awgWinTunnelsMu sync.Mutex
+)
+
+// wgWindowsUpAwg brings up an in-process AmneziaWG tunnel on Windows.
+// ifaceName is the Wintun adapter name (matches the privycs0 / iface
+// convention used by the vanilla WG path).
+func wgWindowsUpAwg(ifaceName, configContent string) error {
+	awgWinTunnelsMu.Lock()
+	if _, exists := awgWinTunnels[ifaceName]; exists {
+		awgWinTunnelsMu.Unlock()
+		return fmt.Errorf("AWG tunnel %q already up", ifaceName)
+	}
+	awgWinTunnelsMu.Unlock()
+
+	cfg, err := parseWGConf(configContent)
+	if err != nil {
+		return fmt.Errorf("parse AWG conf: %w", err)
+	}
+
+	tunDev, err := awgtun.CreateTUN(ifaceName, cfg.MTU)
+	if err != nil {
+		return fmt.Errorf("create wintun (awg): %w — verify wintun.dll is present alongside the helper binary", err)
+	}
+	log.Printf("wgWindowsUpAwg[%s]: Wintun adapter created, applying AWG UAPI", ifaceName)
+
+	uapi, err := buildUAPIAwgWin(cfg)
+	if err != nil {
+		tunDev.Close()
+		return fmt.Errorf("build AWG UAPI: %w", err)
+	}
+	logger := awgdevice.NewLogger(awgdevice.LogLevelError, fmt.Sprintf("[awg-%s] ", ifaceName))
+	dev := awgdevice.NewDevice(tunDev, awgconn.NewDefaultBind(), logger)
+	if err := dev.IpcSet(uapi); err != nil {
+		dev.Close()
+		return fmt.Errorf("AWG IpcSet: %w", err)
+	}
+	if err := dev.Up(); err != nil {
+		dev.Close()
+		return fmt.Errorf("AWG device.Up: %w", err)
+	}
+
+	state := &awgWindowsTunnelState{
+		dev:    dev,
+		tunDev: tunDev,
+		iface:  ifaceName,
+	}
+
+	for _, addr := range cfg.Addresses {
+		ip, ipnet, err := net.ParseCIDR(addr)
+		if err != nil {
+			awgWinRollbackUp(state)
+			return fmt.Errorf("parse address %q: %w", addr, err)
+		}
+		mask, _ := ipnet.Mask.Size()
+		var args []string
+		if ip.To4() != nil {
+			args = []string{"interface", "ipv4", "set", "address",
+				fmt.Sprintf("name=%s", ifaceName),
+				"source=static",
+				fmt.Sprintf("addr=%s", ip.String()),
+				fmt.Sprintf("mask=%s", ipv4MaskFromBits(mask)),
+			}
+			if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
+				awgWinRollbackUp(state)
+				return fmt.Errorf("netsh set ipv4 addr: %v: %s", err, strings.TrimSpace(string(out)))
+			}
+			state.addedAddrsV4 = append(state.addedAddrsV4, addr)
+		} else {
+			args = []string{"interface", "ipv6", "add", "address",
+				fmt.Sprintf("interface=%s", ifaceName),
+				fmt.Sprintf("address=%s/%d", ip.String(), mask),
+			}
+			if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
+				log.Printf("wgWindowsUpAwg[%s]: netsh add ipv6 addr warning: %v: %s", ifaceName, err, strings.TrimSpace(string(out)))
+				continue
+			}
+			state.addedAddrsV6 = append(state.addedAddrsV6, addr)
+		}
+	}
+
+	// Routes: add each AllowedIP via the wintun interface index. We
+	// use `route ADD` (legacy command, still ubiquitous on Win10/11)
+	// because it's simple, works without an admin elevation per call
+	// (we're already running as LocalSystem), and the kernel
+	// auto-resolves the interface metric. route ADD on /0 does NOT
+	// replace the default route on Windows (unlike macOS) — the
+	// per-AllowedIP /0 entry just adds a higher-priority route to
+	// the wintun interface. We add it anyway for completeness.
+	ifaceIdx, err := awgInterfaceIndex(ifaceName)
+	if err != nil {
+		log.Printf("wgWindowsUpAwg[%s]: cannot resolve adapter index: %v — routes may not install via correct interface", ifaceName, err)
+	}
+	for _, peer := range cfg.Peers {
+		for _, raw := range peer.AllowedIPs {
+			isV6 := strings.Contains(raw, ":")
+			var cmdArgs []string
+			if isV6 {
+				cmdArgs = []string{"-6", "ADD", raw, "::", "IF", strconv.Itoa(ifaceIdx)}
+			} else {
+				cmdArgs = []string{"ADD", raw, "0.0.0.0", "IF", strconv.Itoa(ifaceIdx)}
+			}
+			if out, err := execHidden("route", cmdArgs...).CombinedOutput(); err != nil {
+				log.Printf("wgWindowsUpAwg[%s]: route ADD %s warning: %v: %s", ifaceName, raw, err, strings.TrimSpace(string(out)))
+				continue
+			}
+			if isV6 {
+				state.addedRoutesV6 = append(state.addedRoutesV6, raw)
+			} else {
+				state.addedRoutesV4 = append(state.addedRoutesV4, raw)
+			}
+		}
+	}
+
+	if len(cfg.DNS) > 0 {
+		// We set DNS directly on the wintun adapter — wg-quick on
+		// Windows does the same via `netsh interface ipv4 set
+		// dnsservers name=<iface> static <ip> primary`. The previous
+		// DNS state on OTHER adapters is not touched (those keep
+		// their own DHCP-derived servers); when the wintun adapter
+		// is destroyed in wgWindowsDownAwg, its DNS entries are
+		// destroyed with it.
+		v4dns, v6dns := splitDNSByFamily(cfg.DNS)
+		for i, ip := range v4dns {
+			args := []string{"interface", "ipv4", "set", "dnsservers"}
+			if i == 0 {
+				args = append(args, fmt.Sprintf("name=%s", ifaceName), "source=static", fmt.Sprintf("addr=%s", ip), "register=primary", "validate=no")
+			} else {
+				args = []string{"interface", "ipv4", "add", "dnsservers", fmt.Sprintf("name=%s", ifaceName), fmt.Sprintf("addr=%s", ip), fmt.Sprintf("index=%d", i+1), "validate=no"}
+			}
+			if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
+				log.Printf("wgWindowsUpAwg[%s]: set dns %s warning: %v: %s", ifaceName, ip, err, strings.TrimSpace(string(out)))
+			}
+		}
+		for i, ip := range v6dns {
+			args := []string{"interface", "ipv6", "set", "dnsservers"}
+			if i == 0 {
+				args = append(args, fmt.Sprintf("name=%s", ifaceName), "source=static", fmt.Sprintf("addr=%s", ip), "register=primary", "validate=no")
+			} else {
+				args = []string{"interface", "ipv6", "add", "dnsservers", fmt.Sprintf("name=%s", ifaceName), fmt.Sprintf("addr=%s", ip), fmt.Sprintf("index=%d", i+1), "validate=no"}
+			}
+			if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
+				log.Printf("wgWindowsUpAwg[%s]: set dns6 %s warning: %v: %s", ifaceName, ip, err, strings.TrimSpace(string(out)))
+			}
+		}
+	}
+
+	awgWinTunnelsMu.Lock()
+	awgWinTunnels[ifaceName] = state
+	awgWinTunnelsMu.Unlock()
+
+	log.Printf("wgWindowsUpAwg[%s]: AWG tunnel up (%d v4 routes, %d v6 routes, %d obf-keys)",
+		ifaceName, len(state.addedRoutesV4), len(state.addedRoutesV6), len(cfg.AwgKeys))
+	return nil
+}
+
+func awgWinRollbackUp(state *awgWindowsTunnelState) {
+	if state.dev != nil {
+		state.dev.Close()
+	}
+	if state.tunDev != nil {
+		state.tunDev.Close()
+	}
+	for _, c := range state.addedRoutesV4 {
+		execHidden("route", "DELETE", c).Run()
+	}
+	for _, c := range state.addedRoutesV6 {
+		execHidden("route", "-6", "DELETE", c).Run()
+	}
+}
+
+// wgWindowsDownAwg tears down an in-process AWG tunnel. The Wintun
+// adapter is destroyed by closing the tunDev — DNS entries scoped
+// to that adapter disappear with it, so we don't need an explicit
+// netsh "set dnsservers source=dhcp" call.
 func wgWindowsDownAwg(ifaceName string) error {
-	return fmt.Errorf("AmneziaWG on Windows is not yet implemented — Stage 4 of AMNEZIAWG_CLIENT_PLAN.md")
+	awgWinTunnelsMu.Lock()
+	state, ok := awgWinTunnels[ifaceName]
+	if ok {
+		delete(awgWinTunnels, ifaceName)
+	}
+	awgWinTunnelsMu.Unlock()
+	if !ok {
+		log.Printf("wgWindowsDownAwg[%s]: tunnel not in registry, treating as already-down", ifaceName)
+		return nil
+	}
+
+	for _, c := range state.addedRoutesV4 {
+		execHidden("route", "DELETE", c).Run()
+	}
+	for _, c := range state.addedRoutesV6 {
+		execHidden("route", "-6", "DELETE", c).Run()
+	}
+
+	if state.dev != nil {
+		state.dev.Close()
+	}
+	if state.tunDev != nil {
+		state.tunDev.Close()
+	}
+	log.Printf("wgWindowsDownAwg[%s]: AWG tunnel down (Wintun adapter destroyed)", ifaceName)
+	return nil
+}
+
+// wgWindowsStatusAwg returns the AWG UAPI dump for the named tunnel.
+// Parallel to wgDarwinStatusAwg. Used by the protocol_wireguard.go
+// Status() override path when variant==amneziawg on Windows.
+func wgWindowsStatusAwg(ifaceName string) (uapi string, connected bool, err error) {
+	awgWinTunnelsMu.Lock()
+	state, ok := awgWinTunnels[ifaceName]
+	awgWinTunnelsMu.Unlock()
+	if !ok {
+		return "", false, fmt.Errorf("AWG tunnel not running")
+	}
+	out, err := state.dev.IpcGet()
+	if err != nil {
+		return "", false, fmt.Errorf("AWG IpcGet: %w", err)
+	}
+	return out, uapiHasRecentHandshake(out), nil
+}
+
+// awgInterfaceIndex resolves a Windows adapter name (e.g. "privycs0")
+// to its interface index for `route ADD ... IF <idx>`. The Wintun
+// adapter is registered with that name in CreateTUN above.
+func awgInterfaceIndex(name string) (int, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return 0, fmt.Errorf("net.Interfaces: %w", err)
+	}
+	for _, ifa := range ifaces {
+		if ifa.Name == name {
+			return ifa.Index, nil
+		}
+	}
+	return 0, fmt.Errorf("adapter %q not found in net.Interfaces", name)
+}
+
+// ipv4MaskFromBits converts /24 → "255.255.255.0" for netsh, which
+// requires dotted-quad subnet masks rather than prefix-length.
+func ipv4MaskFromBits(bits int) string {
+	mask := net.CIDRMask(bits, 32)
+	return fmt.Sprintf("%d.%d.%d.%d", mask[0], mask[1], mask[2], mask[3])
+}
+
+// splitDNSByFamily partitions a mixed DNS list into v4 and v6 buckets.
+// netsh's dnsservers commands operate per-family.
+func splitDNSByFamily(dns []string) (v4, v6 []string) {
+	for _, s := range dns {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			continue
+		}
+		if ip.To4() != nil {
+			v4 = append(v4, s)
+		} else {
+			v6 = append(v6, s)
+		}
+	}
+	return
+}
+
+// buildUAPIAwgWin builds the AWG UAPI string. Same emission order
+// as buildUAPIAwg (wg_macos_awg.go); the only difference is the
+// resolveEndpoint / b64ToHex callees come from wg_conf_shared.go
+// rather than darwin-tagged helpers.
+func buildUAPIAwgWin(cfg *wgConfigParsed) (string, error) {
+	var b strings.Builder
+	privHex, err := b64ToHex(cfg.PrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("private_key: %w", err)
+	}
+	b.WriteString("private_key=" + privHex + "\n")
+	if cfg.ListenPort > 0 {
+		b.WriteString("listen_port=" + strconv.Itoa(cfg.ListenPort) + "\n")
+	}
+	for _, k := range awgKeyOrder() {
+		if v, ok := cfg.AwgKeys[k]; ok && v != "" {
+			b.WriteString(k + "=" + v + "\n")
+		}
+	}
+	b.WriteString("replace_peers=true\n")
+	for _, p := range cfg.Peers {
+		pubHex, err := b64ToHex(p.PublicKey)
+		if err != nil {
+			return "", fmt.Errorf("public_key: %w", err)
+		}
+		b.WriteString("public_key=" + pubHex + "\n")
+		if p.PresharedKey != "" {
+			pskHex, err := b64ToHex(p.PresharedKey)
+			if err != nil {
+				return "", fmt.Errorf("preshared_key: %w", err)
+			}
+			b.WriteString("preshared_key=" + pskHex + "\n")
+		}
+		if p.Endpoint != "" {
+			ep, err := resolveEndpoint(p.Endpoint)
+			if err != nil {
+				return "", fmt.Errorf("endpoint: %w", err)
+			}
+			b.WriteString("endpoint=" + ep + "\n")
+		}
+		if p.PersistentKeepalive > 0 {
+			b.WriteString("persistent_keepalive_interval=" + strconv.Itoa(p.PersistentKeepalive) + "\n")
+		}
+		b.WriteString("replace_allowed_ips=true\n")
+		for _, a := range p.AllowedIPs {
+			b.WriteString("allowed_ip=" + a + "\n")
+		}
+	}
+	return b.String(), nil
 }

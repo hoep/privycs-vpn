@@ -348,8 +348,7 @@ func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 	if ifaceName == "" {
 		ifaceName = "privycs0"
 	}
-	variant := cmd.Args["variant"]
-	isAwg := variant == "amneziawg"
+	isAwg := cmd.Args["variant"] == VariantAmnezia
 
 	if runtime.GOOS == "windows" {
 		if isAwg {
@@ -457,7 +456,7 @@ func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse
 	if ifaceName == "" {
 		ifaceName = "privycs0"
 	}
-	isAwg := cmd.Args["variant"] == "amneziawg"
+	isAwg := cmd.Args["variant"] == VariantAmnezia
 
 	if runtime.GOOS == "windows" {
 		if isAwg {
@@ -949,7 +948,21 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 		if ifaceName == "" {
 			ifaceName = "privycs0"
 		}
+		isAwg := cmd.Args["variant"] == VariantAmnezia
 		if runtime.GOOS == "windows" {
+			if isAwg {
+				// AWG on Windows is in-process — there's no
+				// WireGuardTunnel$<iface> service to query. Ask the
+				// in-process device for its UAPI dump.
+				uapi, connected, err := wgWindowsStatusAwg(ifaceName)
+				if err != nil {
+					return HelperResponse{Success: false, Error: "not connected", Output: err.Error()}
+				}
+				if !connected {
+					return HelperResponse{Success: true, Output: uapi}
+				}
+				return HelperResponse{Success: true, Output: uapi}
+			}
 			out, _ := exec.Command("sc", "query", "WireGuardTunnel$"+ifaceName).CombinedOutput()
 			if strings.Contains(string(out), "RUNNING") {
 				return HelperResponse{Success: true, Output: "running"}
@@ -961,7 +974,16 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 		// See wg_macos.go for why we own the tunnel inside the helper
 		// instead of shelling out to wg show.
 		if runtime.GOOS == "darwin" {
-			uapi, connected, err := wgDarwinStatus(ifaceName)
+			var (
+				uapi      string
+				connected bool
+				err       error
+			)
+			if isAwg {
+				uapi, connected, err = wgDarwinStatusAwg(ifaceName)
+			} else {
+				uapi, connected, err = wgDarwinStatus(ifaceName)
+			}
 			if err != nil {
 				return HelperResponse{Success: false, Error: "not connected", Output: err.Error()}
 			}
@@ -976,8 +998,12 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 			return HelperResponse{Success: true, Output: uapi}
 		}
 
-		// Linux: kernel-WG via wg show.
-		wg := findWGBinary("wg")
+		// Linux: variant-aware kernel/userspace WG via wg show / awg show.
+		wgBin := "wg"
+		if isAwg {
+			wgBin = "awg"
+		}
+		wg := findWGBinary(wgBin)
 		if wg == "" {
 			return HelperResponse{Success: false, Error: "not connected"}
 		}
@@ -1113,9 +1139,17 @@ func (h *PrivilegedHelper) cmdWGInstallConfig(cmd HelperCommand) HelperResponse 
 	if content == "" {
 		return HelperResponse{Success: false, Error: "content required"}
 	}
+	isAwg := cmd.Args["variant"] == VariantAmnezia
 	var dst string
 	if runtime.GOOS == "windows" {
+		// On Windows, both vanilla and AWG live under
+		// %PROGRAMDATA%\PrivycsVPN\tunnels\ — the wireguard.exe
+		// tunnel-service reads from there for vanilla; for AWG
+		// we read+route via amneziawg-go from the same path.
 		dst = windowsWGConfigPath(cmd.Interface)
+	} else if isAwg {
+		// awg-quick on Linux reads from /etc/amnezia/amneziawg/.
+		dst = filepath.Join("/etc/amnezia/amneziawg", cmd.Interface+".conf")
 	} else {
 		dst = filepath.Join("/etc/wireguard", cmd.Interface+".conf")
 	}
@@ -1142,6 +1176,28 @@ func (h *PrivilegedHelper) cmdWGHandshake(cmd HelperCommand) HelperResponse {
 	if cmd.Interface == "" {
 		return HelperResponse{Success: false, Error: "interface name required"}
 	}
+	isAwg := cmd.Args["variant"] == VariantAmnezia
+	// AWG on Windows is in-process — handshake comes from our own
+	// device's IpcGet, not from wg.exe. Branch before we try to locate
+	// any external binary (which doesn't exist for AWG anyway).
+	if runtime.GOOS == "windows" && isAwg {
+		uapi, _, err := wgWindowsStatusAwg(cmd.Interface)
+		if err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("status: %v", err)}
+		}
+		var maxTs int64
+		for _, line := range strings.Split(uapi, "\n") {
+			if !strings.HasPrefix(line, "last_handshake_time_sec=") {
+				continue
+			}
+			val := strings.TrimPrefix(line, "last_handshake_time_sec=")
+			var ts int64
+			if _, err := fmt.Sscan(strings.TrimSpace(val), &ts); err == nil && ts > maxTs {
+				maxTs = ts
+			}
+		}
+		return HelperResponse{Success: true, Output: fmt.Sprintf("%d", maxTs)}
+	}
 	var binary string
 	if runtime.GOOS == "windows" {
 		binary = findWireGuardExe()
@@ -1149,14 +1205,27 @@ func (h *PrivilegedHelper) cmdWGHandshake(cmd HelperCommand) HelperResponse {
 			return HelperResponse{Success: false, Error: "wg.exe not found"}
 		}
 	} else {
-		binary = findWGBinary("wg")
+		// Linux: pick awg-tools binary when AWG variant is active.
+		bin := "wg"
+		if isAwg {
+			bin = "awg"
+		}
+		binary = findWGBinary(bin)
 		if binary == "" {
-			return HelperResponse{Success: false, Error: "wg not found — install wireguard-tools"}
+			return HelperResponse{Success: false, Error: bin + " not found — install the matching tools package"}
 		}
 	}
 	// macOS: read from in-process tunnel via UAPI. Same data, no exec.
 	if runtime.GOOS == "darwin" {
-		uapi, _, err := wgDarwinStatus(cmd.Interface)
+		var (
+			uapi string
+			err  error
+		)
+		if isAwg {
+			uapi, _, err = wgDarwinStatusAwg(cmd.Interface)
+		} else {
+			uapi, _, err = wgDarwinStatus(cmd.Interface)
+		}
 		if err != nil {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("status: %v", err)}
 		}

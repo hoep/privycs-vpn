@@ -107,9 +107,11 @@ func (w *WireGuardProtocol) Status() ProtocolStatus {
 		LocalAddress:  w.localAddr,
 	}
 
-	if runtime.GOOS == "windows" {
-		// On Windows, check if the WireGuard tunnel service is running.
-		// sc query does NOT require admin privileges.
+	if runtime.GOOS == "windows" && w.variant != VariantAmnezia {
+		// Vanilla WG on Windows: check the wireguard.exe tunnel
+		// service. sc query does NOT require admin privileges.
+		// AWG on Windows is in-process so it falls through to the
+		// helper-query path below (same as macOS).
 		svcName := "WireGuardTunnel$" + w.ifaceName
 		out, err := execHidden("sc", "query", svcName).CombinedOutput()
 		if err == nil && strings.Contains(string(out), "RUNNING") {
@@ -117,8 +119,10 @@ func (w *WireGuardProtocol) Status() ProtocolStatus {
 			status.BytesRx, status.BytesTx = getWindowsTrafficStats(w.ifaceName)
 		}
 	} else {
-		// Linux/macOS: query tunnel state via the privileged helper.
-		// No direct sudo — that would prompt every 2s during status polls.
+		// Linux/macOS (and Windows-AWG): query tunnel state via the
+		// privileged helper. No direct sudo — that would prompt every
+		// 2s during status polls. Variant flows through Args so the
+		// helper can pick the right backend (vanilla wg vs AWG).
 		client := NewHelperClient()
 		if !client.IsHelperReachable() {
 			return status
@@ -126,6 +130,7 @@ func (w *WireGuardProtocol) Status() ProtocolStatus {
 		resp, err := client.SendCommand("status", map[string]string{
 			"protocol":  "wireguard",
 			"interface": w.ifaceName,
+			"variant":   variantOut,
 		})
 		if err == nil && resp.Success && len(resp.Output) > 0 {
 			status.Connected = true
@@ -157,8 +162,13 @@ func (w *WireGuardProtocol) LatestHandshake() time.Time {
 	if !client.IsHelperReachable() {
 		return time.Time{}
 	}
+	variant := w.variant
+	if variant == "" {
+		variant = VariantWireGuard
+	}
 	resp, err := client.SendCommand("wg_handshake", map[string]string{
 		"interface": w.ifaceName,
+		"variant":   variant,
 	})
 	if err != nil || !resp.Success {
 		return time.Time{}
@@ -261,10 +271,12 @@ func (w *WireGuardProtocol) upUnix(ctx context.Context) error {
 		return fmt.Errorf("privileged helper not running — install it in Settings → Privileged Helper")
 	}
 
-	// Install the enhanced config into /etc/wireguard via the helper.
+	// Install the enhanced config into /etc/wireguard or
+	// /etc/amnezia/amneziawg via the helper, depending on variant.
 	installResp, err := client.SendCommand("wg_install_config", map[string]string{
 		"interface": w.ifaceName,
 		"content":   enhanced,
+		"variant":   w.variant,
 	})
 	if err != nil {
 		return fmt.Errorf("helper install failed: %w", err)
@@ -520,8 +532,12 @@ func parseEndpointIPs(config string) (ipv4, ipv6 string) {
 // ============================================================================
 
 func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
-	if findWireGuardExe() == "" {
-		return fmt.Errorf("wireguard.exe not found")
+	// AWG runs in-process via amneziawg-go on Windows — no external
+	// wireguard.exe needed. Vanilla WG still depends on it.
+	if w.variant != VariantAmnezia {
+		if findWireGuardExe() == "" {
+			return fmt.Errorf("wireguard.exe not found")
+		}
 	}
 
 	enhanced, err := buildWGConfigWithBypass(w.confPath)
@@ -536,6 +552,7 @@ func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
 		installResp, err := client.SendCommand("wg_install_config", map[string]string{
 			"interface": w.ifaceName,
 			"content":   enhanced,
+			"variant":   w.variant,
 		})
 		if err != nil {
 			return fmt.Errorf("helper install failed: %w", err)
@@ -546,6 +563,7 @@ func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
 		resp, err := client.SendCommand("connect", map[string]string{
 			"protocol":  "wireguard",
 			"interface": w.ifaceName,
+			"variant":   w.variant,
 		})
 		if err != nil {
 			return fmt.Errorf("helper connect failed: %w", err)
@@ -553,23 +571,19 @@ func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
 		if !resp.Success {
 			return fmt.Errorf("installtunnelservice failed: %s", resp.Error)
 		}
-		// v0.9.14.6: propagate the wait failure as a real Up() error
-		// instead of swallowing it and reporting success. Pre-fix, a
-		// service that installed but failed to enter RUNNING state
-		// (long AllowedIPs lists in pool configs trigger this on
-		// some Windows setups due to slow route-table updates)
-		// caused Up() to return nil — Connect then burned its 30 s
-		// status-poll budget against a tunnel that was never going
-		// to come up. Fast-failing here lets the pool retry loop
-		// move to the next member within seconds. User-visible
-		// effect: pool auto-connect actually progresses through
-		// candidates instead of stalling on the first dead service.
-		if err := waitForWGService(w.ifaceName); err != nil {
-			log.Printf("WireGuard service wait: %v - failing Up()", err)
-			return fmt.Errorf("wg service did not start: %w", err)
+		// For vanilla WG, fast-fail by polling the WireGuardTunnel$
+		// service into RUNNING state (v0.9.14.6 fix). For AWG-on-
+		// Windows there is no service — the helper's connectWireGuard
+		// path completes synchronously once wgWindowsUpAwg returns,
+		// so we skip the service-state wait.
+		if w.variant != VariantAmnezia {
+			if err := waitForWGService(w.ifaceName); err != nil {
+				log.Printf("WireGuard service wait: %v - failing Up()", err)
+				return fmt.Errorf("wg service did not start: %w", err)
+			}
 		}
 		w.connectedAt = time.Now()
-		log.Printf("WireGuard connected via helper (service: WireGuardTunnel$%s)", w.ifaceName)
+		log.Printf("WireGuard connected via helper (variant: %s)", w.variant)
 		return nil
 	}
 
@@ -595,6 +609,29 @@ func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
 }
 
 func (w *WireGuardProtocol) downWindows(ctx context.Context) error {
+	// AWG on Windows is in-process — no wireguard.exe, no WireGuard
+	// tunnel-service. Jump straight to the helper which calls
+	// wgWindowsDownAwg to tear down the in-process device + Wintun.
+	if w.variant == VariantAmnezia {
+		client := NewHelperClient()
+		if !client.IsHelperReachable() {
+			return fmt.Errorf("privileged helper not running — cannot tear down in-process AmneziaWG tunnel")
+		}
+		log.Printf("Stopping AmneziaWG tunnel %s via privileged helper (in-process)", w.ifaceName)
+		resp, err := client.SendCommand("disconnect", map[string]string{
+			"protocol":  "wireguard",
+			"interface": w.ifaceName,
+			"variant":   w.variant,
+		})
+		if err != nil {
+			log.Printf("helper disconnect (AWG): %v", err)
+		} else if !resp.Success {
+			log.Printf("helper disconnect (AWG) reported: %s", resp.Error)
+		}
+		w.connectedAt = time.Time{}
+		return nil
+	}
+
 	if findWireGuardExe() == "" {
 		return fmt.Errorf("wireguard.exe not found")
 	}
@@ -631,6 +668,7 @@ func (w *WireGuardProtocol) downWindows(ctx context.Context) error {
 		resp, err := client.SendCommand("disconnect", map[string]string{
 			"protocol":  "wireguard",
 			"interface": w.ifaceName,
+			"variant":   w.variant,
 		})
 		if err != nil {
 			log.Printf("helper disconnect: %v", err)
