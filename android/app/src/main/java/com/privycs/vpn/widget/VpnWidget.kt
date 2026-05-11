@@ -59,6 +59,11 @@ class VpnWidget : AppWidgetProvider() {
         const val EXTRA_CONNECTION_NAME = "connection_name"
         const val EXTRA_PROTOCOL = "protocol"
         const val EXTRA_UPTIME = "uptime"
+        // v0.9.15.x AmneziaWG Stage 1.4 — variant marker carried in
+        // the status broadcast so the widget can show the AWG pill
+        // without an extra round-trip through VpnServiceManager.
+        // "wireguard" / "amneziawg" / "" (empty for non-WG protocols).
+        const val EXTRA_VARIANT = "variant"
         const val EXTRA_TARGET_PROTOCOL = "target_protocol"
 
         private const val ALWAYS_ON_WIDGET_PAUSE_MINUTES = 15
@@ -99,6 +104,7 @@ class VpnWidget : AppWidgetProvider() {
             connectionName: String = "",
             protocol: String = "",
             uptime: Long = 0L,
+            variant: String = "",
         ) {
             val intent = Intent(context, VpnWidget::class.java).apply {
                 action = ACTION_STATUS_CHANGED
@@ -113,6 +119,7 @@ class VpnWidget : AppWidgetProvider() {
                 putExtra(EXTRA_CONNECTION_NAME, connectionName)
                 putExtra(EXTRA_PROTOCOL, protocol)
                 putExtra(EXTRA_UPTIME, uptime)
+                putExtra(EXTRA_VARIANT, variant)
             }
             context.sendBroadcast(intent)
         }
@@ -137,12 +144,13 @@ class VpnWidget : AppWidgetProvider() {
         val localAddress = st?.localAddress ?: ""
         val rxBytes = st?.rxBytes ?: 0L
         val txBytes = st?.txBytes ?: 0L
+        val variant = st?.variant ?: ""
 
         for (appWidgetId in appWidgetIds) {
             updateWidgetWithStatus(
                 context, appWidgetManager, appWidgetId,
                 connected, connectionName, protocol, uptime, serverEndpoint,
-                localAddress, rxBytes, txBytes,
+                localAddress, rxBytes, txBytes, variant,
             )
         }
     }
@@ -178,6 +186,12 @@ class VpnWidget : AppWidgetProvider() {
                 val localAddress = st?.localAddress ?: ""
                 val rxBytes = st?.rxBytes ?: 0L
                 val txBytes = st?.txBytes ?: 0L
+                // v0.9.15.x AmneziaWG Stage 1.4 — variant. Prefer the
+                // broadcast's value (fresh per status-tick) but fall
+                // back to the service status flow so cold-start widget
+                // updates also pick it up.
+                val variant = intent.getStringExtra(EXTRA_VARIANT)
+                    ?: st?.variant ?: ""
 
                 val appWidgetManager = AppWidgetManager.getInstance(context)
                 val widgetIds = appWidgetManager.getAppWidgetIds(
@@ -187,7 +201,7 @@ class VpnWidget : AppWidgetProvider() {
                     updateWidgetWithStatus(
                         context, appWidgetManager, widgetId,
                         connected, connectionName, protocol, uptime, serverEndpoint,
-                        localAddress, rxBytes, txBytes,
+                        localAddress, rxBytes, txBytes, variant,
                     )
                 }
             }
@@ -419,6 +433,7 @@ class VpnWidget : AppWidgetProvider() {
         localAddress: String,
         rxBytes: Long,
         txBytes: Long,
+        variant: String = "",
     ) {
         val views = RemoteViews(context.packageName, R.layout.widget_vpn)
         val activeProtocol = VpnProtocol.fromString(protocol)
@@ -495,6 +510,15 @@ class VpnWidget : AppWidgetProvider() {
             views.setTextColor(R.id.widget_uptime, statusColor)
         } else {
             views.setViewVisibility(R.id.widget_uptime, android.view.View.GONE)
+        }
+
+        // v0.9.15.x AmneziaWG Stage 1.4 — show "AmneziaWG" pill only
+        // when the active tunnel is AWG. Variant follows the
+        // server's enrollment, no user-facing toggle.
+        if (connected && !killSwitchSinkhole && variant == "amneziawg") {
+            views.setViewVisibility(R.id.widget_awg_pill, android.view.View.VISIBLE)
+        } else {
+            views.setViewVisibility(R.id.widget_awg_pill, android.view.View.GONE)
         }
 
         // --- Section 3: Connection name (+ chevron is in XML, decorative) ---

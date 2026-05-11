@@ -2397,12 +2397,21 @@ class PrivycsVpnService : VpnService() {
             0L
         }
 
+        // v0.9.15.x AmneziaWG Stage 1.4 — variant flows from
+        // whichever WG-class tunnel is active, empty for the other
+        // protocols. Same source-of-truth as the ConnectScreen
+        // (VpnStatus.variant), just propagated via the widget
+        // broadcast extras.
+        val variant = if (amneziaTunnel != null) "amneziawg"
+            else if (wireGuardTunnel != null) "wireguard"
+            else ""
         VpnWidget.sendStatusUpdate(
             context = this,
             connected = connected,
             connectionName = currentConnectionName,
             protocol = currentProtocol?.shortLabel ?: "",
-            uptime = uptimeSeconds
+            uptime = uptimeSeconds,
+            variant = variant,
         )
     }
 }

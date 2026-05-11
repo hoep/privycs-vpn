@@ -165,6 +165,26 @@
                 android:textColor="@color/widget_text_primary"
                 android:singleLine="true" />
 
+            <!-- v0.9.15.x AmneziaWG Stage 1.4 — obfuscation pill.
+                 Visible only when the active WG tunnel is the AWG
+                 (DPI-evasion) variant. RemoteViews can't take a
+                 dynamic background drawable so we tint the text
+                 instead; small inline label is sufficient
+                 affordance for the user to know the variant is in
+                 effect. Visibility is toggled from VpnWidget.kt
+                 based on variant=="amneziawg". -->
+            <TextView
+                android:id="@+id/widget_awg_pill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="◉ AmneziaWG"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:textColor="#FF818CF8"
+                android:singleLine="true"
+                android:visibility="gone" />
+
             <!-- Connection name + chevron. Chevron is decorative
                  (RemoteViews can't make ImageView click-distinct);
                  a tap on this whole row goes to the root → opens

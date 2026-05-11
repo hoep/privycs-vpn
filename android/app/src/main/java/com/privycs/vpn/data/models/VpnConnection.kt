@@ -130,7 +130,13 @@ data class VpnStatus(
     // countdown ticks down without a fresh status push every second.
     // Zero means no rotation scheduled (non-RR pool, or no pool
     // active).
-    val nextRotationAt: Long = 0L
+    val nextRotationAt: Long = 0L,
+    // v0.9.15.x AmneziaWG Stage 1.4 — variant marker for
+    // WireGuard-class tunnels. Empty / "wireguard" = vanilla WG,
+    // "amneziawg" = AWG-DPI-evasion variant. ConnectScreen reads
+    // this to show a read-only "Obfuscation" badge when active.
+    // Other protocols (OpenVPN, IPSec) leave this empty.
+    val variant: String = "",
 )
 
 @Serializable

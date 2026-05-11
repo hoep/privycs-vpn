@@ -773,6 +773,15 @@ fun ConnectScreen(
             )
         }
 
+        // v0.9.15.x AmneziaWG Stage 1.4 — read-only "Obfuscation"
+        // badge. Visible only when an AmneziaWG tunnel is up. The
+        // variant follows the server's enrollment config; there is
+        // no user-facing toggle (see AMNEZIAWG_CLIENT_PLAN.md §1).
+        if (status.connected && status.variant == "amneziawg") {
+            Spacer(modifier = Modifier.height(4.dp))
+            ObfuscationBadge()
+        }
+
         // Tunnel-health pill. Visible only while a tunnel is up
         // AND the monitor is running (state != INACTIVE). The
         // AND-with-connected gate is defensive: TunnelHealthMonitor
@@ -1286,6 +1295,39 @@ private fun HealthPill(state: com.privycs.vpn.service.TunnelHealthMonitor.State)
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+        )
+    }
+}
+
+/**
+ * v0.9.15.x AmneziaWG Stage 1.4 — read-only "Obfuscation" badge.
+ * Shown on Connect screen when the active tunnel is AmneziaWG
+ * (DPI-evasion variant of WireGuard). Indigo palette to
+ * distinguish from health pill's green/amber/red traffic-light
+ * scheme. Not user-actionable: the variant follows the server's
+ * enrollment config.
+ */
+@Composable
+private fun ObfuscationBadge() {
+    val color = Color(0xFF6366F1) // indigo-500 — same as desktop hint banner
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(color.copy(alpha = 0.14f))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(color),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "Obfuscation: AmneziaWG",
             style = MaterialTheme.typography.labelSmall,
             color = color,
         )

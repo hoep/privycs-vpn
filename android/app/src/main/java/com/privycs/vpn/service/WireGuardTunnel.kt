@@ -165,11 +165,16 @@ class WireGuardTunnel(
             connectionName = connectionName,
             connectionId = connectionId,
             activeProtocol = VpnProtocol.WIREGUARD,
+            // Explicit "wireguard" variant so the UI never has to
+            // guess based on activeProtocol alone — paralleling the
+            // AmneziaTunnel.getStatus which emits "amneziawg".
+            // Stage 1.4 of AMNEZIAWG_CLIENT_PLAN.md.
+            variant = "wireguard",
             uptime = if (isUp && connectedSince > 0) System.currentTimeMillis() - connectedSince else 0L,
             rxBytes = rxBytes,
             txBytes = txBytes,
             serverEndpoint = endpoint,
-            localAddress = address
+            localAddress = address,
         )
     }
 }
