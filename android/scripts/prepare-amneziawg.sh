@@ -85,6 +85,33 @@ patch_gobackend_loader() {
     echo "  GoBackend.java: patched (System.loadLibrary call)"
 }
 
+# When the AWG tunnel module is built as a sub-project of OUR
+# privycs-vpn root, its `plugins { alias(libs.plugins.android.library) }`
+# block resolves to "com.android.library 8.3.0" from upstream's
+# version catalog. But our root project's build.gradle.kts already
+# loads the AGP jar at version 8.3.2 via `com.android.application
+# apply false` — same jar exports both application and library
+# plugins. Gradle errors with
+#   "plugin is already on the classpath with an unknown version,
+#    so compatibility cannot be checked"
+# because the parent-classpath version is unknown to the sub-project's
+# plugin resolver, but its catalog wants a specific 8.3.0.
+#
+# Fix: drop the `alias(libs.plugins.android.library)` and replace with
+# bare `id("com.android.library")`. With no version specified the
+# sub-project inherits whatever AGP is on the parent's classpath.
+# Since 8.3.0 and 8.3.2 are patch-compatible (same minor) this is
+# safe.
+patch_plugins_block() {
+    local f="${AWG_DIR}/build.gradle.kts"
+    if grep -q 'id("com.android.library")' "$f"; then
+        echo "  tunnel/build.gradle.kts plugins block: already patched"
+        return
+    fi
+    sed -i 's|alias(libs.plugins.android.library)|id("com.android.library")|' "$f"
+    echo "  tunnel/build.gradle.kts: patched (plugins block uses inherited AGP)"
+}
+
 # Apply ---------------------------------------------------------------------
 
 echo "Patching amneziawg-android tunnel module for coexistence with"
@@ -94,5 +121,6 @@ patch_gradle
 patch_cmake
 patch_libwg_go_makefile
 patch_gobackend_loader
+patch_plugins_block
 
 echo "Done. Vanilla WG and AmneziaWG can now coexist in the merged APK."
