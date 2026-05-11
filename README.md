@@ -115,6 +115,12 @@ cd android
 # update` (submodule WT gets reset and patches need re-applying).
 ANDROID_NDK_ROOT=/path/to/ndk ./scripts/prepare-strongswan.sh
 
+# AmneziaWG submodule patch (rename native libs so they coexist
+# with the wireguard-android Maven artifact in one APK without
+# duplicate-jniLibs errors). Same re-run-after-submodule-update
+# rule as prepare-strongswan.
+./scripts/prepare-amneziawg.sh
+
 ./gradlew assembleDebug
 ```
 Requires Android Studio Iguana+, Android SDK 34, JDK 17, NDK 27.3.13750724.

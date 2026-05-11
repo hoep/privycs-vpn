@@ -195,8 +195,18 @@ dependencies {
     // Core KTX
     implementation("androidx.core:core-ktx:1.12.0")
 
-    // WireGuard tunnel library
+    // WireGuard tunnel library (vanilla)
     implementation("com.wireguard.android:tunnel:1.0.20230706")
+
+    // AmneziaWG tunnel library (DPI-evasion fork of WireGuard).
+    // Pulled in as a git submodule pinned to a tagged release;
+    // see android/vendor/amneziawg-android. Same Backend / Tunnel /
+    // Statistics API as the wireguard-android Maven artifact above,
+    // in package `org.amnezia.awg.*`. Stage 1 of
+    // AMNEZIAWG_CLIENT_PLAN.md. Native libs (libwg-go.so /
+    // libwg.so / libwg-quick.so) are built via the submodule's
+    // CMake/Go pipeline at compile time; CI needs Go on PATH.
+    implementation(project(":amneziawg-tunnel"))
 
     // OpenVPN via ics-openvpn. The library module wraps schwabe/ics-openvpn
     // at android/vendor/ics-openvpn (pinned to v0.7.64). See

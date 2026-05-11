@@ -78,7 +78,16 @@ class PrivycsVpnService : VpnService() {
     private var statusPollingJob: kotlinx.coroutines.Job? = null
 
     private var goBackend: GoBackend? = null
+    // v0.9.15.x AmneziaWG Stage 1 — parallel backend + tunnel slot.
+    // The upstream `amneziawg-android` library's GoBackend is in
+    // package `org.amnezia.awg.backend` (distinct JVM type from
+    // `com.wireguard.android.backend.GoBackend` above, even though
+    // both wrap forks of the same wireguard-go source). Both
+    // backends instantiated lazily; only one tunnel slot is live
+    // at any moment per connect attempt.
+    private var awgBackend: org.amnezia.awg.backend.GoBackend? = null
     private var wireGuardTunnel: WireGuardTunnel? = null
+    private var amneziaTunnel: AmneziaTunnel? = null
     private var openVpnTunnel: OpenVpnTunnel? = null
     private var ipSecTunnel: IpSecTunnel? = null
     private var currentConnectionName: String = ""
@@ -104,6 +113,12 @@ class PrivycsVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         goBackend = GoBackend(this)
+        // AWG backend is lazily allocated too — Stage 1 of
+        // AMNEZIAWG_CLIENT_PLAN.md. Both share the same JNI process
+        // (live in our app's process), so cost of instantiation is
+        // a few KB of state; tunnels only fight for the single
+        // VpnService.Builder TUN slot when actually connecting.
+        awgBackend = org.amnezia.awg.backend.GoBackend(this)
         PrivycsLogger.d(TAG, "VPN service created")
 
         // Cold-start zombie cleanup: a previous PrivycsVpnService instance may
@@ -414,6 +429,11 @@ class PrivycsVpnService : VpnService() {
     private suspend fun forceTeardownAfterSinkhole() {
         try { wireGuardTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "Post-sinkhole WG teardown: ${e.message}") }
         wireGuardTunnel = null
+        // v0.9.15.x AWG — same sinkhole-teardown semantics, AWG uses
+        // the same VpnService.Builder TUN slot that the sinkhole
+        // wants to occupy.
+        try { amneziaTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "Post-sinkhole AWG teardown: ${e.message}") }
+        amneziaTunnel = null
         try { openVpnTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "Post-sinkhole OpenVPN teardown: ${e.message}") }
         openVpnTunnel = null
         try { ipSecTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "Post-sinkhole IPSec teardown: ${e.message}") }
@@ -756,7 +776,12 @@ class PrivycsVpnService : VpnService() {
                 val deadline = System.currentTimeMillis() + budgetMs
                 while (System.currentTimeMillis() < deadline) {
                     val tunnelReady = when (member.config.protocol) {
-                        VpnProtocol.WIREGUARD -> wireGuardTunnel != null
+                        // WireGuard variant covers BOTH vanilla WG and
+                        // AmneziaWG — the protocol slot at this layer
+                        // doesn't distinguish, the AWG/WG branch
+                        // happens inside connectWireGuard() based on
+                        // config-content detection. v0.9.15.x Stage 1.
+                        VpnProtocol.WIREGUARD -> wireGuardTunnel != null || amneziaTunnel != null
                         VpnProtocol.OPENVPN -> openVpnTunnel != null
                         VpnProtocol.IPSEC -> ipSecTunnel != null
                     }
@@ -815,7 +840,10 @@ class PrivycsVpnService : VpnService() {
 
         override suspend fun bytesReceived(): Long = withContext(Dispatchers.IO) {
             try {
-                wireGuardTunnel?.bytesReceived() ?: 0L
+                // Whichever WG variant is active reports — exactly
+                // one is non-null per connect cycle, the other zero.
+                (wireGuardTunnel?.bytesReceived() ?: 0L) +
+                    (amneziaTunnel?.bytesReceived() ?: 0L)
             } catch (e: Exception) {
                 0L
             }
@@ -1420,9 +1448,15 @@ class PrivycsVpnService : VpnService() {
      * switch, which is acceptable vs the broken-tunnel symptom.
      */
     private suspend fun teardownAllProtocols() {
-        val hadSomething = wireGuardTunnel != null || openVpnTunnel != null || ipSecTunnel != null
+        val hadSomething = wireGuardTunnel != null || amneziaTunnel != null ||
+            openVpnTunnel != null || ipSecTunnel != null
         try { wireGuardTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "WG teardown: ${e.message}") }
         wireGuardTunnel = null
+        // v0.9.15.x AmneziaWG Stage 1 — AWG tunnel teardown
+        // symmetric to WG. Same JNI process, same VpnService.Builder
+        // TUN slot fight, same 1500 ms settle window covers it.
+        try { amneziaTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "AWG teardown: ${e.message}") }
+        amneziaTunnel = null
         try { openVpnTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "OpenVPN teardown: ${e.message}") }
         openVpnTunnel = null
         try { ipSecTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "IPSec teardown: ${e.message}") }
@@ -1435,11 +1469,7 @@ class PrivycsVpnService : VpnService() {
     }
 
     private suspend fun connectWireGuard(configContent: String) {
-        val backend = goBackend ?: throw IllegalStateException("GoBackend not initialized")
-        val tunnel = WireGuardTunnel(backend)
-        wireGuardTunnel = tunnel
-
-        // Three text-level patches before the WG parser sees the
+        // Three text-level patches before the parser sees the
         // config: Per-App VPN allow/exclude (existing), DNS
         // override (v0.9.11.53), and IPv6 leak killswitch
         // (v0.9.14.96). Each patches a different aspect of the
@@ -1448,7 +1478,35 @@ class PrivycsVpnService : VpnService() {
         val perAppPatched = patchWireGuardPerAppVpn(configContent)
         val dnsPatched = patchWireGuardDnsOverride(perAppPatched)
         val patchedConfig = ipv6PatchOrPassThrough(dnsPatched, com.privycs.vpn.data.models.VpnProtocol.WIREGUARD)
-        tunnel.connect(patchedConfig, "privycs0")
+
+        // v0.9.15.x AmneziaWG Stage 1: variant-aware backend
+        // selection. Content-based detection (TunnelVariant.detect)
+        // looks for AWG-specific [Interface] keys (Jc, Jmin, Jmax,
+        // S1-4, H1-4, I1-5); presence of any one routes through
+        // the AWG backend. Vanilla wireguard-android's parser
+        // rejects these keys with a parse error, so detection
+        // MUST precede backend selection.
+        //
+        // Both paths share identical pre-parse patches above —
+        // amneziawg-android's config parser is API-compatible with
+        // wireguard-android (same upstream wg-quick file format
+        // plus the AWG fields). So Per-App VPN, DNS-override, and
+        // IPv6-killswitch all work on AWG tunnels too without
+        // protocol-specific branches in the patch chain.
+        val variant = com.privycs.vpn.data.models.TunnelVariant.detect(patchedConfig)
+        if (variant == com.privycs.vpn.data.models.TunnelVariant.AMNEZIAWG) {
+            val backend = awgBackend
+                ?: throw IllegalStateException("AWG GoBackend not initialized")
+            val tunnel = AmneziaTunnel(backend)
+            amneziaTunnel = tunnel
+            PrivycsLogger.i(TAG, "connectWireGuard: AmneziaWG variant detected, routing through AWG backend")
+            tunnel.connect(patchedConfig, "privycs0")
+        } else {
+            val backend = goBackend ?: throw IllegalStateException("GoBackend not initialized")
+            val tunnel = WireGuardTunnel(backend)
+            wireGuardTunnel = tunnel
+            tunnel.connect(patchedConfig, "privycs0")
+        }
 
         connectStartTime = System.currentTimeMillis()
         updateNotification("Connected to $currentConnectionName")
@@ -1891,8 +1949,13 @@ class PrivycsVpnService : VpnService() {
             try {
                 when (currentProtocol) {
                     VpnProtocol.WIREGUARD -> {
+                        // Tear down whichever WG variant is active —
+                        // exactly one is non-null per session
+                        // (v0.9.15.x AmneziaWG Stage 1).
                         wireGuardTunnel?.disconnect()
                         wireGuardTunnel = null
+                        amneziaTunnel?.disconnect()
+                        amneziaTunnel = null
                     }
                     VpnProtocol.OPENVPN -> {
                         openVpnTunnel?.disconnect()
@@ -1906,6 +1969,8 @@ class PrivycsVpnService : VpnService() {
                         // Disconnect all in case protocol is unknown
                         wireGuardTunnel?.disconnect()
                         wireGuardTunnel = null
+                        amneziaTunnel?.disconnect()
+                        amneziaTunnel = null
                         openVpnTunnel?.disconnect()
                         openVpnTunnel = null
                         ipSecTunnel?.disconnect()
@@ -2132,7 +2197,12 @@ class PrivycsVpnService : VpnService() {
                 PrivycsLogger.i(TAG, "startStatusPolling: iteration=$iter protocol=$currentProtocol")
                 val status = when (currentProtocol) {
                     VpnProtocol.WIREGUARD -> {
+                        // Prefer whichever WG variant slot is active.
+                        // Exactly one is non-null per connect cycle —
+                        // wireGuardTunnel for vanilla, amneziaTunnel
+                        // for AWG (v0.9.15.x Stage 1).
                         wireGuardTunnel?.getStatus(currentConnectionName, currentConnectionId)
+                            ?: amneziaTunnel?.getStatus(currentConnectionName, currentConnectionId)
                     }
                     VpnProtocol.OPENVPN -> {
                         openVpnTunnel?.getStatus(currentConnectionName, currentConnectionId)

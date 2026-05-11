@@ -97,6 +97,9 @@ jobs:
         env:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
 
+      - name: Prepare AmneziaWG (rename native libs to coexist with WG)
+        run: ./scripts/prepare-amneziawg.sh
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -196,6 +199,9 @@ jobs:
         run: ./scripts/prepare-strongswan.sh
         env:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
+
+      - name: Prepare AmneziaWG (rename native libs to coexist with WG)
+        run: ./scripts/prepare-amneziawg.sh
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew

@@ -4,3 +4,6 @@
 [submodule "android/vendor/ics-openvpn"]
 	path = android/vendor/ics-openvpn
 	url = https://github.com/schwabe/ics-openvpn.git
+[submodule "android/vendor/amneziawg-android"]
+	path = android/vendor/amneziawg-android
+	url = https://github.com/amnezia-vpn/amneziawg-android
