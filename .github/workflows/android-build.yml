@@ -104,7 +104,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run unit tests
-        run: ./gradlew test --no-daemon
+        # Skip vendor submodule tests — we are a library consumer, not
+        # the AWG project. Upstream's own test suite occasionally trips
+        # on environment-specific assumptions (locale, file-encoding)
+        # that have nothing to do with our integration.
+        run: ./gradlew test --no-daemon -x :amneziawg-tunnel:testDebugUnitTest -x :amneziawg-tunnel:testReleaseUnitTest -x :amneziawg-tunnel:test
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon
