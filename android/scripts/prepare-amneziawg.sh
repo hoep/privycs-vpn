@@ -112,6 +112,37 @@ patch_plugins_block() {
     echo "  tunnel/build.gradle.kts: patched (plugins block uses inherited AGP)"
 }
 
+# The upstream AWG repo sets compileSdk / minSdk / ndkVersion /
+# buildToolsVersion globally in its OWN settings.gradle.kts via
+# the `com.android.settings` plugin + SettingsExtension. When we
+# include `:amneziawg-tunnel` as a sub-project of OUR root, our
+# settings.gradle.kts does NOT apply that plugin (we can't —
+# it would override our app's own SDK levels). So the AWG
+# tunnel module has NO compileSdk and AGP fails at configure
+# time with "compileSdkVersion is not specified".
+#
+# Fix: inject the values directly into the `android { ... }`
+# block of tunnel/build.gradle.kts, right after the opening
+# brace. Match upstream's values from its settings.gradle.kts.
+patch_sdk_levels() {
+    local f="${AWG_DIR}/build.gradle.kts"
+    if grep -q 'compileSdk = 35' "$f"; then
+        echo "  tunnel/build.gradle.kts SDK levels: already patched"
+        return
+    fi
+    # Insert four lines right after `android {` (which appears alone
+    # on its line). ndkVersion must match the NDK actually installed
+    # in CI (see .github/workflows/android-build.yml NDK_VERSION env)
+    # — using upstream's 26.1.10909125 would force AGP to try and
+    # download a second NDK at build time.
+    sed -i '/^android {$/a\
+    compileSdk = 35\
+    buildToolsVersion = "35.0.0"\
+    ndkVersion = "27.3.13750724"\
+    defaultConfig { minSdk = 24 }' "$f"
+    echo "  tunnel/build.gradle.kts: patched (compileSdk/minSdk/ndkVersion/buildToolsVersion)"
+}
+
 # Apply ---------------------------------------------------------------------
 
 echo "Patching amneziawg-android tunnel module for coexistence with"
@@ -122,5 +153,6 @@ patch_cmake
 patch_libwg_go_makefile
 patch_gobackend_loader
 patch_plugins_block
+patch_sdk_levels
 
 echo "Done. Vanilla WG and AmneziaWG can now coexist in the merged APK."
