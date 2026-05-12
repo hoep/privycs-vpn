@@ -82,6 +82,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.material3.TextButton
 import kotlinx.coroutines.delay
+import com.privycs.vpn.ui.theme.AmneziaWgIndigo
 import com.privycs.vpn.ui.theme.IpSecBlue
 import com.privycs.vpn.ui.theme.OpenVpnOrange
 import com.privycs.vpn.ui.theme.PrivycsTeal
