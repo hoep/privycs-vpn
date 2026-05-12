@@ -70,14 +70,42 @@ object PrivycsLogger {
 
     /**
      * Tail-trim the log to the last KEEP_LAST_LINES lines.
+     *
+     * Atomic-rename strategy: write the tail to a sibling temp file,
+     * then rename(2) onto the original. Pre-fix this used
+     * `file.writeText(...)` which truncates the file in place — if
+     * the process is killed mid-write the file ends up half-empty
+     * AND the in-flight log call's PrintWriter has already opened
+     * the (now-truncated) file in append mode at the OLD position,
+     * so the next entry lands at a weird offset and subsequent
+     * readers see garbage. The user-reported symptom was "logs
+     * werden nicht kontinuierlich upgedatet" after the file passed
+     * 200 KB — rotation kicked in, the file got mangled, the
+     * LogsScreen viewer kept showing pre-rotation entries.
+     *
+     * Atomic rename is the standard fix: only at the end-of-rename
+     * does the filename point to the truncated content; any reader
+     * mid-rotation sees either the old or the new file, never a
+     * partial mix.
      */
     private fun rotate(file: File) {
         try {
             val lines = file.readLines()
             val tail = if (lines.size > KEEP_LAST_LINES) lines.takeLast(KEEP_LAST_LINES) else lines
-            file.writeText(tail.joinToString("\n") + "\n")
-        } catch (_: Exception) {
-            // If rotate fails, just nuke the file to avoid unbounded growth.
+            val tmp = File(file.parentFile, "${file.name}.tmp")
+            tmp.writeText(tail.joinToString("\n") + "\n")
+            if (!tmp.renameTo(file)) {
+                // renameTo can fail on some filesystems; fall back
+                // to in-place truncate. Worse atomicity but better
+                // than leaving the .tmp orphan.
+                file.writeText(tmp.readText())
+                tmp.delete()
+            }
+        } catch (e: Exception) {
+            Log.e("PrivycsLogger", "Rotate failed: ${e.message}", e)
+            // Last-resort: truncate so the file doesn't grow
+            // unbounded. We accept losing the last 500 lines over
+            // losing all future writes.
             try { file.writeText("") } catch (_: Exception) {}
         }
     }

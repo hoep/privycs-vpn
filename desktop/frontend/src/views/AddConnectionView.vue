@@ -45,13 +45,7 @@
       </div>
       <p v-if="gatewayError" class="text-[10px] text-red-400 mb-2">{{ gatewayError }}</p>
       <div v-if="filteredGatewayConfigs.length === 0 && !loadingGateway" class="text-[10px] text-gray-500 text-center py-2">
-        <template v-if="targetConnection && gatewayConfigs.length > 0">
-          All user protocols already imported for this connection
-        </template>
-        <template v-else-if="gatewayConfigs.length === 0">
-          No configs available. Click Refresh.
-        </template>
-        <template v-else>No matching configs</template>
+        No configs available. Click Refresh.
       </div>
       <div v-else class="space-y-1.5 max-h-64 overflow-y-auto">
         <div
@@ -253,16 +247,14 @@ async function loadConnections() {
   }
 }
 
-// Gateway-configs fetched from the gateway API. When in "Add Protocol to X"
-// mode, these are filtered to only show protocols not yet in the target connection.
+// Gateway-configs fetched from the gateway API. Multi-config-
+// per-protocol (v0.9.15.4): a connection may hold any number of
+// configs of any protocol type, including multiples of the same
+// protocol. So we don't filter the listing — every available
+// gateway config is offered, even if the connection already
+// has one of the same protocol. The user picks which to attach.
 const filteredGatewayConfigs = computed(() => {
-  if (!targetConnection.value) {
-    return gatewayConfigs.value
-  }
-  const existingProtocols = new Set(
-    (targetConnection.value.protocols || []).map((p: any) => p.protocol)
-  )
-  return gatewayConfigs.value.filter(rc => !existingProtocols.has(rc.protocol))
+  return gatewayConfigs.value
 })
 
 function toggleGatewayPanel() {

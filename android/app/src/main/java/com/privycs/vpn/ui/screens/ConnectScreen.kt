@@ -1022,27 +1022,39 @@ private fun ConnectButton(
                     val tint = if (isConnected) Color.White
                     else MaterialTheme.colorScheme.onSurfaceVariant
                     val iconRes = when (activeProtocol) {
-                        // Monochrome AmneziaWG silhouette inside the
-                        // big connect button so the same white/gray
-                        // tint scheme as the other protocol marks
-                        // applies — the multi-colour brand mark is
-                        // hard to read against the green-when-connected
-                        // / gray-when-disconnected button background.
-                        // Small pills + list rows use the full-colour
-                        // mark, which has enough surrounding contrast.
-                        VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
+                        // AmneziaWG badge — white circle + indigo
+                        // silhouette. Composed via the
+                        // ic_protocol_amneziawg_badge layer-list so
+                        // the brand colour reads on both the
+                        // green-when-connected and the
+                        // gray-when-disconnected button background.
+                        // Other protocols stay monochrome path-
+                        // drawables that take the tint cascade.
+                        VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_badge
                         VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                         VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                         VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
                         null -> null
                     }
                     if (iconRes != null) {
-                        Icon(
-                            painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                            contentDescription = activeProtocol?.label,
-                            modifier = Modifier.size(56.dp),
-                            tint = tint
-                        )
+                        if (activeProtocol == VpnProtocol.AMNEZIAWG) {
+                            // Render the layer-list as Image (not
+                            // Icon) — Icon would collapse the
+                            // white circle + indigo silhouette
+                            // into a single-colour silhouette.
+                            androidx.compose.foundation.Image(
+                                painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                                contentDescription = "AmneziaWG",
+                                modifier = Modifier.size(56.dp),
+                            )
+                        } else {
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                                contentDescription = activeProtocol?.label,
+                                modifier = Modifier.size(56.dp),
+                                tint = tint
+                            )
+                        }
                     } else {
                         Icon(
                             imageVector = Icons.Filled.GppGood,

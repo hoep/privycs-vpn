@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    AmneziaWG "badge" — round white background with the Amnezia
+    silhouette tinted in brand indigo (#6366F1) inside. Used in
+    contexts where the multi-colour brand mark would get lost
+    against a solid button background: the 56dp ConnectButton
+    icon and the widget's 56dp center button.
+
+    Pill-row icons (14dp inside an already-tinted pill) use the
+    plain mono variant — the pill's tint provides the colour
+    cue, no badge needed.
+
+    Inset 6dp gives the silhouette breathing room inside the
+    circle so the mark doesn't touch the edge.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFFFF" />
+        </shape>
+    </item>
+    <item
+        android:left="6dp"
+        android:top="6dp"
+        android:right="6dp"
+        android:bottom="6dp">
+        <bitmap
+            android:src="@drawable/ic_protocol_amneziawg_mono"
+            android:gravity="center"
+            android:tint="#6366F1" />
+    </item>
+</layer-list>

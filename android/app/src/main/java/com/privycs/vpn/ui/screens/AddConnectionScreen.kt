@@ -335,24 +335,29 @@ fun AddConnectionScreen(
             // the target connection when in "add protocol" mode.
             if (showGateway) {
                 val visibleGatewayConfigs = remember(gatewayConfigs, targetConnection?.id) {
-                    if (targetConnection == null) {
-                        gatewayConfigs
-                    } else {
-                        val have = targetConnection.availableProtocols().toSet()
-                        gatewayConfigs.filter { entry ->
-                            val p = VpnProtocol.fromString(entry.protocol)
-                            p != null && p !in have
-                        }
-                    }
+                    // Multi-config-per-protocol: with the v0.9.15.4
+                    // refactor a connection may hold any number of
+                    // configs of any protocol type. So we don't
+                    // filter the listing at all — every available
+                    // gateway config is offered, even if the
+                    // connection already has one of the same
+                    // protocol. The user can pick "Home WG UDP"
+                    // even though "Home WG TCP" is already attached.
+                    //
+                    // (Pre-refactor we filtered out protocols the
+                    // connection already had, which also broke the
+                    // AWG case because the gateway labels AWG
+                    // configs as protocol="wireguard" + obfuscated
+                    // — they look like a duplicate vanilla WG to
+                    // this filter.)
+                    gatewayConfigs
                 }
                 GatewayPanel(
                     configs = visibleGatewayConfigs,
                     isLoading = gatewayLoading,
                     error = gatewayError,
                     downloadingKey = downloadingKey,
-                    emptyMessage = if (targetConnection != null)
-                        "All protocols of this user already imported for \"${targetConnection.name}\""
-                    else "No configs available",
+                    emptyMessage = "No configs available",
                     onDownload = { entry ->
                         val key = "${entry.protocol}-${entry.id}"
                         scope.launch {

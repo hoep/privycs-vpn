@@ -249,7 +249,7 @@
                 android:id="@+id/widget_protocol_awg_icon"
                 android:layout_width="14dp"
                 android:layout_height="14dp"
-                android:src="@drawable/ic_protocol_amneziawg"
+                android:src="@drawable/ic_protocol_amneziawg_mono"
                 android:scaleType="fitCenter"
                 android:contentDescription="@null" />
 
