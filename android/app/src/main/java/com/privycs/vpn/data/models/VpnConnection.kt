@@ -88,6 +88,22 @@ data class VpnConnection(
 
     fun hasProtocol(protocol: VpnProtocol): Boolean =
         protocols.any { it.protocol == protocol }
+
+    /**
+     * True iff the currently-active protocol config is a WireGuard
+     * .conf that contains AmneziaWG obfuscation keys. Used by the
+     * UI to swap the WireGuard brand icon for the AmneziaWG one
+     * before the tunnel has had a chance to report its live
+     * variant via VpnStatus. AWG is a variant of WireGuard at the
+     * data-model level (see project memory: "Keep as variant
+     * status-quo, just swap icons"), so the protocol enum stays
+     * WIREGUARD and only the icon flips.
+     */
+    fun isActiveAmneziaWg(): Boolean {
+        val cfg = getActiveConfig() ?: return false
+        if (cfg.protocol != VpnProtocol.WIREGUARD) return false
+        return TunnelVariant.detect(cfg.configContent) == TunnelVariant.AMNEZIAWG
+    }
 }
 
 @Serializable

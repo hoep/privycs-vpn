@@ -286,11 +286,22 @@ fun ConnectScreen(
         // first update.
         val activeProtocolForIcon = status.activeProtocol
             ?: connectionRepo.getActive()?.activeProtocol
+        // Swap the brand icon to AmneziaWG's when the chosen
+        // connection is AWG-variant. Prefer the live variant from
+        // VpnStatus (authoritative once connected) over the
+        // content-detection fallback (used before the first status
+        // update lands, or when the user has only "selected" but
+        // not yet connected).
+        val isAmneziaWgForIcon = if (status.variant.isNotEmpty())
+            status.variant == "amneziawg"
+        else
+            connectionRepo.getActive()?.isActiveAmneziaWg() == true
         ConnectButton(
             isConnected = isConnected,
             isConnecting = isConnecting,
             isSinkholeActive = isSinkholeActive,
             activeProtocol = activeProtocolForIcon,
+            isAmneziaWg = isAmneziaWgForIcon,
             onLongClick = {
                 // Long-press on the toggle while connected opens the
                 // pause bottom sheet. When Always-On is active we
@@ -524,8 +535,22 @@ fun ConnectScreen(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         conn.availableProtocols().forEach { p ->
+                                            // Content-detect AWG so the
+                                            // dropdown shows the Amnezia
+                                            // mark in place of the WG
+                                            // dragon when this connection's
+                                            // .conf carries obfuscation
+                                            // keys.
+                                            val isAwgEntry = p == VpnProtocol.WIREGUARD &&
+                                                conn.getProtocol(p)?.configContent?.let {
+                                                    com.privycs.vpn.data.models.TunnelVariant.detect(it) ==
+                                                        com.privycs.vpn.data.models.TunnelVariant.AMNEZIAWG
+                                                } == true
                                             val iconRes = when (p) {
-                                                VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
+                                                VpnProtocol.WIREGUARD -> if (isAwgEntry)
+                                                    R.drawable.ic_protocol_amneziawg
+                                                else
+                                                    R.drawable.ic_protocol_wireguard
                                                 VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                                                 VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
                                             }
@@ -651,6 +676,15 @@ fun ConnectScreen(
                 ProtocolBadges(
                     availableProtocols = activeConnection.availableProtocols(),
                     activeProtocol = status.activeProtocol ?: activeConnection.activeProtocol,
+                    // Per-protocol AWG detector — pill swaps to the
+                    // Amnezia mark when the .conf for that protocol
+                    // entry has obfuscation keys.
+                    isAmneziaWg = { p ->
+                        p == VpnProtocol.WIREGUARD &&
+                            activeConnection.getProtocol(p)?.configContent
+                                ?.let { com.privycs.vpn.data.models.TunnelVariant.detect(it) ==
+                                    com.privycs.vpn.data.models.TunnelVariant.AMNEZIAWG } == true
+                    },
                     onSelect = { protocol ->
                         vpnManager.switchProtocol(protocol)
                     }
@@ -918,6 +952,7 @@ private fun ConnectButton(
     isConnecting: Boolean,
     isSinkholeActive: Boolean = false,
     activeProtocol: VpnProtocol?,
+    isAmneziaWg: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
 ) {
@@ -1029,18 +1064,34 @@ private fun ConnectButton(
                     val tint = if (isConnected) Color.White
                     else MaterialTheme.colorScheme.onSurfaceVariant
                     val iconRes = when (activeProtocol) {
-                        VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
+                        VpnProtocol.WIREGUARD -> if (isAmneziaWg)
+                            R.drawable.ic_protocol_amneziawg
+                        else
+                            R.drawable.ic_protocol_wireguard
                         VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                         VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
                         null -> null
                     }
                     if (iconRes != null) {
-                        Icon(
-                            painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                            contentDescription = activeProtocol?.label,
-                            modifier = Modifier.size(56.dp),
-                            tint = tint
-                        )
+                        // AmneziaWG icon is full-colour; tinting it
+                        // would erase the orange/teal/purple palette
+                        // that's the whole point of the brand mark.
+                        // Render via Image when AWG, Icon (with tint)
+                        // for the monochrome WG/OVPN/IPSec marks.
+                        if (isAmneziaWg && activeProtocol == VpnProtocol.WIREGUARD) {
+                            androidx.compose.foundation.Image(
+                                painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                                contentDescription = "AmneziaWG",
+                                modifier = Modifier.size(56.dp),
+                            )
+                        } else {
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                                contentDescription = activeProtocol?.label,
+                                modifier = Modifier.size(56.dp),
+                                tint = tint
+                            )
+                        }
                     } else {
                         Icon(
                             imageVector = Icons.Filled.GppGood,
@@ -1072,6 +1123,7 @@ private fun ConnectButton(
 private fun ProtocolBadges(
     availableProtocols: List<VpnProtocol>,
     activeProtocol: VpnProtocol,
+    isAmneziaWg: (VpnProtocol) -> Boolean = { false },
     onSelect: (VpnProtocol) -> Unit
 ) {
     LazyRow(
@@ -1079,8 +1131,13 @@ private fun ProtocolBadges(
     ) {
         items(availableProtocols) { protocol ->
             val isActive = protocol == activeProtocol
+            val isAwg = isAmneziaWg(protocol)
             val badgeColor = when (protocol) {
-                VpnProtocol.WIREGUARD -> WireGuardRed
+                // AWG-variant WG pill takes the indigo accent so it's
+                // visually distinct from a vanilla-WG pill in the same
+                // row (e.g. a connection with both a WG and an AWG
+                // .conf, though that's rare).
+                VpnProtocol.WIREGUARD -> if (isAwg) Color(0xFF6366F1) else WireGuardRed
                 VpnProtocol.OPENVPN -> OpenVpnOrange
                 VpnProtocol.IPSEC -> IpSecBlue
             }
@@ -1109,15 +1166,28 @@ private fun ProtocolBadges(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                androidx.compose.material3.Icon(
-                    painter = androidx.compose.ui.res.painterResource(id = protocol.badgeDrawable()),
-                    contentDescription = null,
-                    tint = textColor,
-                    modifier = Modifier.size(14.dp)
-                )
+                if (isAwg && protocol == VpnProtocol.WIREGUARD) {
+                    // Multi-colour Amnezia brand mark — render via
+                    // Image so the orange/teal/purple palette
+                    // survives the badge tint.
+                    androidx.compose.foundation.Image(
+                        painter = androidx.compose.ui.res.painterResource(
+                            id = R.drawable.ic_protocol_amneziawg
+                        ),
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                } else {
+                    androidx.compose.material3.Icon(
+                        painter = androidx.compose.ui.res.painterResource(id = protocol.badgeDrawable()),
+                        contentDescription = null,
+                        tint = textColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = protocol.label,
+                    text = if (isAwg && protocol == VpnProtocol.WIREGUARD) "AmneziaWG" else protocol.label,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
                     color = textColor
@@ -1319,11 +1389,13 @@ private fun ObfuscationBadge() {
             .padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(color),
+        // Amnezia brand mark — multi-colour so we render with Image
+        // (not Icon, which would force the indigo tint and lose
+        // the orange/teal/purple palette).
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_protocol_amneziawg),
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(

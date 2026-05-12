@@ -70,6 +70,7 @@ import com.privycs.vpn.api.GatewayApiClient
 import com.privycs.vpn.config.ConfigParser
 import com.privycs.vpn.data.models.ProtocolConfig
 import com.privycs.vpn.data.models.RemoteConfigEntry
+import com.privycs.vpn.data.models.TunnelVariant
 import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.ui.theme.IpSecBlue
@@ -771,8 +772,16 @@ private fun ConnectionCard(
                             // All three protocols parse as plain text:
                             // WireGuard .conf is INI, OpenVPN .ovpn is text,
                             // IPSec .sswan is JSON and .mobileconfig is XML.
+                            // For WireGuard, content-detect AWG so the
+                            // badge shows the AmneziaWG mark instead of
+                            // the WG dragon when the .conf carries
+                            // obfuscation keys.
+                            val isAwg = protocol == VpnProtocol.WIREGUARD &&
+                                connection.getProtocol(protocol)?.configContent
+                                    ?.let { TunnelVariant.detect(it) == TunnelVariant.AMNEZIAWG } == true
                             ProtocolBadge(
                                 protocol = protocol,
+                                isAmneziaWg = isAwg,
                                 onRemove = if (canRemove) {
                                     { onRemoveProtocol(protocol) }
                                 } else null,
@@ -853,6 +862,7 @@ private fun ConnectionCard(
 @Composable
 private fun ProtocolBadge(
     protocol: VpnProtocol,
+    isAmneziaWg: Boolean = false,
     onRemove: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null
 ) {
@@ -862,7 +872,10 @@ private fun ProtocolBadge(
         VpnProtocol.IPSEC -> IpSecBlue
     }
     val iconRes = when (protocol) {
-        VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
+        VpnProtocol.WIREGUARD -> if (isAmneziaWg)
+            com.privycs.vpn.R.drawable.ic_protocol_amneziawg
+        else
+            com.privycs.vpn.R.drawable.ic_protocol_wireguard
         VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
         VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
     }
@@ -878,12 +891,22 @@ private fun ProtocolBadge(
             .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            painter = androidx.compose.ui.res.painterResource(id = iconRes),
-            contentDescription = protocol.label,
-            tint = color,
-            modifier = Modifier.size(20.dp)
-        )
+        if (isAmneziaWg && protocol == VpnProtocol.WIREGUARD) {
+            // Multi-colour brand mark — render via Image so its
+            // orange/teal/purple palette survives the badge tint.
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                contentDescription = "AmneziaWG",
+                modifier = Modifier.size(20.dp)
+            )
+        } else {
+            Icon(
+                painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                contentDescription = protocol.label,
+                tint = color,
+                modifier = Modifier.size(20.dp)
+            )
+        }
         if (onEdit != null) {
             Spacer(modifier = Modifier.width(2.dp))
             IconButton(

@@ -480,8 +480,17 @@ class VpnWidget : AppWidgetProvider() {
         val displayProtocol = activeProtocol
             ?: com.privycs.vpn.PrivycsApp.instance.connectionRepository
                 .getActive()?.activeProtocol
+        // For WireGuard, fall back to content-detection from the
+        // active connection's conf when the live status hasn't yet
+        // reported a variant (widget renders before the first
+        // VpnStatus update on cold launch).
+        val isAwgForIcon = variant == "amneziawg" ||
+            (displayProtocol == VpnProtocol.WIREGUARD &&
+                com.privycs.vpn.PrivycsApp.instance.connectionRepository
+                    .getActive()?.isActiveAmneziaWg() == true)
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
+            displayProtocol == VpnProtocol.WIREGUARD && isAwgForIcon -> R.drawable.ic_protocol_amneziawg
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
