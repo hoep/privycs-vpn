@@ -220,6 +220,17 @@ class GatewayApiClient(
         val dns = config["dns"]?.jsonPrimitive?.content ?: ""
         val mtu = config["mtu"]?.jsonPrimitive?.int ?: 0
         val keepalive = config["persistent_keepalive"]?.jsonPrimitive?.int ?: 25
+        // AmneziaWG obfuscation block — server (privycs v0.8.4.18+)
+        // pre-renders the AWG keys (Jc/Jmin/Jmax/S1-4/H1-4/I1-5) as
+        // ready-to-append config lines. Without this, AWG configs
+        // downloaded from the gateway would lose their obfuscation
+        // params and the client would fall back to vanilla-WG —
+        // server with AWG handshake-magic-headers then drops every
+        // packet we send. User-visible: tunnel "connects" but no
+        // traffic flows.
+        val obfuscationLines = try {
+            config["obfuscation_config_lines"]?.jsonPrimitive?.content
+        } catch (_: Throwable) { null }
 
         return buildString {
             appendLine("[Interface]")
@@ -227,6 +238,9 @@ class GatewayApiClient(
             appendLine("Address = $address")
             if (dns.isNotBlank()) appendLine("DNS = $dns")
             if (mtu > 0) appendLine("MTU = $mtu")
+            if (!obfuscationLines.isNullOrBlank()) {
+                appendLine(obfuscationLines.trim())
+            }
             appendLine()
             appendLine("[Peer]")
             appendLine("PublicKey = $serverPublicKey")

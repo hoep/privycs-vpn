@@ -157,6 +157,14 @@ func (a *App) buildWireGuardConf(body []byte) (string, error) {
 			DNS                 string  `json:"dns"`
 			MTU                 int     `json:"mtu"`
 			PersistentKeepalive int     `json:"persistent_keepalive"`
+			// ObfuscationConfigLines is the pre-rendered AmneziaWG
+			// block (Jc/Jmin/Jmax/S1-4/H1-4/I1-5 keys ready to
+			// append into [Interface]). Emitted by privycs server
+			// v0.8.4.18+; empty/missing for vanilla WG configs.
+			// Without this field the client falls back to plain
+			// WireGuard and the AWG-magic-header server then
+			// silently drops all traffic.
+			ObfuscationConfigLines string `json:"obfuscation_config_lines"`
 		} `json:"config"`
 	}
 
@@ -179,6 +187,13 @@ func (a *App) buildWireGuardConf(body []byte) (string, error) {
 	}
 	if c.MTU > 0 {
 		conf.WriteString(fmt.Sprintf("MTU = %d\n", c.MTU))
+	}
+	// AmneziaWG obfuscation block — append before [Peer] so the
+	// keys land inside the [Interface] section where the AWG
+	// parser expects them.
+	if obf := strings.TrimSpace(c.ObfuscationConfigLines); obf != "" {
+		conf.WriteString(obf)
+		conf.WriteString("\n")
 	}
 
 	conf.WriteString("\n[Peer]\n")

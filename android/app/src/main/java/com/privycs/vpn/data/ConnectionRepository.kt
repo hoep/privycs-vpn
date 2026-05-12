@@ -105,19 +105,42 @@ class ConnectionRepository(private val context: Context) {
             existingIndex = conn.protocols.indexOfFirst { it.id == protocolConfig.id }
         }
         if (existingIndex < 0 && protocolConfig.filename.isNotEmpty()) {
+            // Prefer same-protocol filename match (re-import of an
+            // existing WG slot stays a WG slot).
             existingIndex = conn.protocols.indexOfFirst {
                 it.protocol == protocolConfig.protocol &&
                     it.filename == protocolConfig.filename
             }
+            // Fallback: cross-protocol filename match. Triggered
+            // when the same .conf changes classification between
+            // imports — most commonly when v0.9.15.x server
+            // started emitting obfuscation_config_lines, so what
+            // was a vanilla-WG download last week becomes an
+            // AmneziaWG download this week. The user wants
+            // "re-import obelix.conf" to REPLACE the obelix slot,
+            // not create a parallel one.
+            if (existingIndex < 0) {
+                existingIndex = conn.protocols.indexOfFirst {
+                    it.filename == protocolConfig.filename
+                }
+            }
         }
         if (existingIndex >= 0) {
-            // Preserve the existing id+nickname so external refs
-            // (activeConfigId, pool-member refs) stay valid.
             val keep = conn.protocols[existingIndex]
-            conn.protocols[existingIndex] = withId.copy(
+            val replacement = withId.copy(
                 id = keep.id,
                 nickname = keep.nickname,
             )
+            conn.protocols[existingIndex] = replacement
+            // Cross-protocol re-import: the slot's protocol field
+            // now reflects the new classification (e.g. WG → AWG).
+            // If this slot was the connection's active one, also
+            // update the legacy activeProtocol enum field so the
+            // protocol-type-driven UI surfaces (widget pills, old
+            // code paths) see the change immediately.
+            if (conn.activeConfigId == keep.id) {
+                conn.activeProtocol = replacement.protocol
+            }
         } else {
             conn.protocols.add(withId)
         }
@@ -395,27 +418,32 @@ class ConnectionRepository(private val context: Context) {
                 }
             }
 
-            // Phase 3: dedupe (protocol, filename) duplicates that
-            // accumulated in pre-v0.9.15.7 builds. The old
-            // addOrUpdate appended on every fresh import when the
-            // ProtocolConfig had no id — re-downloading the same
-            // gateway config built up duplicate slots, which the
-            // pill-row disambiguation logic then mis-labelled
-            // with peer names. Keep the FIRST occurrence (so its
-            // id stays stable for activeConfigId / pool refs);
-            // drop the rest.
-            val seen = HashSet<Pair<com.privycs.vpn.data.models.VpnProtocol, String>>()
+            // Phase 3: dedupe by filename. v0.9.15.7-and-earlier
+            // produced two failure modes:
+            //   (a) Same protocol, same filename — old addOrUpdate
+            //       appended on every fresh import.
+            //   (b) Cross-protocol, same filename — e.g. a peer
+            //       imported once as plain WG (pre-v0.9.15.8 when
+            //       buildWireGuardConf stripped the AWG keys),
+            //       re-imported as AMNEZIAWG after the gateway
+            //       started emitting obfuscation_config_lines.
+            //       Connection ended up with parallel WG and AWG
+            //       slots for the same peer.
+            // Keep the FIRST occurrence (preserves id stability
+            // for activeConfigId / pool refs); drop the rest.
+            // Empty-filename configs are exempt — they have no
+            // dedupe key, so we let them be.
+            val seen = HashSet<String>()
             val deduped = mutableListOf<com.privycs.vpn.data.models.ProtocolConfig>()
-            val droppedIds = mutableSetOf<String>()
+            var droppedAny = false
             for (pc in conn.protocols) {
-                val key = pc.protocol to pc.filename
-                if (pc.filename.isEmpty() || seen.add(key)) {
+                if (pc.filename.isEmpty() || seen.add(pc.filename)) {
                     deduped.add(pc)
                 } else {
-                    droppedIds.add(pc.id)
+                    droppedAny = true
                 }
             }
-            if (droppedIds.isNotEmpty()) {
+            if (droppedAny) {
                 conn.protocols.clear()
                 conn.protocols.addAll(deduped)
                 healed = true
