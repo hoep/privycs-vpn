@@ -459,6 +459,10 @@ func (a *App) BootstrapState() *BootstrapStateInfo {
 // survives app restart - users do not want to re-pick their pool
 // every cold-start.
 func (a *App) ActivatePool(id string) error {
+	// Serialise tunnel-state mutation. ActivatePool may trigger
+	// disconnect+pool-pick — same race surface as ActivateConnection.
+	a.tunnelMu.Lock()
+	defer a.tunnelMu.Unlock()
 	a.mu.Lock()
 
 	if id == "" {
@@ -554,6 +558,13 @@ func (a *App) ActivatePool(id string) error {
 // and (if the VPN is currently up) reconnects to it. Used by the
 // Connect-Screen's [⟳ Switch member] button.
 func (a *App) SwitchPoolMember(memberID string) error {
+	// Serialise tunnel-state mutation. SwitchPoolMember calls
+	// connectToPoolMember which calls connectInternal — that path
+	// expects tunnelMu held by the outer caller. See `tunnelMu`
+	// doc on App.
+	a.tunnelMu.Lock()
+	defer a.tunnelMu.Unlock()
+
 	a.mu.Lock()
 	poolID := a.activePoolID
 	wasConnected := a.connected
@@ -687,7 +698,13 @@ func (a *App) connectToPoolMember(m *PoolMember) error {
 	a.settings.ActiveProtocol = m.Config.Protocol
 	a.mu.Unlock()
 
-	if _, err := a.Connect(""); err != nil {
+	// Use connectInternal (not Connect) because our caller
+	// (PickAndConnectActivePool / SwitchPoolMember) is already
+	// holding a.tunnelMu — Go's sync.Mutex is non-reentrant, so
+	// the public Connect would deadlock here. The atomicity from
+	// Configure (above) through proto.Up() (inside) is the whole
+	// reason tunnelMu was extended to the outer caller.
+	if _, err := a.connectInternal(""); err != nil {
 		return err
 	}
 	return nil
@@ -982,6 +999,14 @@ func mostRecentlyUsedConnection(connections []*SavedConnection) *SavedConnection
 // to the selected member. Called by Connect() when activePoolID is
 // set, and by the rotator's onRotate callback.
 func (a *App) PickAndConnectActivePool() error {
+	// Serialise against concurrent UI Connect/Disconnect/Activate.
+	// Pool picking calls proto.Configure + proto.Up; without
+	// tunnelMu a UI Disconnect mid-pool-pick could call proto.Down()
+	// on the protocol singleton while pick is still iterating
+	// members. See `tunnelMu` doc on App.
+	a.tunnelMu.Lock()
+	defer a.tunnelMu.Unlock()
+
 	a.mu.RLock()
 	poolID := a.activePoolID
 	a.mu.RUnlock()

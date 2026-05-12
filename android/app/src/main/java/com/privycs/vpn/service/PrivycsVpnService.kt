@@ -21,6 +21,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -90,6 +92,26 @@ class PrivycsVpnService : VpnService() {
     private var amneziaTunnel: AmneziaTunnel? = null
     private var openVpnTunnel: OpenVpnTunnel? = null
     private var ipSecTunnel: IpSecTunnel? = null
+
+    // Serialises all coroutines that mutate tunnel state
+    // (handleConnect's teardown+create chain, handleDisconnect's
+    // teardown, forceTeardownAfterSinkhole, pool-failure teardowns).
+    // Pre-fix these ran on the same `scope` without serialisation,
+    // so two intents arriving back-to-back (rapid user re-taps,
+    // ConnectCoordinator USER-preempts a running connect, switchConfig
+    // disconnect-then-connect overlapping with TunnelHealthMonitor
+    // recovery, etc.) launched concurrent coroutines that read/wrote
+    // the same singleton tunnel fields. Symptom on Android: the
+    // user's "Netzwerkverbindung crashed beim mehrmaligen
+    // Wiederverbinden" — VpnService.Builder.establish() of the new
+    // tunnel collided with the old tunnel's still-running goroutines,
+    // leaving a half-up TUN fd that blocked all traffic until the
+    // service died and Always-On kicked back in.
+    //
+    // teardownAllProtocols itself is intentionally NOT wrapped — it
+    // is the raw inner operation. Callers are responsible for
+    // holding the mutex.
+    private val tunnelMutex = Mutex()
     private var currentConnectionName: String = ""
     private var currentConnectionId: String = ""
     private var currentProtocol: VpnProtocol? = null
@@ -426,7 +448,7 @@ class PrivycsVpnService : VpnService() {
      * Kill Switch, and surprising them with an automatic reconnect
      * would be poor UX. Clear state > clever state.
      */
-    private suspend fun forceTeardownAfterSinkhole() {
+    private suspend fun forceTeardownAfterSinkhole() = tunnelMutex.withLock {
         try { wireGuardTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "Post-sinkhole WG teardown: ${e.message}") }
         wireGuardTunnel = null
         // v0.9.15.x AWG — same sinkhole-teardown semantics, AWG uses
@@ -825,7 +847,7 @@ class PrivycsVpnService : VpnService() {
             // Mirrors desktop's PickAndConnectActivePool which does
             // a wasConnected-gated disconnectInternal() that does
             // NOT terminate the surrounding goroutine.
-            teardownAllProtocols()
+            tunnelMutex.withLock { teardownAllProtocols() }
             true
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -941,7 +963,7 @@ class PrivycsVpnService : VpnService() {
                     "Pool ${pool.name}: no member could connect (${pool.members.size - unreachableCount} eligible, all failed)"
                 }
                 PrivycsLogger.e(TAG, msg)
-                teardownAllProtocols()
+                tunnelMutex.withLock { teardownAllProtocols() }
                 broadcastPoolError(msg)
                 return@launch
             }
@@ -989,7 +1011,7 @@ class PrivycsVpnService : VpnService() {
                 // rotation tick (or a manual retry) needs the
                 // service alive to act on it.
                 PrivycsLogger.e(TAG, "pool ${pool.name}: rotation - all attempts failed")
-                teardownAllProtocols()
+                tunnelMutex.withLock { teardownAllProtocols() }
                 broadcastPoolError("Pool ${pool.name}: rotation failed - all members in scope unreachable")
             }
         }
@@ -1318,6 +1340,10 @@ class PrivycsVpnService : VpnService() {
         val newProtocol = VpnProtocol.fromString(protocolStr)
 
         scope.launch {
+            // Serialise against any concurrent connect/disconnect/
+            // teardown so the singleton tunnel fields aren't mutated
+            // from two coroutines at once. See `tunnelMutex` doc.
+            tunnelMutex.withLock {
             try {
                 // GUARD 0: hardcore Kill Switch lock. ConnectCoordinator
                 // also gates this in requestConnect/markAlwaysOnConnecting,
@@ -1426,6 +1452,7 @@ class PrivycsVpnService : VpnService() {
                 manager.updateStatus(VpnStatus(error = "Connection failed: ${e.message}"))
                 stopSelf()
             }
+            } // tunnelMutex.withLock
         }
     }
 
@@ -1940,39 +1967,45 @@ class PrivycsVpnService : VpnService() {
             }
         }
         scope.launch {
-            try {
-                when (currentProtocol) {
-                    VpnProtocol.WIREGUARD -> {
-                        wireGuardTunnel?.disconnect()
-                        wireGuardTunnel = null
+            // Serialise against any concurrent handleConnect /
+            // forceTeardownAfterSinkhole / pool-failure teardown.
+            // See `tunnelMutex` doc on the class for the failure
+            // mode this prevents.
+            tunnelMutex.withLock {
+                try {
+                    when (currentProtocol) {
+                        VpnProtocol.WIREGUARD -> {
+                            wireGuardTunnel?.disconnect()
+                            wireGuardTunnel = null
+                        }
+                        VpnProtocol.AMNEZIAWG -> {
+                            amneziaTunnel?.disconnect()
+                            amneziaTunnel = null
+                        }
+                        VpnProtocol.OPENVPN -> {
+                            openVpnTunnel?.disconnect()
+                            openVpnTunnel = null
+                        }
+                        VpnProtocol.IPSEC -> {
+                            ipSecTunnel?.disconnect()
+                            ipSecTunnel = null
+                        }
+                        null -> {
+                            // Disconnect all in case protocol is unknown
+                            wireGuardTunnel?.disconnect()
+                            wireGuardTunnel = null
+                            amneziaTunnel?.disconnect()
+                            amneziaTunnel = null
+                            openVpnTunnel?.disconnect()
+                            openVpnTunnel = null
+                            ipSecTunnel?.disconnect()
+                            ipSecTunnel = null
+                        }
                     }
-                    VpnProtocol.AMNEZIAWG -> {
-                        amneziaTunnel?.disconnect()
-                        amneziaTunnel = null
-                    }
-                    VpnProtocol.OPENVPN -> {
-                        openVpnTunnel?.disconnect()
-                        openVpnTunnel = null
-                    }
-                    VpnProtocol.IPSEC -> {
-                        ipSecTunnel?.disconnect()
-                        ipSecTunnel = null
-                    }
-                    null -> {
-                        // Disconnect all in case protocol is unknown
-                        wireGuardTunnel?.disconnect()
-                        wireGuardTunnel = null
-                        amneziaTunnel?.disconnect()
-                        amneziaTunnel = null
-                        openVpnTunnel?.disconnect()
-                        openVpnTunnel = null
-                        ipSecTunnel?.disconnect()
-                        ipSecTunnel = null
-                    }
+                } catch (e: Exception) {
+                    PrivycsLogger.e(TAG, "Error during disconnect", e)
                 }
-            } catch (e: Exception) {
-                PrivycsLogger.e(TAG, "Error during disconnect", e)
-            }
+            } // tunnelMutex.withLock
 
             val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
             // Capture KS state BEFORE clearing manager status. We

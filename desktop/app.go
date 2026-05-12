@@ -38,6 +38,28 @@ type App struct {
 	// errors and 6+ orphan service-wait timeouts. v0.9.13.7 fix.
 	connectMu sync.Mutex
 
+	// tunnelMu serialises ALL tunnel-state-mutating operations —
+	// Connect/Disconnect/ActivateConnection/SelectConfig/
+	// SelectProtocol/PickAndConnectActivePool. v0.9.15.6 fix.
+	//
+	// Pre-fix, a.mu was released during the long-running
+	// proto.Up()/proto.Down() (so the status emitter could
+	// read state without blocking) — this opened a race
+	// window where a concurrent UI Disconnect could call
+	// proto.Down() while proto.Up() from the prior call was
+	// still in flight, on the same protocol singleton. Symptom
+	// on Windows: "Tunnel already installed and running" +
+	// orphan WireGuardTunnel$ services. On Linux/macOS:
+	// helper-IPC contention leaving stale interfaces.
+	//
+	// connectMu remains the network-monitor-flood gate
+	// (TryLock+skip pattern). tunnelMu is the heavyweight
+	// serializer for UI-driven actions (Lock+wait — UI clicks
+	// queue, they don't drop). Internal helpers like
+	// disconnectInternal and tryFailoverProtocol assume the
+	// caller is already holding tunnelMu.
+	tunnelMu sync.Mutex
+
 	// VPN protocol management
 	protocols      map[string]VPNProtocol
 	activeProtocol string
@@ -833,6 +855,18 @@ func (a *App) Status() *StatusResponse {
 
 // Connect establishes a VPN connection using the active protocol
 func (a *App) Connect(protocol string) (*StatusResponse, error) {
+	// Serialise tunnel-state mutation. See `tunnelMu` doc on App.
+	// Wrapper-only: connectInternal does the work and is callable
+	// by paths that already hold tunnelMu (pool pick → member
+	// connect, recovery → reconnect).
+	a.tunnelMu.Lock()
+	defer a.tunnelMu.Unlock()
+	return a.connectInternal(protocol)
+}
+
+// connectInternal — caller MUST hold a.tunnelMu. Same body as the
+// previous monolithic Connect; the public Connect wraps this.
+func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -1133,48 +1167,50 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 			// real recovery closes that hole.
 			a.tunnelHealth.Start(target, func() {
 				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + trying failover")
-				// Tear down the stale connected state so the
-				// reconnect goes through the normal Up path
-				// instead of short-circuiting on Status().Connected.
-				a.mu.Lock()
-				deadProto := a.activeProtocol
-				if err := a.disconnectInternal(); err != nil {
-					log.Printf("TunnelHealth: recovery disconnect: %v", err)
-				}
-				a.mu.Unlock()
-				// Brief settle delay so wintun.sys/NDIS teardown
-				// completes before the new Up() races with the
-				// release. 2s is empirically the minimum on
-				// Windows for a clean restart.
-				time.Sleep(2 * time.Second)
-
-				// Failover-first recovery: blindly reconnecting with
-				// the same protocol that just died is rarely the
-				// right move — if ICMP through the tunnel is broken,
-				// the protocol's transport (or the server's exit) is
-				// likely the problem. Try an alternate protocol
-				// first; only if the connection is single-protocol or
-				// failover itself fails do we fall back to the
-				// original-protocol reconnect via connectActiveTarget.
-				a.mu.Lock()
-				excludeID := ""
-				if c := a.connections.Active(); c != nil {
-					excludeID = c.ActiveConfigID
-				}
-				if successProto, ferr := a.tryFailoverProtocol(excludeID); ferr == nil {
-					log.Printf("TunnelHealth: recovery via failover %s → %s", deadProto, successProto)
+				// Serialise against concurrent UI Connect/Disconnect.
+				// Held across the disconnect → settle-delay → failover
+				// sequence; released BEFORE the connectActiveTarget
+				// fallback so its inner Connect call can acquire
+				// tunnelMu fresh (Go's sync.Mutex is non-reentrant).
+				a.tunnelMu.Lock()
+				succeededViaFailover := false
+				func() {
+					defer a.tunnelMu.Unlock()
+					a.mu.Lock()
+					deadProto := a.activeProtocol
+					if err := a.disconnectInternal(); err != nil {
+						log.Printf("TunnelHealth: recovery disconnect: %v", err)
+					}
 					a.mu.Unlock()
+					// Brief settle delay so wintun.sys/NDIS teardown
+					// completes before the new Up() races with the
+					// release. 2s is empirically the minimum on
+					// Windows for a clean restart.
+					time.Sleep(2 * time.Second)
+
+					a.mu.Lock()
+					excludeID := ""
+					if c := a.connections.Active(); c != nil {
+						excludeID = c.ActiveConfigID
+					}
+					if successProto, ferr := a.tryFailoverProtocol(excludeID); ferr == nil {
+						log.Printf("TunnelHealth: recovery via failover %s → %s", deadProto, successProto)
+						a.mu.Unlock()
+						succeededViaFailover = true
+						return
+					} else {
+						log.Printf("TunnelHealth: failover not viable (%v), falling back to same-protocol reconnect", ferr)
+					}
+					a.mu.Unlock()
+				}()
+				if succeededViaFailover {
 					return
-				} else {
-					log.Printf("TunnelHealth: failover not viable (%v), falling back to same-protocol reconnect", ferr)
 				}
-				a.mu.Unlock()
 
 				// connectActiveTarget respects connectMu, COD pause,
 				// kill switch sinkhole, and the configured rule
-				// resolution, so this single call is the right
-				// drop-in for "redo whatever the user's intent
-				// currently is".
+				// resolution. It calls Connect which acquires
+				// tunnelMu — we MUST be outside our own lock here.
 				a.connectActiveTarget()
 			})
 		}
@@ -1247,6 +1283,9 @@ func (a *App) Disconnect() error {
 	if a.pauseManager != nil {
 		a.pauseManager.Cancel()
 	}
+	// Serialise tunnel-state mutation. See `tunnelMu` doc on App.
+	a.tunnelMu.Lock()
+	defer a.tunnelMu.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	// Stamp the wall-clock so poolKeepaliveLoop can suppress the
@@ -1399,6 +1438,13 @@ func (a *App) disconnectInternal() error {
 // disconnect/reconnect, just changes the slot that the next
 // Connect uses. Wails binding for the per-config pill row.
 func (a *App) SelectConfig(configID string) error {
+	// Serialise tunnel-state mutation — Configure() mutates the
+	// protocol handler's in-memory state which Up/Down read.
+	// Concurrent Connect with stale config content would land if
+	// this wasn't held during the entire select-then-configure.
+	a.tunnelMu.Lock()
+	defer a.tunnelMu.Unlock()
+
 	conn := a.connections.Active()
 	if conn == nil {
 		return fmt.Errorf("no active connection")
@@ -1435,6 +1481,10 @@ func (a *App) SelectConfig(configID string) error {
 // WITHOUT disconnecting or connecting. The user must press Connect to apply.
 // Back-compat: switches to the first config of the requested protocol.
 func (a *App) SelectProtocol(protocol string) error {
+	// Serialise tunnel-state mutation. Same reasoning as SelectConfig.
+	a.tunnelMu.Lock()
+	defer a.tunnelMu.Unlock()
+
 	conn := a.connections.Active()
 	if conn == nil {
 		return fmt.Errorf("no active connection")
@@ -1629,6 +1679,12 @@ func (a *App) ListConnections() []*SavedConnection {
 
 // ActivateConnection switches to a saved connection and optionally a specific protocol
 func (a *App) ActivateConnection(id string, protocol string) error {
+	// Serialise tunnel-state mutation. See `tunnelMu` doc on App.
+	// Held for the entire function so the disconnect→configure→
+	// state-update sequence is atomic against concurrent Connect/
+	// Disconnect/other ActivateConnection calls.
+	a.tunnelMu.Lock()
+	defer a.tunnelMu.Unlock()
 	// SNAPSHOT phase: lookup conn + protocol handler, run any
 	// disconnect-on-active under the lock. THEN release the lock for
 	// the slow Configure call. Holding a.mu through Configure was
@@ -1850,8 +1906,11 @@ func (a *App) PauseFor(seconds int) error {
 	if wasConnected {
 		// Disconnect via the internal path so we do NOT clear our
 		// own pause (public Disconnect cancels pause as part of
-		// "user wants off" semantics).
+		// "user wants off" semantics). Acquire tunnelMu to serialise
+		// against any concurrent UI tunnel-state mutation.
 		go func() {
+			a.tunnelMu.Lock()
+			defer a.tunnelMu.Unlock()
 			a.mu.Lock()
 			err := a.disconnectInternal()
 			a.mu.Unlock()
@@ -1928,6 +1987,9 @@ func (a *App) CancelPause() error {
 
 // SwitchConnectionProtocol switches protocol within the active connection
 func (a *App) SwitchConnectionProtocol(protocol string) error {
+	// Serialise tunnel-state mutation. See `tunnelMu` doc on App.
+	a.tunnelMu.Lock()
+	defer a.tunnelMu.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
