@@ -448,7 +448,7 @@ class PrivycsVpnService : VpnService() {
      * Kill Switch, and surprising them with an automatic reconnect
      * would be poor UX. Clear state > clever state.
      */
-    private suspend fun forceTeardownAfterSinkhole() = tunnelMutex.withLock {
+    private suspend fun forceTeardownAfterSinkhole() { tunnelMutex.withLock {
         try { wireGuardTunnel?.disconnect() } catch (e: Exception) { PrivycsLogger.w(TAG, "Post-sinkhole WG teardown: ${e.message}") }
         wireGuardTunnel = null
         // v0.9.15.x AWG — same sinkhole-teardown semantics, AWG uses
@@ -520,7 +520,7 @@ class PrivycsVpnService : VpnService() {
         } catch (e: Exception) {
             PrivycsLogger.w(TAG, "Post-sinkhole COD auto-reconnect failed: ${e.message}")
         }
-    }
+    } } // tunnelMutex.withLock + function
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
