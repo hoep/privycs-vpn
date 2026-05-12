@@ -224,18 +224,48 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 		r.Connections = append(r.Connections, conn)
 	}
 
-	// Update-in-place only when the caller's ID matches an existing
-	// config (e.g. re-import of the same logical endpoint). Otherwise
-	// append — the caller asked for a NEW config slot.
-	replaced := false
-	for i, existing := range conn.Protocols {
-		if existing.ID == pc.ID {
-			conn.Protocols[i] = pc
-			replaced = true
-			break
+	// Update-in-place match strategy:
+	//
+	//   1. Explicit ID match — caller passed a non-empty ID
+	//      corresponding to an existing config. Re-import of
+	//      the same logical endpoint, update in place.
+	//   2. Filename + protocol fallback — fresh import whose
+	//      (Protocol, Filename) tuple already exists. Same
+	//      gateway re-download. Update in place; preserve the
+	//      existing ID + Nickname so refs stay valid.
+	//   3. Otherwise — genuinely new config. Append.
+	//
+	// The v0.9.15.4–v0.9.15.6 version did (1) only and silently
+	// appended on every fresh import — even re-downloading the
+	// same gateway peer made a new config slot. The connection
+	// accumulated duplicates and the protocol-pill row's
+	// disambiguation logic (which keys on "same protocol type
+	// appears more than once") then showed the per-config
+	// filename instead of the clean protocol label.
+	replacedAt := -1
+	if pc.ID != "" {
+		for i, existing := range conn.Protocols {
+			if existing.ID == pc.ID {
+				replacedAt = i
+				break
+			}
 		}
 	}
-	if !replaced {
+	if replacedAt < 0 && pc.Filename != "" {
+		for i, existing := range conn.Protocols {
+			if existing.Protocol == pc.Protocol && existing.Filename == pc.Filename {
+				replacedAt = i
+				break
+			}
+		}
+	}
+	if replacedAt >= 0 {
+		keep := conn.Protocols[replacedAt]
+		// Preserve stable id+nickname across re-import.
+		pc.ID = keep.ID
+		pc.Nickname = keep.Nickname
+		conn.Protocols[replacedAt] = pc
+	} else {
 		conn.Protocols = append(conn.Protocols, pc)
 	}
 
@@ -431,13 +461,38 @@ func (r *ConnectionRegistry) load() {
 			}
 		}
 
-		// Phase 3: reconcile ActiveConfigID against the legacy
+		// Phase 3: dedupe (Protocol, Filename) duplicates that
+		// accumulated in pre-v0.9.15.7 builds. The old
+		// AddOrUpdate appended on every fresh import when the
+		// ProtocolConfig had no ID — re-downloading the same
+		// gateway config built up duplicate slots. Keep the
+		// FIRST occurrence (preserves its ID for ActiveConfigID
+		// stability); drop the rest.
+		seen := map[string]bool{}
+		deduped := make([]*ProtocolConfig, 0, len(conn.Protocols))
+		dropped := false
+		for _, pc := range conn.Protocols {
+			key := pc.Protocol + "\x00" + pc.Filename
+			if pc.Filename == "" || !seen[key] {
+				seen[key] = true
+				deduped = append(deduped, pc)
+			} else {
+				dropped = true
+			}
+		}
+		if dropped {
+			conn.Protocols = deduped
+			healed = true
+		}
+
+		// Phase 4: reconcile ActiveConfigID against the legacy
 		// ActiveProtocol enum. With multi-config support an
 		// "active slot" is identified by config-id, not protocol
-		// type. If the field is empty (legacy data) or points at
-		// a config that no longer exists, repoint at the first
-		// config matching ActiveProtocol, falling back to the
-		// first config in the connection.
+		// type. If the field is empty (legacy data), points at
+		// a config that no longer exists, or points at a config
+		// we just deduped away, repoint at the first config
+		// matching ActiveProtocol, falling back to the first
+		// config in the connection.
 		validActive := false
 		if conn.ActiveConfigID != "" {
 			for _, pc := range conn.Protocols {

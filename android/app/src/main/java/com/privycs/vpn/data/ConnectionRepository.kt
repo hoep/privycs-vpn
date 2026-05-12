@@ -77,19 +77,47 @@ class ConnectionRepository(private val context: Context) {
             registry.connections.add(conn)
         }
 
-        // Multi-config-per-protocol: a connection may hold any number
-        // of ProtocolConfigs, including multiples of the same
-        // protocol type. We update-in-place only when the caller
-        // supplied an id that matches an existing config (re-import
-        // of the same logical endpoint); otherwise we append a new
-        // entry, even if a config of the same protocol type already
-        // exists. This is the deliberate change from the
-        // pre-multi-config addOrUpdate which collapsed by protocol.
-        val existingIndex = if (protocolConfig.id.isNotEmpty())
-            conn.protocols.indexOfFirst { it.id == protocolConfig.id }
-        else -1
+        // Multi-config-per-protocol match strategy:
+        //
+        //   1. Explicit id match — caller passed a non-empty id that
+        //      corresponds to an existing config. Re-import of the
+        //      same logical endpoint, update in place.
+        //
+        //   2. Filename + protocol fallback — fresh import (id="")
+        //      whose (protocol, filename) tuple matches an existing
+        //      config. Same gateway re-download, same drag-drop of
+        //      the same .conf, etc. Update in place; preserve the
+        //      existing id so external references stay valid.
+        //
+        //   3. Otherwise — genuinely new config. Append.
+        //
+        // The pre-v0.9.15.7 version did (1) only and silently
+        // appended on every fresh import — even re-downloading the
+        // same gateway peer made a NEW config slot. The connection
+        // accumulated duplicates and the protocol-pill row's
+        // disambiguation logic (which keys on "same protocol type
+        // appears more than once") then showed the per-config
+        // filename ("Privycs-foo") instead of the clean protocol
+        // label ("WireGuard"). That's the user's "warum stehen die
+        // peer-namen jetzt in den protokoll pills?" report.
+        var existingIndex = -1
+        if (protocolConfig.id.isNotEmpty()) {
+            existingIndex = conn.protocols.indexOfFirst { it.id == protocolConfig.id }
+        }
+        if (existingIndex < 0 && protocolConfig.filename.isNotEmpty()) {
+            existingIndex = conn.protocols.indexOfFirst {
+                it.protocol == protocolConfig.protocol &&
+                    it.filename == protocolConfig.filename
+            }
+        }
         if (existingIndex >= 0) {
-            conn.protocols[existingIndex] = withId
+            // Preserve the existing id+nickname so external refs
+            // (activeConfigId, pool-member refs) stay valid.
+            val keep = conn.protocols[existingIndex]
+            conn.protocols[existingIndex] = withId.copy(
+                id = keep.id,
+                nickname = keep.nickname,
+            )
         } else {
             conn.protocols.add(withId)
         }
@@ -367,13 +395,38 @@ class ConnectionRepository(private val context: Context) {
                 }
             }
 
-            // Phase 3: reconcile activeConfigId. With multi-config
+            // Phase 3: dedupe (protocol, filename) duplicates that
+            // accumulated in pre-v0.9.15.7 builds. The old
+            // addOrUpdate appended on every fresh import when the
+            // ProtocolConfig had no id — re-downloading the same
+            // gateway config built up duplicate slots, which the
+            // pill-row disambiguation logic then mis-labelled
+            // with peer names. Keep the FIRST occurrence (so its
+            // id stays stable for activeConfigId / pool refs);
+            // drop the rest.
+            val seen = HashSet<Pair<com.privycs.vpn.data.models.VpnProtocol, String>>()
+            val deduped = mutableListOf<com.privycs.vpn.data.models.ProtocolConfig>()
+            val droppedIds = mutableSetOf<String>()
+            for (pc in conn.protocols) {
+                val key = pc.protocol to pc.filename
+                if (pc.filename.isEmpty() || seen.add(key)) {
+                    deduped.add(pc)
+                } else {
+                    droppedIds.add(pc.id)
+                }
+            }
+            if (droppedIds.isNotEmpty()) {
+                conn.protocols.clear()
+                conn.protocols.addAll(deduped)
+                healed = true
+            }
+
+            // Phase 4: reconcile activeConfigId. With multi-config
             // support an "active slot" is identified by config-id,
             // not protocol type. If the field is empty (legacy
-            // record) or points at a config that no longer exists
-            // (e.g. user removed one in a previous session before
-            // this code path migrated the field), repoint it at
-            // the first config matching the legacy activeProtocol,
+            // record), points at a config that no longer exists, or
+            // points at a config we just deduped away, repoint it
+            // at the first config matching the legacy activeProtocol,
             // falling back to the first config in the connection.
             val activeStillValid = conn.activeConfigId.isNotEmpty() &&
                 conn.protocols.any { it.id == conn.activeConfigId }

@@ -1,2 +1,2 @@
-versionCode=10203
-versionName=0.9.15.6
+versionCode=10204
+versionName=0.9.15.7
