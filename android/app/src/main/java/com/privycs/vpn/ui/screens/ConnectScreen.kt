@@ -1064,8 +1064,14 @@ private fun ConnectButton(
                     val tint = if (isConnected) Color.White
                     else MaterialTheme.colorScheme.onSurfaceVariant
                     val iconRes = when (activeProtocol) {
+                        // Use the monochrome AmneziaWG silhouette inside
+                        // the connect button so the same white/gray
+                        // tint scheme as the other protocol marks
+                        // applies — the multi-colour brand mark was
+                        // hard to read against the green-when-connected
+                        // / gray-when-disconnected button background.
                         VpnProtocol.WIREGUARD -> if (isAmneziaWg)
-                            R.drawable.ic_protocol_amneziawg
+                            R.drawable.ic_protocol_amneziawg_mono
                         else
                             R.drawable.ic_protocol_wireguard
                         VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
@@ -1073,25 +1079,15 @@ private fun ConnectButton(
                         null -> null
                     }
                     if (iconRes != null) {
-                        // AmneziaWG icon is full-colour; tinting it
-                        // would erase the orange/teal/purple palette
-                        // that's the whole point of the brand mark.
-                        // Render via Image when AWG, Icon (with tint)
-                        // for the monochrome WG/OVPN/IPSec marks.
-                        if (isAmneziaWg && activeProtocol == VpnProtocol.WIREGUARD) {
-                            androidx.compose.foundation.Image(
-                                painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                                contentDescription = "AmneziaWG",
-                                modifier = Modifier.size(56.dp),
-                            )
-                        } else {
-                            Icon(
-                                painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                                contentDescription = activeProtocol?.label,
-                                modifier = Modifier.size(56.dp),
-                                tint = tint
-                            )
-                        }
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                            contentDescription = if (isAmneziaWg && activeProtocol == VpnProtocol.WIREGUARD)
+                                "AmneziaWG"
+                            else
+                                activeProtocol?.label,
+                            modifier = Modifier.size(56.dp),
+                            tint = tint
+                        )
                     } else {
                         Icon(
                             imageVector = Icons.Filled.GppGood,
