@@ -776,12 +776,8 @@ class PrivycsVpnService : VpnService() {
                 val deadline = System.currentTimeMillis() + budgetMs
                 while (System.currentTimeMillis() < deadline) {
                     val tunnelReady = when (member.config.protocol) {
-                        // WireGuard variant covers BOTH vanilla WG and
-                        // AmneziaWG — the protocol slot at this layer
-                        // doesn't distinguish, the AWG/WG branch
-                        // happens inside connectWireGuard() based on
-                        // config-content detection. v0.9.15.x Stage 1.
-                        VpnProtocol.WIREGUARD -> wireGuardTunnel != null || amneziaTunnel != null
+                        VpnProtocol.WIREGUARD -> wireGuardTunnel != null
+                        VpnProtocol.AMNEZIAWG -> amneziaTunnel != null
                         VpnProtocol.OPENVPN -> openVpnTunnel != null
                         VpnProtocol.IPSEC -> ipSecTunnel != null
                     }
@@ -1395,7 +1391,8 @@ class PrivycsVpnService : VpnService() {
                 currentProtocol = newProtocol
 
                 when (currentProtocol) {
-                    VpnProtocol.WIREGUARD -> connectWireGuard(configContent)
+                    VpnProtocol.WIREGUARD -> connectWireGuard(configContent, awg = false)
+                    VpnProtocol.AMNEZIAWG -> connectWireGuard(configContent, awg = true)
                     VpnProtocol.OPENVPN -> connectOpenVpn(configContent)
                     VpnProtocol.IPSEC -> connectIpSec(configContent)
                     null -> {
@@ -1468,38 +1465,35 @@ class PrivycsVpnService : VpnService() {
         }
     }
 
-    private suspend fun connectWireGuard(configContent: String) {
+    private suspend fun connectWireGuard(configContent: String, awg: Boolean) {
         // Three text-level patches before the parser sees the
         // config: Per-App VPN allow/exclude (existing), DNS
         // override (v0.9.11.53), and IPv6 leak killswitch
         // (v0.9.14.96). Each patches a different aspect of the
         // [Interface]/[Peer] sections so the parser builds a
-        // VpnService.Builder that honours them.
+        // VpnService.Builder that honours them. amneziawg-android's
+        // config parser is API-compatible with wireguard-android
+        // (same upstream wg-quick file format plus AWG keys), so
+        // all three patches apply unchanged on either backend.
         val perAppPatched = patchWireGuardPerAppVpn(configContent)
         val dnsPatched = patchWireGuardDnsOverride(perAppPatched)
-        val patchedConfig = ipv6PatchOrPassThrough(dnsPatched, com.privycs.vpn.data.models.VpnProtocol.WIREGUARD)
+        val patchedConfig = ipv6PatchOrPassThrough(
+            dnsPatched,
+            if (awg) com.privycs.vpn.data.models.VpnProtocol.AMNEZIAWG
+            else com.privycs.vpn.data.models.VpnProtocol.WIREGUARD
+        )
 
-        // v0.9.15.x AmneziaWG Stage 1: variant-aware backend
-        // selection. Content-based detection (TunnelVariant.detect)
-        // looks for AWG-specific [Interface] keys (Jc, Jmin, Jmax,
-        // S1-4, H1-4, I1-5); presence of any one routes through
-        // the AWG backend. Vanilla wireguard-android's parser
-        // rejects these keys with a parse error, so detection
-        // MUST precede backend selection.
-        //
-        // Both paths share identical pre-parse patches above —
-        // amneziawg-android's config parser is API-compatible with
-        // wireguard-android (same upstream wg-quick file format
-        // plus the AWG fields). So Per-App VPN, DNS-override, and
-        // IPv6-killswitch all work on AWG tunnels too without
-        // protocol-specific branches in the patch chain.
-        val variant = com.privycs.vpn.data.models.TunnelVariant.detect(patchedConfig)
-        if (variant == com.privycs.vpn.data.models.TunnelVariant.AMNEZIAWG) {
+        // Backend is chosen by the caller's `awg` flag — derived
+        // from currentProtocol (AMNEZIAWG vs WIREGUARD) instead of
+        // re-running content detection on every connect. The
+        // protocol slot was decided at import time and persisted,
+        // so by the time we get here it's authoritative.
+        if (awg) {
             val backend = awgBackend
                 ?: throw IllegalStateException("AWG GoBackend not initialized")
             val tunnel = AmneziaTunnel(backend)
             amneziaTunnel = tunnel
-            PrivycsLogger.i(TAG, "connectWireGuard: AmneziaWG variant detected, routing through AWG backend")
+            PrivycsLogger.i(TAG, "connectWireGuard: AMNEZIAWG protocol → AWG backend")
             tunnel.connect(patchedConfig, "privycs0")
         } else {
             val backend = goBackend ?: throw IllegalStateException("GoBackend not initialized")
@@ -1949,11 +1943,10 @@ class PrivycsVpnService : VpnService() {
             try {
                 when (currentProtocol) {
                     VpnProtocol.WIREGUARD -> {
-                        // Tear down whichever WG variant is active —
-                        // exactly one is non-null per session
-                        // (v0.9.15.x AmneziaWG Stage 1).
                         wireGuardTunnel?.disconnect()
                         wireGuardTunnel = null
+                    }
+                    VpnProtocol.AMNEZIAWG -> {
                         amneziaTunnel?.disconnect()
                         amneziaTunnel = null
                     }
@@ -2197,12 +2190,10 @@ class PrivycsVpnService : VpnService() {
                 PrivycsLogger.i(TAG, "startStatusPolling: iteration=$iter protocol=$currentProtocol")
                 val status = when (currentProtocol) {
                     VpnProtocol.WIREGUARD -> {
-                        // Prefer whichever WG variant slot is active.
-                        // Exactly one is non-null per connect cycle —
-                        // wireGuardTunnel for vanilla, amneziaTunnel
-                        // for AWG (v0.9.15.x Stage 1).
                         wireGuardTunnel?.getStatus(currentConnectionName, currentConnectionId)
-                            ?: amneziaTunnel?.getStatus(currentConnectionName, currentConnectionId)
+                    }
+                    VpnProtocol.AMNEZIAWG -> {
+                        amneziaTunnel?.getStatus(currentConnectionName, currentConnectionId)
                     }
                     VpnProtocol.OPENVPN -> {
                         openVpnTunnel?.getStatus(currentConnectionName, currentConnectionId)

@@ -61,7 +61,9 @@ object IpV6KillswitchInjector {
      */
     fun inject(configContent: String, protocol: VpnProtocol): Result {
         return when (protocol) {
-            VpnProtocol.WIREGUARD -> patchWireGuard(configContent)
+            // AmneziaWG shares the WG .conf grammar — same kill-switch
+            // patch (AllowedIPs = 0.0.0.0/0, ::/0) applies unchanged.
+            VpnProtocol.WIREGUARD, VpnProtocol.AMNEZIAWG -> patchWireGuard(configContent)
             VpnProtocol.OPENVPN -> patchOpenVpn(configContent)
             VpnProtocol.IPSEC -> patchIpSec(configContent)
         }

@@ -1,6 +1,7 @@
 package com.privycs.vpn.config
 
 import com.privycs.vpn.data.models.ProtocolConfig
+import com.privycs.vpn.data.models.TunnelVariant
 import com.privycs.vpn.data.models.VpnProtocol
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -27,16 +28,29 @@ object ConfigParser {
     fun detectProtocol(content: String, filename: String): VpnProtocol? {
         val lower = filename.lowercase()
 
-        // By extension
-        if (lower.endsWith(".conf")) return VpnProtocol.WIREGUARD
+        // By extension. For .conf we look at the content to decide
+        // between AMNEZIAWG (DPI-evasion variant with Jc/Jmin/H1.../I1...
+        // keys in the [Interface] section) and vanilla WIREGUARD.
+        // Both share the same .conf grammar — only the presence of
+        // AWG-specific keys distinguishes them.
+        if (lower.endsWith(".conf")) {
+            return if (TunnelVariant.detect(content) == TunnelVariant.AMNEZIAWG)
+                VpnProtocol.AMNEZIAWG
+            else
+                VpnProtocol.WIREGUARD
+        }
         if (lower.endsWith(".ovpn")) return VpnProtocol.OPENVPN
         if (lower.endsWith(".sswan") || lower.endsWith(".mobileconfig") || lower.endsWith(".p12")) {
             return VpnProtocol.IPSEC
         }
 
-        // By content
+        // By content — only reached when the filename gave us no
+        // extension to hang the decision on.
         if (content.contains("[Interface]") && content.contains("PrivateKey")) {
-            return VpnProtocol.WIREGUARD
+            return if (TunnelVariant.detect(content) == TunnelVariant.AMNEZIAWG)
+                VpnProtocol.AMNEZIAWG
+            else
+                VpnProtocol.WIREGUARD
         }
         if (content.contains("remote ") || content.contains("<ca>") || content.contains("client")) {
             return VpnProtocol.OPENVPN
@@ -52,7 +66,13 @@ object ConfigParser {
         val protocol = detectProtocol(content, filename) ?: return null
 
         return when (protocol) {
-            VpnProtocol.WIREGUARD -> parseWireGuard(content, filename)
+            // AMNEZIAWG uses the WG-grammar conf parser; the AWG-
+            // specific [Interface] keys are silently passed through
+            // as part of configContent and consumed by the AWG
+            // backend at connect time.
+            VpnProtocol.WIREGUARD, VpnProtocol.AMNEZIAWG -> parseWireGuard(content, filename).let {
+                it.copy(protocol = protocol)
+            }
             VpnProtocol.OPENVPN -> parseOpenVpn(content, filename)
             VpnProtocol.IPSEC -> parseIpSec(content, filename)
         }

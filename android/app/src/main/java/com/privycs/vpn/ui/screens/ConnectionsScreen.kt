@@ -70,7 +70,6 @@ import com.privycs.vpn.api.GatewayApiClient
 import com.privycs.vpn.config.ConfigParser
 import com.privycs.vpn.data.models.ProtocolConfig
 import com.privycs.vpn.data.models.RemoteConfigEntry
-import com.privycs.vpn.data.models.TunnelVariant
 import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.ui.theme.IpSecBlue
@@ -437,7 +436,7 @@ fun ConnectionsScreen(
                                 client.close()
 
                                 val filename = when (entry.protocol) {
-                                    "wireguard" -> "${entry.peerName}.conf"
+                                    "wireguard", "amneziawg" -> "${entry.peerName}.conf"
                                     "openvpn" -> "${entry.peerName}.ovpn"
                                     else -> "${entry.peerName}.conf"
                                 }
@@ -568,11 +567,11 @@ fun ConnectionsScreen(
                                 renameDnsDraft = connection.dnsOverride
                             },
                             onAddProtocol = { onNavigateToAdd(connection.id) },
-                            onRemoveProtocol = { protocol ->
-                                connectionRepo.removeProtocol(connection.id, protocol)
+                            onRemoveConfig = { configId ->
+                                connectionRepo.removeConfig(connection.id, configId)
                             },
-                            onEditProtocol = { protocol ->
-                                connection.getProtocol(protocol)?.let { pc ->
+                            onEditConfig = { configId ->
+                                connection.getConfigById(configId)?.let { pc ->
                                     editProtocolTarget = connection to pc
                                     editProtocolDraft = pc.configContent
                                     editProtocolError = null
@@ -691,8 +690,8 @@ private fun ConnectionCard(
     onDelete: () -> Unit,
     onRename: () -> Unit,
     onAddProtocol: () -> Unit,
-    onRemoveProtocol: (VpnProtocol) -> Unit,
-    onEditProtocol: (VpnProtocol) -> Unit
+    onRemoveConfig: (configId: String) -> Unit,
+    onEditConfig: (configId: String) -> Unit
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -763,46 +762,38 @@ private fun ConnectionCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(
+                    // One badge per ProtocolConfig — multi-config-per-
+                    // protocol means a connection may hold e.g. two WG
+                    // entries (UDP+TCP) and the user needs to see+manage
+                    // each independently. Wraps to multiple lines when
+                    // the list gets long.
+                    androidx.compose.foundation.layout.FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        connection.availableProtocols().forEach { protocol ->
+                        connection.orderedConfigs().forEach { cfg ->
                             val canRemove = connection.protocols.size > 1
-                            // All three protocols parse as plain text:
-                            // WireGuard .conf is INI, OpenVPN .ovpn is text,
-                            // IPSec .sswan is JSON and .mobileconfig is XML.
-                            // For WireGuard, content-detect AWG so the
-                            // badge shows the AmneziaWG mark instead of
-                            // the WG dragon when the .conf carries
-                            // obfuscation keys.
-                            val isAwg = protocol == VpnProtocol.WIREGUARD &&
-                                connection.getProtocol(protocol)?.configContent
-                                    ?.let { TunnelVariant.detect(it) == TunnelVariant.AMNEZIAWG } == true
                             ProtocolBadge(
-                                protocol = protocol,
-                                isAmneziaWg = isAwg,
+                                protocol = cfg.protocol,
                                 onRemove = if (canRemove) {
-                                    { onRemoveProtocol(protocol) }
+                                    { onRemoveConfig(cfg.id) }
                                 } else null,
-                                onEdit = { onEditProtocol(protocol) }
+                                onEdit = { onEditConfig(cfg.id) }
                             )
                         }
-                        // Add-protocol button — only show when connection does
-                        // not already have all three protocols. Navigates to
-                        // AddConnectionScreen in "add to existing" mode.
-                        if (connection.availableProtocols().size < VpnProtocol.values().size) {
-                            IconButton(
-                                onClick = onAddProtocol,
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.Add,
-                                    contentDescription = "Add protocol",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                        // Add-config button — always visible (no
+                        // upper bound on configs-per-connection now
+                        // that multi-of-same-protocol is allowed).
+                        IconButton(
+                            onClick = onAddProtocol,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Add,
+                                contentDescription = "Add config",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
 
@@ -862,20 +853,18 @@ private fun ConnectionCard(
 @Composable
 private fun ProtocolBadge(
     protocol: VpnProtocol,
-    isAmneziaWg: Boolean = false,
     onRemove: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null
 ) {
     val color = when (protocol) {
+        VpnProtocol.AMNEZIAWG -> com.privycs.vpn.ui.theme.AmneziaWgIndigo
         VpnProtocol.WIREGUARD -> WireGuardRed
         VpnProtocol.OPENVPN -> OpenVpnOrange
         VpnProtocol.IPSEC -> IpSecBlue
     }
     val iconRes = when (protocol) {
-        VpnProtocol.WIREGUARD -> if (isAmneziaWg)
-            com.privycs.vpn.R.drawable.ic_protocol_amneziawg
-        else
-            com.privycs.vpn.R.drawable.ic_protocol_wireguard
+        VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg
+        VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
         VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
         VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
     }
@@ -891,7 +880,7 @@ private fun ProtocolBadge(
             .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (isAmneziaWg && protocol == VpnProtocol.WIREGUARD) {
+        if (protocol == VpnProtocol.AMNEZIAWG) {
             // Multi-colour brand mark — render via Image so its
             // orange/teal/purple palette survives the badge tint.
             androidx.compose.foundation.Image(

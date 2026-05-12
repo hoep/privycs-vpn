@@ -43,6 +43,11 @@ val StatusWarning = Color(0xFFF59E0B)
 val WireGuardRed = Color(0xFF88171A)
 val OpenVpnOrange = Color(0xFFEA7E20)
 val IpSecBlue = Color(0xFF2563EB)
+// AmneziaWG indigo — coordinates with the multi-colour brand mark
+// (indigo is the dominant cool accent in the SVG). Stays visually
+// distinct from the red of vanilla WireGuard so they read as
+// different protocols even at thumbnail size.
+val AmneziaWgIndigo = Color(0xFF6366F1)
 
 private val DarkColorScheme = darkColorScheme(
     primary = PrivycsTeal,

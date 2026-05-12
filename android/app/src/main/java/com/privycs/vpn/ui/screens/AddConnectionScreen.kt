@@ -364,7 +364,7 @@ fun AddConnectionScreen(
                                 client.close()
 
                                 val filename = when (entry.protocol) {
-                                    "wireguard" -> "${entry.peerName}.conf"
+                                    "wireguard", "amneziawg" -> "${entry.peerName}.conf"
                                     "openvpn" -> "${entry.peerName}.ovpn"
                                     "ipsec" -> "${entry.peerName}.sswan"
                                     else -> "${entry.peerName}.conf"
@@ -638,26 +638,47 @@ private fun GatewayPanel(
                                 .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val protocol = VpnProtocol.fromString(entry.protocol)
+                            val protocolStr = entry.protocol
+                            // Server-side AWG configs may arrive with
+                            // protocol="wireguard" + obfuscated=true (legacy
+                            // gateway behaviour, see RemoteConfigEntry). Map
+                            // those to AMNEZIAWG so the listing icon matches
+                            // what the user actually gets after download.
+                            val protocol = if ((protocolStr == "wireguard" && entry.obfuscated) ||
+                                protocolStr == "amneziawg"
+                            ) VpnProtocol.AMNEZIAWG
+                            else VpnProtocol.fromString(protocolStr)
                             val iconRes = when (protocol) {
+                                VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg
                                 VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
                                 VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
                                 VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
                                 null                  -> null
                             }
                             val iconTint = when (protocol) {
+                                VpnProtocol.AMNEZIAWG -> com.privycs.vpn.ui.theme.AmneziaWgIndigo
                                 VpnProtocol.WIREGUARD -> com.privycs.vpn.ui.theme.WireGuardRed
                                 VpnProtocol.OPENVPN   -> com.privycs.vpn.ui.theme.OpenVpnOrange
                                 VpnProtocol.IPSEC     -> com.privycs.vpn.ui.theme.IpSecBlue
                                 null                  -> MaterialTheme.colorScheme.primary
                             }
                             if (iconRes != null) {
-                                androidx.compose.material3.Icon(
-                                    painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                                    contentDescription = entry.protocol,
-                                    tint = iconTint,
-                                    modifier = Modifier.size(26.dp).padding(end = 8.dp)
-                                )
+                                if (protocol == VpnProtocol.AMNEZIAWG) {
+                                    // Multi-colour brand mark — Image keeps
+                                    // the orange/teal/purple palette
+                                    androidx.compose.foundation.Image(
+                                        painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                                        contentDescription = "AmneziaWG",
+                                        modifier = Modifier.size(26.dp).padding(end = 8.dp)
+                                    )
+                                } else {
+                                    androidx.compose.material3.Icon(
+                                        painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                                        contentDescription = entry.protocol,
+                                        tint = iconTint,
+                                        modifier = Modifier.size(26.dp).padding(end = 8.dp)
+                                    )
+                                }
                             } else {
                                 Text(
                                     text = entry.protocol.uppercase(),

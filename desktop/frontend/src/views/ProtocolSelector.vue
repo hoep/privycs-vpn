@@ -72,6 +72,14 @@ const protocols = computed(() => {
 
   return [
     {
+      name: 'amneziawg',
+      displayName: 'AmneziaWG',
+      description: 'WireGuard with DPI-evasion obfuscation — for restrictive networks',
+      transport: 'UDP (obfuscated)',
+      available: availableMap.get('amneziawg') ?? false,
+      iconBg: 'bg-indigo-500/20',
+    },
+    {
       name: 'wireguard',
       displayName: 'WireGuard',
       description: 'Fast, modern VPN with state-of-the-art cryptography',

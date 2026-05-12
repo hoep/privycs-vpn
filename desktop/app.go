@@ -219,8 +219,15 @@ func (a *App) startup(ctx context.Context) {
 	// Ensure sudoers is configured for passwordless VPN commands (Linux only, shows pkexec prompt once)
 	ensureSudoers()
 
-	// Register protocol handlers
+	// Register protocol handlers. AmneziaWG and vanilla WireGuard
+	// share the same handler implementation (WireGuardProtocol)
+	// but get separate instances so their tracked state (interface
+	// name, persisted server address, ...) doesn't collide on a
+	// connection that holds both an AWG and a vanilla WG config.
+	// The handler picks the right backend per-tunnel via
+	// DetectVariant on the Configure() call's content.
 	a.protocols["wireguard"] = NewWireGuardProtocol()
+	a.protocols["amneziawg"] = NewWireGuardProtocol()
 	a.protocols["openvpn"] = NewOpenVPNProtocol()
 	a.protocols["ipsec"] = NewIPSecProtocol()
 
@@ -633,8 +640,21 @@ type StatusResponse struct {
 	PauseRemainingSec   int      `json:"pause_remaining_sec"` // 0 when not paused
 	ConnectionName      string   `json:"connection_name,omitempty"`
 	ConnectionID        string   `json:"connection_id,omitempty"`
-	ConnectionProtocols []string `json:"connection_protocols,omitempty"` // protocols available for this connection
-	Error               string   `json:"error,omitempty"`
+	ConnectionProtocols []string                     `json:"connection_protocols,omitempty"` // distinct protocol types on this connection
+	ConnectionConfigs   []ConnectionConfigDescriptor `json:"connection_configs,omitempty"`   // per-config descriptors for multi-config-aware UI
+	ConnectionActiveID  string                       `json:"connection_active_config_id,omitempty"`
+	Error               string                       `json:"error,omitempty"`
+}
+
+// ConnectionConfigDescriptor is a denormalised snapshot of a
+// ProtocolConfig sent to the frontend so the UI can render
+// per-config pills without a second API round-trip per status
+// update. Kept tiny on purpose — never includes ConfigContent.
+type ConnectionConfigDescriptor struct {
+	ID       string `json:"id"`
+	Protocol string `json:"protocol"`
+	Nickname string `json:"nickname,omitempty"`
+	Filename string `json:"filename,omitempty"`
 }
 
 // Status returns the current VPN connection status.
@@ -648,12 +668,22 @@ func (a *App) Status() *StatusResponse {
 	connected := a.connected
 	activeProtocol := a.activeProtocol
 	connectedAt := a.connectedAt
-	var connName, connID string
+	var connName, connID, connActiveConfigID string
 	var connProtocols []string
+	var connConfigs []ConnectionConfigDescriptor
 	if conn := a.connections.Active(); conn != nil {
 		connName = conn.Name
 		connID = conn.ID
+		connActiveConfigID = conn.ActiveConfigID
 		connProtocols = conn.AvailableProtocols()
+		for _, pc := range conn.OrderedConfigs() {
+			connConfigs = append(connConfigs, ConnectionConfigDescriptor{
+				ID:       pc.ID,
+				Protocol: pc.Protocol,
+				Nickname: pc.Nickname,
+				Filename: pc.Filename,
+			})
+		}
 	}
 	a.mu.RUnlock()
 
@@ -785,6 +815,8 @@ func (a *App) Status() *StatusResponse {
 		ConnectionName:      connName,
 		ConnectionID:        connID,
 		ConnectionProtocols: connProtocols,
+		ConnectionConfigs:   connConfigs,
+		ConnectionActiveID:  connActiveConfigID,
 	}
 
 	if protoStatus.Error != "" {
@@ -931,7 +963,11 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		// with >1 protocol; single-protocol connections still get the
 		// original error path. tryFailoverProtocol commits the new
 		// activeProtocol on success and returns the protocol name.
-		if successProto, ferr := a.tryFailoverProtocol(activeProto); ferr == nil {
+		excludeID := ""
+		if c := a.connections.Active(); c != nil {
+			excludeID = c.ActiveConfigID
+		}
+		if successProto, ferr := a.tryFailoverProtocol(excludeID); ferr == nil {
 			log.Printf("Connect: failover succeeded via %q after %q failed", successProto, activeProto)
 			Notify("VPN connection failed over",
 				fmt.Sprintf("%s could not start; connected via %s instead", activeProto, successProto),
@@ -1000,7 +1036,11 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 		// stalled (OpenVPN TLS hang, IPSec SA negotiation timeout) or
 		// the kernel side never registered. Try alternate protocols
 		// before giving up.
-		if successProto, ferr := a.tryFailoverProtocol(activeProto); ferr == nil {
+		excludeID := ""
+		if c := a.connections.Active(); c != nil {
+			excludeID = c.ActiveConfigID
+		}
+		if successProto, ferr := a.tryFailoverProtocol(excludeID); ferr == nil {
 			log.Printf("Connect: failover succeeded via %q after %q timed out", successProto, activeProto)
 			Notify("VPN connection failed over",
 				fmt.Sprintf("%s timed out; connected via %s instead", activeProto, successProto),
@@ -1117,7 +1157,11 @@ func (a *App) Connect(protocol string) (*StatusResponse, error) {
 				// failover itself fails do we fall back to the
 				// original-protocol reconnect via connectActiveTarget.
 				a.mu.Lock()
-				if successProto, ferr := a.tryFailoverProtocol(deadProto); ferr == nil {
+				excludeID := ""
+				if c := a.connections.Active(); c != nil {
+					excludeID = c.ActiveConfigID
+				}
+				if successProto, ferr := a.tryFailoverProtocol(excludeID); ferr == nil {
 					log.Printf("TunnelHealth: recovery via failover %s → %s", deadProto, successProto)
 					a.mu.Unlock()
 					return
@@ -1346,8 +1390,50 @@ func (a *App) disconnectInternal() error {
 // PROTOCOL METHODS
 // ============================================================================
 
+// SelectConfig pins a specific ProtocolConfig (by id) as active on
+// the currently-active connection. With multi-config-per-protocol
+// support a connection may hold multiple configs of the same
+// protocol type (e.g. WG-UDP + WG-TCP); SelectProtocol picks
+// "first config of this type" while SelectConfig lets the UI
+// pick a specific one. Same effect as SelectProtocol — no
+// disconnect/reconnect, just changes the slot that the next
+// Connect uses. Wails binding for the per-config pill row.
+func (a *App) SelectConfig(configID string) error {
+	conn := a.connections.Active()
+	if conn == nil {
+		return fmt.Errorf("no active connection")
+	}
+	cfg := conn.GetConfigByID(configID)
+	if cfg == nil {
+		return fmt.Errorf("config %s not on connection %s", configID, conn.Name)
+	}
+
+	a.mu.Lock()
+	conn.ActiveConfigID = configID
+	conn.ActiveProtocol = cfg.Protocol
+	a.activeProtocol = cfg.Protocol
+	a.settings.ActiveProtocol = cfg.Protocol
+	a.connections.Save()
+	SaveSettings(a.settings)
+
+	configContent := []byte(cfg.ConfigContent)
+	tunnelName := sanitizeTunnelName(conn.Name)
+	protocol := cfg.Protocol
+	a.mu.Unlock()
+
+	if proto, ok := a.protocols[protocol]; ok {
+		setTunnelName(proto, tunnelName)
+		proto.Configure(a.applyDnsOverride(configContent, proto.Name()))
+	}
+
+	log.Printf("Selected config: id=%s protocol=%s for %s", configID, protocol, conn.Name)
+	wailsRuntime.EventsEmit(a.ctx, "vpn:protocol_changed", protocol)
+	return nil
+}
+
 // SelectProtocol changes the selected protocol for the active connection
 // WITHOUT disconnecting or connecting. The user must press Connect to apply.
+// Back-compat: switches to the first config of the requested protocol.
 func (a *App) SelectProtocol(protocol string) error {
 	conn := a.connections.Active()
 	if conn == nil {

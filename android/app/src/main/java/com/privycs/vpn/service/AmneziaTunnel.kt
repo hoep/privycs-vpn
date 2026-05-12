@@ -132,12 +132,7 @@ class AmneziaTunnel(
             connected = isUp,
             connectionName = connectionName,
             connectionId = connectionId,
-            // The protocol slot stays WIREGUARD — AmneziaWG IS a
-            // WireGuard tunnel at the plumbing layer (same Backend
-            // API surface, same setState lifecycle). The AWG-vs-WG
-            // distinction is surfaced via the `variant` field below
-            // for UI badging (Stage 1.4).
-            activeProtocol = VpnProtocol.WIREGUARD,
+            activeProtocol = VpnProtocol.AMNEZIAWG,
             variant = "amneziawg",
             uptime = if (isUp && connectedSince > 0) System.currentTimeMillis() - connectedSince else 0L,
             rxBytes = rxBytes,

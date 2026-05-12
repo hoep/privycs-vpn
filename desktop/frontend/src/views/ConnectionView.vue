@@ -276,20 +276,26 @@
            per member. Mirrors Android's gate at ConnectScreen.kt:618.
            Template-wrap (instead of v-if + v-for on the same element)
            is the Vue 3 lint-clean pattern. -->
-      <div class="flex items-center gap-1.5 mb-4">
+      <div class="flex items-center gap-1.5 mb-4 flex-wrap">
         <template v-if="!poolStore.activePoolId">
+          <!-- One pill PER ProtocolConfig. Multi-config-per-protocol:
+               a connection may hold multiple configs of the same
+               protocol (e.g. WG-UDP and WG-TCP); each gets its own
+               selectable pill. Label shows just the protocol name
+               when unique within this connection, or the per-config
+               nickname/filename when disambiguation is needed. -->
           <button
-            v-for="proto in connectionProtocols"
-            :key="proto"
-            @click="switchProtocol(proto)"
+            v-for="cfg in connectionConfigs"
+            :key="cfg.id"
+            @click="switchConfig(cfg.id)"
             :disabled="vpn.loading"
             class="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
-            :class="vpn.status?.active_protocol === proto
-              ? protocolBadgeActive(proto)
+            :class="(vpn.status?.connection_active_config_id || '') === cfg.id
+              ? protocolBadgeActive(cfg.protocol)
               : 'bg-gray-200 dark:bg-gray-700/50 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
           >
-            <ProtocolIcon :protocol="proto" size="xs" />
-            {{ protocolLabel(proto) }}
+            <ProtocolIcon :protocol="cfg.protocol" size="xs" />
+            {{ configPillLabel(cfg) }}
           </button>
         </template>
         <!-- "+" Add-protocol-config link goes to the AddConnection
@@ -582,7 +588,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useVpnStore, formatSpeed } from '@/stores/vpn'
 import { usePoolStore, formatDuration } from '@/stores/pool'
-import { SelectProtocol, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause, GetTunnelHealthState } from '../../wailsjs/go/main/App'
+import { SelectProtocol, SelectConfig, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause, GetTunnelHealthState } from '../../wailsjs/go/main/App'
 import { EventsOn, LogPrint } from '../../wailsjs/runtime/runtime'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import SpeedSparkline from '@/components/SpeedSparkline.vue'
@@ -994,6 +1000,7 @@ async function pickEntry(entry: PickerEntry) {
 
 function protocolShort(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'AWG'
     case 'wireguard': return 'WG'
     case 'openvpn': return 'OVPN'
     case 'ipsec': return 'IPSec'
@@ -1176,6 +1183,43 @@ const connectionProtocols = computed(() => {
   return vpn.status?.connection_protocols || []
 })
 
+interface ConfigDescriptor {
+  id: string
+  protocol: string
+  nickname?: string
+  filename?: string
+}
+
+const connectionConfigs = computed<ConfigDescriptor[]>(() => {
+  return (vpn.status?.connection_configs as ConfigDescriptor[]) || []
+})
+
+function configPillLabel(cfg: ConfigDescriptor): string {
+  // Disambiguate only when the same protocol appears more than
+  // once on this connection. Single-config-of-a-type stays at the
+  // protocol label so unique-per-type pills don't read as
+  // "WireGuard wg-home.conf".
+  const sameProto = connectionConfigs.value.filter(c => c.protocol === cfg.protocol).length
+  if (sameProto > 1) {
+    const nick = cfg.nickname && cfg.nickname.trim() ? cfg.nickname : ''
+    if (nick) return nick
+    const fn = (cfg.filename || '').replace(/\.(conf|ovpn|sswan)$/i, '').trim()
+    if (fn) return fn
+  }
+  return protocolLabel(cfg.protocol)
+}
+
+async function switchConfig(configId: string) {
+  if (configId === vpn.status?.connection_active_config_id) return
+  try {
+    await SelectConfig(configId)
+    // Status poll will pick up the change; nudge it.
+    await vpn.fetchStatus()
+  } catch (e: any) {
+    vpn.error = 'Failed to switch config'
+  }
+}
+
 // COD-mismatch confirm modal: shown when user clicks Connect while
 // COD is enabled but the current network does not match any rule.
 // COD would otherwise tear the tunnel down ~1s after handshake, leaving
@@ -1312,6 +1356,7 @@ async function switchProtocol(proto: string) {
 
 function protocolLabel(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'AmneziaWG'
     case 'wireguard': return 'WireGuard'
     case 'openvpn': return 'OpenVPN'
     case 'ipsec': return 'IPSec'
@@ -1322,6 +1367,7 @@ function protocolLabel(proto: string): string {
 // Protocol badge colors — official brand colors
 function protocolBadgeActive(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500/30' // AmneziaWG indigo #6366F1
     case 'wireguard': return 'bg-red-900/20 text-red-300 ring-1 ring-red-500/30'       // WireGuard red #88171A
     case 'openvpn': return 'bg-orange-500/20 text-orange-300 ring-1 ring-orange-500/30' // OpenVPN orange #EA7E20
     case 'ipsec': return 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30'         // IPSec blue #2563eb

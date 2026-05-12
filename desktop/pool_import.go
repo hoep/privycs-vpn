@@ -207,7 +207,7 @@ func detectProtocolFromFilename(filename string) string {
 func extractEndpointHost(protocol, content string) string {
 	var raw string
 	switch protocol {
-	case "wireguard":
+	case "wireguard", "amneziawg":
 		raw = extractWireGuardEndpoint(content)
 	case "openvpn":
 		raw = extractOpenVPNEndpoint(content)
@@ -387,6 +387,13 @@ func (pi *PoolImporter) ImportFromUploads(uploads []PoolUpload, onProgress func(
 		if protocol == "" {
 			result.Skipped = append(result.Skipped, SkippedFile{e.name, "unsupported extension"})
 			continue
+		}
+		// .conf-based protocol: content-detect AWG vs vanilla WG.
+		// detectProtocolFromFilename returns "wireguard" for
+		// both — we narrow to "amneziawg" if the [Interface]
+		// section carries AWG obfuscation keys.
+		if protocol == "wireguard" && DetectVariant(string(e.content)) == VariantAmnezia {
+			protocol = "amneziawg"
 		}
 		host := extractEndpointHost(protocol, string(e.content))
 		if host == "" {

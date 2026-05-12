@@ -39,80 +39,82 @@ import (
 // protocol that's just slow rather than broken.
 const failoverWatchdog = 30 * time.Second
 
-// tryFailoverProtocol cycles through the active connection's AvailableProtocols
-// (excluding `excludeOriginal` and any other protocol that already failed in
-// this attempt) and tries each. Returns the protocol name that succeeded, or
-// "" + error if all candidates failed.
+// tryFailoverProtocol cycles through the active connection's
+// ProtocolConfigs in failover-preference order (OrderedConfigs:
+// amneziawg → wireguard → openvpn → ipsec, then insertion order
+// within a protocol) and tries each. Multi-config-aware: a
+// connection with two WireGuard configs (e.g. UDP and TCP
+// endpoints to the same server) walks both as separate candidates.
 //
-// MUST be called while holding a.mu.
+// excludeOriginalConfigID skips a specific failed config-id (not
+// the whole protocol type) — so if WG-UDP just died we still try
+// WG-TCP as the next candidate, not jump straight to OpenVPN.
 //
-// Caller responsibilities:
-//   - The original protocol is already torn down (callers come from Up()
-//     failure or tunnel-dead recovery, both of which leave the previous
-//     protocol's Up() either failed or the tunnel deliberately disconnected).
-//   - A.connected is set correctly on entry (false). We do not toggle it on
-//     failure, only on success.
-func (a *App) tryFailoverProtocol(excludeOriginal string) (string, error) {
+// Returns the protocol name of the candidate that succeeded, or
+// "" + error if all failed. MUST be called while holding a.mu.
+func (a *App) tryFailoverProtocol(excludeOriginalConfigID string) (string, error) {
 	conn := a.connections.Active()
 	if conn == nil {
 		return "", fmt.Errorf("failover: no active connection")
 	}
-	candidates := conn.AvailableProtocols()
+	candidates := conn.OrderedConfigs()
 	if len(candidates) <= 1 {
-		// Only one (or zero) protocol configured for this connection.
-		// No candidate to switch to.
-		return "", fmt.Errorf("failover: connection %q has no alternate protocol configured", conn.Name)
+		return "", fmt.Errorf("failover: connection %q has no alternate config", conn.Name)
 	}
 
 	tried := []string{}
-	for _, candidate := range candidates {
-		if candidate == excludeOriginal {
+	for _, cfg := range candidates {
+		if cfg.ID == excludeOriginalConfigID {
 			continue
 		}
-		proto, ok := a.protocols[candidate]
+		// Human-friendly label for logs: "wireguard:Home-UDP" so
+		// the failover trail in logs distinguishes two configs
+		// of the same protocol type.
+		label := cfg.Protocol
+		if cfg.Nickname != "" {
+			label = fmt.Sprintf("%s:%s", cfg.Protocol, cfg.Nickname)
+		} else if cfg.Filename != "" {
+			label = fmt.Sprintf("%s:%s", cfg.Protocol, cfg.Filename)
+		}
+
+		proto, ok := a.protocols[cfg.Protocol]
 		if !ok {
+			tried = append(tried, label+"(handler-missing)")
 			continue
 		}
 		if !proto.IsAvailable() {
-			log.Printf("Failover: skip %q — not available on this system", candidate)
-			tried = append(tried, candidate+"(unavailable)")
+			log.Printf("Failover: skip %s — handler not available", label)
+			tried = append(tried, label+"(unavailable)")
 			continue
 		}
-		cfg := conn.GetProtocol(candidate)
-		if cfg == nil || cfg.ConfigContent == "" {
-			log.Printf("Failover: skip %q — no config payload", candidate)
-			tried = append(tried, candidate+"(no-config)")
+		if cfg.ConfigContent == "" {
+			log.Printf("Failover: skip %s — empty config", label)
+			tried = append(tried, label+"(no-config)")
 			continue
 		}
 
-		log.Printf("Failover: trying %q (excluded %q, prior tried: %v)", candidate, excludeOriginal, tried)
-		wailsRuntime.EventsEmit(a.ctx, "vpn:failover", candidate)
+		log.Printf("Failover: trying %s (excluded id=%s, prior tried: %v)", label, excludeOriginalConfigID, tried)
+		wailsRuntime.EventsEmit(a.ctx, "vpn:failover", label)
 
 		setTunnelName(proto, sanitizeTunnelName(conn.Name))
 		if err := proto.Configure(a.applyDnsOverride([]byte(cfg.ConfigContent), proto.Name())); err != nil {
-			log.Printf("Failover: configure %q failed: %v", candidate, err)
-			tried = append(tried, candidate+"(configure-err)")
+			log.Printf("Failover: configure %s failed: %v", label, err)
+			tried = append(tried, label+"(configure-err)")
 			continue
 		}
 
-		// Up with a per-protocol watchdog.
 		upCtx, cancel := context.WithTimeout(context.Background(), failoverWatchdog)
 		err := proto.Up(upCtx)
 		cancel()
 		if err != nil {
-			log.Printf("Failover: Up(%q) failed: %v", candidate, err)
-			// Best-effort cleanup so the next iteration starts clean.
+			log.Printf("Failover: Up(%s) failed: %v", label, err)
 			downCtx, downCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_ = proto.Down(downCtx)
 			downCancel()
-			tried = append(tried, candidate+"(up-err)")
+			tried = append(tried, label+"(up-err)")
 			continue
 		}
 
-		// Verify the protocol actually thinks it's connected. Some
-		// protocol Up() returns nil before the kernel side has finished
-		// (e.g. WireGuard service start on Windows can succeed-then-die
-		// with a stale wintun fd). Poll Status() briefly to catch that.
 		connected := false
 		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
@@ -123,29 +125,30 @@ func (a *App) tryFailoverProtocol(excludeOriginal string) (string, error) {
 			time.Sleep(250 * time.Millisecond)
 		}
 		if !connected {
-			log.Printf("Failover: %q Up() returned nil but Status().Connected stayed false", candidate)
+			log.Printf("Failover: %s Up() returned nil but Status().Connected stayed false", label)
 			downCtx, downCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_ = proto.Down(downCtx)
 			downCancel()
-			tried = append(tried, candidate+"(status-not-connected)")
+			tried = append(tried, label+"(status-not-connected)")
 			continue
 		}
 
-		// Success — commit the new active protocol.
-		conn.ActiveProtocol = candidate
-		a.activeProtocol = candidate
-		a.settings.ActiveProtocol = candidate
+		// Success — pin the new active config.
+		conn.ActiveConfigID = cfg.ID
+		conn.ActiveProtocol = cfg.Protocol
+		a.activeProtocol = cfg.Protocol
+		a.settings.ActiveProtocol = cfg.Protocol
 		a.connections.Save()
 		SaveSettings(a.settings)
 		a.connected = true
 		if a.connectedAt.IsZero() {
 			a.connectedAt = time.Now()
 		}
-		log.Printf("Failover: SUCCESS via %q (after trying %s)", candidate, strings.Join(tried, ", "))
-		wailsRuntime.EventsEmit(a.ctx, "vpn:failover_success", candidate)
-		return candidate, nil
+		log.Printf("Failover: SUCCESS via %s (after trying %s)", label, strings.Join(tried, ", "))
+		wailsRuntime.EventsEmit(a.ctx, "vpn:failover_success", cfg.Protocol)
+		return cfg.Protocol, nil
 	}
 
 	wailsRuntime.EventsEmit(a.ctx, "vpn:failover_exhausted", strings.Join(tried, ","))
-	return "", fmt.Errorf("failover: all alternate protocols failed (tried: %s)", strings.Join(tried, ", "))
+	return "", fmt.Errorf("failover: all alternate configs failed (tried: %s)", strings.Join(tried, ", "))
 }

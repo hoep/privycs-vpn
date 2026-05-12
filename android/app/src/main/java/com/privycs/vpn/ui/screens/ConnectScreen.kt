@@ -286,22 +286,11 @@ fun ConnectScreen(
         // first update.
         val activeProtocolForIcon = status.activeProtocol
             ?: connectionRepo.getActive()?.activeProtocol
-        // Swap the brand icon to AmneziaWG's when the chosen
-        // connection is AWG-variant. Prefer the live variant from
-        // VpnStatus (authoritative once connected) over the
-        // content-detection fallback (used before the first status
-        // update lands, or when the user has only "selected" but
-        // not yet connected).
-        val isAmneziaWgForIcon = if (status.variant.isNotEmpty())
-            status.variant == "amneziawg"
-        else
-            connectionRepo.getActive()?.isActiveAmneziaWg() == true
         ConnectButton(
             isConnected = isConnected,
             isConnecting = isConnecting,
             isSinkholeActive = isSinkholeActive,
             activeProtocol = activeProtocolForIcon,
-            isAmneziaWg = isAmneziaWgForIcon,
             onLongClick = {
                 // Long-press on the toggle while connected opens the
                 // pause bottom sheet. When Always-On is active we
@@ -535,22 +524,9 @@ fun ConnectScreen(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         conn.availableProtocols().forEach { p ->
-                                            // Content-detect AWG so the
-                                            // dropdown shows the Amnezia
-                                            // mark in place of the WG
-                                            // dragon when this connection's
-                                            // .conf carries obfuscation
-                                            // keys.
-                                            val isAwgEntry = p == VpnProtocol.WIREGUARD &&
-                                                conn.getProtocol(p)?.configContent?.let {
-                                                    com.privycs.vpn.data.models.TunnelVariant.detect(it) ==
-                                                        com.privycs.vpn.data.models.TunnelVariant.AMNEZIAWG
-                                                } == true
                                             val iconRes = when (p) {
-                                                VpnProtocol.WIREGUARD -> if (isAwgEntry)
-                                                    R.drawable.ic_protocol_amneziawg
-                                                else
-                                                    R.drawable.ic_protocol_wireguard
+                                                VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg
+                                                VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                                                 VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                                                 VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
                                             }
@@ -674,19 +650,10 @@ fun ConnectScreen(
             // active when activating a pool.
             if (activeConnection != null && activePool == null) {
                 ProtocolBadges(
-                    availableProtocols = activeConnection.availableProtocols(),
-                    activeProtocol = status.activeProtocol ?: activeConnection.activeProtocol,
-                    // Per-protocol AWG detector — pill swaps to the
-                    // Amnezia mark when the .conf for that protocol
-                    // entry has obfuscation keys.
-                    isAmneziaWg = { p ->
-                        p == VpnProtocol.WIREGUARD &&
-                            activeConnection.getProtocol(p)?.configContent
-                                ?.let { com.privycs.vpn.data.models.TunnelVariant.detect(it) ==
-                                    com.privycs.vpn.data.models.TunnelVariant.AMNEZIAWG } == true
-                    },
-                    onSelect = { protocol ->
-                        vpnManager.switchProtocol(protocol)
+                    configs = activeConnection.orderedConfigs(),
+                    activeConfigId = activeConnection.activeConfigId,
+                    onSelect = { configId ->
+                        vpnManager.switchConfig(configId)
                     }
                 )
 
@@ -805,15 +772,6 @@ fun ConnectScreen(
                 serverAddress = sanitizeEndpointForDisplay(status.serverEndpoint),
                 lastHandshake = status.lastHandshake
             )
-        }
-
-        // v0.9.15.x AmneziaWG Stage 1.4 — read-only "Obfuscation"
-        // badge. Visible only when an AmneziaWG tunnel is up. The
-        // variant follows the server's enrollment config; there is
-        // no user-facing toggle (see AMNEZIAWG_CLIENT_PLAN.md §1).
-        if (status.connected && status.variant == "amneziawg") {
-            Spacer(modifier = Modifier.height(4.dp))
-            ObfuscationBadge()
         }
 
         // Tunnel-health pill. Visible only while a tunnel is up
@@ -952,7 +910,6 @@ private fun ConnectButton(
     isConnecting: Boolean,
     isSinkholeActive: Boolean = false,
     activeProtocol: VpnProtocol?,
-    isAmneziaWg: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
 ) {
@@ -1064,16 +1021,16 @@ private fun ConnectButton(
                     val tint = if (isConnected) Color.White
                     else MaterialTheme.colorScheme.onSurfaceVariant
                     val iconRes = when (activeProtocol) {
-                        // Use the monochrome AmneziaWG silhouette inside
-                        // the connect button so the same white/gray
+                        // Monochrome AmneziaWG silhouette inside the
+                        // big connect button so the same white/gray
                         // tint scheme as the other protocol marks
-                        // applies — the multi-colour brand mark was
+                        // applies — the multi-colour brand mark is
                         // hard to read against the green-when-connected
                         // / gray-when-disconnected button background.
-                        VpnProtocol.WIREGUARD -> if (isAmneziaWg)
-                            R.drawable.ic_protocol_amneziawg_mono
-                        else
-                            R.drawable.ic_protocol_wireguard
+                        // Small pills + list rows use the full-colour
+                        // mark, which has enough surrounding contrast.
+                        VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
+                        VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                         VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                         VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
                         null -> null
@@ -1081,10 +1038,7 @@ private fun ConnectButton(
                     if (iconRes != null) {
                         Icon(
                             painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                            contentDescription = if (isAmneziaWg && activeProtocol == VpnProtocol.WIREGUARD)
-                                "AmneziaWG"
-                            else
-                                activeProtocol?.label,
+                            contentDescription = activeProtocol?.label,
                             modifier = Modifier.size(56.dp),
                             tint = tint
                         )
@@ -1117,23 +1071,24 @@ private fun ConnectButton(
 
 @Composable
 private fun ProtocolBadges(
-    availableProtocols: List<VpnProtocol>,
-    activeProtocol: VpnProtocol,
-    isAmneziaWg: (VpnProtocol) -> Boolean = { false },
-    onSelect: (VpnProtocol) -> Unit
+    configs: List<com.privycs.vpn.data.models.ProtocolConfig>,
+    activeConfigId: String,
+    onSelect: (String) -> Unit
 ) {
+    // Compute per-protocol-type duplicate counts so the label can
+    // disambiguate (e.g. "WireGuard #1" vs "WireGuard #2") when a
+    // user adds two configs of the same protocol type to one
+    // connection. Single-config-of-a-type stays clean.
+    val protocolCounts = configs.groupingBy { it.protocol }.eachCount()
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        items(availableProtocols) { protocol ->
-            val isActive = protocol == activeProtocol
-            val isAwg = isAmneziaWg(protocol)
+        items(configs) { cfg ->
+            val protocol = cfg.protocol
+            val isActive = cfg.id == activeConfigId
             val badgeColor = when (protocol) {
-                // AWG-variant WG pill takes the indigo accent so it's
-                // visually distinct from a vanilla-WG pill in the same
-                // row (e.g. a connection with both a WG and an AWG
-                // .conf, though that's rare).
-                VpnProtocol.WIREGUARD -> if (isAwg) Color(0xFF6366F1) else WireGuardRed
+                VpnProtocol.AMNEZIAWG -> AmneziaWgIndigo
+                VpnProtocol.WIREGUARD -> WireGuardRed
                 VpnProtocol.OPENVPN -> OpenVpnOrange
                 VpnProtocol.IPSEC -> IpSecBlue
             }
@@ -1150,6 +1105,16 @@ private fun ProtocolBadges(
                 label = "badgeTextColor"
             )
 
+            // Label: nickname > protocol.label. When there's only
+            // one config of this protocol type we just show the
+            // protocol label (e.g. "WireGuard"). With multiples
+            // we fall back to the per-config nickname/filename so
+            // the user can tell them apart.
+            val label = if ((protocolCounts[protocol] ?: 0) > 1)
+                cfg.displayLabel()
+            else
+                protocol.label
+
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
@@ -1158,11 +1123,11 @@ private fun ProtocolBadges(
                         if (isActive) Modifier.border(1.dp, badgeColor.copy(alpha = 0.3f), RoundedCornerShape(50))
                         else Modifier
                     )
-                    .clickable { onSelect(protocol) }
+                    .clickable { onSelect(cfg.id) }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (isAwg && protocol == VpnProtocol.WIREGUARD) {
+                if (protocol == VpnProtocol.AMNEZIAWG) {
                     // Multi-colour Amnezia brand mark — render via
                     // Image so the orange/teal/purple palette
                     // survives the badge tint.
@@ -1183,7 +1148,7 @@ private fun ProtocolBadges(
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = if (isAwg && protocol == VpnProtocol.WIREGUARD) "AmneziaWG" else protocol.label,
+                    text = label,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
                     color = textColor
@@ -1200,6 +1165,7 @@ private fun ProtocolBadges(
  * with the protocol's accent at runtime.
  */
 private fun VpnProtocol.badgeDrawable(): Int = when (this) {
+    VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg
     VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
     VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
     VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
@@ -1361,41 +1327,6 @@ private fun HealthPill(state: com.privycs.vpn.service.TunnelHealthMonitor.State)
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-        )
-    }
-}
-
-/**
- * v0.9.15.x AmneziaWG Stage 1.4 — read-only "Obfuscation" badge.
- * Shown on Connect screen when the active tunnel is AmneziaWG
- * (DPI-evasion variant of WireGuard). Indigo palette to
- * distinguish from health pill's green/amber/red traffic-light
- * scheme. Not user-actionable: the variant follows the server's
- * enrollment config.
- */
-@Composable
-private fun ObfuscationBadge() {
-    val color = Color(0xFF6366F1) // indigo-500 — same as desktop hint banner
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(color.copy(alpha = 0.14f))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Amnezia brand mark — multi-colour so we render with Image
-        // (not Icon, which would force the indigo tint and lose
-        // the orange/teal/purple palette).
-        androidx.compose.foundation.Image(
-            painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_protocol_amneziawg),
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(
-            text = "Obfuscation: AmneziaWG",
             style = MaterialTheme.typography.labelSmall,
             color = color,
         )

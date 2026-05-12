@@ -706,7 +706,7 @@ const countryOverrideDisplay = computed(() => {
 const uniqueProtocols = computed(() => {
   if (!pool.value?.members) return ''
   const set = new Set<string>(pool.value.members.map((m: any) => m.config?.protocol).filter(Boolean))
-  return Array.from(set).map((p: string) => p === 'wireguard' ? 'WireGuard' : p === 'openvpn' ? 'OpenVPN' : p === 'ipsec' ? 'IPSec' : p).join(', ')
+  return Array.from(set).map((p: string) => p === 'amneziawg' ? 'AmneziaWG' : p === 'wireguard' ? 'WireGuard' : p === 'openvpn' ? 'OpenVPN' : p === 'ipsec' ? 'IPSec' : p).join(', ')
 })
 
 const filteredMembers = computed(() => {

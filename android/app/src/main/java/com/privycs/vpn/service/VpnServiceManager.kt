@@ -279,6 +279,31 @@ class VpnServiceManager private constructor(private val context: Context) {
             _status.value = _status.value.copy(activeProtocol = protocol)
             return
         }
+        performSwitch(activeConn.id)
+    }
+
+    /**
+     * Pin a specific ProtocolConfig (by id) as active on the
+     * currently-active connection and reconnect through it. Used
+     * by the per-config protocol pill picker in the UI: when a
+     * connection holds multiple configs (e.g. two WG endpoints
+     * UDP+TCP), the user taps any pill to switch to that exact
+     * config — the pill identity is the config-id, not the
+     * protocol enum.
+     */
+    fun switchConfig(configId: String) {
+        val activeConn = connectionRepo.getActive() ?: return
+        val target = activeConn.getConfigById(configId) ?: return
+        val wasConnected = isConnected
+        connectionRepo.setActiveConfig(activeConn.id, configId)
+        if (!wasConnected) {
+            _status.value = _status.value.copy(activeProtocol = target.protocol)
+            return
+        }
+        performSwitch(activeConn.id)
+    }
+
+    private fun performSwitch(activeConnId: String) {
 
         // Serialize disconnect -> wait -> connect on the manager's long-lived
         // scope (not the service's scope, which dies with the service).
@@ -317,7 +342,7 @@ class VpnServiceManager private constructor(private val context: Context) {
             // 1500ms covers the slowest case (charon) with margin.
             kotlinx.coroutines.delay(1500)
 
-            connect(activeConn.id)
+            connect(activeConnId)
         }
     }
 

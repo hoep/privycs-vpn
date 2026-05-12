@@ -598,6 +598,7 @@ async function removeProtocol(connId: string, protocol: string) {
 
 function protocolLabel(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'AmneziaWG'
     case 'wireguard': return 'WireGuard'
     case 'openvpn': return 'OpenVPN'
     case 'ipsec': return 'IPSec'
@@ -668,6 +669,7 @@ async function saveRename(id: string) {
 
 function protocolTextColor(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'text-indigo-400'
     case 'wireguard': return 'text-red-400'
     case 'openvpn': return 'text-orange-400'
     case 'ipsec': return 'text-blue-400'
@@ -677,6 +679,7 @@ function protocolTextColor(proto: string): string {
 
 function protocolDotColor(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'bg-indigo-400'
     case 'wireguard': return 'bg-red-400'
     case 'openvpn': return 'bg-orange-400'
     case 'ipsec': return 'bg-blue-400'
@@ -686,6 +689,7 @@ function protocolDotColor(proto: string): string {
 
 function protocolBadgeActive(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500/30'
     case 'wireguard': return 'bg-red-900/20 text-red-300 ring-1 ring-red-500/30'
     case 'openvpn': return 'bg-orange-500/20 text-orange-300 ring-1 ring-orange-500/30'
     case 'ipsec': return 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30'

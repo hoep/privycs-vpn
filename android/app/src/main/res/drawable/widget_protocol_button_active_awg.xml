@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Active AmneziaWG pill — matches ConnectScreen.ProtocolBadges.
+    AmneziaWgIndigo (#6366F1) at 0x33 alpha (~20%) for fill, 0x4D (~30%)
+    for stroke, fully rounded pill shape. Same alpha cascade as the
+    WG/OVPN/IPSec siblings.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#336366F1" />
+    <stroke android:width="1dp" android:color="#4D6366F1" />
+    <corners android:radius="14dp" />
+</shape>

@@ -47,16 +47,16 @@ class ConnectionRepository(private val context: Context) {
         val registry = _registry.value
         var conn = connectionId?.let { getById(it) }
 
-        // Last-line defense against names that leaked through the upstream
-        // path (file-picker DISPLAY_NAME set to the raw JSON/YAML content,
-        // stale user-input, backup-restore of a previously-broken entry,
-        // gateway returning an empty peer_name). ConfigParser
-        // .deriveConnectionName already guards the filename-derived branch
-        // but callers can pass the raw user-typed string here too. Anything
-        // that looks like config content or a single non-alphanumeric
-        // glyph gets replaced with a safe default so the connection list
-        // never renders "{" as a connection name again.
         val cleanName = sanitizeConnectionName(name)
+
+        // Every ProtocolConfig persisted by this method gets a
+        // non-empty id. Caller's ProtocolConfig may have id=""
+        // (typical for fresh ConfigParser.buildProtocolConfig
+        // output); we fill one in. If the caller passed an explicit
+        // id (e.g. backup restore preserving original) we honour it.
+        val withId = if (protocolConfig.id.isEmpty())
+            protocolConfig.copy(id = UUID.randomUUID().toString())
+        else protocolConfig
 
         if (conn == null) {
             // When connectionId was supplied (e.g. from a backup import), keep
@@ -70,30 +70,39 @@ class ConnectionRepository(private val context: Context) {
             conn = VpnConnection(
                 id = connectionId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
                 name = cleanName,
-                activeProtocol = protocolConfig.protocol,
+                activeProtocol = withId.protocol,
+                activeConfigId = withId.id,
                 createdAt = Instant.now().toString()
             )
             registry.connections.add(conn)
         }
 
-        // Replace existing protocol config or add new one
-        val existingIndex = conn.protocols.indexOfFirst { it.protocol == protocolConfig.protocol }
+        // Multi-config-per-protocol: a connection may hold any number
+        // of ProtocolConfigs, including multiples of the same
+        // protocol type. We update-in-place only when the caller
+        // supplied an id that matches an existing config (re-import
+        // of the same logical endpoint); otherwise we append a new
+        // entry, even if a config of the same protocol type already
+        // exists. This is the deliberate change from the
+        // pre-multi-config addOrUpdate which collapsed by protocol.
+        val existingIndex = if (protocolConfig.id.isNotEmpty())
+            conn.protocols.indexOfFirst { it.id == protocolConfig.id }
+        else -1
         if (existingIndex >= 0) {
-            conn.protocols[existingIndex] = protocolConfig
+            conn.protocols[existingIndex] = withId
         } else {
-            conn.protocols.add(protocolConfig)
+            conn.protocols.add(withId)
         }
 
-        // Set the connection name only when the connection has none
-        // yet. Subsequent protocol-additions to the same connection
-        // PRESERVE the user's chosen name — including any rename the
-        // user did. Without this guard, dropping a newly-pulled .ovpn
-        // / .sswan / .conf into an existing connection silently
-        // re-baselined the name to the new file's name, so every time
-        // the user pulled an updated IPSec profile from the gateway,
-        // their custom connection label got overwritten.
         if (conn.name.isBlank() && cleanName.isNotBlank()) {
             conn.name = cleanName
+        }
+
+        // If the connection had no active config yet, pin it to the
+        // one we just added/updated.
+        if (conn.activeConfigId.isEmpty()) {
+            conn.activeConfigId = withId.id
+            conn.activeProtocol = withId.protocol
         }
 
         // Auto-set as active if it is the first connection
@@ -110,12 +119,33 @@ class ConnectionRepository(private val context: Context) {
         save()
     }
 
-    fun setActiveProtocol(connectionId: String, protocol: VpnProtocol): Boolean {
+    /**
+     * Pin a specific ProtocolConfig as the active one on this
+     * connection. configId must correspond to an existing config —
+     * returns false if it doesn't. Also updates the legacy
+     * activeProtocol field for back-compat with code paths that
+     * still read it.
+     */
+    fun setActiveConfig(connectionId: String, configId: String): Boolean {
         val conn = getById(connectionId) ?: return false
-        if (!conn.hasProtocol(protocol)) return false
-        conn.activeProtocol = protocol
+        val cfg = conn.getConfigById(configId) ?: return false
+        conn.activeConfigId = configId
+        conn.activeProtocol = cfg.protocol
         save()
         return true
+    }
+
+    /**
+     * Back-compat alias: caller wants the first config of a given
+     * protocol type to become active. Used by the protocol-switcher
+     * pills that still think in protocol terms. With multi-config
+     * support, "first config of this protocol" is sort-key-deterministic
+     * (orderedConfigs filtered by protocol, take first).
+     */
+    fun setActiveProtocol(connectionId: String, protocol: VpnProtocol): Boolean {
+        val conn = getById(connectionId) ?: return false
+        val target = conn.orderedConfigs().firstOrNull { it.protocol == protocol } ?: return false
+        return setActiveConfig(connectionId, target.id)
     }
 
     fun delete(id: String) {
@@ -129,10 +159,14 @@ class ConnectionRepository(private val context: Context) {
 
     fun removeProtocol(connectionId: String, protocol: VpnProtocol) {
         val conn = getById(connectionId) ?: return
+        val removed = conn.protocols.filter { it.protocol == protocol }
         conn.protocols.removeAll { it.protocol == protocol }
 
-        if (conn.activeProtocol == protocol && conn.protocols.isNotEmpty()) {
-            conn.activeProtocol = conn.protocols.first().protocol
+        // If the active config was among the removed ones, repick.
+        if (removed.any { it.id == conn.activeConfigId } && conn.protocols.isNotEmpty()) {
+            val replacement = conn.orderedConfigs().first()
+            conn.activeConfigId = replacement.id
+            conn.activeProtocol = replacement.protocol
         }
 
         if (conn.protocols.isEmpty()) {
@@ -165,11 +199,53 @@ class ConnectionRepository(private val context: Context) {
     fun updateLocalAddress(connectionId: String, protocol: VpnProtocol, addr: String) {
         if (addr.isBlank()) return
         val conn = getById(connectionId) ?: return
-        val idx = conn.protocols.indexOfFirst { it.protocol == protocol }
+        // Prefer writing to the currently-active config, falling
+        // back to "first config of this protocol type" for older
+        // callers that don't know about multi-config. This avoids
+        // mis-attributing a connected WG-1's local address to a
+        // dormant WG-2 in the same connection.
+        val active = conn.getActiveConfig()
+        val idx = if (active != null && active.protocol == protocol)
+            conn.protocols.indexOfFirst { it.id == active.id }
+        else
+            conn.protocols.indexOfFirst { it.protocol == protocol }
         if (idx < 0) return
         if (conn.protocols[idx].localAddress == addr) return
         conn.protocols[idx].localAddress = addr
         save()
+    }
+
+    /**
+     * Remove a specific ProtocolConfig by its id. Used by the
+     * Connections screen's "delete this config" affordance when a
+     * connection has multiple configs of the same protocol type.
+     * If the removed config was the active one and others remain,
+     * repick. If no configs remain, deletes the whole connection.
+     */
+    fun removeConfig(connectionId: String, configId: String) {
+        val conn = getById(connectionId) ?: return
+        val removed = conn.protocols.removeAll { it.id == configId }
+        if (!removed) return
+        if (conn.activeConfigId == configId && conn.protocols.isNotEmpty()) {
+            val replacement = conn.orderedConfigs().first()
+            conn.activeConfigId = replacement.id
+            conn.activeProtocol = replacement.protocol
+        }
+        if (conn.protocols.isEmpty()) {
+            delete(connectionId)
+        } else {
+            save()
+        }
+    }
+
+    /** Rename a specific ProtocolConfig — sets its user-editable nickname. */
+    fun renameConfig(connectionId: String, configId: String, nickname: String): Boolean {
+        val conn = getById(connectionId) ?: return false
+        val idx = conn.protocols.indexOfFirst { it.id == configId }
+        if (idx < 0) return false
+        conn.protocols[idx].nickname = nickname.trim()
+        save()
+        return true
     }
 
     /**
@@ -253,6 +329,62 @@ class ConnectionRepository(private val context: Context) {
         // matches the in-memory state from launch onwards.
         var healed = false
         registry.connections.forEach { conn ->
+            // Phase 1: assign a stable UUID to every ProtocolConfig
+            // that doesn't have one yet. The id field arrived with
+            // the multi-config-per-protocol refactor; pre-existing
+            // user data has id = "" because the field didn't exist.
+            // Without a non-empty id the activeConfigId resolution
+            // below can't find anything.
+            for (i in conn.protocols.indices) {
+                if (conn.protocols[i].id.isEmpty()) {
+                    conn.protocols[i] = conn.protocols[i].copy(id = UUID.randomUUID().toString())
+                    healed = true
+                }
+            }
+
+            // Phase 2: reclassify legacy WIREGUARD entries whose
+            // configContent contains AmneziaWG obfuscation keys.
+            // AWG became its own protocol slot in v0.9.15.x; older
+            // saved data has these as WIREGUARD.
+            val swaps = mutableListOf<Pair<Int, com.privycs.vpn.data.models.ProtocolConfig>>()
+            conn.protocols.forEachIndexed { idx, pc ->
+                if (pc.protocol == com.privycs.vpn.data.models.VpnProtocol.WIREGUARD &&
+                    com.privycs.vpn.data.models.TunnelVariant.detect(pc.configContent) ==
+                        com.privycs.vpn.data.models.TunnelVariant.AMNEZIAWG
+                ) {
+                    swaps.add(idx to pc.copy(protocol = com.privycs.vpn.data.models.VpnProtocol.AMNEZIAWG))
+                    healed = true
+                }
+            }
+            for ((idx, replacement) in swaps) {
+                conn.protocols[idx] = replacement
+            }
+            if (swaps.isNotEmpty() && conn.activeProtocol == com.privycs.vpn.data.models.VpnProtocol.WIREGUARD &&
+                swaps.any { it.second.protocol == com.privycs.vpn.data.models.VpnProtocol.AMNEZIAWG }
+            ) {
+                if (!conn.protocols.any { it.protocol == com.privycs.vpn.data.models.VpnProtocol.WIREGUARD }) {
+                    conn.activeProtocol = com.privycs.vpn.data.models.VpnProtocol.AMNEZIAWG
+                }
+            }
+
+            // Phase 3: reconcile activeConfigId. With multi-config
+            // support an "active slot" is identified by config-id,
+            // not protocol type. If the field is empty (legacy
+            // record) or points at a config that no longer exists
+            // (e.g. user removed one in a previous session before
+            // this code path migrated the field), repoint it at
+            // the first config matching the legacy activeProtocol,
+            // falling back to the first config in the connection.
+            val activeStillValid = conn.activeConfigId.isNotEmpty() &&
+                conn.protocols.any { it.id == conn.activeConfigId }
+            if (!activeStillValid && conn.protocols.isNotEmpty()) {
+                conn.activeConfigId = (
+                    conn.protocols.firstOrNull { it.protocol == conn.activeProtocol }
+                        ?: conn.protocols.first()
+                ).id
+                healed = true
+            }
+
             conn.protocols.forEach { pc ->
                 if (isCorruptServerAddress(pc.serverAddress)) {
                     pc.serverAddress = ""

@@ -15,6 +15,7 @@
     <string name="widget_arrow_download">↓</string>
     <string name="widget_arrow_upload">↑</string>
     <string name="widget_protocol_wireguard">WireGuard</string>
+    <string name="widget_protocol_amneziawg">AmneziaWG</string>
     <string name="widget_protocol_openvpn">OpenVPN</string>
     <string name="widget_protocol_ipsec">IPSec</string>
     <string name="widget_sparkline_rx_description">Download speed chart</string>

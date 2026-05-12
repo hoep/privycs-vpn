@@ -181,7 +181,12 @@ class GatewayApiClient(
 
         return try {
             when (protocol) {
-                "wireguard" -> buildWireGuardConf(bodyText)
+                // Server emits AWG configs under the "wireguard"
+                // endpoint slug with `obfuscation_config_lines`
+                // appended to the [Interface] block. We accept
+                // either label for forward-compat with a future
+                // server that splits them.
+                "wireguard", "amneziawg" -> buildWireGuardConf(bodyText)
                 "openvpn" -> extractOpenVpnConfig(bodyText)
                 else -> bodyText
             }

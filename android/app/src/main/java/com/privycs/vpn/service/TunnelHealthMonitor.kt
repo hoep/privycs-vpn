@@ -210,28 +210,26 @@ object TunnelHealthMonitor {
                 return
             }
 
-            // Multi-protocol failover: if the connection has more than one
-            // protocol configured, try a DIFFERENT one before reconnecting.
-            // Blindly reconnecting with the same protocol that just died
-            // (per the ICMP probe) is rarely the right move — if the
-            // tunnel's transport is broken, the same transport will likely
-            // break again. Switch the active protocol to the next available
-            // alternative; if that connect fails ConnectCoordinator's
-            // failure path will surface it and the user can manually
-            // re-select. If only one protocol is configured we fall through
-            // to the same-protocol reconnect below (no-op failover).
-            val deadProto = connection.activeProtocol
-            val nextProto = connection.availableProtocols().firstOrNull { it != deadProto }
-            if (nextProto != null) {
+            // Multi-config failover: walk the connection's
+            // ProtocolConfig list in preference order
+            // (orderedConfigs sorts by protocol enum.ordinal then
+            // addedAt) and pick the first config whose id differs
+            // from the one that just died. This lets a user
+            // configure e.g. AWG + WG + OVPN-UDP + OVPN-TCP + IPSec
+            // on a single Connection ("my server") and have the
+            // recovery walk all five in sequence before giving up.
+            // Pre-multi-config behaviour (one config per protocol
+            // type) is the degenerate case of this same loop.
+            val deadConfigId = connection.activeConfigId
+            val nextConfig = connection.orderedConfigs().firstOrNull { it.id != deadConfigId }
+            if (nextConfig != null) {
                 PrivycsLogger.i(
                     TAG,
-                    "recovery: failover ${deadProto.label} → ${nextProto.label} " +
-                        "(available: ${connection.availableProtocols().map { it.label }})",
+                    "recovery: failover ${connection.activeProtocol.label}/${deadConfigId.take(8)} → " +
+                        "${nextConfig.protocol.label}/${nextConfig.id.take(8)} " +
+                        "(available: ${connection.orderedConfigs().map { "${it.protocol.shortLabel}:${it.displayLabel()}" }})",
                 )
-                PrivycsApp.instance.connectionRepository.setActiveProtocol(connection.id, nextProto)
-                // Refresh the connection model after the protocol swap
-                // so requestConnect sees the new activeProtocol on the
-                // VpnConnection it queues.
+                PrivycsApp.instance.connectionRepository.setActiveConfig(connection.id, nextConfig.id)
                 val refreshed = PrivycsApp.instance.connectionRepository.getById(connection.id) ?: connection
                 ConnectCoordinator.requestConnect(
                     context,

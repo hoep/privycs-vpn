@@ -102,12 +102,13 @@ class PoolImporter(
         data class Parsed(val entry: ImportEntry, val protocol: VpnProtocol, val host: String)
         val parsedList = mutableListOf<Parsed>()
         for ((i, e) in entries.withIndex()) {
-            val protocol = detectProtocolFromFilename(e.name)
+            val content = String(e.content, Charsets.UTF_8)
+            val protocol = detectProtocolFromFilename(e.name, content)
             if (protocol == null) {
                 skipped.add(SkippedFile(e.name, "unsupported extension"))
                 continue
             }
-            val host = extractEndpointHost(protocol, String(e.content, Charsets.UTF_8))
+            val host = extractEndpointHost(protocol, content)
             if (host.isEmpty()) {
                 skipped.add(SkippedFile(e.name, "no endpoint in config"))
                 continue
@@ -255,9 +256,17 @@ class PoolImporter(
         return out
     }
 
-    private fun detectProtocolFromFilename(name: String): VpnProtocol? =
+    private fun detectProtocolFromFilename(name: String, content: String): VpnProtocol? =
         when (name.substringAfterLast('.', "").lowercase()) {
-            "conf" -> VpnProtocol.WIREGUARD
+            // .conf is shared between vanilla WG and AmneziaWG — same
+            // grammar, AWG just has additional [Interface] keys.
+            // Content-detect at import so pool members land in the
+            // right protocol slot.
+            "conf" -> if (com.privycs.vpn.data.models.TunnelVariant.detect(content) ==
+                com.privycs.vpn.data.models.TunnelVariant.AMNEZIAWG)
+                VpnProtocol.AMNEZIAWG
+            else
+                VpnProtocol.WIREGUARD
             "ovpn" -> VpnProtocol.OPENVPN
             "sswan" -> VpnProtocol.IPSEC
             else -> null
@@ -265,7 +274,8 @@ class PoolImporter(
 
     private fun extractEndpointHost(protocol: VpnProtocol, content: String): String {
         val raw = when (protocol) {
-            VpnProtocol.WIREGUARD -> extractWireGuardEndpoint(content)
+            // AWG and vanilla WG share the .conf Endpoint grammar.
+            VpnProtocol.WIREGUARD, VpnProtocol.AMNEZIAWG -> extractWireGuardEndpoint(content)
             VpnProtocol.OPENVPN -> extractOpenVPNEndpoint(content)
             VpnProtocol.IPSEC -> extractIPSecEndpoint(content)
         }

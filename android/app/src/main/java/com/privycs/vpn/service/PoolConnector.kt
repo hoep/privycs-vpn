@@ -205,8 +205,11 @@ class PoolConnector(
                 continue
             }
 
-            // Layer-B: WireGuard packet-trigger + bytes_rx poll.
-            if (member.config.protocol == VpnProtocol.WIREGUARD) {
+            // Layer-B: WireGuard / AmneziaWG packet-trigger + bytes_rx poll.
+            // Same health-check logic for both — the WG and AWG
+            // backends both expose bytesReceived() via Tunnel.
+            if (member.config.protocol == VpnProtocol.WIREGUARD ||
+                member.config.protocol == VpnProtocol.AMNEZIAWG) {
                 if (!verifyWireGuardPeerHealth(member)) {
                     lastErr = "no rx within ${PEER_HEALTH_TIMEOUT_MS}ms"
                     pools.markMemberUnreachable(pool.id, member.id, lastErr)

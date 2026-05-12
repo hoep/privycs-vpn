@@ -53,8 +53,14 @@ type ProtocolStatus struct {
 func detectProtocol(content string, filename string) string {
 	lower := strings.ToLower(filename)
 
-	// By filename extension
+	// By filename extension. .conf is shared between vanilla WG
+	// and AmneziaWG — same grammar, AWG adds [Interface]-scope
+	// keys (Jc/Jmin/Jmax/S1-4/H1-4/I1-5). Detect by content to
+	// choose the right protocol slot.
 	if strings.HasSuffix(lower, ".conf") {
+		if DetectVariant(content) == VariantAmnezia {
+			return "amneziawg"
+		}
 		return "wireguard"
 	}
 	if strings.HasSuffix(lower, ".ovpn") {
@@ -64,8 +70,12 @@ func detectProtocol(content string, filename string) string {
 		return "ipsec"
 	}
 
-	// By content detection
+	// By content detection — same AWG-aware branching for files
+	// whose name doesn't carry an extension.
 	if strings.Contains(content, "[Interface]") && strings.Contains(content, "PrivateKey") {
+		if DetectVariant(content) == VariantAmnezia {
+			return "amneziawg"
+		}
 		return "wireguard"
 	}
 	if strings.Contains(content, "remote ") || strings.Contains(content, "<ca>") || strings.Contains(content, "client") {

@@ -374,6 +374,11 @@ function processFile(file: File) {
   success.value = ''
 
   const name = file.name.toLowerCase()
+  // .conf is shared between WG and AWG — same grammar, AWG just
+  // has extra [Interface] keys. Initial guess from extension is
+  // WIREGUARD; the FileReader callback below upgrades to AMNEZIAWG
+  // when it sees the AWG-specific keys. .ovpn / .sswan are
+  // unambiguous.
   if (name.endsWith('.conf')) detectedProtocol.value = 'wireguard'
   else if (name.endsWith('.ovpn')) detectedProtocol.value = 'openvpn'
   else if (name.endsWith('.sswan')) detectedProtocol.value = 'ipsec'
@@ -387,6 +392,14 @@ function processFile(file: File) {
     if (!detectedProtocol.value) {
       if (fileContent.value.includes('[Interface]')) detectedProtocol.value = 'wireguard'
       else if (fileContent.value.includes('remote ') || fileContent.value.includes('<ca>')) detectedProtocol.value = 'openvpn'
+    }
+    // AWG content-detection: any of Jc/Jmin/Jmax/S1-4/H1-4/I1-5
+    // in the [Interface] section promotes a WireGuard guess to
+    // AmneziaWG. Matches ConfigParser.detectProtocol() on Android
+    // and the desktop Go side's DetectVariant().
+    if (detectedProtocol.value === 'wireguard' &&
+        /(?:^|\n)[ \t]*(?:Jc|Jmin|Jmax|S[1-4]|H[1-4]|I[1-5])[ \t]*=/i.test(fileContent.value)) {
+      detectedProtocol.value = 'amneziawg'
     }
   }
   reader.readAsText(file)
@@ -431,6 +444,7 @@ async function importConfig() {
 
 function protocolDisplayName(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'AmneziaWG'
     case 'wireguard': return 'WireGuard'
     case 'openvpn': return 'OpenVPN'
     case 'ipsec': return 'IPSec/IKEv2'
@@ -440,6 +454,7 @@ function protocolDisplayName(proto: string): string {
 
 function protocolShort(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'AWG'
     case 'wireguard': return 'WG'
     case 'openvpn': return 'OVPN'
     case 'ipsec': return 'IPSec'
@@ -449,6 +464,7 @@ function protocolShort(proto: string): string {
 
 function protocolColor(proto: string): string {
   switch (proto) {
+    case 'amneziawg': return 'text-indigo-400'
     case 'wireguard': return 'text-red-400'
     case 'openvpn': return 'text-orange-400'
     case 'ipsec': return 'text-blue-400'

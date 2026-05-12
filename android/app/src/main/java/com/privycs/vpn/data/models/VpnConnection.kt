@@ -5,6 +5,16 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 enum class VpnProtocol(val label: String, val shortLabel: String, val extensions: List<String>) {
+    // AMNEZIAWG sits ahead of WIREGUARD in the enum because the
+    // pool-failover order in PoolStrategy iterates the enum's natural
+    // ordering (AWG > WG > OVPN > IPSec). AWG-first matches the
+    // "try the DPI-evasion variant before the unobfuscated one"
+    // intent: on a restrictive network the vanilla-WG handshake
+    // would burn time blackholed by the censor; AWG either gets
+    // through or fails fast on its own DPI signature.
+    @SerialName("amneziawg")
+    AMNEZIAWG("AmneziaWG", "AWG", listOf(".conf")),
+
     @SerialName("wireguard")
     WIREGUARD("WireGuard", "WG", listOf(".conf")),
 
@@ -16,6 +26,7 @@ enum class VpnProtocol(val label: String, val shortLabel: String, val extensions
 
     companion object {
         fun fromString(value: String): VpnProtocol? = when (value.lowercase()) {
+            "amneziawg", "awg" -> AMNEZIAWG
             "wireguard", "wg" -> WIREGUARD
             "openvpn", "ovpn" -> OPENVPN
             "ipsec" -> IPSEC
@@ -30,6 +41,21 @@ data class ProtocolConfig(
     @SerialName("config_content")
     val configContent: String,
     val filename: String,
+    // Stable per-config UUID. Drives the "multi-config-per-protocol-
+    // per-connection" model: a VpnConnection can hold any number of
+    // ProtocolConfigs (including multiples of the same protocol
+    // type — e.g. two WG endpoints UDP+TCP), and VpnConnection.
+    // activeConfigId names the one the connect path uses.
+    // Defaults to "" so older persisted JSON deserialises; the
+    // load-time heal in ConnectionRepository.load assigns a fresh
+    // UUID when empty.
+    val id: String = "",
+    // User-editable label rendered in the pill row when a connection
+    // has more than one config of the same protocol type ("Home WG
+    // UDP" vs "Home WG TCP"). Empty → fall back to filename / the
+    // protocol's label. var so the rename action can mutate without
+    // copy-and-replace gymnastics across the list.
+    var nickname: String = "",
     // var (not val) so the load-time sanitization in
     // ConnectionRepository.load() can rewrite obviously-broken values
     // — historically the IPSec parser at ConfigParser.parseIpSec()
@@ -50,7 +76,15 @@ data class ProtocolConfig(
     var localAddress: String = "",
     @SerialName("added_at")
     val addedAt: String = ""
-)
+) {
+    /** Display label — nickname if set, else filename minus extension, else protocol label. */
+    fun displayLabel(): String {
+        if (nickname.isNotBlank()) return nickname
+        val name = filename.substringBeforeLast('.', filename).trim()
+        if (name.isNotBlank()) return name
+        return protocol.label
+    }
+}
 
 @Serializable
 data class VpnConnection(
@@ -75,35 +109,76 @@ data class VpnConnection(
      * without flipping the global Settings field on every switch.
      */
     @SerialName("dns_override")
-    var dnsOverride: String = ""
+    var dnsOverride: String = "",
+    /**
+     * The ID of the currently-active ProtocolConfig on this
+     * connection. Replaces the old "activeProtocol enum" semantics
+     * which assumed at most one config per protocol type — with
+     * multi-config-per-protocol the enum alone is no longer
+     * sufficient. Empty until the load-time heal in
+     * ConnectionRepository.load() reconciles it against the older
+     * activeProtocol field. Both fields are kept on disk for now,
+     * with activeConfigId being authoritative; activeProtocol is
+     * derived via getActiveConfig().protocol when needed.
+     */
+    @SerialName("active_config_id")
+    var activeConfigId: String = ""
 ) {
+    /**
+     * The configs configured on this connection, sorted in
+     * failover-preference order: protocol enum first (AWG → WG →
+     * OVPN → IPSec), then insertion order within a protocol. Used
+     * by TunnelHealthMonitor.recovery and ProtocolBadges in the UI.
+     * Reflects multi-config-per-protocol — the same list may
+     * contain e.g. two WG entries if the user added both a UDP and
+     * a TCP endpoint to the same logical "Home Server" connection.
+     */
+    fun orderedConfigs(): List<ProtocolConfig> =
+        protocols.sortedWith(compareBy({ it.protocol.ordinal }, { it.addedAt }))
+
+    /**
+     * Returns the active ProtocolConfig — i.e. the one identified
+     * by activeConfigId. Falls back to the first config of
+     * activeProtocol (legacy path) when activeConfigId is unset,
+     * and finally to the first config period.
+     */
+    fun getActiveConfig(): ProtocolConfig? {
+        if (activeConfigId.isNotEmpty()) {
+            val byId = protocols.find { it.id == activeConfigId }
+            if (byId != null) return byId
+        }
+        // Legacy fallback for connections that pre-date the
+        // multi-config refactor: pick the first config matching
+        // the historical activeProtocol enum field.
+        return protocols.find { it.protocol == activeProtocol } ?: protocols.firstOrNull()
+    }
+
+    /** Lookup helper used by callers that want a specific config by id. */
+    fun getConfigById(id: String): ProtocolConfig? =
+        protocols.find { it.id == id }
+
+    /** First config matching the given protocol — back-compat for code that doesn't care about multi-config. */
     fun getProtocol(protocol: VpnProtocol): ProtocolConfig? =
         protocols.find { it.protocol == protocol }
 
-    fun getActiveConfig(): ProtocolConfig? =
-        getProtocol(activeProtocol)
-
+    /**
+     * Distinct list of protocol types present in this connection,
+     * enum-sorted. Used for UI groupings that don't care which
+     * specific config — e.g. "this connection supports AWG, WG,
+     * OVPN" summaries.
+     */
     fun availableProtocols(): List<VpnProtocol> =
-        protocols.map { it.protocol }
+        protocols.map { it.protocol }.distinct().sortedBy { it.ordinal }
 
     fun hasProtocol(protocol: VpnProtocol): Boolean =
         protocols.any { it.protocol == protocol }
 
     /**
-     * True iff the currently-active protocol config is a WireGuard
-     * .conf that contains AmneziaWG obfuscation keys. Used by the
-     * UI to swap the WireGuard brand icon for the AmneziaWG one
-     * before the tunnel has had a chance to report its live
-     * variant via VpnStatus. AWG is a variant of WireGuard at the
-     * data-model level (see project memory: "Keep as variant
-     * status-quo, just swap icons"), so the protocol enum stays
-     * WIREGUARD and only the icon flips.
+     * True iff the currently-active config's protocol is AmneziaWG.
+     * Used by widget code that thinks in protocol terms; new call
+     * sites should just check `getActiveConfig()?.protocol`.
      */
-    fun isActiveAmneziaWg(): Boolean {
-        val cfg = getActiveConfig() ?: return false
-        if (cfg.protocol != VpnProtocol.WIREGUARD) return false
-        return TunnelVariant.detect(cfg.configContent) == TunnelVariant.AMNEZIAWG
-    }
+    fun isActiveAmneziaWg(): Boolean = getActiveConfig()?.protocol == VpnProtocol.AMNEZIAWG
 }
 
 @Serializable
@@ -246,7 +321,16 @@ data class RemoteConfigEntry(
     val vpnIp: String = "",
     val status: String = "",
     @SerialName("last_handshake")
-    val lastHandshake: String = ""
+    val lastHandshake: String = "",
+    // True when this WireGuard entry carries AmneziaWG obfuscation
+    // (jc/jmin/jmax/s*/h*/i* keys in the rendered config). The
+    // gateway labels AWG enrollments as `protocol: "wireguard"` for
+    // backwards-compat with the API; this flag lets the client
+    // surface the AmneziaWG icon + label without having to download
+    // the .conf first to content-detect. Defaults to false so older
+    // gateway builds (which don't emit this field) keep working.
+    @SerialName("obfuscated")
+    val obfuscated: Boolean = false
 )
 
 @Serializable

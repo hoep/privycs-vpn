@@ -480,17 +480,9 @@ class VpnWidget : AppWidgetProvider() {
         val displayProtocol = activeProtocol
             ?: com.privycs.vpn.PrivycsApp.instance.connectionRepository
                 .getActive()?.activeProtocol
-        // For WireGuard, fall back to content-detection from the
-        // active connection's conf when the live status hasn't yet
-        // reported a variant (widget renders before the first
-        // VpnStatus update on cold launch).
-        val isAwgForIcon = variant == "amneziawg" ||
-            (displayProtocol == VpnProtocol.WIREGUARD &&
-                com.privycs.vpn.PrivycsApp.instance.connectionRepository
-                    .getActive()?.isActiveAmneziaWg() == true)
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            displayProtocol == VpnProtocol.WIREGUARD && isAwgForIcon -> R.drawable.ic_protocol_amneziawg
+            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
@@ -524,7 +516,12 @@ class VpnWidget : AppWidgetProvider() {
         // v0.9.15.x AmneziaWG Stage 1.4 — show "AmneziaWG" pill only
         // when the active tunnel is AWG. Variant follows the
         // server's enrollment, no user-facing toggle.
-        if (connected && !killSwitchSinkhole && variant == "amneziawg") {
+        // Pill follows the protocol slot, not the runtime variant —
+        // since AmneziaWG is now its own protocol enum entry the
+        // slot is authoritative. The variant string still flows in
+        // for backwards compat with older intent senders.
+        val isAwg = displayProtocol == VpnProtocol.AMNEZIAWG || variant == "amneziawg"
+        if (connected && !killSwitchSinkhole && isAwg) {
             views.setViewVisibility(R.id.widget_awg_pill, android.view.View.VISIBLE)
         } else {
             views.setViewVisibility(R.id.widget_awg_pill, android.view.View.GONE)
@@ -581,6 +578,10 @@ class VpnWidget : AppWidgetProvider() {
         val configuredProtocols = com.privycs.vpn.PrivycsApp.instance
             .connectionRepository.getActive()?.availableProtocols() ?: emptyList()
         views.setViewVisibility(
+            R.id.widget_protocol_awg,
+            if (configuredProtocols.contains(VpnProtocol.AMNEZIAWG)) android.view.View.VISIBLE else android.view.View.GONE,
+        )
+        views.setViewVisibility(
             R.id.widget_protocol_wg,
             if (configuredProtocols.contains(VpnProtocol.WIREGUARD)) android.view.View.VISIBLE else android.view.View.GONE,
         )
@@ -591,6 +592,11 @@ class VpnWidget : AppWidgetProvider() {
         views.setViewVisibility(
             R.id.widget_protocol_ovpn,
             if (configuredProtocols.contains(VpnProtocol.OPENVPN)) android.view.View.VISIBLE else android.view.View.GONE,
+        )
+        setProtocolPillState(
+            context, views, VpnProtocol.AMNEZIAWG,
+            R.id.widget_protocol_awg, R.id.widget_protocol_awg_icon,
+            R.id.widget_protocol_awg_label, activeProtocol == VpnProtocol.AMNEZIAWG,
         )
         setProtocolPillState(
             context, views, VpnProtocol.WIREGUARD,
@@ -733,6 +739,10 @@ class VpnWidget : AppWidgetProvider() {
         // (widget, protocol) via bit-packed requestCode AND a
         // per-target URI so Android doesn't dedupe.
         views.setOnClickPendingIntent(
+            R.id.widget_protocol_awg,
+            protocolSwitchPendingIntent(context, appWidgetId, VpnProtocol.AMNEZIAWG),
+        )
+        views.setOnClickPendingIntent(
             R.id.widget_protocol_wg,
             protocolSwitchPendingIntent(context, appWidgetId, VpnProtocol.WIREGUARD),
         )
@@ -773,6 +783,7 @@ class VpnWidget : AppWidgetProvider() {
     ) {
         val bg = if (active) {
             when (protocol) {
+                VpnProtocol.AMNEZIAWG -> R.drawable.widget_protocol_button_active_awg
                 VpnProtocol.WIREGUARD -> R.drawable.widget_protocol_button_active_wg
                 VpnProtocol.IPSEC -> R.drawable.widget_protocol_button_active_ipsec
                 VpnProtocol.OPENVPN -> R.drawable.widget_protocol_button_active_ovpn
@@ -790,6 +801,7 @@ class VpnWidget : AppWidgetProvider() {
             VpnProtocol.WIREGUARD -> 0xFF88171A.toInt()
             VpnProtocol.IPSEC -> 0xFF2563EB.toInt()
             VpnProtocol.OPENVPN -> 0xFFEA7E20.toInt()
+            VpnProtocol.AMNEZIAWG -> 0xFF6366F1.toInt()
         }
         val inactiveTint = ContextCompat.getColor(context, R.color.widget_text_secondary)
 

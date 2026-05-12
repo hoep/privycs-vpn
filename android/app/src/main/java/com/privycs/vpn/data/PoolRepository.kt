@@ -371,12 +371,45 @@ class PoolRepository(
 
     private fun load(): PoolFile {
         if (!file.exists()) return PoolFile()
-        return try {
+        val parsed = try {
             json.decodeFromString(PoolFile.serializer(), file.readText())
         } catch (e: Exception) {
             android.util.Log.w(TAG, "parse failed: ${e.message} - resetting", e)
-            PoolFile()
+            return PoolFile()
         }
+        // Reclassify legacy WIREGUARD pool members whose configContent
+        // contains AmneziaWG keys → AMNEZIAWG. Mirror of the
+        // ConnectionRepository.load() heal. v0.9.15.x: AWG is its own
+        // protocol slot, no longer a runtime variant. Pools must be
+        // sortenrein (homogeneous per protocol type), but a pool of
+        // formerly-WIREGUARD configs that's actually all-AWG simply
+        // migrates wholesale — the slot rename keeps it homogeneous.
+        var migrated = false
+        val healedPools = parsed.pools.map { pool ->
+            val healedMembers = pool.members.map { m ->
+                val pc = m.config
+                if (pc.protocol == com.privycs.vpn.data.models.VpnProtocol.WIREGUARD &&
+                    com.privycs.vpn.data.models.TunnelVariant.detect(pc.configContent) ==
+                        com.privycs.vpn.data.models.TunnelVariant.AMNEZIAWG
+                ) {
+                    migrated = true
+                    m.copy(config = pc.copy(protocol = com.privycs.vpn.data.models.VpnProtocol.AMNEZIAWG))
+                } else m
+            }.toMutableList()
+            pool.copy(members = healedMembers)
+        }.toMutableList()
+        if (migrated) {
+            android.util.Log.i(TAG, "migrated legacy WIREGUARD pool members to AMNEZIAWG slot")
+            val healedFile = parsed.copy(pools = healedPools)
+            try {
+                file.parentFile?.mkdirs()
+                file.writeText(json.encodeToString(PoolFile.serializer(), healedFile))
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "post-migration save failed: ${e.message}")
+            }
+            return healedFile
+        }
+        return parsed
     }
 
     companion object {

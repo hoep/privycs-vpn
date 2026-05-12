@@ -233,14 +233,43 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:orientation="horizontal"
-        android:weightSum="3">
+        android:weightSum="4">
+
+        <LinearLayout
+            android:id="@+id/widget_protocol_awg"
+            android:layout_width="0dp"
+            android:layout_height="28dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="3dp"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:background="@drawable/widget_protocol_button_inactive">
+
+            <ImageView
+                android:id="@+id/widget_protocol_awg_icon"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_protocol_amneziawg"
+                android:scaleType="fitCenter"
+                android:contentDescription="@null" />
+
+            <TextView
+                android:id="@+id/widget_protocol_awg_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="@string/widget_protocol_amneziawg"
+                android:textSize="10sp"
+                android:textColor="@color/widget_text_primary"
+                android:singleLine="true" />
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/widget_protocol_wg"
             android:layout_width="0dp"
             android:layout_height="28dp"
             android:layout_weight="1"
-            android:layout_marginEnd="3dp"
+            android:layout_marginHorizontal="1dp"
             android:orientation="horizontal"
             android:gravity="center"
             android:background="@drawable/widget_protocol_button_inactive">

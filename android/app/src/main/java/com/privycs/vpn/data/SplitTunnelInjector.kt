@@ -76,7 +76,9 @@ object SplitTunnelInjector {
         }
 
         return when (protocol) {
-            VpnProtocol.WIREGUARD -> patchWireGuard(configContent, parsed)
+            // AmneziaWG shares the WG .conf grammar — same AllowedIPs
+            // narrowing applies unchanged.
+            VpnProtocol.WIREGUARD, VpnProtocol.AMNEZIAWG -> patchWireGuard(configContent, parsed)
             VpnProtocol.OPENVPN -> patchOpenVpn(configContent, parsed)
             VpnProtocol.IPSEC -> {
                 Log.w(TAG, "split tunnel skipped: IPSec doesn't support client-side traffic-selector narrowing")
