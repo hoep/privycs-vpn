@@ -64,10 +64,35 @@ class AmneziaTunnel(
 
     suspend fun connect(configContent: String, name: String = "privycs0") = withContext(Dispatchers.IO) {
         tunnelName = name
-        config = parseConfig(configContent)
-        Log.d(TAG, "Connecting AWG tunnel: $tunnelName")
-        backend.setState(this@AmneziaTunnel, Tunnel.State.UP, config)
-        Log.d(TAG, "AWG tunnel $tunnelName is UP")
+        // Defensive logging — if a native panic kills the process
+        // mid-call, the in-app log file's last lines pinpoint the
+        // step. Each entry is flushed by PrivycsLogger's PrintWriter
+        // .use{} block before returning, so crash-after-this-step
+        // means the next step blew up.
+        com.privycs.vpn.util.PrivycsLogger.i(TAG,
+            "AWG connect[$name] step 1/3: parsing config (len=${configContent.length} bytes)")
+        try {
+            config = parseConfig(configContent)
+        } catch (t: Throwable) {
+            com.privycs.vpn.util.PrivycsLogger.e(TAG,
+                "AWG connect[$name] step 1/3 FAILED: parseConfig threw ${t.javaClass.simpleName}: ${t.message}", t)
+            throw t
+        }
+        com.privycs.vpn.util.PrivycsLogger.i(TAG,
+            "AWG connect[$name] step 2/3: config parsed " +
+                "(peers=${config?.peers?.size ?: 0}, " +
+                "addresses=${config?.`interface`?.addresses?.size ?: 0}, " +
+                "jc=${config?.`interface`?.junkPacketCount?.orElse(null)}, " +
+                "calling backend.setState UP")
+        try {
+            backend.setState(this@AmneziaTunnel, Tunnel.State.UP, config)
+        } catch (t: Throwable) {
+            com.privycs.vpn.util.PrivycsLogger.e(TAG,
+                "AWG connect[$name] step 2/3 FAILED: backend.setState threw ${t.javaClass.simpleName}: ${t.message}", t)
+            throw t
+        }
+        com.privycs.vpn.util.PrivycsLogger.i(TAG,
+            "AWG connect[$name] step 3/3: tunnel up")
     }
 
     suspend fun disconnect() = withContext(Dispatchers.IO) {
