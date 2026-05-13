@@ -1582,14 +1582,30 @@ func (a *App) ImportConfig(protocol string, content string, filename string, con
 	a.mu.Lock()
 	log.Printf("ImportConfig: acquired mu (validation phase)")
 
-	// Auto-detect protocol if not specified
-	if protocol == "" {
-		protocol = detectProtocol(content, filename)
-		if protocol == "" {
-			a.mu.Unlock()
-			log.Printf("ImportConfig: cannot detect protocol")
-			return fmt.Errorf("cannot detect protocol from file content")
+	// Content-sniff always wins over the caller's hint. The gateway
+	// emits AmneziaWG enrollments under protocol="wireguard" for API
+	// backwards-compat (the AWG keys live inside the rendered
+	// [Interface] block of the .conf), so a hint-only classification
+	// path misclassifies AWG downloads as plain WG. The downstream
+	// AddOrUpdate then matches (Protocol=WIREGUARD, Filename) against
+	// the existing WG slot of the same peer and overwrites it —
+	// user-reported as "AWG-Import löscht meine WG-Connection, Badge
+	// springt auf WireGuard". Mirrors the Android v0.9.15.10 fix
+	// where ConfigParser ran AWG-aware classification regardless of
+	// the gateway's protocol slug. Caller's hint is kept as the
+	// fallback when detection comes back empty (raw bytes that the
+	// content-detector can't pin down — e.g. share-sheet input
+	// without a meaningful extension).
+	if detected := detectProtocol(content, filename); detected != "" {
+		if protocol != "" && protocol != detected {
+			log.Printf("ImportConfig: caller hint %q corrected to %q after content sniff", protocol, detected)
 		}
+		protocol = detected
+	}
+	if protocol == "" {
+		a.mu.Unlock()
+		log.Printf("ImportConfig: cannot detect protocol")
+		return fmt.Errorf("cannot detect protocol from file content")
 	}
 
 	proto, ok := a.protocols[protocol]
