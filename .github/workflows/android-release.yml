@@ -4,9 +4,14 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      build_apks:
+        type: boolean
+        default: false
+        description: 'Also build APKs (debug + release) alongside the AAB. Default is AAB-only to keep release time low; flip on for a side-load build.'
 
 # Least-privilege workflow token — release needs contents: write to
-# create the GitHub Release + upload the APK artefact. Everything
+# create the GitHub Release + upload the AAB/APK artefacts. Everything
 # else stays at default-deny. v0.9.14.10 hardening per Aikido finding.
 permissions:
   contents: write
@@ -21,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       android_changed: ${{ steps.changes.outputs.changed }}
+      build_apks: ${{ steps.flags.outputs.build_apks }}
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -45,8 +51,31 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-  release:
-    name: Build Release APK
+      - name: Resolve build_apks flag
+        id: flags
+        # Default behaviour:
+        #   - tag push    → AAB only (false). Play Store is the
+        #                   primary distribution; APK builds add ~10
+        #                   min of wall time and are rarely needed.
+        #   - workflow_dispatch → honour the input toggle (default false).
+        # To get APKs on a tag-driven release, re-run via
+        # workflow_dispatch with build_apks=true after the tag is
+        # already published; the propagator stays AAB-only on the
+        # original release.
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "build_apks=${{ inputs.build_apks }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_apks=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # AAB build (mandatory when android/ changed) — Play Store payload.
+  # Runs `assembleRelease bundleRelease` in one Gradle invocation when
+  # the user opted into APKs, so the release APK and AAB share the
+  # compileReleaseKotlin / minification / signing task outputs (saves
+  # 3–5 min vs two separate Gradle calls).
+  build-aab:
+    name: Build AAB${{ needs.check-changes.outputs.build_apks == 'true' && ' + release APK' || '' }}
     needs: check-changes
     if: needs.check-changes.outputs.android_changed == 'true'
     runs-on: ubuntu-latest
@@ -93,16 +122,28 @@ jobs:
             android/vendor/strongswan/src/frontends/android/app/src/main/jni/openssl
           key: openssl-${{ env.OPENSSL_VERSION }}-ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
 
-      # No autotools-artifact cache: generated .c files under src/ span too
-      # many hard-to-enumerate paths to cache reliably (see android-build.yml
-      # for the incident). Autogen + host make runs in ~60s.
-
-      - name: Cache Gradle packages
+      # Gradle cache — extended over the v0.9.14.x version to also
+      # include android/.gradle/ (project-level Gradle state:
+      # dependency resolution, kotlinc daemon config) and the local
+      # build cache directory. The build cache stores task outputs
+      # keyed by content hash, so repeat builds where only a handful
+      # of Kotlin/resource files changed re-use the cached
+      # compileReleaseKotlin / mergeReleaseResources / minify outputs
+      # instead of recomputing from scratch.
+      #
+      # Cache key includes runner.os + a hash of all *.gradle* and
+      # gradle-wrapper.properties files. Any source change of those
+      # invalidates the key (correct — build classpath changed); pure
+      # Kotlin/XML edits hit the same key and re-use the build cache.
+      # Restore-keys allow a partial hit when build files changed but
+      # most of the dependency tree is still relevant.
+      - name: Cache Gradle packages + local build cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
+            android/.gradle
           key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
@@ -123,10 +164,7 @@ jobs:
         # the AWG project. Upstream's own test suite occasionally trips
         # on environment-specific assumptions (locale, file-encoding)
         # that have nothing to do with our integration.
-        run: ./gradlew test --no-daemon -x :amneziawg-tunnel:testDebugUnitTest -x :amneziawg-tunnel:testReleaseUnitTest -x :amneziawg-tunnel:test
-
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew test -x :amneziawg-tunnel:testDebugUnitTest -x :amneziawg-tunnel:testReleaseUnitTest -x :amneziawg-tunnel:test
 
       - name: Decode release keystore from secret
         env:
@@ -135,31 +173,41 @@ jobs:
           echo "$ANDROID_KEYSTORE_B64" | base64 -d > app/upload.keystore
           test -s app/upload.keystore || { echo "Keystore decode produced empty file — check ANDROID_KEYSTORE_B64 secret"; exit 1; }
 
-      - name: Build release APK
+      # Build the release artefacts.
+      #
+      # AAB-only path (default for tag pushes):
+      #   ./gradlew bundleRelease
+      # AAB + release APK path (workflow_dispatch with build_apks=true):
+      #   ./gradlew assembleRelease bundleRelease
+      #
+      # Single Gradle invocation in the combined case so the
+      # compileReleaseKotlin / minifyReleaseWithR8 / signing tasks are
+      # computed once and shared between the assemble and bundle output
+      # variants. Two separate invocations re-ran them from scratch.
+      - name: Build release artefacts
         env:
           ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/upload.keystore
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon
-
-      # Build the Android App Bundle (.aab) for Play Store upload.
-      # Same signing config as the APK — Play registers the upload-key
-      # certificate at first AAB upload, so we MUST sign with the
-      # privycs-upload keystore (the same one in ANDROID_KEYSTORE_B64
-      # that signs the GitHub-released APK). bundleRelease produces
-      # app/build/outputs/bundle/release/app-release.aab.
-      - name: Build release AAB (Play Store)
-        env:
-          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/upload.keystore
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew bundleRelease --no-daemon
+        run: |
+          if [ "${{ needs.check-changes.outputs.build_apks }}" = "true" ]; then
+            ./gradlew assembleRelease bundleRelease
+          else
+            ./gradlew bundleRelease
+          fi
 
       - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # workflow_dispatch has no tag context; derive from the
+            # latest tag pointing at HEAD (or fall back to 'dev').
+            VERSION=$(git describe --tags --exact-match 2>/dev/null | sed 's/^v//' || echo "dev")
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # Rename AAB to match the APK's release-naming convention.
       # The APK gets renamed to privycs-vpn-X.Y.Z(-debug).apk via
@@ -167,8 +215,6 @@ jobs:
       # block, but that rename hook only fires for APK builds —
       # bundleRelease produces the bare 'app-release.aab'. Renaming
       # here keeps GitHub Release asset names consistent.
-      # (Play Console doesn't care about filenames; it reads the
-      # AAB's internal metadata. This is purely for download UX.)
       - name: Rename AAB to release naming
         run: |
           cd app/build/outputs/bundle/release
@@ -179,23 +225,14 @@ jobs:
 
       - name: Generate SHA256 checksums
         run: |
-          cd app/build/outputs/apk
-          find . -name "*.apk" -exec sh -c 'sha256sum "$1" > "$1.sha256"' _ {} \;
-          cd ../bundle
+          if [ -d app/build/outputs/apk/release ]; then
+            cd app/build/outputs/apk/release
+            find . -name "*.apk" -exec sh -c 'sha256sum "$1" > "$1.sha256"' _ {} \;
+            cd - >/dev/null
+          fi
+          cd app/build/outputs/bundle/release
           find . -name "*.aab" -exec sh -c 'sha256sum "$1" > "$1.sha256"' _ {} \;
 
-      - name: Upload release APK artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: privycs-vpn-release-${{ steps.version.outputs.version }}
-          path: |
-            android/app/build/outputs/apk/release/*.apk
-            android/app/build/outputs/apk/release/*.sha256
-          retention-days: 90
-
-      # Separate artifact for the AAB so it can be downloaded
-      # independently and uploaded to the Play Console (manually for
-      # the first time, automated via google-play-action later).
       - name: Upload release AAB artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -204,6 +241,132 @@ jobs:
             android/app/build/outputs/bundle/release/*.aab
             android/app/build/outputs/bundle/release/*.aab.sha256
           retention-days: 90
+
+      - name: Upload release APK artifact
+        if: needs.check-changes.outputs.build_apks == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: privycs-vpn-release-${{ steps.version.outputs.version }}
+          path: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/release/*.sha256
+          retention-days: 90
+
+      # Attach the AAB (and release APK if built) to the GitHub Release.
+      # softprops/action-gh-release is idempotent so the debug-APK job
+      # below can append its own asset later without conflict. Only
+      # runs on tag pushes — workflow_dispatch runs don't create a
+      # Release (the human triggering them already has the tag).
+      - name: Create / append to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          name: Privycs VPN ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/bundle/release/*.aab.sha256
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/release/*.sha256
+
+  # Debug APK build — parallel to build-aab when build_apks=true.
+  # Conditional: only runs when the user opted into APK builds (via
+  # workflow_dispatch with build_apks=true). For the tag-push default
+  # path this job is skipped entirely.
+  #
+  # Independent setup: NDK + OpenSSL + strongSwan + AmneziaWG all
+  # have to be in place because assembleDebug pulls them in via
+  # ndk-build at compile time. Cache hits from prior runs make the
+  # second setup quick after the first build has populated the cache.
+  build-debug-apk:
+    name: Build debug APK
+    needs: check-changes
+    if: needs.check-changes.outputs.android_changed == 'true' && needs.check-changes.outputs.build_apks == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+
+      - name: Install Android NDK ${{ env.NDK_VERSION }}
+        run: |
+          yes | sdkmanager --install "ndk;${NDK_VERSION}" >/dev/null
+          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Install native build toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -qq -y --no-install-recommends \
+            autoconf automake libtool libtool-bin pkg-config \
+            gperf flex bison make perl python3 jq curl ca-certificates \
+            libssl-dev libgmp-dev \
+            swig cmake ninja-build
+
+      - name: Cache OpenSSL source + libcrypto artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            android/.build-cache/openssl
+            android/vendor/strongswan/src/frontends/android/app/src/main/jni/openssl
+          key: openssl-${{ env.OPENSSL_VERSION }}-ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
+
+      - name: Cache Gradle packages + local build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android/.gradle
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Prepare strongSwan (autogen + openssl libcrypto_static)
+        run: ./scripts/prepare-strongswan.sh
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
+
+      - name: Prepare AmneziaWG (rename native libs to coexist with WG)
+        run: ./scripts/prepare-amneziawg.sh
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION=$(git describe --tags --exact-match 2>/dev/null | sed 's/^v//' || echo "dev")
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd app/build/outputs/apk/debug
+          find . -name "*.apk" -exec sh -c 'sha256sum "$1" > "$1.sha256"' _ {} \;
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -214,7 +377,11 @@ jobs:
             android/app/build/outputs/apk/debug/*.sha256
           retention-days: 90
 
-      - name: Create GitHub Release
+      # Append the debug APK to the existing GitHub Release that
+      # build-aab created. Idempotent — softprops re-uses the
+      # existing release; the new files are added alongside the AAB.
+      - name: Append debug APK to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: Privycs VPN ${{ github.ref_name }}
@@ -222,12 +389,8 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
-            android/app/build/outputs/apk/release/*.apk
-            android/app/build/outputs/apk/release/*.sha256
             android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/apk/debug/*.sha256
-            android/app/build/outputs/bundle/release/*.aab
-            android/app/build/outputs/bundle/release/*.aab.sha256
 
   propagate-previous-android:
     name: Propagate previous Android APKs
