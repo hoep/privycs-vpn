@@ -488,7 +488,7 @@ class VpnWidget : AppWidgetProvider() {
             // (v0.9.15.13). Widget's RemoteViews.setImageViewResource
             // applies no tint by default, so the icon renders in its
             // monochrome path color — analog WG.
-            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_circle
+            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan

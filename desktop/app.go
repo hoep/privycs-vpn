@@ -672,11 +672,18 @@ type StatusResponse struct {
 // ProtocolConfig sent to the frontend so the UI can render
 // per-config pills without a second API round-trip per status
 // update. Kept tiny on purpose — never includes ConfigContent.
+//
+// ServerAddress added in v0.9.15.18 for the multi-config picker
+// dropdown — analogue to the pool member-picker which shows
+// country/region per member. With multi-config-per-protocol the
+// user's disambig question is typically "which server?" and the
+// stored endpoint is the most useful answer.
 type ConnectionConfigDescriptor struct {
-	ID       string `json:"id"`
-	Protocol string `json:"protocol"`
-	Nickname string `json:"nickname,omitempty"`
-	Filename string `json:"filename,omitempty"`
+	ID            string `json:"id"`
+	Protocol      string `json:"protocol"`
+	Nickname      string `json:"nickname,omitempty"`
+	Filename      string `json:"filename,omitempty"`
+	ServerAddress string `json:"server_address,omitempty"`
 }
 
 // Status returns the current VPN connection status.
@@ -700,10 +707,11 @@ func (a *App) Status() *StatusResponse {
 		connProtocols = conn.AvailableProtocols()
 		for _, pc := range conn.OrderedConfigs() {
 			connConfigs = append(connConfigs, ConnectionConfigDescriptor{
-				ID:       pc.ID,
-				Protocol: pc.Protocol,
-				Nickname: pc.Nickname,
-				Filename: pc.Filename,
+				ID:            pc.ID,
+				Protocol:      pc.Protocol,
+				Nickname:      pc.Nickname,
+				Filename:      pc.Filename,
+				ServerAddress: pc.ServerAddress,
 			})
 		}
 	}

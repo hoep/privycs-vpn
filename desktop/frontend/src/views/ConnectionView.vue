@@ -282,25 +282,77 @@
            is the Vue 3 lint-clean pattern. -->
       <div class="flex items-center gap-1.5 mb-4 flex-wrap">
         <template v-if="!poolStore.activePoolId">
-          <!-- One pill PER ProtocolConfig. Multi-config-per-protocol:
-               a connection may hold multiple configs of the same
-               protocol (e.g. WG-UDP and WG-TCP); each gets its own
-               selectable pill. Label shows just the protocol name
-               when unique within this connection, or the per-config
-               nickname/filename when disambiguation is needed. -->
-          <button
-            v-for="cfg in connectionConfigs"
-            :key="cfg.id"
-            @click="switchConfig(cfg.id)"
-            :disabled="vpn.loading"
-            class="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
-            :class="(vpn.status?.connection_active_config_id || '') === cfg.id
-              ? protocolBadgeActive(cfg.protocol)
-              : 'bg-gray-200 dark:bg-gray-700/50 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+          <!-- One pill PER PROTOCOL TYPE. With multi-config-per-protocol
+               a single connection may hold multiple configs of the
+               same protocol (e.g. WG-UDP + WG-TCP, or 5 WG endpoints
+               in different regions for failover). Showing one pill
+               per config crammed the row visually and forced filename
+               labels onto pills that should read as "WireGuard".
+               New model (v0.9.15.18, pool-member-picker pattern):
+                 - 1 config of this protocol → simple pill, click =
+                   switchConfig.
+                 - N configs of this protocol → pill stays at the
+                   protocol label with a small `²` superscript, click
+                   opens a dropdown to pick which config goes active. -->
+          <div
+            v-for="group in protocolGroups"
+            :key="group.protocol"
+            class="relative"
           >
-            <ProtocolIcon :protocol="cfg.protocol" size="xs" />
-            {{ configPillLabel(cfg) }}
-          </button>
+            <button
+              @click.stop="onPillClick(group)"
+              :disabled="vpn.loading"
+              class="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
+              :class="isGroupActive(group)
+                ? protocolBadgeActive(group.protocol)
+                : 'bg-gray-200 dark:bg-gray-700/50 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+            >
+              <ProtocolIcon :protocol="group.protocol" size="xs" />
+              {{ protocolLabel(group.protocol) }}
+              <sup
+                v-if="group.configs.length > 1"
+                class="text-[9px] font-semibold leading-none ml-0.5"
+              >{{ group.configs.length }}</sup>
+              <ChevronDownIcon
+                v-if="group.configs.length > 1"
+                class="w-3 h-3 -mr-0.5"
+                :class="openPickerProtocol === group.protocol ? 'rotate-180' : ''"
+              />
+            </button>
+            <!-- Multi-config picker dropdown — only renders when this
+                 group's pill is the currently-toggled one AND the group
+                 has more than one config. Each entry shows the
+                 nickname/filename plus the stored server endpoint,
+                 mirroring the pool-member-picker's Country/Region
+                 disambiguation strategy. -->
+            <div
+              v-if="openPickerProtocol === group.protocol && group.configs.length > 1"
+              @click.stop
+              class="absolute left-0 mt-1 w-64 card p-1 shadow-lg z-20"
+            >
+              <button
+                v-for="cfg in group.configs"
+                :key="cfg.id"
+                @click="pickConfig(cfg.id)"
+                class="w-full flex items-start gap-2 px-3 py-2 rounded-lg text-left transition-colors"
+                :class="(vpn.status?.connection_active_config_id || '') === cfg.id
+                  ? 'bg-primary-500/10 text-primary-300'
+                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-white'"
+              >
+                <div class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
+                  :class="(vpn.status?.connection_active_config_id || '') === cfg.id ? 'bg-primary-400' : 'bg-gray-600'">
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs font-medium truncate">{{ configEntryLabel(cfg) }}</div>
+                  <div v-if="cfg.server_address" class="text-[10px] text-gray-500 truncate font-mono">
+                    {{ cfg.server_address }}
+                  </div>
+                </div>
+                <span v-if="(vpn.status?.connection_active_config_id || '') === cfg.id"
+                  class="text-[9px] text-primary-400 mt-1 flex-shrink-0">active</span>
+              </button>
+            </div>
+          </div>
         </template>
         <!-- "+" Add-protocol-config link goes to the AddConnection
              flow scoped to the currently-active single connection
@@ -1012,10 +1064,16 @@ function protocolShort(proto: string): string {
   }
 }
 
-// Close picker when clicking outside
-function onClickOutside(e: Event) {
+// Close pickers when clicking outside. Both the connection picker
+// (left of the pill row) and the multi-config protocol picker
+// (right under each multi-config pill) share this handler so a
+// single outside-click closes whichever overlay happens to be open.
+function onClickOutside(_e: Event) {
   if (showConnectionPicker.value) {
     showConnectionPicker.value = false
+  }
+  if (openPickerProtocol.value !== null) {
+    openPickerProtocol.value = null
   }
 }
 
@@ -1192,17 +1250,82 @@ interface ConfigDescriptor {
   protocol: string
   nickname?: string
   filename?: string
+  server_address?: string
+}
+
+interface ProtocolGroup {
+  protocol: string
+  configs: ConfigDescriptor[]
 }
 
 const connectionConfigs = computed<ConfigDescriptor[]>(() => {
   return (vpn.status?.connection_configs as ConfigDescriptor[]) || []
 })
 
+// One pill = one protocol type. Configs of the same protocol type
+// fold into a single pill; the multi-config picker dropdown (below)
+// surfaces the individual entries when the user wants to switch.
+// Order follows backend OrderedConfigs (protocol enum order then
+// AddedAt), so the rendered pill order matches the failover-
+// preference order the backend would try anyway.
+const protocolGroups = computed<ProtocolGroup[]>(() => {
+  const groups = new Map<string, ConfigDescriptor[]>()
+  for (const cfg of connectionConfigs.value) {
+    const arr = groups.get(cfg.protocol)
+    if (arr) {
+      arr.push(cfg)
+    } else {
+      groups.set(cfg.protocol, [cfg])
+    }
+  }
+  const out: ProtocolGroup[] = []
+  for (const [protocol, configs] of groups) {
+    out.push({ protocol, configs })
+  }
+  return out
+})
+
+// Which protocol group's picker dropdown is currently open. null =
+// none. Toggled by onPillClick(group) when group.configs.length > 1.
+// Closed implicitly on pickConfig() and on click-outside (handled
+// by the doc-level listener wired into the same closeAllOverlays
+// helper the connection picker uses).
+const openPickerProtocol = ref<string | null>(null)
+
+function isGroupActive(group: ProtocolGroup): boolean {
+  const active = vpn.status?.connection_active_config_id || ''
+  return group.configs.some(c => c.id === active)
+}
+
+function onPillClick(group: ProtocolGroup): void {
+  if (group.configs.length === 1) {
+    // Single config: classic direct-switch behaviour.
+    openPickerProtocol.value = null
+    switchConfig(group.configs[0].id)
+    return
+  }
+  // Multi-config: toggle the picker dropdown.
+  openPickerProtocol.value = openPickerProtocol.value === group.protocol ? null : group.protocol
+}
+
+function pickConfig(configId: string): void {
+  openPickerProtocol.value = null
+  switchConfig(configId)
+}
+
+function configEntryLabel(cfg: ConfigDescriptor): string {
+  const nick = cfg.nickname && cfg.nickname.trim() ? cfg.nickname.trim() : ''
+  if (nick) return nick
+  const fn = (cfg.filename || '').replace(/\.(conf|ovpn|sswan)$/i, '').trim()
+  if (fn) return fn
+  return protocolLabel(cfg.protocol)
+}
+
 function configPillLabel(cfg: ConfigDescriptor): string {
-  // Disambiguate only when the same protocol appears more than
-  // once on this connection. Single-config-of-a-type stays at the
-  // protocol label so unique-per-type pills don't read as
-  // "WireGuard wg-home.conf".
+  // Legacy helper kept for the few call sites outside the pill row
+  // (Config editor modal title, etc.). The pill row itself now uses
+  // protocolLabel(group.protocol) directly + the picker dropdown's
+  // configEntryLabel(cfg) for per-config rows.
   const sameProto = connectionConfigs.value.filter(c => c.protocol === cfg.protocol).length
   if (sameProto > 1) {
     const nick = cfg.nickname && cfg.nickname.trim() ? cfg.nickname : ''

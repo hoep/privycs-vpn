@@ -1,28 +1,25 @@
 <template>
-  <!-- AmneziaWG mark — circled-A anarchy silhouette in the Amnezia
-       brand indigo (#6366F1, matches Android's AmneziaWgIndigo).
-       Rendered as inline <svg> with a single tintable <path> so it
-       behaves identically to WG/OVPN/IPSec: the connect-button can
-       override to white when connected, the pill row picks up the
-       per-pill brand color, and the dropdown picker can grayscale
-       it like the others. Replaces the previous multi-colour
-       mk16.de brand mark (loaded via <img>, tint-ignored), which
-       (a) clashed visually next to the tinted siblings and (b) on
-       Android crashed Compose painterResource when the equivalent
-       layer-list was loaded — same family of "wrong drawable shape
-       for the renderer" issue, resolved here by going single-path
-       like the others.
-       Path: outer ring (donut via even-odd), then the "A" with a
-       horizontal crossbar across the circle as a nod to the
-       circled-A anarchist symbology the Amnezia mark riffs on. -->
-  <svg
+  <!-- AmneziaWG — the original mk16.de brand mark used as a CSS
+       mask-image. The mask treats the SVG as pure alpha geometry:
+       the element's backgroundColor becomes the silhouette color
+       and all of the SVG's internal multi-colour composition +
+       any background fills are discarded. Net effect: the real
+       brand mark renders as a tintable single-colour silhouette,
+       sized to the requested w-/h- class.
+       Replaces the previous hand-drawn circled-A inline <svg>
+       (v0.9.15.16) which the user rejected. Pre-mask attempts
+       failed because the source SVG uses internal masks that
+       don't round-trip cleanly through Vue's inline-<path>
+       template — mask-image leaves the source alone and lets the
+       browser rasterise it once. The brand colour default is
+       AmneziaWgIndigo (#6366F1), matched to the Android theme. -->
+  <div
     v-if="protocol === 'amneziawg'"
     :class="sizeClass"
-    viewBox="0 0 24 24"
-    :fill="fillColor('#6366F1')"
-  >
-    <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 1.6a8.4 8.4 0 110 16.8 8.4 8.4 0 010-16.8zM11.3 7.2 7.8 16.8h1.55l.7-2h3.9l.7 2h1.55L12.7 7.2h-1.4zm.7 2.2 1.5 4.2h-3l1.5-4.2z"/>
-  </svg>
+    :style="amneziaMaskStyle"
+    role="img"
+    aria-label="AmneziaWG"
+  ></div>
 
   <!-- WireGuard Official Logo (brand color: #88171A) -->
   <svg v-else-if="protocol === 'wireguard'" :class="sizeClass" viewBox="0 0 24 24" :fill="fillColor('#88171A')">
@@ -47,6 +44,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import amneziaLogoUrl from '@/assets/images/amnezia_logo.svg'
 
 const props = defineProps<{
   protocol: string
@@ -67,6 +65,31 @@ const sizeClass = computed(() => {
     case '3xl': return 'w-12 h-12'
     case '4xl': return 'w-14 h-14'
     default: return 'w-5 h-5' // md
+  }
+})
+
+// AmneziaWG CSS mask-image style. The original brand-mark SVG is
+// used as a pure alpha mask — the browser rasterises it once, then
+// the element's backgroundColor fills wherever the mask is opaque.
+// All of the source SVG's multi-colour composition, internal masks,
+// and any background fills are discarded — net result is a tintable
+// single-colour silhouette of the real brand mark, sized to the
+// w-/h- class, with no background. Tint defaults to AmneziaWgIndigo
+// (#6366F1, matched to the Android theme); connect-button passes
+// tint='white' for white-on-coloured-button-bg readability, same
+// pattern as WG/OVPN/IPSec.
+const amneziaMaskStyle = computed(() => {
+  const color = props.tint || '#6366F1'
+  return {
+    backgroundColor: color,
+    maskImage: `url("${amneziaLogoUrl}")`,
+    WebkitMaskImage: `url("${amneziaLogoUrl}")`,
+    maskRepeat: 'no-repeat',
+    WebkitMaskRepeat: 'no-repeat',
+    maskSize: 'contain',
+    WebkitMaskSize: 'contain',
+    maskPosition: 'center',
+    WebkitMaskPosition: 'center',
   }
 })
 

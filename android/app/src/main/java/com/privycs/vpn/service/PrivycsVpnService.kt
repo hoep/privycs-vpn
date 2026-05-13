@@ -1416,17 +1416,99 @@ class PrivycsVpnService : VpnService() {
                 currentConnectionName = connectionName
                 currentProtocol = newProtocol
 
-                when (currentProtocol) {
-                    VpnProtocol.WIREGUARD -> connectWireGuard(configContent, awg = false)
-                    VpnProtocol.AMNEZIAWG -> connectWireGuard(configContent, awg = true)
-                    VpnProtocol.OPENVPN -> connectOpenVpn(configContent)
-                    VpnProtocol.IPSEC -> connectIpSec(configContent)
-                    null -> {
-                        PrivycsLogger.e(TAG, "Unknown protocol: $protocolStr")
-                        val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
-                        manager.updateStatus(VpnStatus(error = "Unknown protocol: $protocolStr"))
-                        stopSelf()
+                if (newProtocol == null) {
+                    PrivycsLogger.e(TAG, "Unknown protocol: $protocolStr")
+                    val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
+                    manager.updateStatus(VpnStatus(error = "Unknown protocol: $protocolStr"))
+                    stopSelf()
+                    return@launch
+                }
+
+                // Multi-config failover, mirroring desktop's
+                // protocol_failover.go: tryFailoverProtocol. If the
+                // primary config fails, walk the rest of the active
+                // connection's orderedConfigs() (skipping the one
+                // that just died) and try each in sequence. Persist
+                // the swap via setActiveConfig so the UI pill row
+                // reflects which config is actually live. First
+                // success short-circuits the loop; if every config
+                // fails the catch block below surfaces the LAST
+                // error (caller sees a deterministic outcome rather
+                // than the first-attempt's error masking later
+                // attempts' progress).
+                //
+                // Pre-fix: handleConnect tried exactly one config
+                // (the active one) and dropped to the catch on
+                // failure — surfaced "Connection failed" with no
+                // retry. Even if the user had a perfectly-working
+                // backup config configured. TunnelHealthMonitor's
+                // failover only fires AFTER a successful Up() when
+                // the tunnel later goes dead via ICMP; the initial-
+                // up path had no equivalent.
+                val triedIds = mutableListOf<String>()
+                val originalConfigId = PrivycsApp.instance.connectionRepository
+                    .getById(connectionId)?.activeConfigId ?: ""
+                var lastError: Throwable? = null
+                var success = false
+
+                // First attempt uses the supplied content + protocol
+                // (already the active config). Subsequent attempts
+                // read the next config from the registry.
+                var attemptProto: VpnProtocol? = newProtocol
+                var attemptContent: String = configContent
+                var attemptConfigId: String = originalConfigId
+
+                while (attemptProto != null) {
+                    val proto: VpnProtocol = attemptProto!!
+                    val label = "${proto.label}/${attemptConfigId.take(8)}"
+                    try {
+                        PrivycsLogger.i(TAG, "handleConnect: try $label")
+                        currentProtocol = proto
+                        when (proto) {
+                            VpnProtocol.WIREGUARD -> connectWireGuard(attemptContent, awg = false)
+                            VpnProtocol.AMNEZIAWG -> connectWireGuard(attemptContent, awg = true)
+                            VpnProtocol.OPENVPN -> connectOpenVpn(attemptContent)
+                            VpnProtocol.IPSEC -> connectIpSec(attemptContent)
+                        }
+                        success = true
+                        if (attemptConfigId.isNotEmpty() && attemptConfigId != originalConfigId) {
+                            PrivycsLogger.i(
+                                TAG,
+                                "failover succeeded: $originalConfigId → $attemptConfigId (tried: $triedIds)"
+                            )
+                            PrivycsApp.instance.connectionRepository
+                                .setActiveConfig(connectionId, attemptConfigId)
+                        }
+                        break
+                    } catch (e: Throwable) {
+                        PrivycsLogger.w(TAG, "handleConnect: $label FAILED: ${e.message}")
+                        triedIds.add(attemptConfigId)
+                        lastError = e
+                        // Each failed attempt may have left native
+                        // state behind (half-up GoBackend, dangling
+                        // strongSwan SA, OpenVPN subprocess). Tear
+                        // it down before the next attempt so the
+                        // VpnService.Builder slot is free.
+                        try { teardownAllProtocols() } catch (_: Throwable) { /* best-effort */ }
                     }
+
+                    // Pick the next config to try.
+                    val refreshed = PrivycsApp.instance.connectionRepository.getById(connectionId)
+                    val nextCfg = refreshed?.orderedConfigs()?.firstOrNull { cfg ->
+                        cfg.id !in triedIds
+                    }
+                    if (nextCfg == null) {
+                        PrivycsLogger.w(TAG, "handleConnect: no more failover candidates (tried: $triedIds)")
+                        attemptProto = null
+                    } else {
+                        attemptProto = nextCfg.protocol
+                        attemptContent = nextCfg.configContent
+                        attemptConfigId = nextCfg.id
+                    }
+                }
+
+                if (!success) {
+                    throw (lastError ?: RuntimeException("connect failed (no candidates)"))
                 }
             } catch (e: Exception) {
                 // Reverted in v0.9.14.59: the v0.9.14.54-introduced

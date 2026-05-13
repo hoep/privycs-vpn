@@ -526,7 +526,7 @@ fun ConnectScreen(
                                     ) {
                                         conn.availableProtocols().forEach { p ->
                                             val iconRes = when (p) {
-                                                VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_circle
+                                                VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg
                                                 VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                                                 VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                                                 VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
@@ -1042,7 +1042,7 @@ private fun ConnectButton(
                         // safe with Compose painterResource; the old
                         // ic_protocol_amneziawg_badge layer-list was
                         // not and crashed the UI thread.
-                        VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_circle
+                        VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg
                         VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                         VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                         VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
@@ -1082,60 +1082,55 @@ private fun ConnectButton(
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun ProtocolBadges(
     configs: List<com.privycs.vpn.data.models.ProtocolConfig>,
     activeConfigId: String,
     onSelect: (String) -> Unit
 ) {
-    // Compute per-protocol-type duplicate counts so the label can
-    // disambiguate (e.g. "WireGuard #1" vs "WireGuard #2") when a
-    // user adds two configs of the same protocol type to one
-    // connection. Single-config-of-a-type stays clean.
-    val protocolCounts = configs.groupingBy { it.protocol }.eachCount()
-    // fillMaxWidth + contentPadding so the LazyRow honours the screen
-    // width and items past the right edge are reachable via horizontal
-    // scroll instead of getting clipped. Pre-fix: pill #4+ was hidden
-    // off-screen whenever a connection had >3 protocol configs (the
-    // multi-config-per-protocol feature added in v0.9.15.x makes that
-    // far more common — a single connection can hold AWG + WG + OVPN
-    // + IPSec at minimum, and unlimited duplicates of each).
+    // One pill = one protocol type. Configs of the same protocol
+    // type fold into a single pill; tapping a multi-config pill
+    // opens a bottom-sheet picker (analog Pool member-switcher)
+    // so the user can pick which underlying config goes active.
+    // Pre-v0.9.15.18 we rendered one pill per config and disambig'd
+    // via filename/nickname — produced cluttered rows of
+    // "Privycs Shielded" / "Home-UDP" labels where users wanted
+    // simply "WireGuard". New model: pill row stays protocol-
+    // focused, disambig happens on demand.
+    val groups = remember(configs) {
+        configs.groupBy { it.protocol }
+            .map { (protocol, list) -> protocol to list }
+            .sortedBy { it.first.ordinal }
+    }
+    // Which protocol's picker sheet is open. null = none.
+    var openPickerProtocol by remember { mutableStateOf<VpnProtocol?>(null) }
+
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items(configs) { cfg ->
-            val protocol = cfg.protocol
-            val isActive = cfg.id == activeConfigId
+        items(groups) { (protocol, groupConfigs) ->
+            val isActive = groupConfigs.any { it.id == activeConfigId }
             val badgeColor = when (protocol) {
                 VpnProtocol.AMNEZIAWG -> AmneziaWgIndigo
                 VpnProtocol.WIREGUARD -> WireGuardRed
                 VpnProtocol.OPENVPN -> OpenVpnOrange
                 VpnProtocol.IPSEC -> IpSecBlue
             }
-
             val bgColor by animateColorAsState(
                 targetValue = if (isActive) badgeColor.copy(alpha = 0.2f)
                 else MaterialTheme.colorScheme.surfaceVariant,
                 label = "badgeColor"
             )
-
             val textColor by animateColorAsState(
                 targetValue = if (isActive) badgeColor
                 else MaterialTheme.colorScheme.onSurfaceVariant,
                 label = "badgeTextColor"
             )
 
-            // Label: nickname > protocol.label. When there's only
-            // one config of this protocol type we just show the
-            // protocol label (e.g. "WireGuard"). With multiples
-            // we fall back to the per-config nickname/filename so
-            // the user can tell them apart.
-            val label = if ((protocolCounts[protocol] ?: 0) > 1)
-                cfg.displayLabel()
-            else
-                protocol.label
+            val multi = groupConfigs.size > 1
 
             Row(
                 modifier = Modifier
@@ -1145,7 +1140,13 @@ private fun ProtocolBadges(
                         if (isActive) Modifier.border(1.dp, badgeColor.copy(alpha = 0.3f), RoundedCornerShape(50))
                         else Modifier
                     )
-                    .clickable { onSelect(cfg.id) }
+                    .clickable {
+                        if (multi) {
+                            openPickerProtocol = protocol
+                        } else {
+                            onSelect(groupConfigs.first().id)
+                        }
+                    }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1157,12 +1158,135 @@ private fun ProtocolBadges(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = label,
+                    text = protocol.label,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
                     color = textColor
                 )
+                if (multi) {
+                    // Count superscript + caret affordance. Mirrors the
+                    // desktop ConnectionView.vue picker's `²ˇ` styling.
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = groupConfigs.size.toString(),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = textColor,
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Icon(
+                        imageVector = Icons.Filled.ArrowDropDown,
+                        contentDescription = "Pick config",
+                        tint = textColor,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
             }
+        }
+    }
+
+    val pickerProtocol = openPickerProtocol
+    if (pickerProtocol != null) {
+        val pickerConfigs = groups.firstOrNull { it.first == pickerProtocol }?.second ?: emptyList()
+        if (pickerConfigs.size > 1) {
+            MultiConfigPickerSheet(
+                protocol = pickerProtocol,
+                configs = pickerConfigs,
+                activeConfigId = activeConfigId,
+                onSelect = { configId ->
+                    openPickerProtocol = null
+                    onSelect(configId)
+                },
+                onDismiss = { openPickerProtocol = null },
+            )
+        }
+    }
+}
+
+/**
+ * Bottom-sheet picker shown when a protocol pill represents more
+ * than one ProtocolConfig (multi-config-per-protocol). Lists the
+ * configs of that protocol with their display label + stored server
+ * endpoint and the current "active" marker. Pattern adapted from
+ * the existing pool member-switcher modal — for protocol-configs
+ * we use a bottom-sheet because the list is usually short (2-5
+ * entries) and stays anchored to the bottom of the screen for
+ * thumb-reach.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun MultiConfigPickerSheet(
+    protocol: VpnProtocol,
+    configs: List<com.privycs.vpn.data.models.ProtocolConfig>,
+    activeConfigId: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val badgeColor = when (protocol) {
+        VpnProtocol.AMNEZIAWG -> AmneziaWgIndigo
+        VpnProtocol.WIREGUARD -> WireGuardRed
+        VpnProtocol.OPENVPN -> OpenVpnOrange
+        VpnProtocol.IPSEC -> IpSecBlue
+    }
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(
+                text = "Choose ${protocol.label} config",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            for (cfg in configs) {
+                val isActive = cfg.id == activeConfigId
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSelect(cfg.id) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isActive) badgeColor
+                                else MaterialTheme.colorScheme.outline
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = cfg.displayLabel(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isActive) badgeColor
+                            else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                        if (cfg.serverAddress.isNotBlank()) {
+                            Text(
+                                text = cfg.serverAddress,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (isActive) {
+                        Text(
+                            text = "active",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = badgeColor,
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
@@ -1178,7 +1302,7 @@ private fun VpnProtocol.badgeDrawable(): Int = when (this) {
     // WG's behaviour). The multi-colour ic_protocol_amneziawg PNG
     // would ignore the tint and look out of place next to the
     // tinted WG / OVPN / IPSec icons.
-    VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_circle
+    VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg
     VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
     VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
     VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
