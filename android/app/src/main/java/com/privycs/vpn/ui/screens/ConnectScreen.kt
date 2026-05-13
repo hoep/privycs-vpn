@@ -1022,32 +1022,55 @@ private fun ConnectButton(
                     val tint = if (isConnected) Color.White
                     else MaterialTheme.colorScheme.onSurfaceVariant
                     val iconRes = when (activeProtocol) {
-                        // AmneziaWG badge — white circle + indigo
-                        // silhouette. Composed via the
-                        // ic_protocol_amneziawg_badge layer-list so
-                        // the brand colour reads on both the
-                        // green-when-connected and the
-                        // gray-when-disconnected button background.
-                        // Other protocols stay monochrome path-
-                        // drawables that take the tint cascade.
-                        VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_badge
+                        // AmneziaWG handled specially below — white
+                        // circle backdrop + indigo silhouette must be
+                        // composed in Compose itself, NOT via a
+                        // layer-list drawable. Compose's
+                        // painterResource() supports VectorDrawable
+                        // + bitmap assets only; loading a layer-list
+                        // throws IllegalArgumentException at
+                        // composition time. v0.9.15.11 caught this
+                        // the hard way — the
+                        // ic_protocol_amneziawg_badge layer-list
+                        // crashed the UI thread the moment AWG was
+                        // marked active and the ConnectButton tried
+                        // to render with that resource. Other
+                        // protocols stay as monochrome path-drawables
+                        // that take the tint cascade.
+                        VpnProtocol.AMNEZIAWG -> null  // handled below via Compose
                         VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                         VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                         VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
                         null -> null
                     }
-                    if (iconRes != null) {
-                        if (activeProtocol == VpnProtocol.AMNEZIAWG) {
-                            // Render the layer-list as Image (not
-                            // Icon) — Icon would collapse the
-                            // white circle + indigo silhouette
-                            // into a single-colour silhouette.
-                            androidx.compose.foundation.Image(
-                                painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                                contentDescription = "AmneziaWG",
-                                modifier = Modifier.size(56.dp),
-                            )
-                        } else {
+                    when {
+                        activeProtocol == VpnProtocol.AMNEZIAWG -> {
+                            // Compose-native badge: white circle
+                            // backdrop + indigo-tinted mono icon on
+                            // top. Visually identical to the old
+                            // layer-list — readable against both the
+                            // green-connected and gray-disconnected
+                            // button backgrounds — but goes through
+                            // bitmap painterResource which Compose
+                            // actually supports.
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    painter = androidx.compose.ui.res.painterResource(
+                                        id = R.drawable.ic_protocol_amneziawg_mono,
+                                    ),
+                                    contentDescription = "AmneziaWG",
+                                    modifier = Modifier.size(44.dp),
+                                    tint = AmneziaWgIndigo,
+                                )
+                            }
+                        }
+                        iconRes != null -> {
                             Icon(
                                 painter = androidx.compose.ui.res.painterResource(id = iconRes),
                                 contentDescription = activeProtocol?.label,
@@ -1055,13 +1078,14 @@ private fun ConnectButton(
                                 tint = tint
                             )
                         }
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.GppGood,
-                            contentDescription = "Privycs",
-                            modifier = Modifier.size(56.dp),
-                            tint = tint
-                        )
+                        else -> {
+                            Icon(
+                                imageVector = Icons.Filled.GppGood,
+                                contentDescription = "Privycs",
+                                modifier = Modifier.size(56.dp),
+                                tint = tint
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
