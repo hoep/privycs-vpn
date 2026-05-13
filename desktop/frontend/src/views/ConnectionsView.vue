@@ -105,7 +105,13 @@
           class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700/50"
         >
           <div class="flex items-center gap-2 min-w-0">
-            <ProtocolIcon :protocol="rc.protocol" class="w-4 h-4 flex-shrink-0" />
+            <!-- Map server's protocol="wireguard" + obfuscation_enabled
+                 to the amneziawg icon. See
+                 privycs/cmd/gateway/connect_my_configs_api.go:45. -->
+            <ProtocolIcon
+              :protocol="(rc.protocol === 'wireguard' && rc.obfuscation_enabled) ? 'amneziawg' : rc.protocol"
+              class="w-4 h-4 flex-shrink-0"
+            />
             <div class="min-w-0">
               <span class="text-xs text-gray-700 dark:text-gray-300 truncate block">{{ rc.peer_name }}</span>
               <span class="text-[9px] text-gray-400">{{ rc.interface_name }} / {{ rc.vpn_ip }}</span>

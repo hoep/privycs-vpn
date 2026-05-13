@@ -324,13 +324,19 @@ data class RemoteConfigEntry(
     val lastHandshake: String = "",
     // True when this WireGuard entry carries AmneziaWG obfuscation
     // (jc/jmin/jmax/s*/h*/i* keys in the rendered config). The
-    // gateway labels AWG enrollments as `protocol: "wireguard"` for
-    // backwards-compat with the API; this flag lets the client
-    // surface the AmneziaWG icon + label without having to download
-    // the .conf first to content-detect. Defaults to false so older
-    // gateway builds (which don't emit this field) keep working.
-    @SerialName("obfuscated")
-    val obfuscated: Boolean = false
+    // gateway labels AWG enrollments as `protocol: "wireguard"`
+    // for backwards-compat with the API; this flag lets the
+    // client surface the AmneziaWG icon + label without having
+    // to download the .conf first to content-detect.
+    //
+    // Server-side field name is `obfuscation_enabled` per
+    // privycs/cmd/gateway/connect_my_configs_api.go:45 — earlier
+    // we had this as `obfuscated` which silently never matched
+    // (kotlinx-serialization ignoreUnknownKeys made the mismatch
+    // invisible). Defaults to false so older gateway builds keep
+    // working.
+    @SerialName("obfuscation_enabled")
+    val obfuscationEnabled: Boolean = false
 )
 
 @Serializable

@@ -1004,17 +1004,45 @@ private fun GatewayPanel(
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                val protocol = VpnProtocol.fromString(entry.protocol)
+                                // Map server-side AWG enrollments
+                                // (protocol="wireguard" +
+                                // obfuscation_enabled=true) to the
+                                // AMNEZIAWG badge so the user sees
+                                // what they will actually get. Matches
+                                // the equivalent logic in
+                                // AddConnectionScreen.kt's gateway
+                                // listing — Bug 3 fix.
+                                val protocol = if ((entry.protocol == "wireguard" && entry.obfuscationEnabled) ||
+                                    entry.protocol == "amneziawg"
+                                ) VpnProtocol.AMNEZIAWG
+                                else VpnProtocol.fromString(entry.protocol)
                                 if (protocol != null) {
                                     ProtocolBadge(protocol)
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
-                                Text(
-                                    text = entry.peerName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.weight(1f),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                // Two-line peer description matching
+                                // AddConnectionScreen — Bug 4 fix.
+                                // Pre-v0.9.15.10 we showed only the
+                                // peer name in the top-level gateway
+                                // icon path; the user couldn't tell
+                                // which .conf/.ovpn/.sswan was about
+                                // to be downloaded.
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = entry.peerName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (entry.interfaceName.isNotBlank() || entry.vpnIp.isNotBlank()) {
+                                        Text(
+                                            text = listOf(entry.interfaceName, entry.vpnIp)
+                                                .filter { it.isNotBlank() }
+                                                .joinToString(" / "),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                                 if (downloadingId == entry.id) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(18.dp),

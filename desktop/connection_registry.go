@@ -242,6 +242,22 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 	// disambiguation logic (which keys on "same protocol type
 	// appears more than once") then showed the per-config
 	// filename instead of the clean protocol label.
+	// Match strategy — the slot is identified by (Protocol, Filename).
+	// Re-import of the SAME slot replaces in place; any other
+	// combination (different protocol type, different filename
+	// within the same protocol) appends a new slot.
+	//
+	// User-stated intent (v0.9.15.10): "ich möchte in eine
+	// connection auch 10 versch. gleiche protokoll configs laden
+	// können" — multi-config-per-protocol-per-connection is
+	// unlimited; the connection acts as a failover bag (mini-Pool)
+	// of same-protocol endpoints. Cross-protocol entries (WG + AWG
+	// of the same peer-name) ALSO coexist — the user wants both
+	// for failover preference.
+	//
+	// Earlier (v0.9.15.9) cross-protocol filename-fallback was
+	// wrong: it overwrote the existing WG slot when the user
+	// downloaded the AWG variant of the same peer. Reverted.
 	replacedAt := -1
 	if pc.ID != "" {
 		for i, existing := range conn.Protocols {
@@ -252,26 +268,10 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 		}
 	}
 	if replacedAt < 0 && pc.Filename != "" {
-		// Same-protocol filename match first (re-import of an
-		// existing WG slot stays a WG slot).
 		for i, existing := range conn.Protocols {
 			if existing.Protocol == pc.Protocol && existing.Filename == pc.Filename {
 				replacedAt = i
 				break
-			}
-		}
-		// Cross-protocol filename fallback — re-import of the
-		// same .conf whose server-side classification changed
-		// (vanilla WG → AmneziaWG once the gateway started
-		// emitting obfuscation_config_lines). User wants
-		// "re-import obelix.conf" to REPLACE the obelix slot,
-		// not create a parallel one.
-		if replacedAt < 0 {
-			for i, existing := range conn.Protocols {
-				if existing.Filename == pc.Filename {
-					replacedAt = i
-					break
-				}
 			}
 		}
 	}
@@ -281,12 +281,6 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 		pc.ID = keep.ID
 		pc.Nickname = keep.Nickname
 		conn.Protocols[replacedAt] = pc
-		// Cross-protocol re-import: update active slot's
-		// protocol field too so the protocol-type-driven UI
-		// surfaces see the change immediately.
-		if conn.ActiveConfigID == keep.ID {
-			conn.ActiveProtocol = pc.Protocol
-		}
 	} else {
 		conn.Protocols = append(conn.Protocols, pc)
 	}
@@ -444,6 +438,18 @@ func (r *ConnectionRegistry) load() {
 		return
 	}
 
+	// Defensive heal: a panic in any phase (nil map deref, nil
+	// ProtocolConfig pointer in the slice, etc.) MUST NOT crash
+	// the whole app at startup. Recover and continue with the
+	// post-deserialize state. Bug 1 mirror of Android's load() —
+	// users reported the desktop app failing to launch after a
+	// fresh AWG download in v0.9.15.9.
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("Warning: load-heal panicked (%v) — skipping heal, registry left as deserialised", rec)
+		}
+	}()
+
 	healed := false
 	for _, conn := range r.Connections {
 		// Phase 1: assign a stable UUID to every ProtocolConfig
@@ -483,24 +489,22 @@ func (r *ConnectionRegistry) load() {
 			}
 		}
 
-		// Phase 3: dedupe by filename. Two pre-v0.9.15.8 failure
-		// modes both produced duplicate slots:
-		//   (a) Same protocol, same filename — old AddOrUpdate
-		//       appended on every fresh import.
-		//   (b) Cross-protocol, same filename — peer imported
-		//       once as plain WG (pre-v0.9.15.8 when
-		//       buildWireGuardConf stripped AWG keys), re-imported
-		//       as AmneziaWG after the gateway started emitting
-		//       obfuscation_config_lines. Connection ended up
-		//       with parallel WG and AWG slots for the same peer.
-		// Keep the FIRST occurrence (preserves ID stability for
-		// ActiveConfigID / pool refs); drop the rest.
+		// Phase 3: dedupe by (Protocol, Filename) tuple. Drops
+		// accidental duplicates left behind by older
+		// ID-only AddOrUpdate which appended on every import.
+		// Cross-protocol same-filename entries (WG-obelix
+		// alongside AWG-obelix) are NOT duplicates — they
+		// are legitimately different slots and stay. v0.9.15.9's
+		// filename-only dedupe was wrong here: it dropped the
+		// user's newly-imported AWG slot when a WG slot with
+		// the same filename existed.
 		seen := map[string]bool{}
 		deduped := make([]*ProtocolConfig, 0, len(conn.Protocols))
 		dropped := false
 		for _, pc := range conn.Protocols {
-			if pc.Filename == "" || !seen[pc.Filename] {
-				seen[pc.Filename] = true
+			key := pc.Protocol + "\x00" + pc.Filename
+			if pc.Filename == "" || !seen[key] {
+				seen[key] = true
 				deduped = append(deduped, pc)
 			} else {
 				dropped = true

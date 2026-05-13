@@ -20,6 +20,13 @@ type RemoteConfigEntry struct {
 	VPNIP         string `json:"vpn_ip"`
 	Status        string `json:"status"`
 	LastHandshake string `json:"last_handshake,omitempty"`
+	// ObfuscationEnabled is true when this WireGuard peer's parent
+	// interface runs awg-quick (i.e. AmneziaWG). Server emits the
+	// flag at /api/v1/connect/my-configs so the client can swap
+	// the WireGuard badge for an AmneziaWG one without having to
+	// fetch the full peer-config blob for each row. See
+	// privycs/cmd/gateway/connect_my_configs_api.go:45.
+	ObfuscationEnabled bool `json:"obfuscation_enabled,omitempty"`
 }
 
 // RemoteProfile represents the user profile returned by the gateway

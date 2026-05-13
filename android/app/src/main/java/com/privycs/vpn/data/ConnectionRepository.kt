@@ -100,47 +100,40 @@ class ConnectionRepository(private val context: Context) {
         // filename ("Privycs-foo") instead of the clean protocol
         // label ("WireGuard"). That's the user's "warum stehen die
         // peer-namen jetzt in den protokoll pills?" report.
+        // Match strategy — the slot is identified by (protocol,
+        // filename). Re-import of the SAME slot replaces in place;
+        // any other combination (different protocol type, different
+        // filename within the same protocol) appends a new slot.
+        //
+        // User-stated intent (v0.9.15.10): "ich möchte in eine
+        // connection auch 10 versch. gleiche protokoll configs laden
+        // können". Multi-config-per-protocol-per-connection is
+        // unlimited; the connection acts as a failover bag (like a
+        // mini-Pool) of same-protocol endpoints. Cross-protocol
+        // entries (WG + AWG of the same peer-name) ALSO coexist —
+        // the user wants both for failover preference.
+        //
+        // Earlier (v0.9.15.9) cross-protocol filename-fallback was
+        // wrong: it overwrote the existing WG slot when the user
+        // downloaded the AWG variant of the same peer. Reverted.
         var existingIndex = -1
         if (protocolConfig.id.isNotEmpty()) {
             existingIndex = conn.protocols.indexOfFirst { it.id == protocolConfig.id }
         }
         if (existingIndex < 0 && protocolConfig.filename.isNotEmpty()) {
-            // Prefer same-protocol filename match (re-import of an
-            // existing WG slot stays a WG slot).
             existingIndex = conn.protocols.indexOfFirst {
                 it.protocol == protocolConfig.protocol &&
                     it.filename == protocolConfig.filename
             }
-            // Fallback: cross-protocol filename match. Triggered
-            // when the same .conf changes classification between
-            // imports — most commonly when v0.9.15.x server
-            // started emitting obfuscation_config_lines, so what
-            // was a vanilla-WG download last week becomes an
-            // AmneziaWG download this week. The user wants
-            // "re-import obelix.conf" to REPLACE the obelix slot,
-            // not create a parallel one.
-            if (existingIndex < 0) {
-                existingIndex = conn.protocols.indexOfFirst {
-                    it.filename == protocolConfig.filename
-                }
-            }
         }
         if (existingIndex >= 0) {
+            // Preserve id+nickname so activeConfigId / pool-member
+            // refs stay valid across re-imports.
             val keep = conn.protocols[existingIndex]
-            val replacement = withId.copy(
+            conn.protocols[existingIndex] = withId.copy(
                 id = keep.id,
                 nickname = keep.nickname,
             )
-            conn.protocols[existingIndex] = replacement
-            // Cross-protocol re-import: the slot's protocol field
-            // now reflects the new classification (e.g. WG → AWG).
-            // If this slot was the connection's active one, also
-            // update the legacy activeProtocol enum field so the
-            // protocol-type-driven UI surfaces (widget pills, old
-            // code paths) see the change immediately.
-            if (conn.activeConfigId == keep.id) {
-                conn.activeProtocol = replacement.protocol
-            }
         } else {
             conn.protocols.add(withId)
         }
@@ -359,8 +352,30 @@ class ConnectionRepository(private val context: Context) {
                 ConnectionRegistry()
             }
         } catch (e: Exception) {
+            android.util.Log.w("ConnectionRepository",
+                "decode failed (${e.javaClass.simpleName}): ${e.message} — starting empty")
             ConnectionRegistry()
         }
+        // Defensive wrapper: any heal-phase failure (mutability of
+        // deserialized list, NPE on a field that turned out null
+        // via legacy data, etc.) MUST NOT propagate out of load().
+        // Bug 1 in v0.9.15.9 was the app crashing on startup after
+        // a fresh AWG import — load() blew up before the UI could
+        // render, leaving the app un-openable. Catch every Throwable
+        // (including OOM-shaped errors that may surface during the
+        // heal walk) and continue with whatever registry state we
+        // managed to deserialize.
+        try {
+            healRegistry(registry)
+        } catch (t: Throwable) {
+            android.util.Log.e("ConnectionRepository",
+                "load-heal threw ${t.javaClass.simpleName}: ${t.message} — skipping heal", t)
+        }
+        return registry
+    }
+
+    @Suppress("LongMethod", "ComplexMethod")
+    private fun healRegistry(registry: ConnectionRegistry) {
         // Heal IPSec server-address corruption from ConfigParser's
         // pre-fix line-based parser (see parseIpSec comment).
         // Affected entries had server_address = "{" because the
@@ -418,26 +433,24 @@ class ConnectionRepository(private val context: Context) {
                 }
             }
 
-            // Phase 3: dedupe by filename. v0.9.15.7-and-earlier
-            // produced two failure modes:
-            //   (a) Same protocol, same filename — old addOrUpdate
-            //       appended on every fresh import.
-            //   (b) Cross-protocol, same filename — e.g. a peer
-            //       imported once as plain WG (pre-v0.9.15.8 when
-            //       buildWireGuardConf stripped the AWG keys),
-            //       re-imported as AMNEZIAWG after the gateway
-            //       started emitting obfuscation_config_lines.
-            //       Connection ended up with parallel WG and AWG
-            //       slots for the same peer.
+            // Phase 3: dedupe by (protocol, filename) tuple. Drops
+            // accidental duplicates left behind by pre-v0.9.15.7's
+            // ID-only addOrUpdate which appended on every import.
+            // Cross-protocol same-filename entries (e.g. WG-obelix
+            // alongside AWG-obelix) are NOT duplicates — they are
+            // legitimately different slots and stay. v0.9.15.9's
+            // filename-only dedupe was wrong here: it dropped the
+            // user's newly-imported AWG slot when a WG slot with
+            // the same filename existed, hiding the AWG icon and
+            // breaking the AWG handshake path.
             // Keep the FIRST occurrence (preserves id stability
             // for activeConfigId / pool refs); drop the rest.
-            // Empty-filename configs are exempt — they have no
-            // dedupe key, so we let them be.
-            val seen = HashSet<String>()
+            val seen = HashSet<Pair<com.privycs.vpn.data.models.VpnProtocol, String>>()
             val deduped = mutableListOf<com.privycs.vpn.data.models.ProtocolConfig>()
             var droppedAny = false
             for (pc in conn.protocols) {
-                if (pc.filename.isEmpty() || seen.add(pc.filename)) {
+                val key = pc.protocol to pc.filename
+                if (pc.filename.isEmpty() || seen.add(key)) {
                     deduped.add(pc)
                 } else {
                     droppedAny = true
@@ -484,7 +497,6 @@ class ConnectionRepository(private val context: Context) {
                 e.printStackTrace()
             }
         }
-        return registry
     }
 
     /**

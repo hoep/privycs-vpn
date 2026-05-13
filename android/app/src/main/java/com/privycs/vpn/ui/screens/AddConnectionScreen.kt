@@ -644,12 +644,13 @@ private fun GatewayPanel(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val protocolStr = entry.protocol
-                            // Server-side AWG configs may arrive with
-                            // protocol="wireguard" + obfuscated=true (legacy
-                            // gateway behaviour, see RemoteConfigEntry). Map
-                            // those to AMNEZIAWG so the listing icon matches
-                            // what the user actually gets after download.
-                            val protocol = if ((protocolStr == "wireguard" && entry.obfuscated) ||
+                            // Server emits AWG enrollments as
+                            // protocol="wireguard" + obfuscation_enabled=true
+                            // (per privycs/cmd/gateway/connect_my_configs_api.go:45).
+                            // Map those to AMNEZIAWG so the listing icon
+                            // matches what the user actually gets after
+                            // download.
+                            val protocol = if ((protocolStr == "wireguard" && entry.obfuscationEnabled) ||
                                 protocolStr == "amneziawg"
                             ) VpnProtocol.AMNEZIAWG
                             else VpnProtocol.fromString(protocolStr)
