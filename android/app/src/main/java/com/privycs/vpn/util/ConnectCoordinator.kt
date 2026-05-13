@@ -236,7 +236,10 @@ object ConnectCoordinator {
                             TAG,
                             "requestConnect($source, ${target.targetId}): state=Connected but VpnServiceManager reports disconnected — DESYNC, forcing real connect"
                         )
-                        fireConnectIntent(context, target)
+                        if (!fireConnectIntent(context, target)) {
+                            PrivycsLogger.w(TAG, "requestConnect($source, ${target.targetId}): fire-intent rejected — staying Idle, caller may retry")
+                            return@withLock Result.Gated("foreground service start blocked")
+                        }
                         _state.value = State.Connecting(System.currentTimeMillis(), source, target.targetId)
                         startWatchdog()
                         return@withLock Result.Accepted
@@ -249,7 +252,14 @@ object ConnectCoordinator {
                     // sources. Otherwise, first-come-first-served.
                     if (source == IntentSource.USER && s.source != IntentSource.USER) {
                         PrivycsLogger.i(TAG, "requestConnect(USER, ${target.targetId}) preempting ${s.source}")
-                        fireConnectIntent(context, target)
+                        if (!fireConnectIntent(context, target)) {
+                            PrivycsLogger.w(TAG, "requestConnect(USER preempt): fire-intent rejected — leaving prior state intact")
+                            // Do NOT overwrite the existing Connecting
+                            // state — the prior owner's watchdog still
+                            // governs recovery and the user's preempt
+                            // attempt is best-effort.
+                            return@withLock Result.Gated("foreground service start blocked")
+                        }
                         _state.value = State.Connecting(System.currentTimeMillis(), source, target.targetId)
                         startWatchdog()
                         Result.Accepted
@@ -267,7 +277,14 @@ object ConnectCoordinator {
                 }
                 is State.Idle -> {
                     PrivycsLogger.i(TAG, "requestConnect($source, ${target.targetId}): accepted -> Connecting")
-                    fireConnectIntent(context, target)
+                    if (!fireConnectIntent(context, target)) {
+                        // Android 12+ BG-FGS restriction, missing config,
+                        // or other dispatch failure. Stay Idle so the
+                        // user can retry immediately instead of sitting
+                        // 90 s in Connecting waiting for the watchdog.
+                        PrivycsLogger.w(TAG, "requestConnect($source, ${target.targetId}): fire-intent rejected — staying Idle")
+                        return@withLock Result.Gated("foreground service start blocked")
+                    }
                     _state.value = State.Connecting(System.currentTimeMillis(), source, target.targetId)
                     startWatchdog()
                     Result.Accepted
@@ -447,17 +464,28 @@ object ConnectCoordinator {
         return _state.value is State.Connected
     }
 
-    private fun fireConnectIntent(context: Context, target: InternalTarget) {
-        when (target) {
+    // Returns true when the Service Intent was dispatched, false when
+    // the dispatch itself failed (e.g. no active config, or Android 12+
+    // BG-FGS restriction rejecting startForegroundService while the
+    // app is in TRNB / non-TOP state). The caller MUST honour the
+    // return value — setting state to Connecting after a false return
+    // strands the Coordinator's state machine in Connecting until the
+    // 90 s watchdog forcibly resets it. That stranded-state was the
+    // user-visible "stuck on Connecting…" bug: Android blocked the
+    // FGS, the silent log was the only signal, and the UI sat in
+    // Connecting for a full minute and a half before the watchdog
+    // released it.
+    private fun fireConnectIntent(context: Context, target: InternalTarget): Boolean {
+        return when (target) {
             is InternalTarget.Single -> fireSingleConnectIntent(context, target.connection)
             is InternalTarget.Pool -> firePoolConnectIntent(context, target.poolId)
         }
     }
 
-    private fun fireSingleConnectIntent(context: Context, connection: VpnConnection) {
+    private fun fireSingleConnectIntent(context: Context, connection: VpnConnection): Boolean {
         val config = connection.getActiveConfig() ?: run {
             PrivycsLogger.w(TAG, "fireConnectIntent: no active config for ${connection.id}")
-            return
+            return false
         }
         val intent = Intent(context, PrivycsVpnService::class.java).apply {
             action = PrivycsVpnService.ACTION_CONNECT
@@ -466,14 +494,16 @@ object ConnectCoordinator {
             putExtra(PrivycsVpnService.EXTRA_CONFIG_CONTENT, config.configContent)
             putExtra(PrivycsVpnService.EXTRA_CONNECTION_NAME, connection.name)
         }
-        try {
+        return try {
             context.startForegroundService(intent)
+            true
         } catch (e: Exception) {
             PrivycsLogger.e(TAG, "fireSingleConnectIntent failed: ${e.message}")
+            false
         }
     }
 
-    private fun firePoolConnectIntent(context: Context, poolId: String) {
+    private fun firePoolConnectIntent(context: Context, poolId: String): Boolean {
         // PoolPicker / PoolConnector own the actual member-pick +
         // tunnel setup once the service receives this intent. We
         // only need to hand off the pool id; the service-side
@@ -483,10 +513,12 @@ object ConnectCoordinator {
             action = PrivycsVpnService.ACTION_POOL_CONNECT
             putExtra(PrivycsVpnService.EXTRA_POOL_ID, poolId)
         }
-        try {
+        return try {
             context.startForegroundService(intent)
+            true
         } catch (e: Exception) {
             PrivycsLogger.e(TAG, "firePoolConnectIntent failed: ${e.message}")
+            false
         }
     }
 
