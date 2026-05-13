@@ -526,20 +526,30 @@ fun ConnectScreen(
                                     ) {
                                         conn.availableProtocols().forEach { p ->
                                             val iconRes = when (p) {
-                                                VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg
+                                                VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
                                                 VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                                                 VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                                                 VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
                                             }
-                                            // Image (not Icon) so the brand
-                                            // colors in the vector drawable
-                                            // are preserved — Icon would
-                                            // apply a single tint and lose
-                                            // the WG-red / OVPN-orange /
-                                            // IPSec-blue distinction.
-                                            androidx.compose.foundation.Image(
+                                            val iconTint = when (p) {
+                                                VpnProtocol.AMNEZIAWG -> AmneziaWgIndigo
+                                                VpnProtocol.WIREGUARD -> com.privycs.vpn.ui.theme.WireGuardRed
+                                                VpnProtocol.OPENVPN -> com.privycs.vpn.ui.theme.OpenVpnOrange
+                                                VpnProtocol.IPSEC -> com.privycs.vpn.ui.theme.IpSecBlue
+                                            }
+                                            // Icon (tinted) so AWG looks
+                                            // and behaves like WG/OVPN/
+                                            // IPSec — single mono path
+                                            // drawable + brand-color tint.
+                                            // Previous Image-based render
+                                            // shipped the AWG multi-colour
+                                            // brand mark which clashed
+                                            // visually with the tint cascade
+                                            // applied to the other three.
+                                            Icon(
                                                 painter = androidx.compose.ui.res.painterResource(id = iconRes),
                                                 contentDescription = p.shortLabel,
+                                                tint = iconTint,
                                                 modifier = Modifier.size(14.dp)
                                             )
                                         }
@@ -1022,70 +1032,36 @@ private fun ConnectButton(
                     val tint = if (isConnected) Color.White
                     else MaterialTheme.colorScheme.onSurfaceVariant
                     val iconRes = when (activeProtocol) {
-                        // AmneziaWG handled specially below — white
-                        // circle backdrop + indigo silhouette must be
-                        // composed in Compose itself, NOT via a
-                        // layer-list drawable. Compose's
-                        // painterResource() supports VectorDrawable
-                        // + bitmap assets only; loading a layer-list
-                        // throws IllegalArgumentException at
-                        // composition time. v0.9.15.11 caught this
-                        // the hard way — the
-                        // ic_protocol_amneziawg_badge layer-list
-                        // crashed the UI thread the moment AWG was
-                        // marked active and the ConnectButton tried
-                        // to render with that resource. Other
-                        // protocols stay as monochrome path-drawables
-                        // that take the tint cascade.
-                        VpnProtocol.AMNEZIAWG -> null  // handled below via Compose
+                        // AWG behaves like WG: single monochrome
+                        // path-drawable that takes the tint cascade.
+                        // Connect-button background already drives
+                        // the contrast (green when connected, surface
+                        // variant when not) so we just hand it a
+                        // tintable silhouette and Icon does the rest.
+                        // The mono PNG (alpha-aware single-color) is
+                        // safe with Compose painterResource; the old
+                        // ic_protocol_amneziawg_badge layer-list was
+                        // not and crashed the UI thread.
+                        VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
                         VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                         VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                         VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
                         null -> null
                     }
-                    when {
-                        activeProtocol == VpnProtocol.AMNEZIAWG -> {
-                            // Compose-native badge: white circle
-                            // backdrop + indigo-tinted mono icon on
-                            // top. Visually identical to the old
-                            // layer-list — readable against both the
-                            // green-connected and gray-disconnected
-                            // button backgrounds — but goes through
-                            // bitmap painterResource which Compose
-                            // actually supports.
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    painter = androidx.compose.ui.res.painterResource(
-                                        id = R.drawable.ic_protocol_amneziawg_mono,
-                                    ),
-                                    contentDescription = "AmneziaWG",
-                                    modifier = Modifier.size(44.dp),
-                                    tint = AmneziaWgIndigo,
-                                )
-                            }
-                        }
-                        iconRes != null -> {
-                            Icon(
-                                painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                                contentDescription = activeProtocol?.label,
-                                modifier = Modifier.size(56.dp),
-                                tint = tint
-                            )
-                        }
-                        else -> {
-                            Icon(
-                                imageVector = Icons.Filled.GppGood,
-                                contentDescription = "Privycs",
-                                modifier = Modifier.size(56.dp),
-                                tint = tint
-                            )
-                        }
+                    if (iconRes != null) {
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                            contentDescription = activeProtocol?.label,
+                            modifier = Modifier.size(56.dp),
+                            tint = tint
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.GppGood,
+                            contentDescription = "Privycs",
+                            modifier = Modifier.size(56.dp),
+                            tint = tint
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -1117,8 +1093,17 @@ private fun ProtocolBadges(
     // user adds two configs of the same protocol type to one
     // connection. Single-config-of-a-type stays clean.
     val protocolCounts = configs.groupingBy { it.protocol }.eachCount()
+    // fillMaxWidth + contentPadding so the LazyRow honours the screen
+    // width and items past the right edge are reachable via horizontal
+    // scroll instead of getting clipped. Pre-fix: pill #4+ was hidden
+    // off-screen whenever a connection had >3 protocol configs (the
+    // multi-config-per-protocol feature added in v0.9.15.x makes that
+    // far more common — a single connection can hold AWG + WG + OVPN
+    // + IPSec at minimum, and unlimited duplicates of each).
     LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(configs) { cfg ->
             val protocol = cfg.protocol
@@ -1164,25 +1149,12 @@ private fun ProtocolBadges(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (protocol == VpnProtocol.AMNEZIAWG) {
-                    // Multi-colour Amnezia brand mark — render via
-                    // Image so the orange/teal/purple palette
-                    // survives the badge tint.
-                    androidx.compose.foundation.Image(
-                        painter = androidx.compose.ui.res.painterResource(
-                            id = R.drawable.ic_protocol_amneziawg
-                        ),
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                } else {
-                    androidx.compose.material3.Icon(
-                        painter = androidx.compose.ui.res.painterResource(id = protocol.badgeDrawable()),
-                        contentDescription = null,
-                        tint = textColor,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
+                androidx.compose.material3.Icon(
+                    painter = androidx.compose.ui.res.painterResource(id = protocol.badgeDrawable()),
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(14.dp)
+                )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = label,
@@ -1202,7 +1174,11 @@ private fun ProtocolBadges(
  * with the protocol's accent at runtime.
  */
 private fun VpnProtocol.badgeDrawable(): Int = when (this) {
-    VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg
+    // AWG → mono variant so the Icon tint cascade applies (matches
+    // WG's behaviour). The multi-colour ic_protocol_amneziawg PNG
+    // would ignore the tint and look out of place next to the
+    // tinted WG / OVPN / IPSec icons.
+    VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_mono
     VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
     VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
     VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan

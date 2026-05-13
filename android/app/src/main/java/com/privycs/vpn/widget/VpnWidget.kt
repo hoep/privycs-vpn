@@ -482,14 +482,13 @@ class VpnWidget : AppWidgetProvider() {
                 .getActive()?.activeProtocol
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            // AmneziaWG badge — white circle + indigo silhouette.
-            // Same drawable as the Connect-Screen ConnectButton so
-            // the brand mark reads consistently against both the
-            // green-when-connected and gray-when-disconnected
-            // button backgrounds. Widget's widget_button_icon
-            // ImageView has no tint applied, so the badge's
-            // built-in colours render as designed.
-            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_badge
+            // AWG mono icon, matches WG/OVPN/IPSec treatment.
+            // Standardised on the tintable mono variant after the
+            // ic_protocol_amneziawg_badge layer-list crashed Compose
+            // (v0.9.15.13). Widget's RemoteViews.setImageViewResource
+            // applies no tint by default, so the icon renders in its
+            // monochrome path color — analog WG.
+            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan

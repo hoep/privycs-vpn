@@ -863,7 +863,10 @@ private fun ProtocolBadge(
         VpnProtocol.IPSEC -> IpSecBlue
     }
     val iconRes = when (protocol) {
-        VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg
+        // AWG → mono variant so the Icon tint cascade applies
+        // (matches WG/OVPN/IPSec). The multi-colour PNG would
+        // ignore tint and clash with the tinted siblings.
+        VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_mono
         VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
         VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
         VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
@@ -880,22 +883,12 @@ private fun ProtocolBadge(
             .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (protocol == VpnProtocol.AMNEZIAWG) {
-            // Multi-colour brand mark — render via Image so its
-            // orange/teal/purple palette survives the badge tint.
-            androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                contentDescription = "AmneziaWG",
-                modifier = Modifier.size(20.dp)
-            )
-        } else {
-            Icon(
-                painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                contentDescription = protocol.label,
-                tint = color,
-                modifier = Modifier.size(20.dp)
-            )
-        }
+        Icon(
+            painter = androidx.compose.ui.res.painterResource(id = iconRes),
+            contentDescription = protocol.label,
+            tint = color,
+            modifier = Modifier.size(20.dp)
+        )
         if (onEdit != null) {
             Spacer(modifier = Modifier.width(2.dp))
             IconButton(
