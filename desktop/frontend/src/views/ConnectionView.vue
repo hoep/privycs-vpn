@@ -228,11 +228,15 @@
           {{ activeName }}
           <ChevronDownIcon class="w-3.5 h-3.5" :class="showConnectionPicker ? 'rotate-180' : ''" />
         </button>
-        <!-- Unified dropdown -->
+        <!-- Unified dropdown. max-h + overflow-y-auto so 7+ entries
+             scroll inside the dropdown instead of extending past the
+             viewport. Pre-fix: at 7+ saved connections + pools the
+             dropdown clipped against the window bottom or pushed the
+             below-the-fold UI off-screen depending on browser engine. -->
         <div
           v-if="showConnectionPicker && pickerEntries.length > 1"
           @click.stop
-          class="absolute left-1/2 -translate-x-1/2 mt-1 w-64 card p-1 shadow-lg z-10"
+          class="absolute left-1/2 -translate-x-1/2 mt-1 w-64 max-h-[60vh] overflow-y-auto card p-1 shadow-lg z-10"
         >
           <button
             v-for="entry in pickerEntries"

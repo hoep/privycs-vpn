@@ -526,7 +526,7 @@ fun ConnectScreen(
                                     ) {
                                         conn.availableProtocols().forEach { p ->
                                             val iconRes = when (p) {
-                                                VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
+                                                VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_circle
                                                 VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                                                 VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                                                 VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
@@ -1042,7 +1042,7 @@ private fun ConnectButton(
                         // safe with Compose painterResource; the old
                         // ic_protocol_amneziawg_badge layer-list was
                         // not and crashed the UI thread.
-                        VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
+                        VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_circle
                         VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
                         VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
                         VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
@@ -1178,7 +1178,7 @@ private fun VpnProtocol.badgeDrawable(): Int = when (this) {
     // WG's behaviour). The multi-colour ic_protocol_amneziawg PNG
     // would ignore the tint and look out of place next to the
     // tinted WG / OVPN / IPSec icons.
-    VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_mono
+    VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_circle
     VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
     VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
     VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan

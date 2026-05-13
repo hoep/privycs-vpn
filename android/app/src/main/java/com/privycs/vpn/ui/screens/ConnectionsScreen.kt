@@ -866,7 +866,7 @@ private fun ProtocolBadge(
         // AWG → mono variant so the Icon tint cascade applies
         // (matches WG/OVPN/IPSec). The multi-colour PNG would
         // ignore tint and clash with the tinted siblings.
-        VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_mono
+        VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_circle
         VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
         VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
         VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan

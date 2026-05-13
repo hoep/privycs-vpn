@@ -1,17 +1,28 @@
 <template>
-  <!-- AmneziaWG brand mark (multi-colour SVG, mk16.de). Renders as
-       <img> because the source has masks that don't round-trip
-       cleanly through Vue's inline <path> template — the multi-
-       layer composition is the whole point of the mark. The
-       brand palette survives because it's a static asset; tint
-       prop is ignored for AWG (would erase the orange/teal/purple
-       cool/warm interplay). -->
-  <img
+  <!-- AmneziaWG mark — circled-A anarchy silhouette in the Amnezia
+       brand indigo (#6366F1, matches Android's AmneziaWgIndigo).
+       Rendered as inline <svg> with a single tintable <path> so it
+       behaves identically to WG/OVPN/IPSec: the connect-button can
+       override to white when connected, the pill row picks up the
+       per-pill brand color, and the dropdown picker can grayscale
+       it like the others. Replaces the previous multi-colour
+       mk16.de brand mark (loaded via <img>, tint-ignored), which
+       (a) clashed visually next to the tinted siblings and (b) on
+       Android crashed Compose painterResource when the equivalent
+       layer-list was loaded — same family of "wrong drawable shape
+       for the renderer" issue, resolved here by going single-path
+       like the others.
+       Path: outer ring (donut via even-odd), then the "A" with a
+       horizontal crossbar across the circle as a nod to the
+       circled-A anarchist symbology the Amnezia mark riffs on. -->
+  <svg
     v-if="protocol === 'amneziawg'"
-    :src="amneziaLogoUrl"
     :class="sizeClass"
-    alt="AmneziaWG"
-  />
+    viewBox="0 0 24 24"
+    :fill="fillColor('#6366F1')"
+  >
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 1.6a8.4 8.4 0 110 16.8 8.4 8.4 0 010-16.8zM11.3 7.2 7.8 16.8h1.55l.7-2h3.9l.7 2h1.55L12.7 7.2h-1.4zm.7 2.2 1.5 4.2h-3l1.5-4.2z"/>
+  </svg>
 
   <!-- WireGuard Official Logo (brand color: #88171A) -->
   <svg v-else-if="protocol === 'wireguard'" :class="sizeClass" viewBox="0 0 24 24" :fill="fillColor('#88171A')">
@@ -36,7 +47,6 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import amneziaLogoUrl from '@/assets/images/amnezia_logo.svg'
 
 const props = defineProps<{
   protocol: string
@@ -44,7 +54,6 @@ const props = defineProps<{
   // When set, overrides the protocol's brand color. Use 'white' for
   // rendering over a solid dark/blue button background where the brand
   // color would wash out. Default is undefined = keep brand color.
-  // AmneziaWG ignores tint (multi-colour mark).
   tint?: string
 }>()
 

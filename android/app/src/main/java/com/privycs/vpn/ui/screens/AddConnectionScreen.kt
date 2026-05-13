@@ -657,7 +657,7 @@ private fun GatewayPanel(
                             val iconRes = when (protocol) {
                                 // AWG → mono variant (Icon tint cascade,
                                 // matches WG/OVPN/IPSec rendering).
-                                VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_mono
+                                VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_circle
                                 VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
                                 VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
                                 VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
