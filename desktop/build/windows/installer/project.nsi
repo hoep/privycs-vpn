@@ -88,6 +88,16 @@ Section
 
     !insertmacro wails.files
 
+    # Wintun TUN driver — required for AmneziaWG (and any future
+    # in-process wireguard-go path) on Windows. amneziawg-go's
+    # tun package LoadLibraries wintun.dll at runtime; without
+    # it the helper-side AWG backend fails immediately at
+    # CreateAdapter. CI's "Fetch wintun.dll" step stages the
+    # signed amd64 build from wintun.net into build/bin/ before
+    # `wails build -nsis` runs, so this File directive picks it
+    # up at compile time and ships it next to the .exe.
+    File "..\..\bin\wintun.dll"
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 

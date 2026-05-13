@@ -425,13 +425,6 @@ jobs:
       - name: Fetch GeoLite2 Country MMDB
         working-directory: desktop
         run: go run scripts/fetchgeoip/main.go
-      - name: Build desktop app with NSIS installer
-        working-directory: desktop
-        run: |
-          $env:PATH = "$env:USERPROFILE\go\bin;C:\Program Files (x86)\NSIS;$env:PATH"
-          $version = "$env:GITHUB_REF" -replace 'refs/tags/', ''
-          if (-not $version) { $version = "dev" }
-          wails build -platform windows/amd64 -nsis -ldflags "-X main.AppVersion=$version"
       - name: Fetch wintun.dll
         shell: pwsh
         # AmneziaWG on Windows runs in-process via amneziawg-go, which
@@ -439,7 +432,15 @@ jobs:
         # in System32). We download the official build from wintun.net
         # and ship the amd64 DLL in the binary artifact + NSIS
         # installer. Pinned 0.14.1 — last release at time of writing.
+        #
+        # MUST run BEFORE `wails build -nsis` — the NSIS installer
+        # bakes its payload at compile time, so the DLL has to be in
+        # build/bin/ when makensis is invoked. v0.9.15.10 caught this:
+        # earlier order had Fetch AFTER wails build, so the installer
+        # shipped without wintun.dll → AmneziaWG broken for setup.exe
+        # users.
         run: |
+          New-Item -ItemType Directory -Force -Path desktop/build/bin | Out-Null
           $wintunZip = "$env:TEMP\wintun.zip"
           Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile $wintunZip
           $extractDir = "$env:TEMP\wintun-extracted"
@@ -447,7 +448,14 @@ jobs:
           $dll = Join-Path $extractDir "wintun\bin\amd64\wintun.dll"
           if (-not (Test-Path $dll)) { throw "wintun.dll not found at $dll after extraction" }
           Copy-Item $dll desktop/build/bin/wintun.dll
-          Write-Host "wintun.dll bundled into build/bin/"
+          Write-Host "wintun.dll staged in build/bin/ for the NSIS installer to pick up"
+      - name: Build desktop app with NSIS installer
+        working-directory: desktop
+        run: |
+          $env:PATH = "$env:USERPROFILE\go\bin;C:\Program Files (x86)\NSIS;$env:PATH"
+          $version = "$env:GITHUB_REF" -replace 'refs/tags/', ''
+          if (-not $version) { $version = "dev" }
+          wails build -platform windows/amd64 -nsis -ldflags "-X main.AppVersion=$version"
       - name: Prepare artifacts
         shell: pwsh
         run: |
