@@ -201,47 +201,91 @@ class NetworkMonitor private constructor(private val context: Context) {
             }
         }
 
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                PrivycsLogger.d(TAG, "Network available: $network")
-                evaluateCurrentNetwork()
-            }
-
-            override fun onLost(network: Network) {
-                // Do NOT hard-code "no network" here. Android frequently calls
-                // onLost for the outgoing default network a few milliseconds
-                // BEFORE onAvailable fires for the new default (typical on
-                // WiFi→Mobile handover). Hard-coding "none" created a window
-                // where the UI showed "No Network" and the auto-connect
-                // evaluator saw state=none, tore down the VPN, and only then
-                // noticed the new network had arrived.
-                //
-                // Re-evaluate based on whatever the ConnectivityManager says
-                // is the current active network. If it is truly gone
-                // detectNetworkType() will return "none" naturally.
-                PrivycsLogger.d(TAG, "Network lost: $network — re-evaluating current state")
-                evaluateCurrentNetwork()
-            }
-
-            override fun onCapabilitiesChanged(
-                network: Network,
-                networkCapabilities: NetworkCapabilities
-            ) {
-                PrivycsLogger.d(TAG, "Network capabilities changed: $network")
-                evaluateCurrentNetwork()
-            }
-
-            override fun onLinkPropertiesChanged(
-                network: Network,
-                linkProperties: android.net.LinkProperties
-            ) {
-                // IP address / DNS / route change on the current default
-                // network. Still the same transport, but can influence SSID
-                // detection on some devices (e.g. WiFi reassociation).
-                PrivycsLogger.d(TAG, "Network link properties changed: $network")
-                evaluateCurrentNetwork()
-            }
+        // Doze-resilient SSID hook (v0.9.15.11). The callback's
+        // onCapabilitiesChanged receives unredacted WifiInfo *only if*
+        // the callback was registered with FLAG_INCLUDE_LOCATION_INFO
+        // (API 31+). Without the flag, Android 12+ redacts SSID/BSSID
+        // to "<unknown ssid>" whenever the app is in the background —
+        // and Doze counts as background even for foreground-services.
+        // Below we register the callback with the flag on API 31+, and
+        // here we pull the SSID straight out of the capabilities the
+        // system just handed us. That value populates lastResolvedSsid
+        // BEFORE evaluateCurrentNetwork() runs, so rule evaluation has
+        // a fresh SSID without going through getNetworkCapabilities()
+        // (which DOES NOT honour the flag and stays redacted in Doze).
+        val cacheSsidFromCaps = { caps: NetworkCapabilities ->
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                    val info = caps.transportInfo as? android.net.wifi.WifiInfo
+                    val raw = info?.ssid?.removeSurrounding("\"")
+                    if (!raw.isNullOrEmpty() && raw != "<unknown ssid>") {
+                        if (lastResolvedSsid != raw) {
+                            PrivycsLogger.d(TAG, "Callback SSID refresh -> \"$raw\"")
+                        }
+                        lastResolvedSsid = raw
+                        lastResolvedNetworkType = "wifi"
+                    }
+                }
+            } catch (_: Exception) { /* never let the callback throw */ }
         }
+
+        val onAvailableImpl: (Network) -> Unit = { network ->
+            PrivycsLogger.d(TAG, "Network available: $network")
+            evaluateCurrentNetwork()
+        }
+        val onLostImpl: (Network) -> Unit = { network ->
+            // Do NOT hard-code "no network" here. Android frequently calls
+            // onLost for the outgoing default network a few milliseconds
+            // BEFORE onAvailable fires for the new default (typical on
+            // WiFi→Mobile handover). Hard-coding "none" created a window
+            // where the UI showed "No Network" and the auto-connect
+            // evaluator saw state=none, tore down the VPN, and only then
+            // noticed the new network had arrived.
+            PrivycsLogger.d(TAG, "Network lost: $network — re-evaluating current state")
+            evaluateCurrentNetwork()
+        }
+        val onCapsImpl: (Network, NetworkCapabilities) -> Unit = { network, caps ->
+            PrivycsLogger.d(TAG, "Network capabilities changed: $network")
+            cacheSsidFromCaps(caps)
+            evaluateCurrentNetwork()
+        }
+        val onLinkImpl: (Network, android.net.LinkProperties) -> Unit = { network, _ ->
+            PrivycsLogger.d(TAG, "Network link properties changed: $network")
+            evaluateCurrentNetwork()
+        }
+
+        val callback: ConnectivityManager.NetworkCallback =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                object : ConnectivityManager.NetworkCallback(
+                    ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
+                ) {
+                    override fun onAvailable(network: Network) = onAvailableImpl(network)
+                    override fun onLost(network: Network) = onLostImpl(network)
+                    override fun onCapabilitiesChanged(
+                        network: Network,
+                        networkCapabilities: NetworkCapabilities,
+                    ) = onCapsImpl(network, networkCapabilities)
+                    override fun onLinkPropertiesChanged(
+                        network: Network,
+                        linkProperties: android.net.LinkProperties,
+                    ) = onLinkImpl(network, linkProperties)
+                }
+            } else {
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) = onAvailableImpl(network)
+                    override fun onLost(network: Network) = onLostImpl(network)
+                    override fun onCapabilitiesChanged(
+                        network: Network,
+                        networkCapabilities: NetworkCapabilities,
+                    ) = onCapsImpl(network, networkCapabilities)
+                    override fun onLinkPropertiesChanged(
+                        network: Network,
+                        linkProperties: android.net.LinkProperties,
+                    ) = onLinkImpl(network, linkProperties)
+                }
+            }
 
         // Register-then-store: only set networkCallback AFTER the
         // system call returns successfully so a failed registration

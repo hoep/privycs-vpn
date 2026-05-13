@@ -40,6 +40,52 @@ class PrivycsApp : StrongSwanApplication() {
 
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
+        // Crash handler: write the full stack trace to externalFilesDir
+        // (/storage/emulated/0/Android/data/com.privycs.vpn/files/) so the
+        // user can open it in any Files app without ADB or root. The
+        // app-private filesDir (/data/data/com.privycs.vpn/files/) is
+        // inaccessible to non-debuggable release builds. Installed in
+        // attachBaseContext — earliest entrypoint, runs before any other
+        // code in the app process. Chains to the previous handler so we
+        // don't suppress Play Console's crash telemetry.
+        if (base != null) {
+            try {
+                val prev = Thread.getDefaultUncaughtExceptionHandler()
+                Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+                    try {
+                        val ts = java.text.SimpleDateFormat(
+                            "yyyyMMdd-HHmmss", java.util.Locale.US
+                        ).format(java.util.Date())
+                        val dir = base.getExternalFilesDir(null)
+                        if (dir != null) {
+                            dir.mkdirs()
+                            val file = java.io.File(dir, "crash-$ts.txt")
+                            file.writeText(buildString {
+                                appendLine("Privycs VPN crash report")
+                                appendLine("Time: ${java.util.Date()}")
+                                appendLine("Version: ${com.privycs.vpn.BuildConfig.VERSION_NAME} (${com.privycs.vpn.BuildConfig.VERSION_CODE})")
+                                appendLine("Thread: ${thread.name} (id=${thread.id})")
+                                appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})")
+                                appendLine()
+                                appendLine("== Throwable ==")
+                                appendLine(android.util.Log.getStackTraceString(throwable))
+                                appendLine()
+                                appendLine("== All thread stacks ==")
+                                for ((t, frames) in Thread.getAllStackTraces()) {
+                                    appendLine("--- ${t.name} (id=${t.id}, state=${t.state}) ---")
+                                    for (f in frames) appendLine("  at $f")
+                                }
+                            })
+                        }
+                    } catch (_: Throwable) { /* never block the handoff */ }
+                    prev?.uncaughtException(thread, throwable)
+                }
+                Log.i("PrivycsApp", "attachBaseContext: crash handler installed → externalFilesDir/crash-*.txt")
+            } catch (t: Throwable) {
+                Log.e("PrivycsApp", "attachBaseContext: crash handler install FAILED", t)
+            }
+        }
+
         // Seed OpenVPN's GlobalPreferences BEFORE onCreate, before Application
         // and Service lifecycles interleave. In our `:openvpn` subprocess, the
         // run-24611939018 and -24612148380 builds crashed at
