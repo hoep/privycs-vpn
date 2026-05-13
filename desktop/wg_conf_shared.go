@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net"
 	"regexp"
 	"strconv"
@@ -148,6 +149,7 @@ func parseWGConf(text string) (*wgConfigParsed, error) {
 	if cfg.MTU == 0 {
 		cfg.MTU = 1420
 	}
+	logUnsupportedAwgKeys(cfg)
 	return cfg, nil
 }
 
@@ -212,13 +214,70 @@ func resolveEndpoint(ep string) (string, error) {
 // awgKeyOrder returns the canonical emission order for AWG keys in
 // the UAPI string. IpcSet is order-tolerant but a fixed order makes
 // dumps deterministic across runs.
+//
+// IMPORTANT: this list MUST stay a subset of the keys
+// github.com/amnezia-vpn/amneziawg-go's device/uapi.go accepts in
+// its UAPISetDevice handler. Newer protocol-spec keys that aren't
+// in the vendored library version are silently dropped here —
+// emitting them anyway gets rejected at IpcSet with "invalid UAPI
+// device key: <key>" and aborts the whole tunnel bring-up.
+//
+// amneziawg-go v1.0.4 (current dep) supports:
+//   jc, jmin, jmax                 ← junk packet count + size range
+//   s1, s2                         ← per-message padding (s3, s4 NOT yet)
+//   h1, h2, h3, h4                 ← dynamic magic-header bytes
+//   i1, i2, i3, i4, i5             ← mimicry-packet blobs
+//   j1, j2, j3                     ← extra junk-message control
+//
+// s3 and s4 are part of the AWG spec but were observed missing
+// from amneziawg-go v1.0.4 device/uapi.go (case branches checked
+// 2026-05-13). Emitting them caused: "amneziawg.Up FAILED:
+// installtunnelservice failed: wgWindowsUpAwg failed: AWG IpcSet:
+// IPC error -22: invalid UAPI device key: s3". Drop until the
+// vendored library version catches up; logUnsupportedAwgKeys
+// (below) surfaces the silent drop so we know when a config has
+// them set.
 func awgKeyOrder() []string {
 	return []string{
 		"jc", "jmin", "jmax",
-		"s1", "s2", "s3", "s4",
+		"s1", "s2",
 		"h1", "h2", "h3", "h4",
 		"i1", "i2", "i3", "i4", "i5",
 		"j1", "j2", "j3",
+	}
+}
+
+// awgSupportedKeySet is the canonical lookup for whether a parsed
+// AwgKeys entry will be emitted to UAPI. Kept in sync with
+// awgKeyOrder so adding a new supported key is a one-line change.
+func awgSupportedKeySet() map[string]struct{} {
+	out := make(map[string]struct{}, len(awgKeyOrder()))
+	for _, k := range awgKeyOrder() {
+		out[k] = struct{}{}
+	}
+	return out
+}
+
+// logUnsupportedAwgKeys emits a single log line listing any AwgKeys
+// entries from the parsed conf that the current vendored
+// amneziawg-go version doesn't accept — they get dropped before
+// IpcSet so the tunnel bring-up doesn't abort. Surfaces the
+// silent-drop so future amneziawg-go bumps can re-enable them.
+func logUnsupportedAwgKeys(parsed *wgConfigParsed) {
+	if parsed == nil || len(parsed.AwgKeys) == 0 {
+		return
+	}
+	supported := awgSupportedKeySet()
+	var dropped []string
+	for k := range parsed.AwgKeys {
+		if _, ok := supported[k]; !ok {
+			dropped = append(dropped, k)
+		}
+	}
+	if len(dropped) > 0 {
+		log.Printf("AWG: dropping %d UAPI key(s) not supported by amneziawg-go v1.0.4: %v "+
+			"(handshake may use library defaults for these — bump dep to re-enable)",
+			len(dropped), dropped)
 	}
 }
 
