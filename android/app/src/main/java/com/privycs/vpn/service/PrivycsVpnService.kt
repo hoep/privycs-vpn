@@ -65,6 +65,27 @@ class PrivycsVpnService : VpnService() {
         // implementations' getStatus() is cheap enough that doubling
         // the call rate is invisible in CPU/battery profiles.
         private const val STATUS_POLL_INTERVAL_MS = 1000L
+
+        // Up-timeout verify-phase budget. After a protocol-specific
+        // connect() returns successfully we poll the tunnel for live
+        // traffic (rxBytes growth or localAddress assignment) up to
+        // this many ms before declaring the handshake silently dead
+        // and triggering failover. 20 s is a balance:
+        //   - too short → flaky-network false positives cycle through
+        //     every config in the connection's bag before any of them
+        //     gets a fair shot at completing a handshake
+        //   - too long → user stares at "Connecting…" for ages when
+        //     the first config really is dead and we should rotate
+        // Mirrors desktop's failoverWatchdog default. AWG/WG normally
+        // see a peer-response within 1-3 s on a healthy network;
+        // 20 s leaves room for slow cellular + retries.
+        private const val UP_TIMEOUT_MS = 20_000L
+
+        // Poll cadence inside the verify-phase. Cheaper than the
+        // lifetime status poller because it stops the moment we see
+        // any traffic. 500 ms picks up sub-second handshake responses
+        // without burning CPU on per-tick getStatus() calls.
+        private const val UP_VERIFY_POLL_MS = 500L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -1470,6 +1491,28 @@ class PrivycsVpnService : VpnService() {
                             VpnProtocol.OPENVPN -> connectOpenVpn(attemptContent)
                             VpnProtocol.IPSEC -> connectIpSec(attemptContent)
                         }
+                        // Up-timeout verify phase. The protocol-specific
+                        // connect() returns when the TUN fd is up and
+                        // the native side has accepted the config — NOT
+                        // when the handshake has completed and data is
+                        // flowing. For AWG specifically this is the
+                        // window where the server-side awg-magic-headers
+                        // negotiation happens; if our obfuscation block
+                        // is wrong or the server silently blackholes us,
+                        // we'd sit in "Connected" with zero traffic
+                        // forever (TunnelHealthMonitor would catch it
+                        // 3 minutes later via ICMP, but by then the user
+                        // has assumed the app is broken).
+                        //
+                        // Poll the active tunnel's status for up to
+                        // UP_TIMEOUT_MS. Success = any non-zero rxBytes
+                        // (some peer responded) OR localAddress set with
+                        // non-empty handshake. Failure throws a synthetic
+                        // exception that the surrounding catch picks up
+                        // and rotates to the next failover candidate —
+                        // mirrors desktop app.go:1085's "Up timed out,
+                        // trying failover" path.
+                        verifyTunnelTraffic(proto, label)
                         success = true
                         if (attemptConfigId.isNotEmpty() && attemptConfigId != originalConfigId) {
                             PrivycsLogger.i(
@@ -1553,6 +1596,67 @@ class PrivycsVpnService : VpnService() {
      * finish. This shows up to the user as a brief pause on protocol
      * switch, which is acceptable vs the broken-tunnel symptom.
      */
+    /**
+     * Poll the active tunnel for traffic-proof-of-life after a
+     * successful connect() return. Returns normally on success;
+     * throws UpTimeoutException when the verify budget is exhausted
+     * without seeing any rx data or localAddress assignment. The
+     * surrounding failover loop in handleConnect catches the throw
+     * and rotates to the next config candidate.
+     *
+     * Why polling rxBytes rather than e.g. peer.lastHandshake epoch:
+     * rxBytes is universally available on all four protocol tunnels
+     * (WG, AWG, OpenVPN, IPSec) and is the most direct signal that
+     * the remote actually replied. handshake-epoch is WG/AWG-only
+     * and exposed as a string in our VpnStatus; rxBytes covers
+     * every protocol the same way.
+     *
+     * localAddress assignment is the secondary signal — protocols
+     * that push an IP (OpenVPN, IPSec via IKE_AUTH) only assign
+     * AFTER the negotiation completes, so localAddress != "" is
+     * also proof the remote is reachable.
+     */
+    private class UpTimeoutException(msg: String) : RuntimeException(msg)
+
+    private suspend fun verifyTunnelTraffic(proto: VpnProtocol, label: String) {
+        val deadline = System.currentTimeMillis() + UP_TIMEOUT_MS
+        var lastRx = 0L
+        var checks = 0
+        while (System.currentTimeMillis() < deadline) {
+            delay(UP_VERIFY_POLL_MS)
+            checks++
+            val status = when (proto) {
+                VpnProtocol.WIREGUARD -> wireGuardTunnel?.getStatus(currentConnectionName, currentConnectionId)
+                VpnProtocol.AMNEZIAWG -> amneziaTunnel?.getStatus(currentConnectionName, currentConnectionId)
+                VpnProtocol.OPENVPN -> openVpnTunnel?.getStatus(currentConnectionName, currentConnectionId)
+                VpnProtocol.IPSEC -> ipSecTunnel?.getStatus(currentConnectionName, currentConnectionId)
+            } ?: continue
+            // Tunnel went away mid-verify — treat as failure so the
+            // failover loop can try the next config.
+            if (!status.connected) {
+                throw UpTimeoutException("verify[$label]: tunnel.connected=false after $checks polls")
+            }
+            // Strong signals — handshake complete + traffic flowing,
+            // or a server-pushed local address arrived (OpenVPN,
+            // IPSec). Either is "we're verified, hand back to the
+            // long-lived status poller".
+            if (status.rxBytes > 0 || status.localAddress.isNotBlank() ||
+                status.lastHandshake.isNotBlank() && status.lastHandshake != "0") {
+                PrivycsLogger.i(
+                    TAG,
+                    "verify[$label]: traffic confirmed after ${checks}× ${UP_VERIFY_POLL_MS}ms " +
+                        "(rx=${status.rxBytes} local=${status.localAddress} hs=${status.lastHandshake})",
+                )
+                return
+            }
+            lastRx = status.rxBytes
+        }
+        throw UpTimeoutException(
+            "verify[$label]: no traffic observed in ${UP_TIMEOUT_MS}ms " +
+                "(${checks}× polls, lastRx=$lastRx) — likely blackholed/handshake-stuck"
+        )
+    }
+
     private suspend fun teardownAllProtocols() {
         val hadSomething = wireGuardTunnel != null || amneziaTunnel != null ||
             openVpnTunnel != null || ipSecTunnel != null
