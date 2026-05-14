@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Compact Privycs VPN home-screen widget configuration (2x2).
+
+    Size:
+    - 2x2 cells = roughly 110x110dp on most launchers. Just enough
+      for the 120dp connect-button disc plus widget chrome.
+    - resizeMode=none — fixed size, no user-resize. The point of
+      the compact widget is "smallest possible toggle"; resizing
+      defeats the purpose.
+
+    previewImage:
+    - @drawable/ic_privycs_logo shows "this is a Privycs widget" in
+      the launcher's widget picker. Same as the main widget.
+
+    updatePeriodMillis = 0:
+    - Service-driven broadcast pushes updates whenever state changes,
+      identical to the main widget.
+
+    initialLayout:
+    - widget_vpn_compact.xml — only the connect button section.
+-->
+<appwidget-provider
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_vpn_compact"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:resizeMode="none"
+    android:updatePeriodMillis="0"
+    android:previewImage="@drawable/ic_privycs_logo"
+    android:widgetCategory="home_screen" />

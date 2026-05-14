@@ -106,22 +106,26 @@ class VpnWidget : AppWidgetProvider() {
             uptime: Long = 0L,
             variant: String = "",
         ) {
-            val intent = Intent(context, VpnWidget::class.java).apply {
-                action = ACTION_STATUS_CHANGED
-                // setPackage restricts delivery to receivers in our own
-                // app package. The intent is already explicit (targets
-                // VpnWidget::class.java) so other apps cannot intercept,
-                // but Aikido's pattern-matcher flags any sendBroadcast
-                // without setPackage as risky. Defense-in-depth +
-                // explicit-policy clarification. v0.9.14.10.
-                setPackage(context.packageName)
-                putExtra(EXTRA_CONNECTED, connected)
-                putExtra(EXTRA_CONNECTION_NAME, connectionName)
-                putExtra(EXTRA_PROTOCOL, protocol)
-                putExtra(EXTRA_UPTIME, uptime)
-                putExtra(EXTRA_VARIANT, variant)
+            // Fire ONE broadcast per registered widget class. We
+            // can't rely on a single targeted Intent because Android
+            // explicit-broadcast resolution honours the ComponentName
+            // and won't fan out to other receivers — even ones whose
+            // intent-filters match the action. Without this loop the
+            // compact 2x2 widget would never redraw on state change
+            // (only the 4x3 main widget would). setPackage stays as
+            // defense-in-depth (Aikido pattern-match).
+            for (cls in listOf(VpnWidget::class.java, VpnWidgetCompact::class.java)) {
+                val intent = Intent(context, cls).apply {
+                    action = ACTION_STATUS_CHANGED
+                    setPackage(context.packageName)
+                    putExtra(EXTRA_CONNECTED, connected)
+                    putExtra(EXTRA_CONNECTION_NAME, connectionName)
+                    putExtra(EXTRA_PROTOCOL, protocol)
+                    putExtra(EXTRA_UPTIME, uptime)
+                    putExtra(EXTRA_VARIANT, variant)
+                }
+                context.sendBroadcast(intent)
             }
-            context.sendBroadcast(intent)
         }
     }
 
@@ -482,19 +486,31 @@ class VpnWidget : AppWidgetProvider() {
                 .getActive()?.activeProtocol
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            // AWG mono icon, matches WG/OVPN/IPSec treatment.
-            // Standardised on the tintable mono variant after the
-            // ic_protocol_amneziawg_badge layer-list crashed Compose
-            // (v0.9.15.13). Widget's RemoteViews.setImageViewResource
-            // applies no tint by default, so the icon renders in its
-            // monochrome path color — analog WG.
-            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg
+            // AWG renders the mk16.de brand-mark SILHOUETTE (alpha-
+            // only mono PNG) tinted indigo via setColorFilter below,
+            // matching the in-app Connect-screen treatment from
+            // v0.9.15.18. The multi-colour ic_protocol_amneziawg PNG
+            // we briefly used (v0.9.15.18) renders its orange/teal/
+            // purple palette as-is in the widget because RemoteViews
+            // doesn't apply BlendMode.SrcIn — looks out of place
+            // next to WG/OVPN/IPSec which are vector drawables with
+            // baked-in brand colours.
+            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
             else -> R.drawable.ic_privycs_logo
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
+        // AWG silhouette tinting — applies the indigo brand colour
+        // to the alpha-only mono PNG. Cleared (TRANSPARENT = no
+        // tint, drawable renders as-is) for every other protocol so
+        // their vector drawables keep their baked-in colours.
+        if (displayProtocol == VpnProtocol.AMNEZIAWG && !killSwitchSinkhole) {
+            views.setInt(R.id.widget_button_icon, "setColorFilter", 0xFF6366F1.toInt())
+        } else {
+            views.setInt(R.id.widget_button_icon, "setColorFilter", 0)
+        }
 
         // --- Section 2: Status text + uptime (right column of the
         // v6 two-column header). Pre-v6 the single widget_uptime

@@ -538,14 +538,27 @@ class ConnectionRepository(private val context: Context) {
             // disconnected was the case the user reported as
             // "widget doesn't follow connect screen".
             try {
-                val intent = android.content.Intent(context, com.privycs.vpn.widget.VpnWidget::class.java).apply {
-                    action = android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE
-                    val ids = android.appwidget.AppWidgetManager.getInstance(context).getAppWidgetIds(
-                        android.content.ComponentName(context, com.privycs.vpn.widget.VpnWidget::class.java)
-                    )
-                    putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+                // Two widget classes registered as of v0.9.15.20: the
+                // 4x3 full VpnWidget and the 2x2 VpnWidgetCompact.
+                // Explicit-broadcast resolution honours ComponentName,
+                // so we fire one ACTION_APPWIDGET_UPDATE per class
+                // with the appropriate appWidgetIds list. Without
+                // the second broadcast the compact widget would stay
+                // frozen on the previous state until the next
+                // VpnServiceManager status push.
+                for (cls in listOf(
+                    com.privycs.vpn.widget.VpnWidget::class.java,
+                    com.privycs.vpn.widget.VpnWidgetCompact::class.java,
+                )) {
+                    val ids = android.appwidget.AppWidgetManager.getInstance(context)
+                        .getAppWidgetIds(android.content.ComponentName(context, cls))
+                    if (ids.isEmpty()) continue
+                    val intent = android.content.Intent(context, cls).apply {
+                        action = android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                        putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+                    }
+                    context.sendBroadcast(intent)
                 }
-                context.sendBroadcast(intent)
             } catch (_: Throwable) {
                 // Widget refresh is purely cosmetic — never let it
                 // break the registry save path.

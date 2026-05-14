@@ -121,7 +121,7 @@
             </intent-filter>
         </service>
 
-        <!-- Home Screen Widget -->
+        <!-- Home Screen Widget (4x3, full UI) -->
         <receiver
             android:name=".widget.VpnWidget"
             android:exported="true">
@@ -133,6 +133,24 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_vpn_info" />
+        </receiver>
+
+        <!-- Home Screen Widget (2x2, connect button only). The toggle
+             intent target is VpnWidget (not this receiver) so the
+             ACTION_TOGGLE handler stays centralised; this receiver
+             only listens for ACTION_APPWIDGET_UPDATE + the service-
+             broadcast STATUS_CHANGED so its on-screen instances
+             redraw alongside the main widget on state changes. -->
+        <receiver
+            android:name=".widget.VpnWidgetCompact"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.privycs.vpn.widget.STATUS_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_vpn_compact_info" />
         </receiver>
 
     </application>
