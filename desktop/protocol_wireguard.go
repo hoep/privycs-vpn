@@ -209,6 +209,22 @@ func (w *WireGuardProtocol) Configure(cfg []byte) error {
 	w.variant = DetectVariant(string(cfg))
 	log.Printf("WireGuard.Configure: variant=%s", w.variant)
 
+	// v0.9.15.28: variant-aware conf-file separation. AWG configs
+	// land in <name>-amneziawg.conf so they cannot clobber an
+	// existing vanilla <name>.conf on disk (same connection name
+	// can carry both protocols). Vanilla WG keeps its historical
+	// <name>.conf path so the Windows tunnel-service name
+	// (WireGuardTunnel$<name>) stays stable across releases.
+	// ifaceName is decoupled below — both variants share the same
+	// interface identity since only one tunnel per connection is
+	// ever up at a time.
+	if w.variant == VariantAmnezia {
+		base := strings.TrimSuffix(w.confPath, ".conf")
+		if !strings.HasSuffix(base, "-amneziawg") {
+			w.confPath = base + "-amneziawg.conf"
+		}
+	}
+
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(w.confPath), 0700); err != nil {
 		log.Printf("WireGuard.Configure: MkdirAll FAILED: %v", err)
@@ -222,10 +238,15 @@ func (w *WireGuardProtocol) Configure(cfg []byte) error {
 	}
 	log.Printf("WireGuard.Configure: WriteFile ok")
 
-	// Derive interface name from config filename — this determines the
-	// Windows service name (WireGuardTunnel$<ifaceName>) and the
-	// Linux/macOS wg-quick interface name.
-	w.ifaceName = strings.TrimSuffix(filepath.Base(w.confPath), ".conf")
+	// Derive interface name from config filename with the variant
+	// suffix STRIPPED — this determines the Windows tunnel-service
+	// name (WireGuardTunnel$<ifaceName>), the wintun adapter name
+	// for in-process AWG, and the Linux/macOS wg-quick interface
+	// name. Same name regardless of variant so a connection's
+	// identity stays stable across protocol switches.
+	base := strings.TrimSuffix(filepath.Base(w.confPath), ".conf")
+	base = strings.TrimSuffix(base, "-amneziawg")
+	w.ifaceName = base
 
 	// Parse config for status display
 	w.parseConfFile(string(cfg))
