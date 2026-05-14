@@ -127,6 +127,21 @@ func runHelperEntrypoint() {
 	log.SetFlags(log.Ldate | log.Ltime)
 	log.Println("Privycs VPN helper starting under Windows SCM")
 
+	// Ensure the firewall rule for the AWG-tunnel UDP bind exists.
+	// installHelperWindows() registers this at install time, but
+	// the Windows installer typically replaces the binary and
+	// restarts the service without re-running our install path —
+	// so a fresh upgrade from an older Privycs VPN version arrives
+	// with no rule and AWG tunnels hang in START_PENDING. Calling
+	// it from the helper-service entrypoint makes the rule self-
+	// healing: every helper restart checks and (idempotently)
+	// re-creates the rule.
+	if exePath, exeErr := os.Executable(); exeErr == nil {
+		if err := installAWGFirewallRule(exePath); err != nil {
+			log.Printf("helper startup: firewall rule ensure failed: %v", err)
+		}
+	}
+
 	helper := NewPrivilegedHelper()
 	runner := &privycsVPNService{helper: helper}
 	if err := svc.Run("PrivycsVPNHelper", runner); err != nil {
