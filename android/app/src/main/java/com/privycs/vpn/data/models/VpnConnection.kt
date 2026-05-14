@@ -292,15 +292,16 @@ data class AppSettings(
     // internal target (Pi-hole, gateway).
     @SerialName("tunnel_health_target")
     val tunnelHealthTarget: String = "",
-    // v0.9.15.30: settings-driven probe cadence. Defaults match
-    // TunnelHealthMonitor.PING_INTERVAL_MS / DEAD_THRESHOLD
-    // (5 s × 2 = max 10 s detection). 0 = use the built-in
-    // default. Persisted in settings.json + included in
-    // backup/restore via SerialName.
+    // v0.9.15.30: settings-driven probe cadence. v0.9.15.36 bumped
+    // 5s→10s and 2→3 (30 s detection ceiling) — see
+    // TunnelHealthMonitor.PING_INTERVAL_MS / DEAD_THRESHOLD comment
+    // for the rationale (NAT-keepalive race, halved probe traffic).
+    // 0 = use the built-in default. Persisted in settings.json +
+    // included in backup/restore via SerialName.
     @SerialName("tunnel_health_ping_interval_sec")
-    val tunnelHealthPingIntervalSec: Int = 5,
+    val tunnelHealthPingIntervalSec: Int = 10,
     @SerialName("tunnel_health_dead_threshold")
-    val tunnelHealthDeadThreshold: Int = 2,
+    val tunnelHealthDeadThreshold: Int = 3,
     // v0.9.14.75 — opt-in foreground-keepalive for on-demand
     // reaction in standby. When true AND connectOnDemand.enabled,
     // PrivycsApp starts PrivycsVpnService with ACTION_START_MONITOR

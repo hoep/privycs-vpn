@@ -74,21 +74,33 @@ func wgWindowsUpAwg(ifaceName, configContent string) error {
 	}
 	log.Printf("wgWindowsUpAwg[%s]: Wintun adapter created, applying AWG UAPI", ifaceName)
 
+	log.Printf("wgWindowsUpAwg[%s]: TRACE buildUAPIAwgWin start", ifaceName)
 	uapi, err := buildUAPIAwgWin(cfg)
 	if err != nil {
 		tunDev.Close()
 		return fmt.Errorf("build AWG UAPI: %w", err)
 	}
-	logger := awgdevice.NewLogger(awgdevice.LogLevelError, fmt.Sprintf("[awg-%s] ", ifaceName))
+	log.Printf("wgWindowsUpAwg[%s]: TRACE buildUAPIAwgWin done (uapi=%d bytes), NewDevice start", ifaceName, len(uapi))
+	// Verbose logger so amneziawg-go's internal bind/handshake/peer
+	// resolution prints into the per-service log. Without this an
+	// internal hang (e.g. DNS resolve, dual-stack UDP bind, peer
+	// endpoint reject) is invisible — process appears to "freeze"
+	// between our log.Printf calls. Verbose is fine for diagnostics
+	// even in production; volume is low compared to amneziawg-go's
+	// receive path.
+	logger := awgdevice.NewLogger(awgdevice.LogLevelVerbose, fmt.Sprintf("[awg-%s] ", ifaceName))
 	dev := awgdevice.NewDevice(tunDev, awgconn.NewDefaultBind(), logger)
+	log.Printf("wgWindowsUpAwg[%s]: TRACE NewDevice done, IpcSet start", ifaceName)
 	if err := dev.IpcSet(uapi); err != nil {
 		dev.Close()
 		return fmt.Errorf("AWG IpcSet: %w", err)
 	}
+	log.Printf("wgWindowsUpAwg[%s]: TRACE IpcSet done, dev.Up start", ifaceName)
 	if err := dev.Up(); err != nil {
 		dev.Close()
 		return fmt.Errorf("AWG device.Up: %w", err)
 	}
+	log.Printf("wgWindowsUpAwg[%s]: TRACE dev.Up done, configuring netsh addresses", ifaceName)
 
 	state := &awgWindowsTunnelState{
 		dev:    dev,

@@ -1,6 +1,7 @@
 package com.privycs.vpn.service
 
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.util.AlwaysOnDetector
 import com.privycs.vpn.util.ConnectCoordinator
 import com.privycs.vpn.util.PrivycsLogger
 import kotlinx.coroutines.CoroutineScope
@@ -56,9 +57,15 @@ object TunnelHealthMonitor {
     // transient ICMP drop on flaky mobile from triggering a
     // spurious failover. 12 probes/min ≈ 1 KB/min ≈ 1.4 MB/day,
     // negligible data; battery ≈ +2-3 % over the 20 s baseline.
-    private const val PING_INTERVAL_MS = 5_000L
+    // Defaults bumped 5s→10s and 2→3 (v0.9.15.36). Aggressive
+    // 5×2 surfaced false-positives on flaky mobile NAT-rebind: a
+    // single mid-cycle ICMP drop pair triggered teardown +
+    // recovery within 10 s. 10×3 = 30 s ceiling matches the
+    // typical NAT-keepalive grace before a re-handshake, and
+    // halves the probe traffic.
+    private const val PING_INTERVAL_MS = 10_000L
     private const val PING_TIMEOUT_S = 2L
-    private const val DEAD_THRESHOLD = 2
+    private const val DEAD_THRESHOLD = 3
     // Recovery grace: after firing disconnect, the next ping cycle
     // would happen 60s later anyway, but we add an extra 30s so the
     // disconnect + reconnect lifecycle has time to settle before
@@ -181,6 +188,32 @@ object TunnelHealthMonitor {
 
     private suspend fun triggerRecovery() {
         val context = PrivycsApp.instance.applicationContext
+
+        // GATE 1 (v0.9.15.36): never auto-recover a user-initiated
+        // tunnel. If the user tapped Connect themselves they get to
+        // tap Disconnect themselves too — silent reconnect after
+        // tunnel death is automatic-mode-only behaviour. Source is
+        // preserved through Connecting → Connected in
+        // ConnectCoordinator.markConnected.
+        val currentState = ConnectCoordinator.state.value
+        if (currentState is ConnectCoordinator.State.Connected &&
+            currentState.source == ConnectCoordinator.IntentSource.USER) {
+            PrivycsLogger.i(TAG, "recovery: skip — current tunnel is USER-initiated, not auto-recovering")
+            _state.value = State.DEGRADED
+            return
+        }
+
+        // GATE 2 (v0.9.15.36): if the user just manually disconnected
+        // (cooldown stamp from VpnServiceManager.disconnect), skip.
+        // Belt-and-braces with GATE 1: covers the race window where
+        // user taps disconnect WHILE we are inside this function and
+        // state has already transitioned past Connected.
+        if (AlwaysOnDetector.wasRecentlyManuallyDisconnected(context, 30_000L)) {
+            PrivycsLogger.i(TAG, "recovery: skip — manual disconnect within 30s cooldown")
+            _state.value = State.DEGRADED
+            return
+        }
+
         try {
             // USER source so the disconnect respects the same
             // Coordinator gates as a manual tap. Note: it does NOT

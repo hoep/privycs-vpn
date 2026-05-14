@@ -99,6 +99,14 @@ func runAWGTunnelService(confPath, ifaceName string) {
 	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
 	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
 		log.SetOutput(f)
+		// Redirect stderr + stdout to the same file so Go runtime
+		// panic stacktraces (which bypass the log package) and any
+		// fmt.Print from inside amneziawg-go land in the per-service
+		// log instead of vanishing. Under SCM stderr is normally
+		// detached — without this redirect a goroutine panic shows
+		// up to us as ERROR_PROCESS_ABORTED (1067) with no trace.
+		os.Stderr = f
+		os.Stdout = f
 	}
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.Printf("awg-tunnel-service[%s]: starting (conf=%s)", ifaceName, confPath)

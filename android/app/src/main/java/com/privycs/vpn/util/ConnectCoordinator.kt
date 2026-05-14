@@ -92,6 +92,14 @@ object ConnectCoordinator {
         data class Connected(
             val sinceMs: Long,
             val connectionId: String,
+            // Source preserved through Connecting → Connected so the
+            // health-monitor and failover paths can gate auto-recovery
+            // on "was this a user-initiated connect?" — without this
+            // the manual-disconnect-triggers-failover bug surfaces:
+            // manual disconnect lacks a way to declare "and don't
+            // auto-reconnect either", because nothing downstream
+            // knows we were in manual mode.
+            val source: IntentSource = IntentSource.USER,
         ) : State()
         data class Disconnecting(val sinceMs: Long) : State()
     }
@@ -431,7 +439,13 @@ object ConnectCoordinator {
     suspend fun markConnected(connectionId: String) {
         mutex.withLock {
             PrivycsLogger.i(TAG, "markConnected: $connectionId")
-            _state.value = State.Connected(System.currentTimeMillis(), connectionId)
+            // Carry the source forward from Connecting so downstream
+            // (TunnelHealthMonitor recovery) can decide whether to
+            // auto-recover on tunnel death. Default USER if we got
+            // here without a prior Connecting (defensive — shouldn't
+            // happen but won't crash).
+            val carriedSource = (_state.value as? State.Connecting)?.source ?: IntentSource.USER
+            _state.value = State.Connected(System.currentTimeMillis(), connectionId, carriedSource)
             cancelWatchdog()
         }
     }
