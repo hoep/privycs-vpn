@@ -73,6 +73,29 @@ class NetworkMonitor private constructor(private val context: Context) {
          */
         private const val MANUAL_DISCONNECT_COOLDOWN_MS = 30_000L
 
+        /**
+         * Short cooldown applied AFTER an on-demand-triggered
+         * disconnect to suppress an immediate same-source reconnect.
+         * Bridges the SSID-cache-clear-during-teardown race: while
+         * the VPN tunnel is being torn down, Android fires a series
+         * of NetworkCapabilities events (VPN transport going away,
+         * underlying physical transport reappearing). One of those
+         * events can flip networkType transiently, which clears
+         * lastResolvedSsid (see line 421). The next evaluate() then
+         * has ssid="" + ssidMode="except", which the legacy COD
+         * logic defaults to shouldConnect=true ("Cannot determine
+         * SSID, connecting"). That fires a reconnect we just
+         * disconnected from — loop until the SSID stabilises.
+         *
+         * 5 s is enough for: teardown (~2 s) + Network-Capabilities
+         * settle (~1-2 s) + buffer. If the rule still says
+         * "disconnect" after the cooldown, no reconnect happens.
+         * If the user genuinely moved networks during those 5 s,
+         * the next callback after the cooldown picks up the new
+         * SSID correctly.
+         */
+        private const val ON_DEMAND_DISCONNECT_COOLDOWN_MS = 5_000L
+
         @Volatile
         private var instance: NetworkMonitor? = null
 
@@ -604,6 +627,27 @@ class NetworkMonitor private constructor(private val context: Context) {
                     return@launch
                 }
 
+                // On-demand-disconnect cooldown (v0.9.15.24). After
+                // we ourselves fired a rule-triggered disconnect,
+                // suppress the next on-demand reconnect for a few
+                // seconds so the teardown's transient
+                // NetworkCapabilities events don't flip the SSID
+                // cache and re-trigger via the "Cannot determine
+                // SSID, connecting" fallback. See
+                // AlwaysOnDetector.stampOnDemandDisconnect for the
+                // full loop pattern.
+                if (com.privycs.vpn.util.AlwaysOnDetector
+                        .wasRecentlyOnDemandDisconnected(
+                            context, ON_DEMAND_DISCONNECT_COOLDOWN_MS
+                        )
+                ) {
+                    PrivycsLogger.i(
+                        TAG,
+                        "on-demand reconnect suppressed: on-demand disconnect within ${ON_DEMAND_DISCONNECT_COOLDOWN_MS / 1000}s cooldown — waiting for SSID stabilisation"
+                    )
+                    return@launch
+                }
+
                 // Pool-active wins. When the user's active selection
                 // is a Pool we have explicitly cleared
                 // connectionRepository.activeId (so the Connect
@@ -678,6 +722,10 @@ class NetworkMonitor private constructor(private val context: Context) {
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
                 )
                 PrivycsLogger.i(TAG, "on-demand disconnect requested ($ruleMatch) -> $r")
+                // Stamp the on-demand-disconnect so the connect-side
+                // gate above suppresses the immediate reconnect from
+                // the teardown's transient NetworkCapabilities events.
+                com.privycs.vpn.util.AlwaysOnDetector.stampOnDemandDisconnect(context)
             } else if (transitioned) {
                 PrivycsLogger.d(TAG, "Rules transitioned but already in desired state: $ruleMatch")
             }
@@ -822,6 +870,9 @@ class NetworkMonitor private constructor(private val context: Context) {
                         context,
                         com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
                     )
+                    // Same cooldown stamp as the legacy COD disconnect
+                    // branch — see line 691 / ON_DEMAND_DISCONNECT_COOLDOWN_MS.
+                    com.privycs.vpn.util.AlwaysOnDetector.stampOnDemandDisconnect(context)
                 }
             }
             is com.privycs.vpn.data.models.RuleResolution.Pool -> {

@@ -281,11 +281,31 @@ class PrivycsApp : StrongSwanApplication() {
                 // ACTION_START_MONITOR so PrivycsVpnService comes up
                 // as a foreground service (without a tunnel) and the
                 // NetworkMonitor + system NetworkCallback survive
-                // Doze. Default is OFF so this branch is a no-op for
-                // users who didn't opt in. The service is idempotent
-                // — if a tunnel is already up we skip the monitor-
-                // mode notification and let the connection one stay.
-                if (s.keepMonitorAlive) {
+                // Doze. The service is idempotent — if a tunnel is
+                // already up we skip the monitor-mode notification
+                // and let the connection one stay.
+                //
+                // v0.9.15.24: gate now auto-fires when COD is on,
+                // not just when the user explicitly opted in via
+                // keepMonitorAlive. Reason: Doze blocks both the
+                // runtime NetworkCallback (in-process) AND the
+                // PendingIntent-based CodWakeReceiver (Manifest
+                // broadcast) — both delivery paths are deferred to
+                // the next maintenance window (~15 min). Only a
+                // running foreground service is reliably exempt
+                // from Doze, which lets WiFi-change events reach
+                // NetworkMonitor real-time. User-reported symptom:
+                // "phone joins except-list WiFi while in Doze, VPN
+                // stays connected, only disconnects on wake."
+                // Treating COD-on as implicit consent to a
+                // persistent notification is the trade-off for
+                // reliable rule reaction in standby.
+                //
+                // keepMonitorAlive setting is preserved for users
+                // who want the FGS even WITHOUT COD (rare, but
+                // valid for tunnel-health monitoring outside the
+                // rule-trigger context).
+                if (s.keepMonitorAlive || s.connectOnDemand.enabled) {
                     try {
                         val intent = android.content.Intent(
                             applicationContext,

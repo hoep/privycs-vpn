@@ -33,6 +33,7 @@ object AlwaysOnDetector {
 
     private const val PREF_NAME = "privycs_always_on"
     private const val KEY_LAST_USER_DISCONNECT = "last_user_disconnect_ms"
+    private const val KEY_LAST_ONDEMAND_DISCONNECT = "last_ondemand_disconnect_ms"
     private const val KEY_DETECTED = "always_on_detected"
     private const val KEY_PAUSE_UNTIL = "pause_until_ms"
     private const val KEY_LAST_SYSTEM_REVOKE = "last_system_revoke_ms"
@@ -91,6 +92,39 @@ object AlwaysOnDetector {
         val lastUserDc = prefs.getLong(KEY_LAST_USER_DISCONNECT, 0L)
         if (lastUserDc <= 0L) return false
         return (System.currentTimeMillis() - lastUserDc) < cooldownMs
+    }
+
+    /**
+     * Stamp the time NetworkMonitor fired a Connect-on-Demand
+     * triggered disconnect. Used by [wasRecentlyOnDemandDisconnected]
+     * to suppress an immediate on-demand reconnect during the
+     * teardown window where transient NetworkCapabilities events
+     * (VPN-transport going away + underlying transport reappearing)
+     * can briefly clear the SSID cache. With an empty SSID +
+     * ssidMode=except the legacy COD logic defaults to
+     * shouldConnect=true ("Cannot determine SSID, connecting") —
+     * which then fires a reconnect, which the user only manually
+     * disconnected via the rule a second ago. Loop. The cooldown
+     * is short (5 s) so a legitimate "different WiFi" event isn't
+     * suppressed for long.
+     */
+    fun stampOnDemandDisconnect(ctx: Context) {
+        ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_LAST_ONDEMAND_DISCONNECT, System.currentTimeMillis())
+            .apply()
+    }
+
+    /**
+     * True if an on-demand-triggered disconnect fired within the
+     * last [cooldownMs] ms. See [stampOnDemandDisconnect] for the
+     * loop pattern this gate prevents.
+     */
+    fun wasRecentlyOnDemandDisconnected(ctx: Context, cooldownMs: Long): Boolean {
+        val prefs = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val lastOdDc = prefs.getLong(KEY_LAST_ONDEMAND_DISCONNECT, 0L)
+        if (lastOdDc <= 0L) return false
+        return (System.currentTimeMillis() - lastOdDc) < cooldownMs
     }
 
     /**

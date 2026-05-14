@@ -471,6 +471,40 @@ fun SettingsScreen(
                             if (enabled) {
                                 networkMonitor.start()
                                 networkMonitor.reevaluate()
+                                // v0.9.15.24 — auto-FGS for standby
+                                // reaction. See PrivycsApp.onCreate's
+                                // gate (same logic).
+                                try {
+                                    val intent = android.content.Intent(
+                                        context,
+                                        com.privycs.vpn.service.PrivycsVpnService::class.java,
+                                    ).apply {
+                                        action = com.privycs.vpn.service.PrivycsVpnService.ACTION_START_MONITOR
+                                    }
+                                    androidx.core.content.ContextCompat.startForegroundService(context, intent)
+                                } catch (_: Throwable) { /* best-effort */ }
+
+                                // v0.9.15.24 — battery-optimization
+                                // exemption prompt. FGS alone is NOT
+                                // enough for Doze-resistant WiFi-event
+                                // delivery; the app also has to be on
+                                // the OS's battery-optimization-
+                                // exemption list. Empirically confirmed:
+                                // user reported keepMonitorAlive=true
+                                // (FGS running) AND COD still missed
+                                // WiFi joins during Doze. Only the
+                                // battery-opt exemption fixes it.
+                                // Single per-package system dialog,
+                                // user grants or denies, OS persists.
+                                if (!com.privycs.vpn.util.BatteryOptimizationHelper
+                                        .isIgnoringBatteryOptimizations(context)
+                                ) {
+                                    val act = context as? android.app.Activity
+                                    if (act != null) {
+                                        com.privycs.vpn.util.BatteryOptimizationHelper
+                                            .openBatteryOptimizationDialog(act)
+                                    }
+                                }
                             } else {
                                 networkMonitor.stop()
                                 // Tear the tunnel down when the user turns

@@ -10,6 +10,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Required for reliable Connect-on-Demand reaction in Doze /
+         App Standby (v0.9.15.24). Without battery-optimization
+         exemption Android defers our NetworkCallback delivery to
+         the next ~15 min maintenance window, so WiFi changes that
+         should trigger VPN connect/disconnect don't fire until the
+         user wakes the device. The exemption is a Google Play
+         acceptable use case for VPN apps with auto-connect rules.
+         User must grant via the system dialog (we prompt from
+         SettingsScreen when COD is enabled). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Pool rotation scheduler uses setExactAndAllowWhileIdle.
          SCHEDULE_EXACT_ALARM is the user-revocable variant available

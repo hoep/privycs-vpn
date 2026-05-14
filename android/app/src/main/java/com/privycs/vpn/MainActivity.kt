@@ -120,6 +120,31 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
+
+                    // v0.9.15.24 — one-time battery-optimization
+                    // exemption prompt for users who had COD enabled
+                    // BEFORE this version (where the prompt was first
+                    // added to the toggle handler). Fires only when:
+                    //   - COD is currently enabled
+                    //   - we're NOT already on the exemption list
+                    //   - first-launch dialog is already done so we
+                    //     don't stack two system dialogs back-to-back
+                    // The system dialog itself is single-shot per
+                    // launch (user grants once, OS persists). Re-
+                    // checking on every app start in case the user
+                    // later denied or the OS auto-revoked.
+                    LaunchedEffect(
+                        settings.firstLaunchCompleted,
+                        settings.connectOnDemand.enabled,
+                    ) {
+                        if (!settings.firstLaunchCompleted) return@LaunchedEffect
+                        if (!settings.connectOnDemand.enabled) return@LaunchedEffect
+                        if (com.privycs.vpn.util.BatteryOptimizationHelper
+                                .isIgnoringBatteryOptimizations(this@MainActivity)
+                        ) return@LaunchedEffect
+                        com.privycs.vpn.util.BatteryOptimizationHelper
+                            .openBatteryOptimizationDialog(this@MainActivity)
+                    }
                 }
             }
         }

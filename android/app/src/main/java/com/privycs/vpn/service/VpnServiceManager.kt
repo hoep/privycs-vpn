@@ -402,6 +402,20 @@ class VpnServiceManager private constructor(private val context: Context) {
         if (current == connectionId) return false
 
         val wasConnected = isConnected
+        // Pool ↔ single mutual exclusion (v0.9.15.24 fix). switchActivePool
+        // already clears connectionRepo.setActive(""), but the inverse
+        // was missing — switching FROM a pool TO a single connection
+        // left poolRepo.activeId set, violating the
+        // "never both set simultaneously" invariant from CLAUDE.md.
+        // User-visible: Connect screen rendered the pool indicator
+        // banner at the top alongside the single connection card,
+        // and pill-row stayed on the pool's protocol set instead of
+        // updating to the picked connection's. Clear pool here so
+        // both StateFlows emit consistent values to the UI.
+        val poolRepo = com.privycs.vpn.PrivycsApp.instance.poolRepository
+        if (poolRepo.registry.value.activeId.isNotEmpty()) {
+            scope.launch { poolRepo.setActiveId("") }
+        }
         connectionRepo.setActive(connectionId)
         refreshStatus()
 
