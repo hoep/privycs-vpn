@@ -1491,28 +1491,33 @@ class PrivycsVpnService : VpnService() {
                             VpnProtocol.OPENVPN -> connectOpenVpn(attemptContent)
                             VpnProtocol.IPSEC -> connectIpSec(attemptContent)
                         }
-                        // Up-timeout verify phase. The protocol-specific
-                        // connect() returns when the TUN fd is up and
-                        // the native side has accepted the config — NOT
-                        // when the handshake has completed and data is
-                        // flowing. For AWG specifically this is the
-                        // window where the server-side awg-magic-headers
-                        // negotiation happens; if our obfuscation block
-                        // is wrong or the server silently blackholes us,
-                        // we'd sit in "Connected" with zero traffic
-                        // forever (TunnelHealthMonitor would catch it
-                        // 3 minutes later via ICMP, but by then the user
-                        // has assumed the app is broken).
+                        // v0.9.15.33: verifyTunnelTraffic runs OUTSIDE
+                        // the surrounding tunnelMutex.withLock. The lock
+                        // protects singleton mutation (currentProtocol,
+                        // wireGuardTunnel = …) — verify is read-only
+                        // polling that holds the lock for up to 20 s
+                        // and DEADLOCKS subsequent handleDisconnect
+                        // attempts (user-reported "pill-switch leaves
+                        // tunnel up, Android-VPN-key icon stays" — log
+                        // confirms handleDisconnect blocked at withLock,
+                        // WG keepalive routines run forever).
                         //
-                        // Poll the active tunnel's status for up to
-                        // UP_TIMEOUT_MS. Success = any non-zero rxBytes
-                        // (some peer responded) OR localAddress set with
-                        // non-empty handshake. Failure throws a synthetic
-                        // exception that the surrounding catch picks up
-                        // and rotates to the next failover candidate —
-                        // mirrors desktop app.go:1085's "Up timed out,
-                        // trying failover" path.
-                        verifyTunnelTraffic(proto, label)
+                        // Release the lock around verify, re-acquire if
+                        // we need to mutate state again. The tunnel
+                        // singletons are stable references during verify
+                        // (we just set them above and won't change them
+                        // until either success or teardown-on-failure).
+                        tunnelMutex.unlock()
+                        val verifyOk = try {
+                            verifyTunnelTraffic(proto, label)
+                            true
+                        } catch (verifyErr: Throwable) {
+                            tunnelMutex.lock()
+                            throw verifyErr
+                        }
+                        if (verifyOk) {
+                            tunnelMutex.lock()
+                        }
                         success = true
                         if (attemptConfigId.isNotEmpty() && attemptConfigId != originalConfigId) {
                             PrivycsLogger.i(
@@ -2174,35 +2179,78 @@ class PrivycsVpnService : VpnService() {
             // See `tunnelMutex` doc on the class for the failure
             // mode this prevents.
             tunnelMutex.withLock {
+                // v0.9.15.33: ALWAYS tear down every tunnel singleton
+                // unconditionally, ignoring currentProtocol. Pre-this
+                // change the `when (currentProtocol)` branched to only
+                // ONE tunnel — if pill-switch / boot-respawn / earlier
+                // failed-connect had left a sibling singleton non-null
+                // (or a separate VPN-service like CharonVpnService /
+                // OpenVPNService alive in its own process), that
+                // leftover survived the disconnect and Android kept
+                // showing the VPN-active key icon. The previous
+                // currentProtocol-only branch was a performance
+                // micro-optimisation that bought nothing once the
+                // tunnel.disconnect() calls are individually
+                // null-safe (each `?.disconnect()` no-ops on a null
+                // singleton). Worth the audit-cleanliness.
                 try {
-                    when (currentProtocol) {
-                        VpnProtocol.WIREGUARD -> {
-                            wireGuardTunnel?.disconnect()
-                            wireGuardTunnel = null
+                    PrivycsLogger.i(
+                        TAG,
+                        "handleDisconnect: nuclear teardown — " +
+                            "wg=${wireGuardTunnel != null} " +
+                            "awg=${amneziaTunnel != null} " +
+                            "ovpn=${openVpnTunnel != null} " +
+                            "ipsec=${ipSecTunnel != null} " +
+                            "currentProtocol=$currentProtocol",
+                    )
+                    try { wireGuardTunnel?.disconnect() } catch (e: Exception) {
+                        PrivycsLogger.w(TAG, "WG disconnect: ${e.message}")
+                    }
+                    wireGuardTunnel = null
+                    try { amneziaTunnel?.disconnect() } catch (e: Exception) {
+                        PrivycsLogger.w(TAG, "AWG disconnect: ${e.message}")
+                    }
+                    amneziaTunnel = null
+                    try { openVpnTunnel?.disconnect() } catch (e: Exception) {
+                        PrivycsLogger.w(TAG, "OpenVPN disconnect: ${e.message}")
+                    }
+                    openVpnTunnel = null
+                    try { ipSecTunnel?.disconnect() } catch (e: Exception) {
+                        PrivycsLogger.w(TAG, "IPSec disconnect: ${e.message}")
+                    }
+                    ipSecTunnel = null
+
+                    // Belt-and-braces: explicit stop intents to the
+                    // SEPARATE-process VPN services (CharonVpnService,
+                    // OpenVPNService). If either was started by a path
+                    // outside our tunnel-singleton tracking (boot
+                    // respawn, COD intent, prior session) its tun fd
+                    // would otherwise keep Android's VPN-icon active
+                    // independent of our PrivycsVpnService lifecycle.
+                    try {
+                        val charonStop = Intent(
+                            this@PrivycsVpnService,
+                            org.strongswan.android.logic.CharonVpnService::class.java,
+                        ).apply {
+                            action = org.strongswan.android.logic
+                                .CharonVpnService.DISCONNECT_ACTION
                         }
-                        VpnProtocol.AMNEZIAWG -> {
-                            amneziaTunnel?.disconnect()
-                            amneziaTunnel = null
+                        startService(charonStop)
+                    } catch (e: Exception) {
+                        PrivycsLogger.w(TAG, "CharonVpnService stop intent: ${e.message}")
+                    }
+                    try {
+                        de.blinkt.openvpn.core.VpnStatus.removeStateListener(null)
+                        val openvpnStop = Intent(
+                            this@PrivycsVpnService,
+                            de.blinkt.openvpn.core.OpenVPNService::class.java,
+                        ).apply {
+                            action = de.blinkt.openvpn.core
+                                .OpenVPNService.PAUSE_VPN
                         }
-                        VpnProtocol.OPENVPN -> {
-                            openVpnTunnel?.disconnect()
-                            openVpnTunnel = null
-                        }
-                        VpnProtocol.IPSEC -> {
-                            ipSecTunnel?.disconnect()
-                            ipSecTunnel = null
-                        }
-                        null -> {
-                            // Disconnect all in case protocol is unknown
-                            wireGuardTunnel?.disconnect()
-                            wireGuardTunnel = null
-                            amneziaTunnel?.disconnect()
-                            amneziaTunnel = null
-                            openVpnTunnel?.disconnect()
-                            openVpnTunnel = null
-                            ipSecTunnel?.disconnect()
-                            ipSecTunnel = null
-                        }
+                        stopService(openvpnStop)
+                    } catch (e: Exception) {
+                        PrivycsLogger.w(TAG, "OpenVPNService stop intent: ${e.message}")
                     }
                 } catch (e: Exception) {
                     PrivycsLogger.e(TAG, "Error during disconnect", e)
