@@ -1491,33 +1491,33 @@ class PrivycsVpnService : VpnService() {
                             VpnProtocol.OPENVPN -> connectOpenVpn(attemptContent)
                             VpnProtocol.IPSEC -> connectIpSec(attemptContent)
                         }
-                        // v0.9.15.33: verifyTunnelTraffic runs OUTSIDE
-                        // the surrounding tunnelMutex.withLock. The lock
-                        // protects singleton mutation (currentProtocol,
-                        // wireGuardTunnel = …) — verify is read-only
-                        // polling that holds the lock for up to 20 s
-                        // and DEADLOCKS subsequent handleDisconnect
-                        // attempts (user-reported "pill-switch leaves
-                        // tunnel up, Android-VPN-key icon stays" — log
-                        // confirms handleDisconnect blocked at withLock,
-                        // WG keepalive routines run forever).
+                        // v0.9.15.41: verifyTunnelTraffic-Block AUSKOMMENTIERT.
+                        // Hintergrund: User-Test bestätigt dass pill-switch
+                        // (AWG → WG) auf v0.9.15.19 noch funktionierte und
+                        // seitdem broken ist. Diff zwischen den beiden
+                        // Tags zeigt diesen Verify-Block (eingeführt in
+                        // v0.9.15.20) als heißesten Regression-Kandidaten:
+                        // er hält den Connect-Pfad bis zu 20 s blockierend
+                        // bevor er als "stuck" wahrgenommen wird.
                         //
-                        // Release the lock around verify, re-acquire if
-                        // we need to mutate state again. The tunnel
-                        // singletons are stable references during verify
-                        // (we just set them above and won't change them
-                        // until either success or teardown-on-failure).
-                        tunnelMutex.unlock()
-                        val verifyOk = try {
-                            verifyTunnelTraffic(proto, label)
-                            true
-                        } catch (verifyErr: Throwable) {
-                            tunnelMutex.lock()
-                            throw verifyErr
-                        }
-                        if (verifyOk) {
-                            tunnelMutex.lock()
-                        }
+                        // Statt zu löschen lassen wir den Block hier
+                        // stehen — die Health-Monitor-Recovery (10s ping)
+                        // fängt silent-fail-Tunnel sowieso nach connect.
+                        // Falls wir den Verify-Phase wieder brauchen,
+                        // einfach uncomment und ggf. auf source==USER
+                        // gaten (USER skip, automatic-mode keep).
+                        //
+                        // tunnelMutex.unlock()
+                        // val verifyOk = try {
+                        //     verifyTunnelTraffic(proto, label)
+                        //     true
+                        // } catch (verifyErr: Throwable) {
+                        //     tunnelMutex.lock()
+                        //     throw verifyErr
+                        // }
+                        // if (verifyOk) {
+                        //     tunnelMutex.lock()
+                        // }
                         success = true
                         if (attemptConfigId.isNotEmpty() && attemptConfigId != originalConfigId) {
                             PrivycsLogger.i(
