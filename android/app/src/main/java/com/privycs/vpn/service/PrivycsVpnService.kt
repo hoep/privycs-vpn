@@ -2240,14 +2240,14 @@ class PrivycsVpnService : VpnService() {
                         PrivycsLogger.w(TAG, "CharonVpnService stop intent: ${e.message}")
                     }
                     try {
-                        de.blinkt.openvpn.core.VpnStatus.removeStateListener(null)
                         val openvpnStop = Intent(
                             this@PrivycsVpnService,
                             de.blinkt.openvpn.core.OpenVPNService::class.java,
                         ).apply {
                             action = de.blinkt.openvpn.core
-                                .OpenVPNService.PAUSE_VPN
+                                .OpenVPNService.DISCONNECT_VPN
                         }
+                        startService(openvpnStop)
                         stopService(openvpnStop)
                     } catch (e: Exception) {
                         PrivycsLogger.w(TAG, "OpenVPNService stop intent: ${e.message}")

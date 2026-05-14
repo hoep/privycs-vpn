@@ -325,6 +325,19 @@ func isHelperInstalledMacOS() bool {
 
 const windowsServiceName = "PrivycsVPNHelper"
 
+// windowsFirewallRuleName is the Windows Firewall rule that allows
+// the helper binary (and its PrivycsAWGTunnel$* child services) to
+// bind UDP under LocalSystem. Without it amneziawg-go's UDP
+// listener silently fails the bind in the per-tunnel service
+// process and the process exits with code 1067 (ERROR_PROCESS_
+// ABORTED, no stacktrace in the per-service log). Vanilla WG on
+// Windows is unaffected because the official WireGuard MSI
+// installer registers its own firewall rule for wireguard.exe;
+// AmneziaWG ships no Windows tunnel-service binary, so we embed
+// amneziawg-go in privycs-vpn.exe and register the equivalent
+// rule ourselves.
+const windowsFirewallRuleName = "Privycs VPN"
+
 func installHelperWindows() error {
 	exePath, err := getHelperBinaryPath()
 	if err != nil {
@@ -354,6 +367,14 @@ func installHelperWindows() error {
 		}
 	}
 
+	// Register the firewall rule before starting the service so
+	// it is in place by the time any AWG-tunnel child service
+	// tries its UDP bind. Failure here is logged but not fatal —
+	// vanilla WG still works without it.
+	if err := installAWGFirewallRule(exePath); err != nil {
+		log.Printf("Helper install: firewall rule registration failed: %v (AmneziaWG tunnels may fail to bind UDP)", err)
+	}
+
 	// Start the service
 	startCmd := execHidden("sc", "start", windowsServiceName)
 	startCmd.CombinedOutput()
@@ -370,8 +391,43 @@ func uninstallHelperWindows() error {
 	if err != nil {
 		return fmt.Errorf("failed to delete Windows service: %s: %w", string(out), err)
 	}
+	uninstallAWGFirewallRule()
 	log.Println("Helper Windows service uninstalled")
 	return nil
+}
+
+// installAWGFirewallRule registers an inbound UDP allow rule
+// anchored to the helper binary path. See windowsFirewallRuleName
+// for why. Idempotent: deletes any prior rule with the same name
+// first so re-installs don't accumulate duplicates.
+func installAWGFirewallRule(exePath string) error {
+	execHidden("netsh", "advfirewall", "firewall", "delete", "rule",
+		"name="+windowsFirewallRuleName,
+	).Run()
+
+	cmd := execHidden("netsh", "advfirewall", "firewall", "add", "rule",
+		"name="+windowsFirewallRuleName,
+		"dir=in",
+		"action=allow",
+		"program="+exePath,
+		"protocol=udp",
+		"profile=any",
+		"enable=yes",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("netsh add rule: %s: %w", string(out), err)
+	}
+	log.Printf("Helper install: firewall rule %q registered for %s", windowsFirewallRuleName, exePath)
+	return nil
+}
+
+// uninstallAWGFirewallRule removes the firewall rule installed by
+// installAWGFirewallRule. Best-effort: errors are ignored because
+// uninstall should proceed even if the rule was already gone.
+func uninstallAWGFirewallRule() {
+	execHidden("netsh", "advfirewall", "firewall", "delete", "rule",
+		"name="+windowsFirewallRuleName,
+	).Run()
 }
 
 func isHelperInstalledWindows() bool {
