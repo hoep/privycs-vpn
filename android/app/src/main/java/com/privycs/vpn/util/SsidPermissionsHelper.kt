@@ -66,12 +66,26 @@ object SsidPermissionsHelper {
     fun isLocationServicesEnabled(context: Context): Boolean {
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             ?: return false
-        return try {
-            lm.isLocationEnabled
-        } catch (_: Throwable) {
-            // Pre-API-28 fallback: probe individual providers.
-            lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-                lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        // Explicit SDK_INT gate so the lint check sees the API-28
+        // call is properly guarded — try/catch alone passes
+        // runtime but fails Android Lint's NewApi rule.
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                lm.isLocationEnabled
+            } catch (_: Throwable) {
+                false
+            }
+        } else {
+            // Pre-API-28 (API 26-27): probe individual providers.
+            // Android-O minSdk path. Wrapped in try/catch because
+            // isProviderEnabled can throw IllegalArgumentException
+            // on some manufacturer ROMs that strip a provider.
+            try {
+                lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                    lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            } catch (_: Throwable) {
+                false
+            }
         }
     }
 
