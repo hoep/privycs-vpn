@@ -521,31 +521,41 @@ class VpnWidget : AppWidgetProvider() {
         // State-driven icon tint, mirrors ConnectScreen's connect-
         // button (ConnectScreen.kt:1032-1033):
         //   connected    -> Color.White
-        //   disconnected -> onSurfaceVariant grey (#5F6368 here,
-        //                   matches widget_text_secondary AND the
-        //                   disconnected ring's outline colour so
-        //                   the empty-ring icon looks unified)
+        //   disconnected -> light grey #B5B5B5. v0.9.15.29 bumped
+        //                   from too-dark #5F6368 which made the
+        //                   icon nearly invisible on the
+        //                   transparent disconnected ring — the
+        //                   app's onSurfaceVariant in dark theme
+        //                   renders much lighter than #5F6368.
+        //                   #B5B5B5 stays readable against the 2dp
+        //                   outline-stroke disconnected circle.
         //   sinkhole     -> no tint; the kill-switch drawable is
         //                   already self-coloured white on red.
         val iconTint: Int = when {
             killSwitchSinkhole -> 0
             connected -> 0xFFFFFFFF.toInt()
-            else -> 0xFF5F6368.toInt()
+            else -> 0xFFB5B5B5.toInt()
         }
         views.setInt(R.id.widget_button_icon, "setColorFilter", iconTint)
 
-        // --- Section 2: Status text + uptime (right column of the
-        // v6 two-column header). Pre-v6 the single widget_uptime
-        // TextView did duty for both: it showed either the uptime
-        // clock OR the "Disconnected" / "Kill Switch Active"
-        // status text. v6 splits them: widget_status_text is
-        // always-visible label, widget_uptime is the clock and
-        // hides when disconnected. ---
+        // --- Section 2: status text (inside button) + uptime (right
+        // column). v0.9.15.29 moved the "Connected"/"Connect"/"Kill
+        // Switch Active" label from the right column into the
+        // widget_button itself (widget_button_label), matching the
+        // in-app ConnectButton's label-below-icon. widget_status_text
+        // is kept in XML for ID-compatibility but the layout hides
+        // it. ---
         val statusLabel = when {
             killSwitchSinkhole -> context.getString(R.string.widget_status_kill_switch_active)
             connected -> context.getString(R.string.widget_status_connected)
             else -> context.getString(R.string.widget_status_disconnected)
         }
+        views.setViewVisibility(R.id.widget_button_label, android.view.View.VISIBLE)
+        views.setTextViewText(R.id.widget_button_label, statusLabel)
+        views.setTextColor(R.id.widget_button_label, iconTint.takeIf { it != 0 } ?: 0xFFFFFFFFL.toInt())
+        // Right-column duplicate kept hidden — see XML for the
+        // rationale. The text is still set so any future code reading
+        // widget_status_text gets a sensible value.
         views.setTextViewText(R.id.widget_status_text, statusLabel)
         views.setTextColor(R.id.widget_status_text, statusColor)
 

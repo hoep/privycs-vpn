@@ -131,13 +131,25 @@ class VpnWidgetCompact : AppWidgetProvider() {
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
         // Icon tint mirrors ConnectScreen.kt:1032-1033 (see VpnWidget
-        // for the full comment).
+        // for the full comment). v0.9.15.29 bumped disconnected from
+        // #5F6368 to #B5B5B5 for visibility.
         val iconTint: Int = when {
             killSwitchSinkhole -> 0
             connected -> 0xFFFFFFFF.toInt()
-            else -> 0xFF5F6368.toInt()
+            else -> 0xFFB5B5B5.toInt()
         }
         views.setInt(R.id.widget_button_icon, "setColorFilter", iconTint)
+
+        // v0.9.15.29: Status-Label inside the button, mirroring the
+        // in-app ConnectButton + the 4×3 widget.
+        val statusLabel = when {
+            killSwitchSinkhole -> context.getString(R.string.widget_status_kill_switch_active)
+            connected -> context.getString(R.string.widget_status_connected)
+            else -> context.getString(R.string.widget_status_disconnected)
+        }
+        views.setViewVisibility(R.id.widget_button_label, android.view.View.VISIBLE)
+        views.setTextViewText(R.id.widget_button_label, statusLabel)
+        views.setTextColor(R.id.widget_button_label, iconTint.takeIf { it != 0 } ?: 0xFFFFFFFFL.toInt())
 
         // ---- Click targets ----
         // Body tap (everywhere on the widget) opens the main app.

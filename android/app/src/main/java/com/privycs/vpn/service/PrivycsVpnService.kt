@@ -1622,6 +1622,19 @@ class PrivycsVpnService : VpnService() {
         val deadline = System.currentTimeMillis() + UP_TIMEOUT_MS
         var lastRx = 0L
         var checks = 0
+        // v0.9.15.29: track whether we ever saw connected=true. Only
+        // after that initial UP transition does a subsequent
+        // connected=false indicate a real mid-verify disconnect.
+        // The pre-v0.9.15.29 logic threw UpTimeoutException on the
+        // FIRST !status.connected reading — which killed every IPSec
+        // connect attempt mid-IKE because IKE_SA + CHILD_SA
+        // negotiation takes ~10-30s and tunnel.connected stays false
+        // throughout. The pill-switch user-test path then declared
+        // IPSec failed after just 1× 500ms poll, fell over to the
+        // next protocol slot, and landed on the wrong-peer AWG
+        // config (sGRJ .1 instead of 88QO .2) which the user saw
+        // as "tunnel kommt nicht hoch / falsche IP".
+        var sawConnected = false
         while (System.currentTimeMillis() < deadline) {
             delay(UP_VERIFY_POLL_MS)
             checks++
@@ -1631,10 +1644,13 @@ class PrivycsVpnService : VpnService() {
                 VpnProtocol.OPENVPN -> openVpnTunnel?.getStatus(currentConnectionName, currentConnectionId)
                 VpnProtocol.IPSEC -> ipSecTunnel?.getStatus(currentConnectionName, currentConnectionId)
             } ?: continue
-            // Tunnel went away mid-verify — treat as failure so the
-            // failover loop can try the next config.
-            if (!status.connected) {
-                throw UpTimeoutException("verify[$label]: tunnel.connected=false after $checks polls")
+            if (status.connected) {
+                sawConnected = true
+            } else if (sawConnected) {
+                // Was up, then went away — real mid-verify drop.
+                throw UpTimeoutException(
+                    "verify[$label]: tunnel dropped after initial connect (checks=$checks)"
+                )
             }
             // Strong signals — handshake complete + traffic flowing,
             // or a server-pushed local address arrived (OpenVPN,
@@ -1653,7 +1669,7 @@ class PrivycsVpnService : VpnService() {
         }
         throw UpTimeoutException(
             "verify[$label]: no traffic observed in ${UP_TIMEOUT_MS}ms " +
-                "(${checks}× polls, lastRx=$lastRx) — likely blackholed/handshake-stuck"
+                "(${checks}× polls, lastRx=$lastRx, sawConnected=$sawConnected) — likely blackholed/handshake-stuck"
         )
     }
 

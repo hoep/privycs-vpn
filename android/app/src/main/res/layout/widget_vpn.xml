@@ -99,34 +99,38 @@
                 android:contentDescription="@string/widget_description"
                 android:adjustViewBounds="true" />
 
-            <!-- Icon centered inside the circle. Removed the inline
-                 "Connected" label that v5 had in the disc — with the
-                 smaller 96dp disc the label cramped the icon. The
-                 status text now lives in the right column where it
-                 has room to breathe. -->
-            <ImageView
-                android:id="@+id/widget_button_icon"
+            <!-- v0.9.15.29: Icon + Status-Label vertically stacked
+                 inside the circle, matching the in-app ConnectButton
+                 (ConnectScreen.kt:1008-1080). The icon sits slightly
+                 above center, "Connected" / "Connect" label sits
+                 right below. Both tinted state-driven from
+                 VpnWidget.kt. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:layout_gravity="center"
-                android:padding="22dp"
-                android:src="@drawable/ic_protocol_wireguard"
-                android:scaleType="fitCenter"
-                android:contentDescription="@null" />
+                android:gravity="center"
+                android:orientation="vertical">
 
-            <!-- Hidden in v6: button_label moved to widget_status_text
-                 in the right column. Kept in XML so VpnWidget.kt's
-                 setViewVisibility / setTextViewText calls still
-                 resolve without code-side cleanup. -->
-            <TextView
-                android:id="@+id/widget_button_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:visibility="gone"
-                android:text="@string/widget_status_disconnected"
-                android:textSize="11sp"
-                android:textColor="#FFFFFFFF"
-                android:singleLine="true" />
+                <ImageView
+                    android:id="@+id/widget_button_icon"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/ic_protocol_wireguard"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+
+                <TextView
+                    android:id="@+id/widget_button_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/widget_status_disconnected"
+                    android:textSize="10sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="#FFFFFFFF"
+                    android:singleLine="true" />
+            </LinearLayout>
         </FrameLayout>
 
         <!-- Right column: status / uptime / connection-name dropdown -->
@@ -137,15 +141,18 @@
             android:layout_marginStart="12dp"
             android:orientation="vertical">
 
-            <!-- Status text (Connected / Disconnected / Kill Switch
-                 Active). v6 splits this out of widget_uptime so the
-                 right column has a clear "label + value" reading
-                 order: label = status, value = uptime, then the
-                 connection name dropdown. -->
+            <!-- v0.9.15.29: status text moved INSIDE the
+                 widget_button (as widget_button_label), matching
+                 the in-app ConnectButton's label-below-icon. This
+                 view is kept in XML for ID-compatibility — code
+                 still calls setTextViewText/setViewVisibility on
+                 it — but visibility=gone hides it from the layout
+                 so the right column starts with the uptime clock. -->
             <TextView
                 android:id="@+id/widget_status_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:visibility="gone"
                 android:text="@string/widget_status_disconnected"
                 android:textSize="12sp"
                 android:textColor="@color/widget_text_secondary"

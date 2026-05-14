@@ -443,6 +443,23 @@ object ConnectCoordinator {
      */
     suspend fun markDisconnected() {
         mutex.withLock {
+            val current = _state.value
+            // v0.9.15.29: ignore spurious markDisconnected while we
+            // are still in Connecting. OpenVpnTunnel's status-listener
+            // fires an immediate "NOPROCESS / DISCONNECTED" replay
+            // when the listener is registered BEFORE the openvpn
+            // process is launched — that's a pre-connect notification,
+            // not an actual disconnect. Without this guard the
+            // state machine flipped to Idle in the middle of a
+            // Pill-Switch connect and the subsequent markConnected
+            // got into a confused state where activeProtocol never
+            // propagated and the UI kept showing the previous
+            // protocol. Real connect failures are still caught by
+            // the watchdog timeout that fires from requestConnect.
+            if (current is State.Connecting) {
+                PrivycsLogger.w(TAG, "markDisconnected ignored — state=Connecting (likely spurious init-state replay)")
+                return@withLock
+            }
             PrivycsLogger.i(TAG, "markDisconnected")
             _state.value = State.Idle
             cancelWatchdog()

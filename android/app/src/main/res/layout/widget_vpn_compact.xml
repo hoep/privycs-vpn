@@ -57,14 +57,33 @@
             android:contentDescription="@string/widget_description"
             android:adjustViewBounds="true" />
 
-        <ImageView
-            android:id="@+id/widget_button_icon"
+        <!-- v0.9.15.29: Icon + Status-Label vertically stacked,
+             matching the in-app ConnectButton + the 4x3 widget. -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_gravity="center"
-            android:padding="28dp"
-            android:src="@drawable/ic_protocol_wireguard"
-            android:scaleType="fitCenter"
-            android:contentDescription="@null" />
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/widget_button_icon"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/ic_protocol_wireguard"
+                android:scaleType="fitCenter"
+                android:contentDescription="@null" />
+
+            <TextView
+                android:id="@+id/widget_button_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/widget_status_disconnected"
+                android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="#FFFFFFFF"
+                android:singleLine="true" />
+        </LinearLayout>
     </FrameLayout>
 </LinearLayout>

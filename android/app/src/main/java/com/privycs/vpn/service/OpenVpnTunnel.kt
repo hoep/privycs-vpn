@@ -91,6 +91,18 @@ class OpenVpnTunnel(private val context: Context) {
      *  forward status into VpnServiceManager + update the notification. */
     var onStateChanged: ((State) -> Unit)? = null
 
+    // v0.9.15.29: suppress the synchronous "current state" replay that
+    // ics-openvpn's VpnStatus.addStateListener fires on attach. ics
+    // sits at LEVEL_NOTCONNECTED until startOpenVpn launches the
+    // native process, so the replay always comes in as DISCONNECTED
+    // and used to fire onStateChanged → VpnServiceManager →
+    // ConnectCoordinator.markDisconnected DURING the Connecting
+    // phase, kicking the state machine to Idle right after the user
+    // tapped an OpenVPN pill. ConnectCoordinator now guards the
+    // same case (defence in depth), but suppressing here is cleaner.
+    @Volatile
+    private var suppressInitialDisconnectedReplay = false
+
     // VpnStatus listeners. We keep references so we can deregister on
     // disconnect - otherwise they leak across reconnects and we'd see stale
     // state from the previous session bleed into the next.
@@ -104,6 +116,20 @@ class OpenVpnTunnel(private val context: Context) {
         ) {
             val newState = mapLevel(level)
             if (newState != null && newState != state) {
+                if (suppressInitialDisconnectedReplay &&
+                    (newState == State.DISCONNECTED || newState == State.FAILED) &&
+                    state == State.CONNECTING
+                ) {
+                    PrivycsLogger.i(
+                        TAG,
+                        "Suppressing initial replay: $stateName level=$level -> $newState (we're still CONNECTING)"
+                    )
+                    return
+                }
+                // First non-DISCONNECTED post-attach state clears the
+                // suppression flag — from here on, real DISCONNECTED
+                // transitions (auth failure, network drop) propagate.
+                suppressInitialDisconnectedReplay = false
                 PrivycsLogger.i(
                     TAG,
                     "state=$stateName level=$level -> $newState (msg=${logmessage ?: "-"})"
@@ -268,9 +294,12 @@ class OpenVpnTunnel(private val context: Context) {
 
         // Attach listeners BEFORE startOpenVpn so we don't miss the first
         // LEVEL_START callback. addStateListener fires the current state
-        // synchronously on attach, so stale state from a previous run would
-        // flood in here - clearing via clearVpnStatus() below resets the
-        // singletons to LEVEL_NOTCONNECTED.
+        // synchronously on attach — that synchronous replay is what we
+        // suppress via suppressInitialDisconnectedReplay so the
+        // LEVEL_NOTCONNECTED singleton state from ics-openvpn doesn't
+        // get propagated as a markDisconnected during our Connecting
+        // phase.
+        suppressInitialDisconnectedReplay = true
         OvpnVpnStatus.initLogCache(context.cacheDir)
         OvpnVpnStatus.addStateListener(stateListener)
         OvpnVpnStatus.addByteCountListener(byteCountListener)

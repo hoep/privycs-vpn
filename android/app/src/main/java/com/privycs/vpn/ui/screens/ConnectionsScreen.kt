@@ -435,10 +435,14 @@ fun ConnectionsScreen(
                                 val configContent = client.fetchConfig(entry.protocol, entry.id)
                                 client.close()
 
+                                // v0.9.15.x: filename includes the gateway-side
+                                // config id — see AddConnectionScreen for the
+                                // full rationale (same peerName + different
+                                // server-side interface → was overwriting).
                                 val filename = when (entry.protocol) {
-                                    "wireguard", "amneziawg" -> "${entry.peerName}.conf"
-                                    "openvpn" -> "${entry.peerName}.ovpn"
-                                    else -> "${entry.peerName}.conf"
+                                    "wireguard", "amneziawg" -> "${entry.peerName}-${entry.id}.conf"
+                                    "openvpn" -> "${entry.peerName}-${entry.id}.ovpn"
+                                    else -> "${entry.peerName}-${entry.id}.conf"
                                 }
 
                                 val protocolConfig = ConfigParser.buildProtocolConfig(configContent, filename)

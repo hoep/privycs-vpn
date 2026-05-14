@@ -232,12 +232,20 @@ func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName st
 	}
 	log.Printf("DownloadAndImportConfig: fetched %d bytes, calling ImportConfig", len(configContent))
 
-	filename := fmt.Sprintf("%s.conf", peerName)
+	// v0.9.15.x: filename includes the gateway-side configID so two
+	// configs with the same peerName but different gateway IDs
+	// (e.g. one peer reachable via wgShield1, another with the same
+	// display name via wgShield2) don't collide on the
+	// (protocol, filename) match in connection_registry.AddOrUpdate
+	// and overwrite each other. The configID is gateway-unique per
+	// protocol so re-downloading the SAME config still yields the
+	// same filename → refresh-in-place stays correct.
+	filename := fmt.Sprintf("%s-%d.conf", peerName, configID)
 	switch protocol {
 	case "openvpn":
-		filename = fmt.Sprintf("%s.ovpn", peerName)
+		filename = fmt.Sprintf("%s-%d.ovpn", peerName, configID)
 	case "ipsec":
-		filename = fmt.Sprintf("%s.sswan", peerName)
+		filename = fmt.Sprintf("%s-%d.sswan", peerName, configID)
 	}
 
 	// Empty name when adding to existing connection — don't rename

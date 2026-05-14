@@ -368,11 +368,22 @@ fun AddConnectionScreen(
                                 val configContent = client.fetchConfig(entry.protocol, entry.id)
                                 client.close()
 
+                                // v0.9.15.x: filename includes the gateway-side
+                                // config id so two configs with the same
+                                // peerName but different gateway ids (e.g. one
+                                // peer reachable via wgShield1, another with
+                                // the same display name via wgShield2) don't
+                                // collide on the (protocol, filename) match in
+                                // ConnectionRepository.addOrUpdate and overwrite
+                                // each other. The id is gateway-unique per
+                                // protocol so re-downloading the same config
+                                // still yields the same filename → refresh-in-
+                                // place stays correct.
                                 val filename = when (entry.protocol) {
-                                    "wireguard", "amneziawg" -> "${entry.peerName}.conf"
-                                    "openvpn" -> "${entry.peerName}.ovpn"
-                                    "ipsec" -> "${entry.peerName}.sswan"
-                                    else -> "${entry.peerName}.conf"
+                                    "wireguard", "amneziawg" -> "${entry.peerName}-${entry.id}.conf"
+                                    "openvpn" -> "${entry.peerName}-${entry.id}.ovpn"
+                                    "ipsec" -> "${entry.peerName}-${entry.id}.sswan"
+                                    else -> "${entry.peerName}-${entry.id}.conf"
                                 }
 
                                 val protocolConfig = ConfigParser.buildProtocolConfig(configContent, filename)
