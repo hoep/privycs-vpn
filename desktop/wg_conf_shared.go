@@ -222,25 +222,33 @@ func resolveEndpoint(ep string) (string, error) {
 // emitting them anyway gets rejected at IpcSet with "invalid UAPI
 // device key: <key>" and aborts the whole tunnel bring-up.
 //
-// amneziawg-go v1.0.4 (current dep) supports:
+// amneziawg-go v0.2.18 (current dep, what `@master` resolves to —
+// the v1.0.x tag series is abandoned/retracted upstream) supports:
 //   jc, jmin, jmax                 ← junk packet count + size range
-//   s1, s2                         ← per-message padding (s3, s4 NOT yet)
+//   s1, s2, s3, s4                 ← per-message padding sizes
 //   h1, h2, h3, h4                 ← dynamic magic-header bytes
 //   i1, i2, i3, i4, i5             ← mimicry-packet blobs
 //   j1, j2, j3                     ← extra junk-message control
 //
-// s3 and s4 are part of the AWG spec but were observed missing
-// from amneziawg-go v1.0.4 device/uapi.go (case branches checked
-// 2026-05-13). Emitting them caused: "amneziawg.Up FAILED:
-// installtunnelservice failed: wgWindowsUpAwg failed: AWG IpcSet:
-// IPC error -22: invalid UAPI device key: s3". Drop until the
-// vendored library version catches up; logUnsupportedAwgKeys
-// (below) surfaces the silent drop so we know when a config has
-// them set.
+// History: v1.0.4 lacked s3, s4 → v0.9.15.19 had to filter them
+// out, which caused the user-reported "AWG tunnel comes up
+// locally but server blackholes all traffic" symptom: server
+// expected its full s3/s4 padding profile, our handshake omitted
+// them, server DPI/handshake validation failed silently. Bumping
+// to v0.2.18 restores the full obfuscation key set including a
+// very recent 2026-05-13 upstream fix that applies S4 transport
+// padding to keepalive packets — important for not having the
+// tunnel drop dead during idle periods.
+//
+// logUnsupportedAwgKeys (below) stays as a drift-detection log
+// for the case where a future server emits a key our then-current
+// amneziawg-go version doesn't yet understand. Should normally be
+// silent on every parse now that the supported set matches the
+// upstream spec.
 func awgKeyOrder() []string {
 	return []string{
 		"jc", "jmin", "jmax",
-		"s1", "s2",
+		"s1", "s2", "s3", "s4",
 		"h1", "h2", "h3", "h4",
 		"i1", "i2", "i3", "i4", "i5",
 		"j1", "j2", "j3",
