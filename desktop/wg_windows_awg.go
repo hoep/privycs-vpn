@@ -223,36 +223,45 @@ func wgWindowsUpAwg(ifaceName, configContent string) error {
 	}
 
 	if len(cfg.DNS) > 0 {
-		// We set DNS directly on the wintun adapter — wg-quick on
-		// Windows does the same via `netsh interface ipv4 set
-		// dnsservers name=<iface> static <ip> primary`. The previous
-		// DNS state on OTHER adapters is not touched (those keep
-		// their own DHCP-derived servers); when the wintun adapter
-		// is destroyed in wgWindowsDownAwg, its DNS entries are
-		// destroyed with it.
-		v4dns, v6dns := splitDNSByFamily(cfg.DNS)
-		for i, ip := range v4dns {
-			args := []string{"interface", "ipv4", "set", "dnsservers"}
-			if i == 0 {
-				args = append(args, fmt.Sprintf("name=%s", ifaceName), "source=static", fmt.Sprintf("addr=%s", ip), "register=primary", "validate=no")
-			} else {
-				args = []string{"interface", "ipv4", "add", "dnsservers", fmt.Sprintf("name=%s", ifaceName), fmt.Sprintf("addr=%s", ip), fmt.Sprintf("index=%d", i+1), "validate=no"}
+		// v0.9.15.40: migrate DNS configuration from netsh subprocess
+		// to winipcfg.LUID.SetDNS — what the official amneziawg-
+		// windows and wireguard-windows clients do. Reason: netsh
+		// "interface ipv4 set dnsservers" against a freshly-created
+		// Wintun adapter triggers a Windows IP-interface-changed
+		// notification which the amneziawg-go bind's underlying
+		// socket monitor reacts to by rebinding/closing — that's
+		// what we saw in the v0.9.15.39 trace: handshake completes,
+		// "configuring DNS" log fires, then "Routine: sequential
+		// sender - stopped" within milliseconds → process exits
+		// (after which the status pipe vanishes and the helper's
+		// polls return "file not found"). winipcfg.SetDNS uses the
+		// IP Helper API directly without firing the disruptive
+		// notification cascade.
+		var v4Servers, v6Servers []netip.Addr
+		for _, raw := range cfg.DNS {
+			addr, err := netip.ParseAddr(raw)
+			if err != nil {
+				log.Printf("wgWindowsUpAwg[%s]: skip invalid DNS %q: %v", ifaceName, raw, err)
+				continue
 			}
-			if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
-				log.Printf("wgWindowsUpAwg[%s]: set dns %s warning: %v: %s", ifaceName, ip, err, strings.TrimSpace(string(out)))
+			if addr.Is4() {
+				v4Servers = append(v4Servers, addr)
+			} else {
+				v6Servers = append(v6Servers, addr)
 			}
 		}
-		for i, ip := range v6dns {
-			args := []string{"interface", "ipv6", "set", "dnsservers"}
-			if i == 0 {
-				args = append(args, fmt.Sprintf("name=%s", ifaceName), "source=static", fmt.Sprintf("addr=%s", ip), "register=primary", "validate=no")
-			} else {
-				args = []string{"interface", "ipv6", "add", "dnsservers", fmt.Sprintf("name=%s", ifaceName), fmt.Sprintf("addr=%s", ip), fmt.Sprintf("index=%d", i+1), "validate=no"}
-			}
-			if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
-				log.Printf("wgWindowsUpAwg[%s]: set dns6 %s warning: %v: %s", ifaceName, ip, err, strings.TrimSpace(string(out)))
+		log.Printf("wgWindowsUpAwg[%s]: TRACE SetDNS v4=%d v6=%d", ifaceName, len(v4Servers), len(v6Servers))
+		if len(v4Servers) > 0 {
+			if err := luid.SetDNS(windows.AF_INET, v4Servers, nil); err != nil {
+				log.Printf("wgWindowsUpAwg[%s]: SetDNS v4 warning: %v", ifaceName, err)
 			}
 		}
+		if len(v6Servers) > 0 {
+			if err := luid.SetDNS(windows.AF_INET6, v6Servers, nil); err != nil {
+				log.Printf("wgWindowsUpAwg[%s]: SetDNS v6 warning: %v", ifaceName, err)
+			}
+		}
+		log.Printf("wgWindowsUpAwg[%s]: TRACE SetDNS done", ifaceName)
 	}
 
 	awgWinTunnelsMu.Lock()

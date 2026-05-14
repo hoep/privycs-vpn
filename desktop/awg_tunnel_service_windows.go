@@ -242,7 +242,20 @@ func (s *awgServiceState) bringDown() {
 // the per-tunnel trace log).
 func (s *awgServiceState) serveStatusPipe() {
 	pipePath := awgTunnelPipePrefix + s.ifaceName
-	ln, err := winio.ListenPipe(pipePath, nil)
+	// v0.9.15.40: explicit SecurityDescriptor allowing SYSTEM and
+	// Builtin Administrators full pipe access. Without it go-winio
+	// uses an empty SD which on some Windows configurations falls
+	// back to a restrictive per-creator ACL. The helper (running as
+	// LocalSystem) was getting "file not found" on every DialPipe
+	// even while this listener was active — symptom matches a SD
+	// access-denied silently translated to ENOENT by Windows. The
+	// SDDL form below grants Generic All to S-1-5-18 (LocalSystem)
+	// and S-1-5-32-544 (Builtin Administrators) — same accessor
+	// set the official wireguard-windows IPC uses.
+	pipeCfg := &winio.PipeConfig{
+		SecurityDescriptor: "D:P(A;;GA;;;SY)(A;;GA;;;BA)",
+	}
+	ln, err := winio.ListenPipe(pipePath, pipeCfg)
 	if err != nil {
 		log.Printf("awg-tunnel-service[%s]: pipe listen failed: %v", s.ifaceName, err)
 		return
