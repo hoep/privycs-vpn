@@ -154,6 +154,22 @@ func (h *awgServiceHandler) Execute(args []string, r <-chan svc.ChangeRequest, c
 		tunnelDown: make(chan struct{}),
 	}
 
+	// v0.9.15.39: open the status pipe BEFORE bringUp. Rationale:
+	// the helper polls the pipe at ~25 Hz from the moment the
+	// install-service RPC returns, and expects to get *some*
+	// response (even "tunnel not yet up") within ~30 s. If bringUp
+	// hangs (we have seen netsh interface ipv4 set address freeze
+	// on freshly-created Wintun adapters because the OS hasn't
+	// fully registered the adapter in netsh's user-mode namespace
+	// yet) the pipe was previously never opened, every helper
+	// poll returned "file not found", and the app gave up and
+	// failed over to vanilla WG. With the listener up-front,
+	// queryAWGTunnelService can answer "not ready" rather than
+	// "service unreachable" — gives the app time to observe a
+	// successful bring-up rather than racing against the netsh
+	// stalls.
+	go h.state.serveStatusPipe()
+
 	// Bring up the AWG tunnel. If this fails, abort the service
 	// with a non-zero exit code so SCM marks it stopped.
 	if err := h.state.bringUp(); err != nil {
@@ -161,9 +177,6 @@ func (h *awgServiceHandler) Execute(args []string, r <-chan svc.ChangeRequest, c
 		changes <- svc.Status{State: svc.Stopped}
 		return false, 1
 	}
-
-	// Start the status-pipe server in the background.
-	go h.state.serveStatusPipe()
 
 	const accepts = svc.AcceptStop | svc.AcceptShutdown
 	changes <- svc.Status{State: svc.Running, Accepts: accepts}

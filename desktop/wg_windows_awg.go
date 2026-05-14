@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,8 @@ import (
 	awgconn "github.com/amnezia-vpn/amneziawg-go/conn"
 	awgdevice "github.com/amnezia-vpn/amneziawg-go/device"
 	awgtun "github.com/amnezia-vpn/amneziawg-go/tun"
+	"golang.org/x/sys/windows"
+	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )
 
 // In-process AmneziaWG tunnel for Windows — Stage 4 of
@@ -108,109 +111,115 @@ func wgWindowsUpAwg(ifaceName, configContent string) error {
 		iface:  ifaceName,
 	}
 
+	// v0.9.15.39: switch from netsh subprocess to winipcfg direct-
+	// Win32-API for address + route + metric configuration. This is
+	// what the official amneziawg-windows / wireguard-windows clients
+	// do. Reason: netsh.exe has a race where calls against a freshly-
+	// created Wintun adapter hang or fail with "adapter not found"
+	// because the OS hasn't propagated the adapter into netsh's user-
+	// mode namespace yet. winipcfg uses the Win32 IP Helper API
+	// (iphlpapi.dll) directly against the adapter LUID — bypasses
+	// netsh's namespace caching entirely.
+	nativeTun, ok := tunDev.(*awgtun.NativeTun)
+	if !ok {
+		awgWinRollbackUp(state)
+		return fmt.Errorf("AWG tun is unexpected type %T (want *awgtun.NativeTun)", tunDev)
+	}
+	luid := winipcfg.LUID(nativeTun.LUID())
+
+	var v4Prefixes, v6Prefixes []netip.Prefix
 	for _, addr := range cfg.Addresses {
-		ip, ipnet, err := net.ParseCIDR(addr)
+		pfx, err := netip.ParsePrefix(addr)
 		if err != nil {
 			awgWinRollbackUp(state)
 			return fmt.Errorf("parse address %q: %w", addr, err)
 		}
-		mask, _ := ipnet.Mask.Size()
-		var args []string
-		if ip.To4() != nil {
-			args = []string{"interface", "ipv4", "set", "address",
-				fmt.Sprintf("name=%s", ifaceName),
-				"source=static",
-				fmt.Sprintf("addr=%s", ip.String()),
-				fmt.Sprintf("mask=%s", ipv4MaskFromBits(mask)),
-			}
-			if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
-				awgWinRollbackUp(state)
-				return fmt.Errorf("netsh set ipv4 addr: %v: %s", err, strings.TrimSpace(string(out)))
-			}
+		if pfx.Addr().Is4() {
+			v4Prefixes = append(v4Prefixes, pfx)
 			state.addedAddrsV4 = append(state.addedAddrsV4, addr)
 		} else {
-			args = []string{"interface", "ipv6", "add", "address",
-				fmt.Sprintf("interface=%s", ifaceName),
-				fmt.Sprintf("address=%s/%d", ip.String(), mask),
-			}
-			if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
-				log.Printf("wgWindowsUpAwg[%s]: netsh add ipv6 addr warning: %v: %s", ifaceName, err, strings.TrimSpace(string(out)))
-				continue
-			}
+			v6Prefixes = append(v6Prefixes, pfx)
 			state.addedAddrsV6 = append(state.addedAddrsV6, addr)
 		}
 	}
-
-	// Set wintun adapter to lowest interface metric so the routes
-	// added below win the longest-prefix-match tiebreaker against
-	// the physical adapter's default route. Without this, the OS
-	// keeps preferring the existing default route and traffic never
-	// enters the tunnel — the v0.9.15.x symptom of "AWG connects,
-	// no traffic, TunnelHealth eventually triggers failover" was
-	// rooted here.
-	for _, fam := range []string{"ipv4", "ipv6"} {
-		args := []string{"interface", fam, "set", "interface",
-			fmt.Sprintf("interface=%s", ifaceName),
-			"metric=1",
-		}
-		if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
-			log.Printf("wgWindowsUpAwg[%s]: netsh set %s metric warning: %v: %s",
-				ifaceName, fam, err, strings.TrimSpace(string(out)))
+	log.Printf("wgWindowsUpAwg[%s]: TRACE SetIPAddressesForFamily v4=%d v6=%d", ifaceName, len(v4Prefixes), len(v6Prefixes))
+	if len(v4Prefixes) > 0 {
+		if err := luid.SetIPAddressesForFamily(windows.AF_INET, v4Prefixes); err != nil {
+			awgWinRollbackUp(state)
+			return fmt.Errorf("winipcfg SetIPAddressesForFamily v4: %w", err)
 		}
 	}
-
-	// Routes: add each AllowedIP via the wintun interface. Windows
-	// has two quirks that the prior code missed (silent failure →
-	// blackholed tunnel):
-	//   1. `route.exe` does NOT accept CIDR notation for the IPv4
-	//      destination — it needs `route ADD <ip> MASK <mask>
-	//      <gateway> IF <idx>`. CIDR strings like "0.0.0.0/0" cause
-	//      a parse error.
-	//   2. `route.exe` has no `-6` flag (that's Linux/macOS); IPv6
-	//      routes must go through `netsh interface ipv6 add route`,
-	//      which DOES accept CIDR directly via prefix=.
-	ifaceIdx, err := awgInterfaceIndex(ifaceName)
-	if err != nil {
-		log.Printf("wgWindowsUpAwg[%s]: cannot resolve adapter index: %v — routes may not install via correct interface", ifaceName, err)
+	if len(v6Prefixes) > 0 {
+		if err := luid.SetIPAddressesForFamily(windows.AF_INET6, v6Prefixes); err != nil {
+			log.Printf("wgWindowsUpAwg[%s]: SetIPAddressesForFamily v6 warning: %v", ifaceName, err)
+		}
 	}
+	log.Printf("wgWindowsUpAwg[%s]: TRACE addresses applied, building routes", ifaceName)
+
+	// Routes: convert each peer AllowedIP into a winipcfg.RouteData
+	// targeting the wintun adapter LUID. Default NextHop = zero
+	// address (IPv4 0.0.0.0 / IPv6 ::) — the official wireguard-
+	// windows client does the same; winipcfg interprets that as
+	// "on-link, send via this interface".
+	var v4Routes, v6Routes []*winipcfg.RouteData
 	for _, peer := range cfg.Peers {
 		for _, raw := range peer.AllowedIPs {
-			isV6 := strings.Contains(raw, ":")
-			if isV6 {
-				args := []string{"interface", "ipv6", "add", "route",
-					fmt.Sprintf("prefix=%s", raw),
-					fmt.Sprintf("interface=%s", ifaceName),
-					"nexthop=::",
-					"metric=1",
-					"store=active",
-				}
-				if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
-					log.Printf("wgWindowsUpAwg[%s]: netsh add ipv6 route %s warning: %v: %s",
-						ifaceName, raw, err, strings.TrimSpace(string(out)))
-					continue
-				}
-				state.addedRoutesV6 = append(state.addedRoutesV6, raw)
-			} else {
-				ip, ipnet, err := net.ParseCIDR(raw)
-				if err != nil {
-					log.Printf("wgWindowsUpAwg[%s]: invalid v4 AllowedIP %q: %v",
-						ifaceName, raw, err)
-					continue
-				}
-				maskBits, _ := ipnet.Mask.Size()
-				cmdArgs := []string{"ADD", ip.String(),
-					"MASK", ipv4MaskFromBits(maskBits),
-					"0.0.0.0",
-					"IF", strconv.Itoa(ifaceIdx),
-				}
-				if out, err := execHidden("route", cmdArgs...).CombinedOutput(); err != nil {
-					log.Printf("wgWindowsUpAwg[%s]: route ADD %s warning: %v: %s",
-						ifaceName, raw, err, strings.TrimSpace(string(out)))
-					continue
-				}
+			pfx, err := netip.ParsePrefix(raw)
+			if err != nil {
+				log.Printf("wgWindowsUpAwg[%s]: invalid AllowedIP %q: %v", ifaceName, raw, err)
+				continue
+			}
+			pfx = pfx.Masked()
+			rd := &winipcfg.RouteData{
+				Destination: pfx,
+				Metric:      0,
+			}
+			if pfx.Addr().Is4() {
+				rd.NextHop = netip.IPv4Unspecified()
+				v4Routes = append(v4Routes, rd)
 				state.addedRoutesV4 = append(state.addedRoutesV4, raw)
+			} else {
+				rd.NextHop = netip.IPv6Unspecified()
+				v6Routes = append(v6Routes, rd)
+				state.addedRoutesV6 = append(state.addedRoutesV6, raw)
 			}
 		}
+	}
+	log.Printf("wgWindowsUpAwg[%s]: TRACE SetRoutesForFamily v4=%d v6=%d", ifaceName, len(v4Routes), len(v6Routes))
+	if len(v4Routes) > 0 {
+		if err := luid.SetRoutesForFamily(windows.AF_INET, v4Routes); err != nil {
+			awgWinRollbackUp(state)
+			return fmt.Errorf("winipcfg SetRoutesForFamily v4: %w", err)
+		}
+	}
+	if len(v6Routes) > 0 {
+		if err := luid.SetRoutesForFamily(windows.AF_INET6, v6Routes); err != nil {
+			log.Printf("wgWindowsUpAwg[%s]: SetRoutesForFamily v6 warning: %v", ifaceName, err)
+		}
+	}
+
+	// Set interface metric to 1 for both families so the wintun
+	// adapter beats the physical adapter's default route in the
+	// longest-prefix-match tiebreaker.
+	for _, family := range []winipcfg.AddressFamily{windows.AF_INET, windows.AF_INET6} {
+		ipif, err := luid.IPInterface(family)
+		if err != nil {
+			log.Printf("wgWindowsUpAwg[%s]: IPInterface family=%d warning: %v", ifaceName, family, err)
+			continue
+		}
+		ipif.UseAutomaticMetric = false
+		ipif.Metric = 1
+		if err := ipif.Set(); err != nil {
+			log.Printf("wgWindowsUpAwg[%s]: IPInterface.Set family=%d warning: %v", ifaceName, family, err)
+		}
+	}
+	log.Printf("wgWindowsUpAwg[%s]: TRACE winipcfg config done, configuring DNS", ifaceName)
+
+	// Adapter index for downstream code that still uses it (DNS section
+	// below doesn't need it but keep for diagnostics / future ip route
+	// queries).
+	if _, err := awgInterfaceIndex(ifaceName); err != nil {
+		log.Printf("wgWindowsUpAwg[%s]: adapter index lookup warning: %v", ifaceName, err)
 	}
 
 	if len(cfg.DNS) > 0 {

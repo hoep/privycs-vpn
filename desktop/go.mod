@@ -30,6 +30,8 @@ require (
 	github.com/leaanthony/gosod v1.0.4 // indirect
 	github.com/leaanthony/slicer v1.6.0 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
+	github.com/lxn/walk v0.0.0-20210112085537-c389da54e794 // indirect
+	github.com/lxn/win v0.0.0-20210218163916-a377121e959e // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
@@ -41,8 +43,13 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
+	golang.org/x/mod v0.34.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/tools v0.43.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
+	golang.zx2c4.com/wireguard/windows v1.0.1 // indirect
+	gopkg.in/Knetic/govaluate.v3 v3.0.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20250606233247-e3c4c4cad86f // indirect
 )

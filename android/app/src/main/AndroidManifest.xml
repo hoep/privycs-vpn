@@ -94,6 +94,34 @@
             </intent-filter>
         </service>
 
+        <!-- v0.9.15.39: wireguard-android Library's GoBackend$VpnService.
+             The Maven AAR (com.wireguard.android:tunnel) declares this
+             service in its own manifest, but the merger does not always
+             propagate it into our final APK manifest. Without this
+             declaration GoBackend.setStateInternal calls
+             context.startService(Intent(VpnService.class)) where
+             VpnService.class resolves to GoBackend$VpnService — Android
+             cannot find the component, the static
+             CompletableFuture<VpnService> never completes, vpnService.get(2s)
+             times out → BackendException → WG appears to hang at
+             "Requesting to start VpnService". Symptom only surfaces on
+             a fresh PrivycsVpnService instance (e.g. after AWG/OVPN
+             disconnect destroys the service); in-place reuses of the
+             AWG-created service slot worked accidentally. Explicit
+             declaration here ensures the service is always startable.
+             AmneziaWG's equivalent
+             (org.amnezia.awg.backend.GoBackend$VpnService) merges from
+             the amneziawg-android submodule and was always present —
+             which is why AWG always worked. -->
+        <service
+            android:name="com.wireguard.android.backend.GoBackend$VpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".receiver.BootReceiver"
             android:exported="true"
