@@ -107,10 +107,16 @@ async function loadLogs(silent = false) {
     const next = await GetLogs()
     // Only assign + scroll if content actually changed. Avoids
     // re-render flicker on every poll tick when the log file is
-    // idle. Cheap reference-array compare is overkill; we
-    // compare the last line + length as a stable fingerprint.
-    const fingerprint =
-      next.length + ':' + (next.length > 0 ? next[next.length - 1] : '')
+    // idle. We fingerprint the FULL joined content — earlier we
+    // used length + last-line, which froze in a real-world case:
+    // getMergedLogs returns [...app, ...openvpn] sequentially,
+    // so the array's last line is the tail of openvpn.log. With
+    // a dormant openvpn.log (left over from a prior connect) and
+    // an app log at the 500-line cap, both length and last-line
+    // stay constant while fresh app-log entries arrive — the UI
+    // froze on a snapshot. Joining is O(N) on ≤200 KB which is
+    // negligible at the 1.5 s poll cadence.
+    const fingerprint = next.join('\n')
     if (fingerprint === lastFingerprint.value) return
     lastFingerprint.value = fingerprint
 

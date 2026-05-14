@@ -39,6 +39,50 @@ import (
 // protocol that's just slow rather than broken.
 const failoverWatchdog = 30 * time.Second
 
+// verifyTunnelAliveBudget caps how long we wait for the first peer-
+// liveness signal after a protocol reports Connected=true. Mirrors
+// Android PrivycsVpnService.kt's UP_TIMEOUT_MS verify-phase added in
+// v0.9.15.20: Status().Connected flips as soon as the daemon/helper
+// RPC returns, which is BEFORE any peer round-trip — pre-verify a
+// blackholed tunnel (handshake never lands, e.g. Windows AWG with
+// broken route install, server obfuscation profile mismatch, etc.)
+// sat in "Connected" for the full TunnelHealth probe window
+// (60 s × 3 = 3 min) before falling over. With this verify-phase we
+// fail fast within 20 s and trigger failover immediately.
+const verifyTunnelAliveBudget = 20 * time.Second
+
+// verifyTunnelAlivePoll is the polling cadence used while waiting
+// for the first liveness signal. 500 ms matches Android's
+// UP_VERIFY_POLL_MS and keeps the syscall cost trivial (Status() is
+// a cheap in-memory read on every protocol).
+const verifyTunnelAlivePoll = 500 * time.Millisecond
+
+// verifyTunnelAlive polls proto.Status() for evidence of an actual
+// peer round-trip — not just "daemon started" but "peer responded".
+// Returns true on the first liveness signal:
+//   - BytesRx > 0           data has flowed in through the tunnel
+//   - LastHandshake non-zero a WG/AWG handshake epoch was recorded
+//
+// Returns false if the budget elapses without any signal. The
+// LocalAddress field is intentionally NOT used as a liveness signal:
+// for WG/AWG the inner IP is configured by us at IpcSet time and is
+// non-empty even when the peer never responds, so it would give
+// false positives in the very blackhole case we're trying to catch.
+func verifyTunnelAlive(proto VPNProtocol, budget, poll time.Duration) bool {
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
+		s := proto.Status()
+		if s.BytesRx > 0 {
+			return true
+		}
+		if hs := strings.TrimSpace(s.LastHandshake); hs != "" && hs != "0" {
+			return true
+		}
+		time.Sleep(poll)
+	}
+	return false
+}
+
 // tryFailoverProtocol cycles through the active connection's
 // ProtocolConfigs in failover-preference order (OrderedConfigs:
 // amneziawg → wireguard → openvpn → ipsec, then insertion order
@@ -130,6 +174,21 @@ func (a *App) tryFailoverProtocol(excludeOriginalConfigID string) (string, error
 			_ = proto.Down(downCtx)
 			downCancel()
 			tried = append(tried, label+"(status-not-connected)")
+			continue
+		}
+
+		// Liveness verify: Status().Connected only proves the daemon
+		// started; the peer may still be unreachable. Wait up to
+		// verifyTunnelAliveBudget for actual RxBytes / handshake.
+		// Without this an obfuscation-profile mismatch or a broken
+		// route-install (the v0.9.15.x Windows-AWG bug) committed
+		// failover to a silently-dead protocol.
+		if !verifyTunnelAlive(proto, verifyTunnelAliveBudget, verifyTunnelAlivePoll) {
+			log.Printf("Failover: %s connected but no peer signal within %v — blackhole, trying next", label, verifyTunnelAliveBudget)
+			downCtx, downCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = proto.Down(downCtx)
+			downCancel()
+			tried = append(tried, label+"(no-peer-signal)")
 			continue
 		}
 

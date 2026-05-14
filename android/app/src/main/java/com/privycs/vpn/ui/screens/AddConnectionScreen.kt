@@ -655,9 +655,13 @@ private fun GatewayPanel(
                             ) VpnProtocol.AMNEZIAWG
                             else VpnProtocol.fromString(protocolStr)
                             val iconRes = when (protocol) {
-                                // AWG → mono variant (Icon tint cascade,
-                                // matches WG/OVPN/IPSec rendering).
-                                VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg
+                                // v0.9.15.25: AWG renders the mono silhouette
+                                // (Icon tint cascade), matching the in-app
+                                // Connect screen. The old multi-colour PNG +
+                                // Image special-case was visually
+                                // inconsistent with the other protocols and
+                                // ignored the tint.
+                                VpnProtocol.AMNEZIAWG -> com.privycs.vpn.R.drawable.ic_protocol_amneziawg_mono
                                 VpnProtocol.WIREGUARD -> com.privycs.vpn.R.drawable.ic_protocol_wireguard
                                 VpnProtocol.OPENVPN   -> com.privycs.vpn.R.drawable.ic_protocol_openvpn
                                 VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
@@ -671,22 +675,12 @@ private fun GatewayPanel(
                                 null                  -> MaterialTheme.colorScheme.primary
                             }
                             if (iconRes != null) {
-                                if (protocol == VpnProtocol.AMNEZIAWG) {
-                                    // Multi-colour brand mark — Image keeps
-                                    // the orange/teal/purple palette
-                                    androidx.compose.foundation.Image(
-                                        painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                                        contentDescription = "AmneziaWG",
-                                        modifier = Modifier.size(26.dp).padding(end = 8.dp)
-                                    )
-                                } else {
-                                    androidx.compose.material3.Icon(
-                                        painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                                        contentDescription = entry.protocol,
-                                        tint = iconTint,
-                                        modifier = Modifier.size(26.dp).padding(end = 8.dp)
-                                    )
-                                }
+                                androidx.compose.material3.Icon(
+                                    painter = androidx.compose.ui.res.painterResource(id = iconRes),
+                                    contentDescription = entry.protocol,
+                                    tint = iconTint,
+                                    modifier = Modifier.size(26.dp).padding(end = 8.dp)
+                                )
                             } else {
                                 Text(
                                     text = entry.protocol.uppercase(),

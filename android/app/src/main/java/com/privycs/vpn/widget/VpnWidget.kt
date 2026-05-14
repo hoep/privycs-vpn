@@ -486,15 +486,14 @@ class VpnWidget : AppWidgetProvider() {
                 .getActive()?.activeProtocol
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            // AWG renders the mk16.de brand-mark SILHOUETTE (alpha-
-            // only mono PNG) tinted indigo via setColorFilter below,
-            // matching the in-app Connect-screen treatment from
-            // v0.9.15.18. The multi-colour ic_protocol_amneziawg PNG
-            // we briefly used (v0.9.15.18) renders its orange/teal/
-            // purple palette as-is in the widget because RemoteViews
-            // doesn't apply BlendMode.SrcIn — looks out of place
-            // next to WG/OVPN/IPSec which are vector drawables with
-            // baked-in brand colours.
+            // v0.9.15.25: all four protocols render their mono/alpha
+            // variant and get tinted by setColorFilter below — the
+            // tint is STATE-driven (white connected, dark grey
+            // disconnected), matching the in-app Connect-screen
+            // formatting. Pre-v0.9.15.25 the widget showed each
+            // protocol in its baked brand colour (WG red / OVPN
+            // orange / IPSec blue) and AWG specifically with a fixed
+            // indigo tint — visually divergent from the app.
             displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
@@ -502,15 +501,17 @@ class VpnWidget : AppWidgetProvider() {
             else -> R.drawable.ic_privycs_logo
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
-        // AWG silhouette tinting — applies the indigo brand colour
-        // to the alpha-only mono PNG. Cleared (TRANSPARENT = no
-        // tint, drawable renders as-is) for every other protocol so
-        // their vector drawables keep their baked-in colours.
-        if (displayProtocol == VpnProtocol.AMNEZIAWG && !killSwitchSinkhole) {
-            views.setInt(R.id.widget_button_icon, "setColorFilter", 0xFF6366F1.toInt())
-        } else {
-            views.setInt(R.id.widget_button_icon, "setColorFilter", 0)
+        // State-driven icon tint, mirrors ConnectScreen's connect-
+        // button: white silhouette on the green circle when
+        // connected, dark silhouette on the medium-grey circle when
+        // disconnected. Sinkhole keeps its dedicated self-coloured
+        // drawable (no tint).
+        val iconTint: Int = when {
+            killSwitchSinkhole -> 0
+            connected -> 0xFFFFFFFF.toInt()
+            else -> 0xFF202124.toInt()
         }
+        views.setInt(R.id.widget_button_icon, "setColorFilter", iconTint)
 
         // --- Section 2: Status text + uptime (right column of the
         // v6 two-column header). Pre-v6 the single widget_uptime

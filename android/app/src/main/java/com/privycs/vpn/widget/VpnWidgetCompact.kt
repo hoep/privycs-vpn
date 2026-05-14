@@ -103,10 +103,10 @@ class VpnWidgetCompact : AppWidgetProvider() {
                 .getActive()?.activeProtocol
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            // AWG uses the mono silhouette + indigo setColorFilter
-            // for visual parity with the in-app icon. See VpnWidget
-            // for the full rationale (mk16.de brand mark via
-            // alpha-only PNG + tint).
+            // v0.9.15.25: all protocols render their mono/alpha
+            // variant + state-driven tint (white connected, dark grey
+            // disconnected), matching the in-app Connect-screen
+            // formatting. See VpnWidget for the rationale.
             displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
@@ -114,11 +114,12 @@ class VpnWidgetCompact : AppWidgetProvider() {
             else -> R.drawable.ic_privycs_logo
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
-        if (displayProtocol == VpnProtocol.AMNEZIAWG && !killSwitchSinkhole) {
-            views.setInt(R.id.widget_button_icon, "setColorFilter", 0xFF6366F1.toInt())
-        } else {
-            views.setInt(R.id.widget_button_icon, "setColorFilter", 0)
+        val iconTint: Int = when {
+            killSwitchSinkhole -> 0
+            connected -> 0xFFFFFFFF.toInt()
+            else -> 0xFF202124.toInt()
         }
+        views.setInt(R.id.widget_button_icon, "setColorFilter", iconTint)
 
         // ---- Click targets ----
         // Body tap (everywhere on the widget) opens the main app.

@@ -129,14 +129,34 @@ func wgWindowsUpAwg(ifaceName, configContent string) error {
 		}
 	}
 
-	// Routes: add each AllowedIP via the wintun interface index. We
-	// use `route ADD` (legacy command, still ubiquitous on Win10/11)
-	// because it's simple, works without an admin elevation per call
-	// (we're already running as LocalSystem), and the kernel
-	// auto-resolves the interface metric. route ADD on /0 does NOT
-	// replace the default route on Windows (unlike macOS) — the
-	// per-AllowedIP /0 entry just adds a higher-priority route to
-	// the wintun interface. We add it anyway for completeness.
+	// Set wintun adapter to lowest interface metric so the routes
+	// added below win the longest-prefix-match tiebreaker against
+	// the physical adapter's default route. Without this, the OS
+	// keeps preferring the existing default route and traffic never
+	// enters the tunnel — the v0.9.15.x symptom of "AWG connects,
+	// no traffic, TunnelHealth eventually triggers failover" was
+	// rooted here.
+	for _, fam := range []string{"ipv4", "ipv6"} {
+		args := []string{"interface", fam, "set", "interface",
+			fmt.Sprintf("interface=%s", ifaceName),
+			"metric=1",
+		}
+		if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
+			log.Printf("wgWindowsUpAwg[%s]: netsh set %s metric warning: %v: %s",
+				ifaceName, fam, err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	// Routes: add each AllowedIP via the wintun interface. Windows
+	// has two quirks that the prior code missed (silent failure →
+	// blackholed tunnel):
+	//   1. `route.exe` does NOT accept CIDR notation for the IPv4
+	//      destination — it needs `route ADD <ip> MASK <mask>
+	//      <gateway> IF <idx>`. CIDR strings like "0.0.0.0/0" cause
+	//      a parse error.
+	//   2. `route.exe` has no `-6` flag (that's Linux/macOS); IPv6
+	//      routes must go through `netsh interface ipv6 add route`,
+	//      which DOES accept CIDR directly via prefix=.
 	ifaceIdx, err := awgInterfaceIndex(ifaceName)
 	if err != nil {
 		log.Printf("wgWindowsUpAwg[%s]: cannot resolve adapter index: %v — routes may not install via correct interface", ifaceName, err)
@@ -144,19 +164,38 @@ func wgWindowsUpAwg(ifaceName, configContent string) error {
 	for _, peer := range cfg.Peers {
 		for _, raw := range peer.AllowedIPs {
 			isV6 := strings.Contains(raw, ":")
-			var cmdArgs []string
 			if isV6 {
-				cmdArgs = []string{"-6", "ADD", raw, "::", "IF", strconv.Itoa(ifaceIdx)}
-			} else {
-				cmdArgs = []string{"ADD", raw, "0.0.0.0", "IF", strconv.Itoa(ifaceIdx)}
-			}
-			if out, err := execHidden("route", cmdArgs...).CombinedOutput(); err != nil {
-				log.Printf("wgWindowsUpAwg[%s]: route ADD %s warning: %v: %s", ifaceName, raw, err, strings.TrimSpace(string(out)))
-				continue
-			}
-			if isV6 {
+				args := []string{"interface", "ipv6", "add", "route",
+					fmt.Sprintf("prefix=%s", raw),
+					fmt.Sprintf("interface=%s", ifaceName),
+					"nexthop=::",
+					"metric=1",
+					"store=active",
+				}
+				if out, err := execHidden("netsh", args...).CombinedOutput(); err != nil {
+					log.Printf("wgWindowsUpAwg[%s]: netsh add ipv6 route %s warning: %v: %s",
+						ifaceName, raw, err, strings.TrimSpace(string(out)))
+					continue
+				}
 				state.addedRoutesV6 = append(state.addedRoutesV6, raw)
 			} else {
+				ip, ipnet, err := net.ParseCIDR(raw)
+				if err != nil {
+					log.Printf("wgWindowsUpAwg[%s]: invalid v4 AllowedIP %q: %v",
+						ifaceName, raw, err)
+					continue
+				}
+				maskBits, _ := ipnet.Mask.Size()
+				cmdArgs := []string{"ADD", ip.String(),
+					"MASK", ipv4MaskFromBits(maskBits),
+					"0.0.0.0",
+					"IF", strconv.Itoa(ifaceIdx),
+				}
+				if out, err := execHidden("route", cmdArgs...).CombinedOutput(); err != nil {
+					log.Printf("wgWindowsUpAwg[%s]: route ADD %s warning: %v: %s",
+						ifaceName, raw, err, strings.TrimSpace(string(out)))
+					continue
+				}
 				state.addedRoutesV4 = append(state.addedRoutesV4, raw)
 			}
 		}
@@ -212,11 +251,33 @@ func awgWinRollbackUp(state *awgWindowsTunnelState) {
 		state.tunDev.Close()
 	}
 	for _, c := range state.addedRoutesV4 {
-		execHidden("route", "DELETE", c).Run()
+		awgWinDeleteRouteV4(c)
 	}
 	for _, c := range state.addedRoutesV6 {
-		execHidden("route", "-6", "DELETE", c).Run()
+		awgWinDeleteRouteV6(c, state.iface)
 	}
+}
+
+// awgWinDeleteRouteV4 deletes an IPv4 route added via route.exe.
+// Mirrors the add-side CIDR-to-IP+MASK split — route.exe DELETE
+// also rejects CIDR-as-destination.
+func awgWinDeleteRouteV4(cidr string) {
+	ip, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return
+	}
+	maskBits, _ := ipnet.Mask.Size()
+	execHidden("route", "DELETE", ip.String(),
+		"MASK", ipv4MaskFromBits(maskBits)).Run()
+}
+
+// awgWinDeleteRouteV6 deletes an IPv6 route added via netsh. Mirrors
+// the add-side. iface is required so we delete the route scoped to
+// the wintun adapter, not to any other interface.
+func awgWinDeleteRouteV6(cidr, iface string) {
+	execHidden("netsh", "interface", "ipv6", "delete", "route",
+		fmt.Sprintf("prefix=%s", cidr),
+		fmt.Sprintf("interface=%s", iface)).Run()
 }
 
 // wgWindowsDownAwg tears down an in-process AWG tunnel. The Wintun
@@ -236,10 +297,10 @@ func wgWindowsDownAwg(ifaceName string) error {
 	}
 
 	for _, c := range state.addedRoutesV4 {
-		execHidden("route", "DELETE", c).Run()
+		awgWinDeleteRouteV4(c)
 	}
 	for _, c := range state.addedRoutesV6 {
-		execHidden("route", "-6", "DELETE", c).Run()
+		awgWinDeleteRouteV6(c, ifaceName)
 	}
 
 	if state.dev != nil {
