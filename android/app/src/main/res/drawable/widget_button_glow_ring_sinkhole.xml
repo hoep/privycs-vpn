@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Sinkhole-state glow ring. Mirrors the in-app
+    ConnectButton's danger-red 50%-alpha border when isSinkholeActive
+    (ConnectScreen.kt:941, glowRingColor).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#00000000" />
+    <stroke
+        android:width="2dp"
+        android:color="#80DC2626" />
+</shape>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Kill-switch sinkhole state circle background. Linear gradient
+    red-600 -> red-700, mirrors the in-app ConnectButton's
+    `Brush.linearGradient(listOf(dangerRed, dangerRedDark))` when
+    isSinkholeActive (ConnectScreen.kt:986-990).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="#FFDC2626"
+        android:endColor="#FFB91C1C" />
+</shape>

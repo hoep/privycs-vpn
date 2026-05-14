@@ -78,6 +78,7 @@ class VpnWidgetCompact : AppWidgetProvider() {
         val views = RemoteViews(context.packageName, R.layout.widget_vpn_compact)
 
         // ---- Connect button render (mirrors VpnWidget's Section 1) ----
+        // statusColor stays for potential downstream colouring.
         val statusColor = ContextCompat.getColor(
             context,
             when {
@@ -86,11 +87,26 @@ class VpnWidgetCompact : AppWidgetProvider() {
                 else -> R.color.widget_status_disconnected
             },
         )
-        views.setInt(R.id.widget_button_bg, "setColorFilter", statusColor)
 
+        // v0.9.15.27: port the in-app ConnectButton visual exactly
+        // (ConnectScreen.kt:947-1006). See VpnWidget.kt's matching
+        // section for the full rationale.
+        val bgRes = when {
+            killSwitchSinkhole -> R.drawable.widget_button_circle_sinkhole
+            connected -> R.drawable.widget_button_circle_connected
+            else -> R.drawable.widget_button_circle_disconnected
+        }
+        views.setImageViewResource(R.id.widget_button_bg, bgRes)
+        views.setInt(R.id.widget_button_bg, "setColorFilter", 0)
+
+        val haloRes = when {
+            killSwitchSinkhole -> R.drawable.widget_button_glow_ring_sinkhole
+            else -> R.drawable.widget_button_glow_ring
+        }
+        views.setImageViewResource(R.id.widget_button_halo, haloRes)
         views.setViewVisibility(
             R.id.widget_button_halo,
-            if (connected && !killSwitchSinkhole) android.view.View.VISIBLE
+            if (connected || killSwitchSinkhole) android.view.View.VISIBLE
             else android.view.View.GONE,
         )
 
@@ -114,10 +130,12 @@ class VpnWidgetCompact : AppWidgetProvider() {
             else -> R.drawable.ic_privycs_logo
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
+        // Icon tint mirrors ConnectScreen.kt:1032-1033 (see VpnWidget
+        // for the full comment).
         val iconTint: Int = when {
             killSwitchSinkhole -> 0
             connected -> 0xFFFFFFFF.toInt()
-            else -> 0xFF202124.toInt()
+            else -> 0xFF5F6368.toInt()
         }
         views.setInt(R.id.widget_button_icon, "setColorFilter", iconTint)
 

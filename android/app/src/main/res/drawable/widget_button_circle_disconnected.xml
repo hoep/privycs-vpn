@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Disconnected-state circle background. Transparent fill + 2dp
+    outline stroke, mirrors the in-app ConnectButton's disconnected
+    branch `Modifier.background(surface).border(2dp, outline,
+    CircleShape)` (ConnectScreen.kt:996-998). On widget the
+    transparent fill lets the wallpaper show through inside the
+    ring, which reads unambiguously as "not connected" against the
+    solid-fill connected state.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#00000000" />
+    <stroke
+        android:width="2dp"
+        android:color="#5F6368" />
+</shape>

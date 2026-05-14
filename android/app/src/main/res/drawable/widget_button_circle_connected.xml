@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Connected-state circle background. Linear gradient PrivycsTeal
+    -> PrivycsTealDark, mirrors the in-app ConnectButton's
+    `Brush.linearGradient(listOf(PrivycsTeal, PrivycsTealDark))`
+    when isConnected (ConnectScreen.kt:991-995).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="#FF00CDAB"
+        android:endColor="#FF00A88C" />
+</shape>

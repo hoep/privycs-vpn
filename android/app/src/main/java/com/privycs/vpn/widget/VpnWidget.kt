@@ -452,6 +452,7 @@ class VpnWidget : AppWidgetProvider() {
             .state.value == com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE
 
         // --- Section 1: Big circular status button ---
+        // statusColor stays for downstream text/uptime colouring.
         val statusColor = ContextCompat.getColor(
             context,
             when {
@@ -461,18 +462,34 @@ class VpnWidget : AppWidgetProvider() {
             },
         )
 
-        // Circle backdrop tint via colorFilter (SRC_IN, so the oval
-        // shape is fully repainted with the tint colour).
-        views.setInt(R.id.widget_button_bg, "setColorFilter", statusColor)
+        // v0.9.15.27: port the in-app ConnectButton's exact visual
+        // construction (ConnectScreen.kt:947-1006). Connected =
+        // teal gradient solid disc; disconnected = transparent +
+        // 2dp outline ring; sinkhole = red gradient solid disc.
+        // The drawables are self-coloured so we clear any previous
+        // setColorFilter on the bg ImageView.
+        val bgRes = when {
+            killSwitchSinkhole -> R.drawable.widget_button_circle_sinkhole
+            connected -> R.drawable.widget_button_circle_connected
+            else -> R.drawable.widget_button_circle_disconnected
+        }
+        views.setImageViewResource(R.id.widget_button_bg, bgRes)
+        views.setInt(R.id.widget_button_bg, "setColorFilter", 0)
 
-        // Halo glow behind the circle. Visible only when the tunnel
-        // is up AND the Kill Switch is not in sinkhole - sinkhole
-        // already gets a red disk + Kill Switch icon, adding a green
-        // halo would be visually contradictory. Disconnected state
-        // also stays glow-less so the widget reads as "off".
+        // Outer glow ring (thin 2dp border, NOT a soft radial glow
+        // — matches the in-app showGlowRing branch which uses
+        // Modifier.border(2.dp, ...) on a CircleShape, not a radial
+        // gradient). The hosting ImageView keeps its layout_margin
+        // = -8dp so the ring extends past the main disc, mirroring
+        // the app's 170dp/140dp outer-ring layout ratio.
+        val haloRes = when {
+            killSwitchSinkhole -> R.drawable.widget_button_glow_ring_sinkhole
+            else -> R.drawable.widget_button_glow_ring
+        }
+        views.setImageViewResource(R.id.widget_button_halo, haloRes)
         views.setViewVisibility(
             R.id.widget_button_halo,
-            if (connected && !killSwitchSinkhole) android.view.View.VISIBLE
+            if (connected || killSwitchSinkhole) android.view.View.VISIBLE
             else android.view.View.GONE,
         )
 
@@ -502,14 +519,18 @@ class VpnWidget : AppWidgetProvider() {
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
         // State-driven icon tint, mirrors ConnectScreen's connect-
-        // button: white silhouette on the green circle when
-        // connected, dark silhouette on the medium-grey circle when
-        // disconnected. Sinkhole keeps its dedicated self-coloured
-        // drawable (no tint).
+        // button (ConnectScreen.kt:1032-1033):
+        //   connected    -> Color.White
+        //   disconnected -> onSurfaceVariant grey (#5F6368 here,
+        //                   matches widget_text_secondary AND the
+        //                   disconnected ring's outline colour so
+        //                   the empty-ring icon looks unified)
+        //   sinkhole     -> no tint; the kill-switch drawable is
+        //                   already self-coloured white on red.
         val iconTint: Int = when {
             killSwitchSinkhole -> 0
             connected -> 0xFFFFFFFF.toInt()
-            else -> 0xFF202124.toInt()
+            else -> 0xFF5F6368.toInt()
         }
         views.setInt(R.id.widget_button_icon, "setColorFilter", iconTint)
 

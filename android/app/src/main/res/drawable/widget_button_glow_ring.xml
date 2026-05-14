@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Outer glow ring drawn around the main button when connected.
+    Mirrors the in-app ConnectButton's `showGlowRing` branch:
+    a 2dp border at outerSize (170dp on a 140dp button) with
+    PrivycsTeal at 30% alpha (ConnectScreen.kt:952-963).
+
+    The hosting ImageView has layout_margin="-8dp" so this ring
+    renders 8dp beyond the 96dp main circle — same +delta ratio
+    as the app's 170/140 outer-ring layout.
+
+    A separate variant exists for the sinkhole state
+    (widget_button_glow_ring_sinkhole.xml) at dangerRed-50% alpha.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#00000000" />
+    <stroke
+        android:width="2dp"
+        android:color="#4D00CDAB" />
+</shape>
