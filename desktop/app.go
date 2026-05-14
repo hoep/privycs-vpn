@@ -1099,43 +1099,48 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 
-	// Liveness verify-phase (v0.9.15.25, ports Android UP_TIMEOUT_MS
-	// pattern from v0.9.15.20): Status().Connected went true above,
-	// but that only means the daemon started — for WG/AWG it flips
-	// the instant the helper RPC returns, well before any peer
-	// round-trip. If the tunnel is silently blackholed (e.g. broken
-	// Windows-AWG routes, mismatched obfuscation profile, dead
-	// peer) we used to sit "Connected" for 3 minutes until
-	// TunnelHealth's 60 s × 3 ICMP probes flagged it dead. Now we
-	// fail fast within 20 s and trigger failover immediately.
-	a.mu.Unlock()
-	aliveOK := verifyTunnelAlive(proto, verifyTunnelAliveBudget, verifyTunnelAlivePoll)
-	a.mu.Lock()
-	if !aliveOK {
-		log.Printf("Connect: %s reports Connected but no peer signal within %v — treating as blackhole, triggering failover", activeProto, verifyTunnelAliveBudget)
-		a.mu.Unlock()
-		_ = proto.Down(appCtx)
-		a.mu.Lock()
-
-		excludeID := ""
-		if c := a.connections.Active(); c != nil {
-			excludeID = c.ActiveConfigID
-		}
-		if successProto, ferr := a.tryFailoverProtocol(excludeID); ferr == nil {
-			log.Printf("Connect: failover succeeded via %q after %q blackholed", successProto, activeProto)
-			Notify("VPN connection failed over",
-				fmt.Sprintf("%s came up but had no peer signal; connected via %s instead", activeProto, successProto),
-				NotifyInfo)
-			return a.statusLocked(), nil
-		} else {
-			log.Printf("Connect: blackhole failover unsuccessful: %v — surfacing as connect error", ferr)
-		}
-
-		errMsg := fmt.Sprintf("%s tunnel came up but no peer signal within %v — check obfuscation profile + routes", activeProto, verifyTunnelAliveBudget)
-		wailsRuntime.EventsEmit(appCtx, "vpn:error", errMsg)
-		Notify("VPN connection blackholed", errMsg, NotifyError)
-		return nil, fmt.Errorf("%s", errMsg)
-	}
+	// v0.9.15.42: verifyTunnelAlive-Block AUSKOMMENTIERT.
+	// Symmetrisch zum Android verifyTunnelTraffic-Disable in
+	// v0.9.15.41 (siehe PrivycsVpnService.kt). User-Report:
+	// Pill-Switch zwischen Protokollen blockt für die volle
+	// 20 s Verify-Window, fühlt sich als "stuck" an. Health-
+	// Monitor (10s/3-fail) deckt silent-fail Tunnel nach
+	// Connect ohnehin ab; der Up-Time Verify war eine 20 s
+	// UX-Hürde für minimal-relevanten Failover-Speedup im
+	// Cold-Connect-Pfad.
+	//
+	// Block bleibt als Kommentar erhalten — falls aggressive
+	// Pre-Connect-Failover wieder gewünscht, einfach uncomment
+	// und ggf. an automatic-Mode (Pool, on-demand) gaten.
+	//
+	// a.mu.Unlock()
+	// aliveOK := verifyTunnelAlive(proto, verifyTunnelAliveBudget, verifyTunnelAlivePoll)
+	// a.mu.Lock()
+	// if !aliveOK {
+	// 	log.Printf("Connect: %s reports Connected but no peer signal within %v — treating as blackhole, triggering failover", activeProto, verifyTunnelAliveBudget)
+	// 	a.mu.Unlock()
+	// 	_ = proto.Down(appCtx)
+	// 	a.mu.Lock()
+	//
+	// 	excludeID := ""
+	// 	if c := a.connections.Active(); c != nil {
+	// 		excludeID = c.ActiveConfigID
+	// 	}
+	// 	if successProto, ferr := a.tryFailoverProtocol(excludeID); ferr == nil {
+	// 		log.Printf("Connect: failover succeeded via %q after %q blackholed", successProto, activeProto)
+	// 		Notify("VPN connection failed over",
+	// 			fmt.Sprintf("%s came up but had no peer signal; connected via %s instead", activeProto, successProto),
+	// 			NotifyInfo)
+	// 		return a.statusLocked(), nil
+	// 	} else {
+	// 		log.Printf("Connect: blackhole failover unsuccessful: %v — surfacing as connect error", ferr)
+	// 	}
+	//
+	// 	errMsg := fmt.Sprintf("%s tunnel came up but no peer signal within %v — check obfuscation profile + routes", activeProto, verifyTunnelAliveBudget)
+	// 	wailsRuntime.EventsEmit(appCtx, "vpn:error", errMsg)
+	// 	Notify("VPN connection blackholed", errMsg, NotifyError)
+	// 	return nil, fmt.Errorf("%s", errMsg)
+	// }
 
 	a.connected = true
 	a.connectedAt = time.Now()

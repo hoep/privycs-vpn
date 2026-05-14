@@ -15,11 +15,27 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	awgtunnel "github.com/amnezia-vpn/amneziawg-windows/tunnel"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
-// AmneziaWG per-tunnel Windows Service (v0.9.15.30).
+// AmneziaWG per-tunnel Windows Service.
+//
+// v0.9.15.42 onward: this file is largely a thin wrapper around
+// github.com/amnezia-vpn/amneziawg-windows tunnel.Run. CREDIT and
+// thanks to the Amnezia VPN team (https://github.com/amnezia-vpn,
+// https://amnezia.org) and the upstream WireGuard LLC authors
+// from whom they forked golang.zx2c4.com/wireguard/windows.
+// Their amneziawg-windows project (Apache-2.0 + MIT-licensed code,
+// see vendor go.mod for exact terms) handles the hard parts:
+// Wintun adapter lifecycle, WFP firewall, privilege drop,
+// interface watching, address/route/DNS config via winipcfg, UAPI
+// listener — production-tested by the AmneziaVPN desktop client.
+// We delegate to it from our --awg-tunnel CLI flag handler so we
+// don't have to maintain a parallel implementation.
+//
+// === Original v0.9.15.30-era rationale below, kept for context ===
 //
 // Why this exists: the in-process wgWindowsUpAwg call from the helper
 // (introduced in v0.9.15.4) hits a known wintun.dll race condition
@@ -56,9 +72,15 @@ import (
 //      PrivycsAWGTunnel$* services that didn't get cleaned up due
 //      to a helper crash.
 
+// v0.9.15.42: service prefix matches what amnezia-vpn/amneziawg-
+// windows derives via services.ServiceNameOfTunnel — we now
+// delegate the entire tunnel-service runtime to their tunnel.Run
+// (production-tested by the AmneziaVPN desktop client). Their
+// svc.Run dispatcher matches against this name when SCM hands
+// control to the service process.
 const (
-	awgTunnelServicePrefix = "PrivycsAWGTunnel$"
-	awgTunnelPipePrefix    = `\\.\pipe\PrivycsAWGTunnel.`
+	awgTunnelServicePrefix = "AmneziaWGTunnel$"
+	awgTunnelPipePrefix    = `\\.\pipe\PrivycsAWGTunnel.` // legacy, unused with new delegation
 )
 
 // awgTunnelStatus is the JSON payload returned by the per-tunnel
@@ -90,22 +112,49 @@ type awgServiceState struct {
 
 // runAWGTunnelService is invoked when privycs-vpn.exe is started
 // with `--awg-tunnel <confPath> <ifaceName>` from the helper.
-// Hooks into Windows SCM as the service named
-// PrivycsAWGTunnel$<ifaceName>.
+// v0.9.15.42: delegate entire tunnel-service runtime to the
+// official amnezia-vpn/amneziawg-windows tunnel.Run — that path
+// handles ringlogger init, conf parsing, watchInterface, CreateTUN
+// with 5x retry, WFP firewall setup, privilege drop, NewDevice,
+// UAPIListen (named pipe \\.\pipe\ProtectedPrefix\Administrators\
+// AmneziaWG\<name>), IpcSet, dev.Up, address+route+DNS config via
+// winipcfg (their interfaceWatcher.Configure), accept loop, plus
+// stop+cleanup on SCM stop. Reproduces what the AmneziaVPN
+// desktop client does. Replaces the entire previous per-tunnel-
+// service code path (which evolved through v0.9.15.25-.40 chasing
+// netsh races, pipe-SD problems, bind-disruption from DNS notifs
+// etc.). All of those classes of bug are non-issues in their
+// implementation.
+//
+// ifaceName parameter is unused now — tunnel.Run derives the
+// service name internally from the conf filename. Kept in the
+// signature so the main.go --awg-tunnel dispatcher doesn't need
+// to change.
 func runAWGTunnelService(confPath, ifaceName string) {
-	// Log to a per-service file under %ProgramData% so each tunnel
-	// has its own debugging trail. Helps when the user has two AWG
-	// tunnels up at once and only one is misbehaving.
 	logPath := awgTunnelLogPath(ifaceName)
 	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
 	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
 		log.SetOutput(f)
-		// Redirect stderr + stdout to the same file so Go runtime
-		// panic stacktraces (which bypass the log package) and any
-		// fmt.Print from inside amneziawg-go land in the per-service
-		// log instead of vanishing. Under SCM stderr is normally
-		// detached — without this redirect a goroutine panic shows
-		// up to us as ERROR_PROCESS_ABORTED (1067) with no trace.
+		os.Stderr = f
+		os.Stdout = f
+	}
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+	log.Printf("awg-tunnel-service[%s]: delegating to awgtunnel.Run(%s)", ifaceName, confPath)
+	if err := awgtunnel.Run(confPath); err != nil {
+		log.Printf("awg-tunnel-service[%s]: awgtunnel.Run failed: %v", ifaceName, err)
+	}
+	return
+}
+
+// runAWGTunnelServiceLegacy retains the previous in-process AWG
+// tunnel implementation for emergency rollback. Not wired into
+// the --awg-tunnel dispatcher anymore. Kept until the new
+// delegation path is confirmed stable in production.
+func runAWGTunnelServiceLegacy(confPath, ifaceName string) {
+	logPath := awgTunnelLogPath(ifaceName)
+	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
+	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
+		log.SetOutput(f)
 		os.Stderr = f
 		os.Stdout = f
 	}
@@ -114,9 +163,7 @@ func runAWGTunnelService(confPath, ifaceName string) {
 
 	isService, err := svc.IsWindowsService()
 	if err != nil || !isService {
-		// Console mode — for dev/debug. Bring tunnel up, block on
-		// stdin, then bring down. Useful when invoking directly
-		// with `privycs-vpn.exe --awg-tunnel ... --console`.
+		// Console mode — for dev/debug.
 		log.Printf("awg-tunnel-service[%s]: console mode (not under SCM)", ifaceName)
 		state := &awgServiceState{
 			confPath:   confPath,
@@ -128,7 +175,6 @@ func runAWGTunnelService(confPath, ifaceName string) {
 			log.Fatalf("awg-tunnel-service[%s]: bringUp: %v", ifaceName, err)
 		}
 		go state.serveStatusPipe()
-		// Block forever — console mode, kill via Ctrl+C
 		select {}
 	}
 
@@ -435,29 +481,37 @@ func stopAndDeleteService(s *mgr.Service, name string) error {
 	return nil
 }
 
-// queryAWGTunnelService dials the per-tunnel service's status pipe
-// and returns the latest status payload. Used by the helper's
-// status-action handler when variant=amneziawg on Windows.
+// queryAWGTunnelService returns the AWG tunnel state by querying
+// the SCM service registered for this interface. v0.9.15.42:
+// drops the previous "talk JSON over a custom named pipe" approach
+// since the new awgtunnel.Run-based service owns its own UAPI pipe
+// (\\.\pipe\ProtectedPrefix\Administrators\AmneziaWG\<name>) which
+// we don't need to parse — connected/disconnected via SCM state is
+// sufficient for the helper's status-RPC consumers.
+//
+// uapi return value is always empty in the new path. The helper's
+// status RPC used to surface this for fine-grained "show
+// handshake / rxBytes" display in the app; with the migration that
+// information would require talking the wireguard UAPI protocol
+// to their pipe. Keeping the field present (empty) to preserve
+// the function signature for callers.
 func queryAWGTunnelService(ifaceName string) (uapi string, connected bool, err error) {
-	pipePath := awgTunnelPipePrefix + ifaceName
-	// v0.9.15.37: paired with the ListenPipe change in serveStatusPipe
-	// — use winio.DialPipe for proper Windows named-pipe semantics.
-	timeout := 2 * time.Second
-	conn, err := winio.DialPipe(pipePath, &timeout)
+	serviceName := awgTunnelServicePrefix + ifaceName
+	m, err := mgr.Connect()
 	if err != nil {
-		return "", false, fmt.Errorf("dial status pipe %s: %w", pipePath, err)
+		return "", false, fmt.Errorf("scm connect: %w", err)
 	}
-	defer conn.Close()
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-
-	var status awgTunnelStatus
-	if err := json.NewDecoder(conn).Decode(&status); err != nil {
-		return "", false, fmt.Errorf("decode status: %w", err)
+	defer m.Disconnect()
+	s, err := m.OpenService(serviceName)
+	if err != nil {
+		return "", false, fmt.Errorf("open service %s: %w", serviceName, err)
 	}
-	if status.Error != "" {
-		return "", false, fmt.Errorf("service reported error: %s", status.Error)
+	defer s.Close()
+	status, err := s.Query()
+	if err != nil {
+		return "", false, fmt.Errorf("query service %s: %w", serviceName, err)
 	}
-	return status.UAPIDump, status.Connected, nil
+	return "", status.State == svc.Running, nil
 }
 
 // sweepOrphanedAWGTunnelServices removes any PrivycsAWGTunnel$*

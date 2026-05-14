@@ -6,6 +6,8 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/amnezia-vpn/amneziawg-go v0.2.18 h1:pUn7/P8qdGmHd6JmE3bCQXPblZs3vruWR98nLODQLJg=
 github.com/amnezia-vpn/amneziawg-go v0.2.18/go.mod h1:aMgOk9MuX0xI7b5TKAYp8pLM54RlXcOPzDvYw3YEO5A=
+github.com/amnezia-vpn/amneziawg-windows v0.1.8 h1:6WX4cL6H3gAdR9v9WEpsK3GKObXWLTiM3vUKZg1+K50=
+github.com/amnezia-vpn/amneziawg-windows v0.1.8/go.mod h1:SVT5UeQz5bQLYqCfggffKZRoMCo0o1kQtoquzZLauJ8=
 github.com/bep/debounce v1.2.1 h1:v67fRdBA9UQu2NhLFXrSg0Brw7CexQekrBwDMM8bzeY=
 github.com/bep/debounce v1.2.1/go.mod h1:H8yggRPQKLUhUoqrJC1bO2xNya7vanpDl7xR3ISbCJ0=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
