@@ -52,6 +52,16 @@ var allowedActions = map[string]bool{
 	"macos_dns_override_clean":   true, // orphan-cleanup at app startup
 	"remove_legacy_sudoers":      true,
 	"wlan_ssid":                  true, // SSID query (bypasses user-level Location GPO)
+	// v0.9.15.37: IPv6 leak-killswitch actions. Dispatcher cases
+	// existed (lines ~310-313) but the action names were absent
+	// from this whitelist, so the gate at executeCommand rejected
+	// every call with "unknown action: ipv6_unblock". Net effect:
+	// killswitch enable worked (block rule installed by other code
+	// path? actually it didn't — same issue), but the unblock-on-
+	// disconnect path silently failed and left the rules stuck,
+	// breaking the local IPv6 stack until manual netsh cleanup.
+	"ipv6_block":                 true,
+	"ipv6_unblock":               true,
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.

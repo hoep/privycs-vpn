@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Microsoft/go-winio"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -215,12 +216,20 @@ func (s *awgServiceState) bringDown() {
 
 // serveStatusPipe listens on \\.\pipe\PrivycsAWGTunnel.<iface> and
 // returns a JSON awgTunnelStatus payload for each connecting client.
-// On Windows we use net.Listen("unix", path) — Go's net package
-// transparently routes \\.\pipe\... names to a named pipe under the
-// hood when the path matches.
+// v0.9.15.37: use Microsoft/go-winio for proper Windows named-pipe
+// support. Previous version used net.Listen("unix", ...) under the
+// false assumption that Go's net package routes \\.\pipe\... paths
+// to named pipes — it doesn't. AF_UNIX on Windows expects a real
+// filesystem path; \\.\pipe\ is a separate Win32 namespace (named
+// pipes via CreateNamedPipe/NamedPipeClient APIs). Consequence of
+// the old code: the listener silently failed → every helper status
+// poll returned "target machine actively refused it" → app gave up
+// after ~30 s, falling over to vanilla WireGuard. AWG itself was
+// fully online the whole time (handshake + keepalives confirmed in
+// the per-tunnel trace log).
 func (s *awgServiceState) serveStatusPipe() {
 	pipePath := awgTunnelPipePrefix + s.ifaceName
-	ln, err := net.Listen("unix", pipePath)
+	ln, err := winio.ListenPipe(pipePath, nil)
 	if err != nil {
 		log.Printf("awg-tunnel-service[%s]: pipe listen failed: %v", s.ifaceName, err)
 		return
@@ -405,7 +414,10 @@ func stopAndDeleteService(s *mgr.Service, name string) error {
 // status-action handler when variant=amneziawg on Windows.
 func queryAWGTunnelService(ifaceName string) (uapi string, connected bool, err error) {
 	pipePath := awgTunnelPipePrefix + ifaceName
-	conn, err := net.DialTimeout("unix", pipePath, 2*time.Second)
+	// v0.9.15.37: paired with the ListenPipe change in serveStatusPipe
+	// — use winio.DialPipe for proper Windows named-pipe semantics.
+	timeout := 2 * time.Second
+	conn, err := winio.DialPipe(pipePath, &timeout)
 	if err != nil {
 		return "", false, fmt.Errorf("dial status pipe %s: %w", pipePath, err)
 	}
