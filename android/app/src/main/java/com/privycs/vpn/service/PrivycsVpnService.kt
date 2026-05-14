@@ -2194,13 +2194,29 @@ class PrivycsVpnService : VpnService() {
                 // null-safe (each `?.disconnect()` no-ops on a null
                 // singleton). Worth the audit-cleanliness.
                 try {
+                    // Capture singleton-active flags BEFORE nulling so
+                    // we can gate the per-protocol explicit stop
+                    // intents below. v0.9.15.37 regression: sending
+                    // DISCONNECT_VPN to OpenVPNService via startService
+                    // RESURRECTS the service if it wasn't already
+                    // running (ics-openvpn's onCreate logs "Restarting
+                    // OpenVPN Service (App crashed probably crashed or
+                    // killed for memory pressure)" and re-loads the
+                    // last connected profile via LAST_CONNECTED_PROFILE
+                    // persistence → auto-reconnect kicks in 1-2 s
+                    // later → claims the system VPN slot → clobbers
+                    // any new WG/AWG/IPSec tunnel that was meanwhile
+                    // brought up. Same risk shape for CharonVpnService.
+                    // Only fire the intents when the respective
+                    // tunnel singleton was actually instantiated.
+                    val wgActive = wireGuardTunnel != null
+                    val awgActive = amneziaTunnel != null
+                    val ovpnActive = openVpnTunnel != null
+                    val ipsecActive = ipSecTunnel != null
                     PrivycsLogger.i(
                         TAG,
                         "handleDisconnect: nuclear teardown — " +
-                            "wg=${wireGuardTunnel != null} " +
-                            "awg=${amneziaTunnel != null} " +
-                            "ovpn=${openVpnTunnel != null} " +
-                            "ipsec=${ipSecTunnel != null} " +
+                            "wg=$wgActive awg=$awgActive ovpn=$ovpnActive ipsec=$ipsecActive " +
                             "currentProtocol=$currentProtocol",
                     )
                     try { wireGuardTunnel?.disconnect() } catch (e: Exception) {
@@ -2220,37 +2236,50 @@ class PrivycsVpnService : VpnService() {
                     }
                     ipSecTunnel = null
 
-                    // Belt-and-braces: explicit stop intents to the
-                    // SEPARATE-process VPN services (CharonVpnService,
-                    // OpenVPNService). If either was started by a path
-                    // outside our tunnel-singleton tracking (boot
-                    // respawn, COD intent, prior session) its tun fd
-                    // would otherwise keep Android's VPN-icon active
-                    // independent of our PrivycsVpnService lifecycle.
-                    try {
-                        val charonStop = Intent(
-                            this@PrivycsVpnService,
-                            org.strongswan.android.logic.CharonVpnService::class.java,
-                        ).apply {
-                            action = org.strongswan.android.logic
-                                .CharonVpnService.DISCONNECT_ACTION
+                    // Belt-and-braces: explicit stop intents — gated
+                    // on the captured *Active flags so we don't wake
+                    // a service that wasn't running. Plus: when
+                    // OpenVPN WAS running, clear ics-openvpn's
+                    // LAST_CONNECTED_PROFILE preference BEFORE sending
+                    // the disconnect intent. Without that step
+                    // OpenVPNService re-reads the profile on its next
+                    // start-cycle (Android START_STICKY + null-intent
+                    // restart) and auto-reconnects, defeating the
+                    // disconnect entirely.
+                    if (ipsecActive) {
+                        try {
+                            val charonStop = Intent(
+                                this@PrivycsVpnService,
+                                org.strongswan.android.logic.CharonVpnService::class.java,
+                            ).apply {
+                                action = org.strongswan.android.logic
+                                    .CharonVpnService.DISCONNECT_ACTION
+                            }
+                            startService(charonStop)
+                        } catch (e: Exception) {
+                            PrivycsLogger.w(TAG, "CharonVpnService stop intent: ${e.message}")
                         }
-                        startService(charonStop)
-                    } catch (e: Exception) {
-                        PrivycsLogger.w(TAG, "CharonVpnService stop intent: ${e.message}")
                     }
-                    try {
-                        val openvpnStop = Intent(
-                            this@PrivycsVpnService,
-                            de.blinkt.openvpn.core.OpenVPNService::class.java,
-                        ).apply {
-                            action = de.blinkt.openvpn.core
-                                .OpenVPNService.DISCONNECT_VPN
+                    if (ovpnActive) {
+                        try {
+                            de.blinkt.openvpn.core.ProfileManager
+                                .setConntectedVpnProfileDisconnected(this@PrivycsVpnService)
+                        } catch (e: Exception) {
+                            PrivycsLogger.w(TAG, "OpenVPN clear last-profile: ${e.message}")
                         }
-                        startService(openvpnStop)
-                        stopService(openvpnStop)
-                    } catch (e: Exception) {
-                        PrivycsLogger.w(TAG, "OpenVPNService stop intent: ${e.message}")
+                        try {
+                            val openvpnStop = Intent(
+                                this@PrivycsVpnService,
+                                de.blinkt.openvpn.core.OpenVPNService::class.java,
+                            ).apply {
+                                action = de.blinkt.openvpn.core
+                                    .OpenVPNService.DISCONNECT_VPN
+                            }
+                            startService(openvpnStop)
+                            stopService(openvpnStop)
+                        } catch (e: Exception) {
+                            PrivycsLogger.w(TAG, "OpenVPNService stop intent: ${e.message}")
+                        }
                     }
                 } catch (e: Exception) {
                     PrivycsLogger.e(TAG, "Error during disconnect", e)
