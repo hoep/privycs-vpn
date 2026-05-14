@@ -587,6 +587,23 @@ func (w *WireGuardProtocol) upWindows(ctx context.Context) error {
 		return nil
 	}
 
+	// AmneziaWG on Windows is in-process via amneziawg-go linked into
+	// the HELPER binary (Wintun + netsh routes require SYSTEM
+	// privileges, the user-context app process can't install them).
+	// No wireguard.exe equivalent exists for AWG. So if the helper
+	// isn't running we MUST fail loudly here — the UAC fallback below
+	// would silently call vanilla `wireguard.exe /installtunnelservice`,
+	// which strips the AWG obfuscation keys (Jc/Jmin/Jmax/S1-4/H1-4/
+	// I1-5) and produces a vanilla WG handshake. On an AWG-configured
+	// server that either fails entirely OR matches a different peer
+	// entry, surfacing as "wrong IP / wrong protocol" to the user.
+	// v0.9.15.x history: silent fallback was the cause of the user-
+	// reported "still vanilla and wrong IP .1 instead of .2" after
+	// they forgot to start the privileged helper service.
+	if w.variant == VariantAmnezia {
+		return fmt.Errorf("AmneziaWG on Windows requires the privileged helper service — install it via Settings → Privileged Helper, or run `sc start PrivycsVpnHelper` from an admin PowerShell. Vanilla wireguard.exe cannot run AWG obfuscation")
+	}
+
 	// Fallback: direct UAC-elevated installtunnelservice (user sees UAC each connect).
 	log.Printf("Starting WireGuard tunnel %s via UAC fallback (install privileged helper to eliminate prompts)", w.ifaceName)
 	wgExe := findWireGuardExe()
