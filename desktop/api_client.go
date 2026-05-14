@@ -232,20 +232,23 @@ func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName st
 	}
 	log.Printf("DownloadAndImportConfig: fetched %d bytes, calling ImportConfig", len(configContent))
 
-	// v0.9.15.x: filename includes the gateway-side configID so two
-	// configs with the same peerName but different gateway IDs
-	// (e.g. one peer reachable via wgShield1, another with the same
-	// display name via wgShield2) don't collide on the
-	// (protocol, filename) match in connection_registry.AddOrUpdate
-	// and overwrite each other. The configID is gateway-unique per
-	// protocol so re-downloading the SAME config still yields the
-	// same filename → refresh-in-place stays correct.
-	filename := fmt.Sprintf("%s-%d.conf", peerName, configID)
+	// v0.9.15.30: filename is purely the deterministic gateway-
+	// stable ID, decoupled from the user-visible peerName.
+	// Server-side name changes (peer rename, display-string churn)
+	// no longer break the (protocol, filename) tuple that AddOrUpdate
+	// uses to detect re-import. The same stable ID is mirrored into
+	// pc.ID by ImportConfig so the upsert match hits at the ID stage
+	// (1st priority in connection_registry.AddOrUpdate). Two peers
+	// with the same display name from different gateway interfaces
+	// have different configIDs → different filenames → coexist as
+	// separate slots → protocol-pill picker shows the "2" badge.
+	stableID := fmt.Sprintf("gw-%s-%d", protocol, configID)
+	filename := stableID + ".conf"
 	switch protocol {
 	case "openvpn":
-		filename = fmt.Sprintf("%s-%d.ovpn", peerName, configID)
+		filename = stableID + ".ovpn"
 	case "ipsec":
-		filename = fmt.Sprintf("%s-%d.sswan", peerName, configID)
+		filename = stableID + ".sswan"
 	}
 
 	// Empty name when adding to existing connection — don't rename

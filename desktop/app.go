@@ -1211,7 +1211,7 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 			// PickAndConnectActivePool's "wasConnected" path then
 			// no-ops on a phantom-running tunnel. Re-enabling the
 			// real recovery closes that hole.
-			a.tunnelHealth.Start(target, func() {
+			a.tunnelHealth.Start(target, a.settings.TunnelHealthPingIntervalSec, a.settings.TunnelHealthDeadThreshold, func() {
 				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + trying failover")
 				// Serialise against concurrent UI Connect/Disconnect.
 				// Held across the disconnect → settle-delay → failover
@@ -1690,6 +1690,18 @@ func (a *App) ImportConfig(protocol string, content string, filename string, con
 		ConfigContent: content,
 		Filename:      filename,
 		AddedAt:       time.Now().Format(time.RFC3339),
+	}
+	// v0.9.15.30: if filename matches the gateway-import pattern
+	// "gw-<protocol>-<configId>.<ext>", lift the base name into
+	// pc.ID. The connection_registry.AddOrUpdate match-order is
+	// (1) ID, (2) (Protocol, Filename), (3) append — so a re-import
+	// of the same gateway config hits stage (1) and refreshes in
+	// place. File-picker imports keep pc.ID empty here and get a
+	// random UUID assigned in AddOrUpdate, which means each
+	// file-picker import is a new slot (acceptable; user already
+	// chose to import a separate file).
+	if base := strings.TrimSuffix(filename, filepath.Ext(filename)); strings.HasPrefix(base, "gw-") {
+		pc.ID = base
 	}
 	// Extract server address from protocol handler
 	status := proto.Status()

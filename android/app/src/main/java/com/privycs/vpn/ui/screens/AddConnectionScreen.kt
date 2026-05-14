@@ -368,25 +368,23 @@ fun AddConnectionScreen(
                                 val configContent = client.fetchConfig(entry.protocol, entry.id)
                                 client.close()
 
-                                // v0.9.15.x: filename includes the gateway-side
-                                // config id so two configs with the same
-                                // peerName but different gateway ids (e.g. one
-                                // peer reachable via wgShield1, another with
-                                // the same display name via wgShield2) don't
-                                // collide on the (protocol, filename) match in
-                                // ConnectionRepository.addOrUpdate and overwrite
-                                // each other. The id is gateway-unique per
-                                // protocol so re-downloading the same config
-                                // still yields the same filename → refresh-in-
-                                // place stays correct.
+                                // v0.9.15.30: filename + pc.id are now the
+                                // deterministic gateway-stable identifier
+                                // "gw-<protocol>-<id>". Decoupled from the
+                                // user-visible peerName so server-side rename
+                                // doesn't break re-import matching. The same
+                                // ID becomes pc.id so addOrUpdate hits stage
+                                // (1) "match by id" on re-download.
+                                val stableId = "gw-${entry.protocol}-${entry.id}"
                                 val filename = when (entry.protocol) {
-                                    "wireguard", "amneziawg" -> "${entry.peerName}-${entry.id}.conf"
-                                    "openvpn" -> "${entry.peerName}-${entry.id}.ovpn"
-                                    "ipsec" -> "${entry.peerName}-${entry.id}.sswan"
-                                    else -> "${entry.peerName}-${entry.id}.conf"
+                                    "wireguard", "amneziawg" -> "$stableId.conf"
+                                    "openvpn" -> "$stableId.ovpn"
+                                    "ipsec" -> "$stableId.sswan"
+                                    else -> "$stableId.conf"
                                 }
 
-                                val protocolConfig = ConfigParser.buildProtocolConfig(configContent, filename)
+                                val parsed = ConfigParser.buildProtocolConfig(configContent, filename)
+                                val protocolConfig = parsed?.copy(id = stableId)
                                 if (protocolConfig != null) {
                                     val targetName = targetConnection?.name ?: entry.peerName
                                     connectionRepo.addOrUpdate(targetConnection?.id, targetName, protocolConfig)

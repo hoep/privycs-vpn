@@ -731,10 +731,15 @@ class VpnServiceManager private constructor(private val context: Context) {
             if (shouldRun) {
                 val target = healthSettings?.tunnelHealthTarget?.takeIf { it.isNotBlank() }
                     ?: ""
+                val intervalSec = healthSettings?.tunnelHealthPingIntervalSec ?: 0
+                val deadThreshold = healthSettings?.tunnelHealthDeadThreshold ?: 0
                 if (target.isNotBlank()) {
-                    TunnelHealthMonitor.start(target)
+                    TunnelHealthMonitor.start(target, intervalSec, deadThreshold)
                 } else {
-                    TunnelHealthMonitor.start()
+                    TunnelHealthMonitor.start(
+                        intervalSec = intervalSec,
+                        deadThreshold = deadThreshold,
+                    )
                 }
             } else {
                 TunnelHealthMonitor.stop()

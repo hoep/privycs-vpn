@@ -51,12 +51,26 @@ type TunnelHealthMonitor struct {
 	// to wailsRuntime.EventsEmit("tunnelHealth:state", state) so
 	// the Vue ConnectionView traffic-light pill updates live.
 	onStateChange func(TunnelHealthState)
+	// v0.9.15.30: settings-driven probe cadence. Populated by
+	// Start() from AppSettings.TunnelHealthPingIntervalSec /
+	// AppSettings.TunnelHealthDeadThreshold. Falls back to the
+	// const defaults below if the settings struct is zero-valued.
+	intervalSec   int
+	deadThreshold int
 }
 
 const (
-	tunnelHealthPingIntervalSec = 60
+	// v0.9.15.30: tuned for fast server-down failover.
+	// 5 s interval × 2 consecutive fails = max 10 s detection vs
+	// the previous 60 s × 3 = 3 min. User reported the 3 min lag
+	// as unacceptable for the multi-config failover flow. The 2x
+	// threshold (vs 1) keeps a single transient ICMP drop on a
+	// flaky mobile network from triggering a spurious failover.
+	// 12 ICMP probes/min ≈ 1 KB/min ≈ 1.4 MB/day — negligible
+	// data cost; battery cost ≈ +2-3 % vs the 60 s baseline.
+	tunnelHealthPingIntervalSec = 5
 	tunnelHealthPingTimeoutSec  = 2
-	tunnelHealthDeadThreshold   = 3
+	tunnelHealthDeadThreshold   = 2
 	tunnelHealthRecoveryGrace   = 30 * time.Second
 	tunnelHealthDefaultTarget   = "1.1.1.1"
 )
@@ -109,7 +123,7 @@ func (m *TunnelHealthMonitor) setState(s TunnelHealthState) {
 // app.disconnectInternal so the post-disconnect path drives
 // recovery (COD reconnect, pool keepalive, or stays-down for
 // non-COD users).
-func (m *TunnelHealthMonitor) Start(target string, onDead func()) {
+func (m *TunnelHealthMonitor) Start(target string, intervalSec, deadThreshold int, onDead func()) {
 	m.mu.Lock()
 	if m.cancel != nil {
 		m.cancel()
@@ -120,13 +134,24 @@ func (m *TunnelHealthMonitor) Start(target string, onDead func()) {
 	if target == "" {
 		target = tunnelHealthDefaultTarget
 	}
+	// v0.9.15.30: settings-driven overrides, fall back to the
+	// module constants if the caller passed zero (e.g. legacy
+	// settings.json pre-fillTunnelHealthDefaults migration).
+	if intervalSec <= 0 {
+		intervalSec = tunnelHealthPingIntervalSec
+	}
+	if deadThreshold <= 0 {
+		deadThreshold = tunnelHealthDeadThreshold
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.target = target
+	m.intervalSec = intervalSec
+	m.deadThreshold = deadThreshold
 	m.mu.Unlock()
 
 	log.Printf("TunnelHealth: starting (target=%s, interval=%ds, dead=%d)",
-		target, tunnelHealthPingIntervalSec, tunnelHealthDeadThreshold)
+		target, intervalSec, deadThreshold)
 
 	// Start in HEALTHY-by-assumption: tunnel just came up. The
 	// first ping at T+60s either confirms or flips to DEGRADED.
@@ -167,7 +192,17 @@ func (m *TunnelHealthMonitor) Stop() {
 }
 
 func (m *TunnelHealthMonitor) run(ctx context.Context, target string, onDead func()) {
-	ticker := time.NewTicker(tunnelHealthPingIntervalSec * time.Second)
+	m.mu.Lock()
+	intervalSec := m.intervalSec
+	deadThreshold := m.deadThreshold
+	m.mu.Unlock()
+	if intervalSec <= 0 {
+		intervalSec = tunnelHealthPingIntervalSec
+	}
+	if deadThreshold <= 0 {
+		deadThreshold = tunnelHealthDeadThreshold
+	}
+	ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
 	defer ticker.Stop()
 	failures := 0
 	for {
@@ -186,8 +221,8 @@ func (m *TunnelHealthMonitor) run(ctx context.Context, target string, onDead fun
 			}
 			failures++
 			log.Printf("TunnelHealth: ping to %s failed (%d/%d)",
-				target, failures, tunnelHealthDeadThreshold)
-			if failures >= tunnelHealthDeadThreshold {
+				target, failures, deadThreshold)
+			if failures >= deadThreshold {
 				log.Printf("TunnelHealth: tunnel dead, triggering recovery")
 				failures = 0
 				m.setState(TunnelHealthRecovering)

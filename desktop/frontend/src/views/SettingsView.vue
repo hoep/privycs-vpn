@@ -347,6 +347,37 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
         <p class="text-[10px] text-gray-500 mt-1">
           Empty = use default 1.1.1.1. Useful if 1.1.1.1 is blocked or you prefer pinging an internal target.
         </p>
+
+        <!-- v0.9.15.30: probe cadence overrides -->
+        <div class="grid grid-cols-2 gap-3 mt-4">
+          <div>
+            <label class="text-[11px] text-gray-500 block mb-1">Ping interval (seconds)</label>
+            <input
+              v-model.number="settings.tunnel_health_ping_interval_sec"
+              @blur="saveSettings()"
+              type="number"
+              min="1"
+              max="120"
+              placeholder="5"
+              class="input"
+            />
+          </div>
+          <div>
+            <label class="text-[11px] text-gray-500 block mb-1">Fails before recovery</label>
+            <input
+              v-model.number="settings.tunnel_health_dead_threshold"
+              @blur="saveSettings()"
+              type="number"
+              min="1"
+              max="10"
+              placeholder="2"
+              class="input"
+            />
+          </div>
+        </div>
+        <p class="text-[10px] text-gray-500 mt-1">
+          Max detection time = interval × threshold. Default 5 s × 2 = max 10 s. Larger values lower battery / data cost; smaller values catch dead tunnels faster but may false-trigger on flaky networks.
+        </p>
       </div>
 
       <!-- Sleep / Wake Recovery (macOS) -->
@@ -702,6 +733,10 @@ const settings = ref<any>({
   },
   tunnel_health_mode: 'auto',
   tunnel_health_target: '',
+  // v0.9.15.30: probe cadence overrides. Defaults map to the Go
+  // const fallbacks in tunnel_health_monitor.go (5 s × 2 = max 10 s).
+  tunnel_health_ping_interval_sec: 5,
+  tunnel_health_dead_threshold: 2,
   // null = backend default (ON for ReconnectOnSystemWake — see
   // settings.go *bool fallback). Toggle UI explicitly sets true/false.
   reconnect_on_system_wake: null,

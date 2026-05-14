@@ -29,6 +29,18 @@ func main() {
 		}
 	}
 
+	// v0.9.15.30: per-tunnel AWG Windows service mode. Helper
+	// invokes us as `privycs-vpn.exe --awg-tunnel <confPath> <iface>`
+	// to host ONE AmneziaWG tunnel under SCM as the service
+	// PrivycsAWGTunnel$<iface>. Process isolation per tunnel
+	// (recommended embedding pattern from wireguard.com/embedding,
+	// and what the upstream amneziawg-windows project does). On
+	// Linux/macOS this is a no-op stub.
+	if len(os.Args) >= 4 && os.Args[1] == "--awg-tunnel" {
+		runAWGTunnelService(os.Args[2], os.Args[3])
+		return
+	}
+
 	app := NewApp()
 
 	// macOS menu bar — required for the standard ⌘Q (Quit) keystroke

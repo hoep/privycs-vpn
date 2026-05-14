@@ -435,17 +435,17 @@ fun ConnectionsScreen(
                                 val configContent = client.fetchConfig(entry.protocol, entry.id)
                                 client.close()
 
-                                // v0.9.15.x: filename includes the gateway-side
-                                // config id — see AddConnectionScreen for the
-                                // full rationale (same peerName + different
-                                // server-side interface → was overwriting).
+                                // v0.9.15.30: stableId-based filename + pc.id.
+                                // See AddConnectionScreen for the full rationale.
+                                val stableId = "gw-${entry.protocol}-${entry.id}"
                                 val filename = when (entry.protocol) {
-                                    "wireguard", "amneziawg" -> "${entry.peerName}-${entry.id}.conf"
-                                    "openvpn" -> "${entry.peerName}-${entry.id}.ovpn"
-                                    else -> "${entry.peerName}-${entry.id}.conf"
+                                    "wireguard", "amneziawg" -> "$stableId.conf"
+                                    "openvpn" -> "$stableId.ovpn"
+                                    else -> "$stableId.conf"
                                 }
 
-                                val protocolConfig = ConfigParser.buildProtocolConfig(configContent, filename)
+                                val parsed = ConfigParser.buildProtocolConfig(configContent, filename)
+                                val protocolConfig = parsed?.copy(id = stableId)
                                 if (protocolConfig != null) {
                                     connectionRepo.addOrUpdate(null, entry.peerName, protocolConfig)
                                 }

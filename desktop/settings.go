@@ -44,6 +44,16 @@ type AppSettings struct {
 	// Empty target falls back to built-in default 1.1.1.1.
 	TunnelHealthMode   string `json:"tunnel_health_mode,omitempty"`
 	TunnelHealthTarget string `json:"tunnel_health_target,omitempty"`
+	// v0.9.15.30: tuneable probe cadence. Defaults
+	// (PingIntervalSec=5, DeadThreshold=2) come from
+	// tunnel_health_monitor.go's constants when these are 0. Both
+	// fields land in the JSON-serialised settings + backup so a
+	// restore on a fresh device picks up the user's tuning.
+	// User explicitly requested overridability after the v0.9.15.30
+	// 60→5 s / 3→2 default change ("konfigurierbar wir haben doch
+	// tunnel health settings (server)").
+	TunnelHealthPingIntervalSec int `json:"tunnel_health_ping_interval_sec,omitempty"`
+	TunnelHealthDeadThreshold   int `json:"tunnel_health_dead_threshold,omitempty"`
 	// Per-network rules engine (Phase 2). Default off in v0.9.13.4
 	// after the v0.9.13.0..3 instability reports - opt-in until
 	// the connect-cascade interaction is fully understood.
@@ -102,6 +112,13 @@ func LoadSettings() *AppSettings {
 		SaveSettings(&settings)
 	}
 
+	// v0.9.15.30: pre-existing settings.json files have both
+	// TunnelHealthPingIntervalSec + TunnelHealthDeadThreshold at
+	// zero. Backfill from defaults so any code that reads the
+	// settings struct sees the real cadence values, and so the
+	// next SaveSettings (and backup) persists them explicitly.
+	fillTunnelHealthDefaults(&settings)
+
 	// (Removed: a one-shot trigger="wifi_mobile" -> "any" migration.
 	// The migration was correct for users stuck on the legacy default,
 	// but it also FIRED EVERY APP START - meaning a user who explicitly
@@ -132,10 +149,26 @@ func SaveSettings(s *AppSettings) {
 
 func defaultSettings() *AppSettings {
 	return &AppSettings{
-		ActiveProtocol: "wireguard",
-		Theme:          "dark",
-		LogLevel:       "info",
-		MinimizeToTray: true,
+		ActiveProtocol:              "wireguard",
+		Theme:                       "dark",
+		LogLevel:                    "info",
+		MinimizeToTray:              true,
+		TunnelHealthPingIntervalSec: tunnelHealthPingIntervalSec, // 5
+		TunnelHealthDeadThreshold:   tunnelHealthDeadThreshold,   // 2
+	}
+}
+
+// fillTunnelHealthDefaults backfills the probe-cadence fields on a
+// settings struct loaded from disk that pre-dates v0.9.15.30 (those
+// settings.json files have both fields at their zero value 0/0). On
+// the next SaveSettings the persisted file gets the populated values
+// so backups carry them across.
+func fillTunnelHealthDefaults(s *AppSettings) {
+	if s.TunnelHealthPingIntervalSec <= 0 {
+		s.TunnelHealthPingIntervalSec = tunnelHealthPingIntervalSec
+	}
+	if s.TunnelHealthDeadThreshold <= 0 {
+		s.TunnelHealthDeadThreshold = tunnelHealthDeadThreshold
 	}
 }
 

@@ -110,24 +110,23 @@ class VpnWidgetCompact : AppWidgetProvider() {
             else android.view.View.GONE,
         )
 
-        // Display the active protocol's icon when one is known, or
-        // fall back to the connection-registry's saved active when
-        // status is empty (disconnected state right after launch).
-        // Same logic as the main widget's displayProtocol resolution.
+        // v0.9.15.30: hardened displayProtocol resolution, same
+        // fallback chain as VpnWidget. Avoids the
+        // "weisses-quadrat-mit-grünem-Privycs-P" fallback the user
+        // saw when activeProtocol propagation was incomplete.
+        val repo = com.privycs.vpn.PrivycsApp.instance.connectionRepository
+        val activeConn = repo.getActive()
         val displayProtocol = activeProtocol
-            ?: com.privycs.vpn.PrivycsApp.instance.connectionRepository
-                .getActive()?.activeProtocol
+            ?: activeConn?.activeProtocol
+            ?: activeConn?.protocols?.firstOrNull()?.protocol
+            ?: repo.connections.firstOrNull()?.protocols?.firstOrNull()?.protocol
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            // v0.9.15.25: all protocols render their mono/alpha
-            // variant + state-driven tint (white connected, dark grey
-            // disconnected), matching the in-app Connect-screen
-            // formatting. See VpnWidget for the rationale.
             displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
-            else -> R.drawable.ic_privycs_logo
+            else -> R.drawable.ic_privycs_shield
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
         // Icon tint mirrors ConnectScreen.kt:1032-1033 (see VpnWidget

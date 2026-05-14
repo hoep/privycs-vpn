@@ -48,17 +48,17 @@ object TunnelHealthMonitor {
     private const val TAG = "TunnelHealthMonitor"
 
     private const val PING_TARGET_DEFAULT = "1.1.1.1"
-    // v0.9.14.96: tightened ping interval 60 s → 20 s per user
-    // request ("ich brauche aber schnellere action als 60s").
-    // 3-fail threshold remains, so worst-case dead-tunnel detection
-    // is now 60 s (3 × 20 s) instead of 3 min (3 × 60 s). Battery
-    // cost is 3× more pings — each spawning ping(8) for a single
-    // ICMP packet, ~5 ms CPU + ~70 bytes network — totalling a
-    // few-percent increase in idle-VPN battery use. Acceptable
-    // trade for 3× faster recovery from silent tunnel death.
-    private const val PING_INTERVAL_MS = 20_000L
+    // v0.9.15.30: further tightened to 5 s × 2 = max 10 s
+    // detection (was 20 s × 3 = max 60 s in v0.9.14.96, originally
+    // 60 s × 3 = 3 min). User explicitly requested 10 s mid-
+    // session server-down detection for the multi-config failover
+    // flow. The 2× threshold (down from 3×) keeps a single
+    // transient ICMP drop on flaky mobile from triggering a
+    // spurious failover. 12 probes/min ≈ 1 KB/min ≈ 1.4 MB/day,
+    // negligible data; battery ≈ +2-3 % over the 20 s baseline.
+    private const val PING_INTERVAL_MS = 5_000L
     private const val PING_TIMEOUT_S = 2L
-    private const val DEAD_THRESHOLD = 3
+    private const val DEAD_THRESHOLD = 2
     // Recovery grace: after firing disconnect, the next ping cycle
     // would happen 60s later anyway, but we add an extra 30s so the
     // disconnect + reconnect lifecycle has time to settle before
@@ -82,19 +82,37 @@ object TunnelHealthMonitor {
      * running cancels the previous job and starts fresh, useful when
      * the connect target changes (member rotation, protocol switch).
      */
-    fun start(target: String = PING_TARGET_DEFAULT) {
+    fun start(
+        target: String = PING_TARGET_DEFAULT,
+        intervalSec: Int = 0,
+        deadThreshold: Int = 0,
+    ) {
         synchronized(this) {
             job?.cancel()
             val effectiveTarget = target.ifBlank { PING_TARGET_DEFAULT }
-            PrivycsLogger.i(TAG, "starting tunnel health monitor (target=$effectiveTarget)")
+            // v0.9.15.30: settings-driven cadence. <=0 → fall back
+            // to the file-level constants. Caller wires
+            // settings.tunnelHealthPingIntervalSec /
+            // settings.tunnelHealthDeadThreshold.
+            val effectiveIntervalMs = (
+                if (intervalSec > 0) intervalSec.toLong() * 1000L
+                else PING_INTERVAL_MS
+            )
+            val effectiveDeadThreshold =
+                if (deadThreshold > 0) deadThreshold else DEAD_THRESHOLD
+            PrivycsLogger.i(
+                TAG,
+                "starting tunnel health monitor (target=$effectiveTarget, " +
+                    "interval=${effectiveIntervalMs}ms, dead=$effectiveDeadThreshold)"
+            )
             // First tick is HEALTHY-by-assumption: we just started
             // because the tunnel just came up. The actual ping at
-            // T+60s either confirms or flips to DEGRADED.
+            // T+interval either confirms or flips to DEGRADED.
             _state.value = State.HEALTHY
             job = scope.launch {
                 var consecutiveFailures = 0
                 while (isActive) {
-                    delay(PING_INTERVAL_MS)
+                    delay(effectiveIntervalMs)
                     val ok = runPing(effectiveTarget)
                     if (ok) {
                         if (consecutiveFailures > 0) {
@@ -106,9 +124,9 @@ object TunnelHealthMonitor {
                         consecutiveFailures++
                         PrivycsLogger.w(
                             TAG,
-                            "ping to $effectiveTarget failed ($consecutiveFailures/$DEAD_THRESHOLD)"
+                            "ping to $effectiveTarget failed ($consecutiveFailures/$effectiveDeadThreshold)"
                         )
-                        if (consecutiveFailures >= DEAD_THRESHOLD) {
+                        if (consecutiveFailures >= effectiveDeadThreshold) {
                             _state.value = State.RECOVERING
                             PrivycsLogger.e(TAG, "tunnel dead - triggering recovery")
                             triggerRecovery()

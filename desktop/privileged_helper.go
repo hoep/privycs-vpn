@@ -160,6 +160,14 @@ func (h *PrivilegedHelper) Start() error {
 
 	log.Printf("Privileged helper listening on %s", socketPath)
 
+	// v0.9.15.30: sweep stale per-tunnel AWG services on Windows
+	// from previous helper sessions (helper-crash recovery). On
+	// non-Windows this is a no-op stub. Runs in a goroutine so a
+	// slow SCM doesn't delay listener-readiness.
+	if runtime.GOOS == "windows" {
+		go sweepOrphanedAWGTunnelServices()
+	}
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -352,22 +360,29 @@ func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 
 	if runtime.GOOS == "windows" {
 		if isAwg {
-			// AWG on Windows: in-process via amneziawg-go. No
-			// external wireguard.exe / awg.exe service needed —
-			// the helper itself drives the Wintun device. See
-			// wg_windows_awg.go.
+			// AWG on Windows: install + start a per-tunnel SCM
+			// service `PrivycsAWGTunnel$<iface>` that runs
+			// amneziawg-go in its own LocalSystem process. The
+			// helper no longer drives the Wintun adapter itself
+			// — upstream-recommended embedding pattern (see
+			// awg_tunnel_service_windows.go header).
+			//
+			// Pre-v0.9.15.30 the helper called wgWindowsUpAwg
+			// in-process which hit a known wintun-adapter race
+			// (CreateTUN ok → silent crash before/during
+			// NewDevice/IpcSet/Up) — see the Feb 2025 zx2c4
+			// mailing-list thread and tailscale#1128.
 			confPath := cmd.ConfigPath
 			if confPath == "" {
 				confPath = windowsWGConfigPath(ifaceName)
 			}
-			content, err := os.ReadFile(confPath)
-			if err != nil {
-				return HelperResponse{Success: false, Error: fmt.Sprintf("read %s: %v", confPath, err)}
+			if _, err := os.Stat(confPath); err != nil {
+				return HelperResponse{Success: false, Error: fmt.Sprintf("config not found: %s", confPath)}
 			}
-			if err := wgWindowsUpAwg(ifaceName, string(content)); err != nil {
-				return HelperResponse{Success: false, Error: fmt.Sprintf("wgWindowsUpAwg failed: %v", err)}
+			if err := installAWGTunnelService(ifaceName, confPath); err != nil {
+				return HelperResponse{Success: false, Error: fmt.Sprintf("install AWG tunnel service: %v", err)}
 			}
-			return HelperResponse{Success: true, Output: fmt.Sprintf("AmneziaWG tunnel up on %s (in-process)", ifaceName)}
+			return HelperResponse{Success: true, Output: fmt.Sprintf("AmneziaWG tunnel service %s started", ifaceName)}
 		}
 		wgExe := findWireGuardExe()
 		if wgExe == "" {
@@ -460,10 +475,16 @@ func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse
 
 	if runtime.GOOS == "windows" {
 		if isAwg {
-			if err := wgWindowsDownAwg(ifaceName); err != nil {
-				return HelperResponse{Success: false, Error: fmt.Sprintf("wgWindowsDownAwg failed: %v", err)}
+			// v0.9.15.30: stop + delete the per-tunnel SCM
+			// service. The service's Execute handler tears the
+			// AWG device + Wintun adapter down on receiving
+			// svc.Stop. Idempotent — if the service is already
+			// gone (helper crash recovery, etc.) the uninstall
+			// returns success.
+			if err := uninstallAWGTunnelService(ifaceName); err != nil {
+				return HelperResponse{Success: false, Error: fmt.Sprintf("uninstall AWG tunnel service: %v", err)}
 			}
-			return HelperResponse{Success: true, Output: fmt.Sprintf("AmneziaWG tunnel down (%s, in-process)", ifaceName)}
+			return HelperResponse{Success: true, Output: fmt.Sprintf("AmneziaWG tunnel service %s stopped", ifaceName)}
 		}
 		wgExe := findWireGuardExe()
 		if wgExe == "" {
@@ -951,10 +972,12 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 		isAwg := cmd.Args["variant"] == VariantAmnezia
 		if runtime.GOOS == "windows" {
 			if isAwg {
-				// AWG on Windows is in-process — there's no
-				// WireGuardTunnel$<iface> service to query. Ask the
-				// in-process device for its UAPI dump.
-				uapi, connected, err := wgWindowsStatusAwg(ifaceName)
+				// v0.9.15.30: AWG on Windows runs in a per-tunnel
+				// SCM service. Status comes from a JSON-over-pipe
+				// query to PrivycsAWGTunnel$<iface>'s named-pipe
+				// listener instead of the previous in-process
+				// wgWindowsStatusAwg lookup.
+				uapi, connected, err := queryAWGTunnelService(ifaceName)
 				if err != nil {
 					return HelperResponse{Success: false, Error: "not connected", Output: err.Error()}
 				}
@@ -1177,11 +1200,12 @@ func (h *PrivilegedHelper) cmdWGHandshake(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: false, Error: "interface name required"}
 	}
 	isAwg := cmd.Args["variant"] == VariantAmnezia
-	// AWG on Windows is in-process — handshake comes from our own
-	// device's IpcGet, not from wg.exe. Branch before we try to locate
-	// any external binary (which doesn't exist for AWG anyway).
+	// v0.9.15.30: AWG on Windows runs in a per-tunnel service —
+	// handshake comes from the JSON-over-pipe query, not from
+	// wg.exe. Branch before we try to locate any external binary
+	// (which doesn't exist for AWG anyway).
 	if runtime.GOOS == "windows" && isAwg {
-		uapi, _, err := wgWindowsStatusAwg(cmd.Interface)
+		uapi, _, err := queryAWGTunnelService(cmd.Interface)
 		if err != nil {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("status: %v", err)}
 		}

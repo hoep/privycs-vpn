@@ -498,24 +498,35 @@ class VpnWidget : AppWidgetProvider() {
         // the protocol icon. Otherwise: live active protocol when
         // connected, saved active protocol when disconnected (so the
         // circle stays informative even before they reconnect).
+        // v0.9.15.30: hardened displayProtocol resolution. Falls
+        // through three levels so the widget never ends up on the
+        // generic shield fallback when ANY connection with ANY
+        // protocol exists:
+        //   1. live activeProtocol from the broadcast (tunnel is up)
+        //   2. saved activeProtocol on the active connection
+        //   3. first protocol slot of the active connection (in case
+        //      activeProtocol got cleared by a pill-switch + the
+        //      protocols list still has the AWG/WG/OVPN/IPSec entry)
+        //   4. first protocol slot of ANY connection
+        // The shield fallback is now a clean monochrome
+        // ic_privycs_shield (vector, fully tintable) instead of the
+        // multi-colour PNG ic_privycs_logo which the user saw as
+        // "white square with green P" because setColorFilter SRC_IN
+        // doesn't repaint already-opaque coloured PNG pixels the
+        // same way it does an alpha-only mono vector.
+        val repo = com.privycs.vpn.PrivycsApp.instance.connectionRepository
+        val activeConn = repo.getActive()
         val displayProtocol = activeProtocol
-            ?: com.privycs.vpn.PrivycsApp.instance.connectionRepository
-                .getActive()?.activeProtocol
+            ?: activeConn?.activeProtocol
+            ?: activeConn?.protocols?.firstOrNull()?.protocol
+            ?: repo.connections.firstOrNull()?.protocols?.firstOrNull()?.protocol
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            // v0.9.15.25: all four protocols render their mono/alpha
-            // variant and get tinted by setColorFilter below — the
-            // tint is STATE-driven (white connected, dark grey
-            // disconnected), matching the in-app Connect-screen
-            // formatting. Pre-v0.9.15.25 the widget showed each
-            // protocol in its baked brand colour (WG red / OVPN
-            // orange / IPSec blue) and AWG specifically with a fixed
-            // indigo tint — visually divergent from the app.
             displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
-            else -> R.drawable.ic_privycs_logo
+            else -> R.drawable.ic_privycs_shield
         }
         views.setImageViewResource(R.id.widget_button_icon, iconRes)
         // State-driven icon tint, mirrors ConnectScreen's connect-

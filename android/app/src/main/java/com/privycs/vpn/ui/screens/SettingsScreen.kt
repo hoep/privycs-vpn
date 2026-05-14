@@ -975,6 +975,64 @@ fun SettingsScreen(
                         }
                     },
                 )
+
+                // v0.9.15.30: probe cadence overrides. Defaults
+                // 5 s × 2 = max 10 s; user can dial up for battery
+                // savings or down for tighter failover detection.
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    var intervalText by remember(settings.tunnelHealthPingIntervalSec) {
+                        mutableStateOf(settings.tunnelHealthPingIntervalSec.toString())
+                    }
+                    var thresholdText by remember(settings.tunnelHealthDeadThreshold) {
+                        mutableStateOf(settings.tunnelHealthDeadThreshold.toString())
+                    }
+                    OutlinedTextField(
+                        value = intervalText,
+                        onValueChange = { newVal ->
+                            intervalText = newVal.filter { it.isDigit() }.take(3)
+                            intervalText.toIntOrNull()
+                                ?.coerceIn(1, 120)
+                                ?.let { v ->
+                                    persistScope.launch {
+                                        settingsRepo.updateSettings(
+                                            settings.copy(tunnelHealthPingIntervalSec = v),
+                                        )
+                                    }
+                                }
+                        },
+                        label = { Text("Interval (s)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = thresholdText,
+                        onValueChange = { newVal ->
+                            thresholdText = newVal.filter { it.isDigit() }.take(2)
+                            thresholdText.toIntOrNull()
+                                ?.coerceIn(1, 10)
+                                ?.let { v ->
+                                    persistScope.launch {
+                                        settingsRepo.updateSettings(
+                                            settings.copy(tunnelHealthDeadThreshold = v),
+                                        )
+                                    }
+                                }
+                        },
+                        label = { Text("Dead-fails") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Text(
+                    "Max detection = interval × threshold. Default 5 × 2 = max 10 s.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
 
             // -- Network Rules (Phase 2) --
