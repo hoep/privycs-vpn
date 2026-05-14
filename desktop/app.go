@@ -322,10 +322,11 @@ func (a *App) startup(ctx context.Context) {
 	if conn := a.connections.Active(); conn != nil {
 		if cfg := conn.GetActiveConfig(); cfg != nil {
 			if proto, ok := a.protocols[cfg.Protocol]; ok {
-				setTunnelName(proto, sanitizeTunnelName(conn.Name))
+				tunnelName := tunnelNameForSlot(cfg.ID, conn.Name)
+				setTunnelName(proto, tunnelName)
 				proto.Configure(a.applyDnsOverride([]byte(cfg.ConfigContent), proto.Name()))
 				a.activeProtocol = cfg.Protocol
-				log.Printf("Restored active connection: %s (%s, tunnel: %s)", conn.Name, cfg.Protocol, sanitizeTunnelName(conn.Name))
+				log.Printf("Restored active connection: %s (%s, tunnel: %s)", conn.Name, cfg.Protocol, tunnelName)
 			}
 		}
 	}
@@ -1509,7 +1510,7 @@ func (a *App) SelectConfig(configID string) error {
 	SaveSettings(a.settings)
 
 	configContent := []byte(cfg.ConfigContent)
-	tunnelName := sanitizeTunnelName(conn.Name)
+	tunnelName := tunnelNameForSlot(cfg.ID, conn.Name)
 	protocol := cfg.Protocol
 	a.mu.Unlock()
 
@@ -1552,7 +1553,7 @@ func (a *App) SelectProtocol(protocol string) error {
 	var tunnelName string
 	if cfg := conn.GetProtocol(protocol); cfg != nil {
 		configContent = []byte(cfg.ConfigContent)
-		tunnelName = sanitizeTunnelName(conn.Name)
+		tunnelName = tunnelNameForSlot(cfg.ID, conn.Name)
 	}
 	a.mu.Unlock()
 
@@ -1661,11 +1662,19 @@ func (a *App) ImportConfig(protocol string, content string, filename string, con
 		return fmt.Errorf("unsupported protocol: %s", protocol)
 	}
 
-	// Set tunnel name from connection name so each connection
-	// gets its own config file and Windows service name
-	tunnelName := sanitizeTunnelName(connectionName)
+	// v0.9.15.31: tunnel name is now the SLOT-LEVEL identifier.
+	// For gateway downloads filename looks like "gw-<protocol>-<id>.conf"
+	// — strip the extension and we have the stable slot ID that
+	// becomes pc.ID at AddOrUpdate time. For file-picker imports the
+	// filename is whatever the user picked. Either way, this name
+	// disambiguates multiple slots of the same protocol in the same
+	// connection on disk (the v0.9.15.x user-reported "downloads
+	// überschreiben sich" bug).
+	tunnelName := strings.TrimSuffix(filename, filepath.Ext(filename))
 	if tunnelName == "" {
-		tunnelName = sanitizeTunnelName(filename)
+		tunnelName = sanitizeTunnelName(connectionName)
+	} else {
+		tunnelName = sanitizeTunnelName(tunnelName)
 	}
 	setTunnelName(proto, tunnelName)
 	a.mu.Unlock()
@@ -1811,6 +1820,7 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 	}
 
 	connName := conn.Name
+	cfgID := cfg.ID
 	cfgContent := cfg.ConfigContent
 
 	// Disconnect current tunnel if connected. disconnectInternal
@@ -1826,7 +1836,7 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 	// CONFIGURE phase — NO LOCK. setTunnelName + applyDnsOverride +
 	// Configure all run without holding a.mu so concurrent UI calls
 	// (Status, ListConnections, GetSettings, …) stay responsive.
-	setTunnelName(protoHandler, sanitizeTunnelName(connName))
+	setTunnelName(protoHandler, tunnelNameForSlot(cfgID, connName))
 
 	if err := protoHandler.Configure(a.applyDnsOverride([]byte(cfgContent), protoHandler.Name())); err != nil {
 		return fmt.Errorf("failed to configure: %w", err)
@@ -2090,7 +2100,7 @@ func (a *App) SwitchConnectionProtocol(protocol string) error {
 		return fmt.Errorf("protocol handler not available: %s", protocol)
 	}
 
-	setTunnelName(protoHandler, sanitizeTunnelName(conn.Name))
+	setTunnelName(protoHandler, tunnelNameForSlot(cfg.ID, conn.Name))
 
 	if err := protoHandler.Configure(a.applyDnsOverride([]byte(cfg.ConfigContent), protoHandler.Name())); err != nil {
 		return fmt.Errorf("failed to configure: %w", err)
@@ -3133,4 +3143,24 @@ func setTunnelName(proto VPNProtocol, name string) {
 	if tn, ok := proto.(tunnelNamer); ok {
 		tn.SetTunnelName(name)
 	}
+}
+
+// tunnelNameForSlot returns the disk-safe tunnel/file name for a
+// given config slot. v0.9.15.31: prefer the slot's stable ID
+// ("gw-<protocol>-<configId>" for gateway downloads, random UUID
+// for file-picker imports) so multiple slots of the same protocol
+// in one connection get DISTINCT on-disk filenames. Falls back to
+// sanitizing the connection name (legacy slots without a usable
+// ID still get the same on-disk path as before).
+//
+// On Linux/macOS the result is truncated to 15 chars (IFNAMSIZ);
+// gateway-derived stableIDs like "gw-wireguard-38199" (18 chars)
+// collapse to "gw-wiregua-XXXX" with a crc32 suffix to stay
+// unique within the 15-char limit. On Windows the full stableID
+// is preserved (no length limit).
+func tunnelNameForSlot(slotID, fallbackName string) string {
+	if slotID != "" {
+		return sanitizeTunnelName(slotID)
+	}
+	return sanitizeTunnelName(fallbackName)
 }

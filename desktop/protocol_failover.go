@@ -140,7 +140,7 @@ func (a *App) tryFailoverProtocol(excludeOriginalConfigID string) (string, error
 		log.Printf("Failover: trying %s (excluded id=%s, prior tried: %v)", label, excludeOriginalConfigID, tried)
 		wailsRuntime.EventsEmit(a.ctx, "vpn:failover", label)
 
-		setTunnelName(proto, sanitizeTunnelName(conn.Name))
+		setTunnelName(proto, tunnelNameForSlot(cfg.ID, conn.Name))
 		if err := proto.Configure(a.applyDnsOverride([]byte(cfg.ConfigContent), proto.Name())); err != nil {
 			log.Printf("Failover: configure %s failed: %v", label, err)
 			tried = append(tried, label+"(configure-err)")

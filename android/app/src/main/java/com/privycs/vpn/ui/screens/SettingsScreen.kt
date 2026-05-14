@@ -152,6 +152,22 @@ fun SettingsScreen(
         }
     }
 
+    // v0.9.15.31: separate launcher for Android-13+'s NEARBY_WIFI_DEVICES
+    // permission. Required alongside ACCESS_FINE_LOCATION to read
+    // SSID without the OS-wide Location toggle on some Android-13+
+    // ROMs. Pre-Android-13 the permission request is a silent no-op.
+    val nearbyWifiPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        scope.launch {
+            com.privycs.vpn.service.NetworkMonitor.getInstance(context).reevaluate()
+        }
+    }
+    val ssidPermLauncher = SsidPermLaunchers(
+        location = locationPermissionLauncher,
+        nearbyWifi = nearbyWifiPermissionLauncher,
+    )
+
     fun ensureLocationPermissionIfNeeded(mode: String) {
         if (mode != "only" && mode != "except") return
         val granted = androidx.core.content.ContextCompat.checkSelfPermission(
@@ -725,6 +741,30 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+
+                    // v0.9.15.31: SSID-detection permissions panel.
+                    // Surfaces the THREE independent gates that
+                    // control whether WifiManager returns an SSID:
+                    // Fine-Location permission, the OS-wide Location
+                    // Services toggle, and (Android 13+) the
+                    // NEARBY_WIFI_DEVICES permission. User-reported
+                    // case: "Berechtigung Standort granted but SSID
+                    // not detected" — almost always Location Services
+                    // off OR (on Android 13+) NEARBY_WIFI_DEVICES not
+                    // granted. The status pills + actions here let
+                    // the user fix the right gate without hunting
+                    // through system Settings.
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "SSID detection",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SsidPermissionsPanel(
+                        context = context,
+                        ssidPermLauncher = ssidPermLauncher,
+                    )
                 }
 
                 // v0.9.14.75 — opt-in foreground-keepalive. Default
@@ -1256,5 +1296,142 @@ private fun SettingsInfoRow(label: String, value: String) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+// ============================================================================
+// v0.9.15.31: SSID-detection permissions panel
+// ============================================================================
+
+/**
+ * Holds the two permission launchers wired in SettingsScreen so
+ * the SsidPermissionsPanel composable can fire either dialog
+ * without re-wiring rememberLauncherForActivityResult internally
+ * (which would lose state across recompositions).
+ */
+data class SsidPermLaunchers(
+    val location: androidx.activity.result.ActivityResultLauncher<String>,
+    val nearbyWifi: androidx.activity.result.ActivityResultLauncher<String>,
+)
+
+@androidx.compose.runtime.Composable
+private fun SsidPermissionsPanel(
+    context: android.content.Context,
+    ssidPermLauncher: SsidPermLaunchers,
+) {
+    // Recompute state on every recomposition so toggles flipped
+    // in system settings reflect when the user comes back into
+    // our UI. Permission grants don't fire a recomposition
+    // automatically, but coming back to Settings re-renders the
+    // screen which re-runs these checks.
+    val locationGranted = com.privycs.vpn.util.SsidPermissionsHelper
+        .hasFineLocationPermission(context)
+    val nearbyWifiGranted = com.privycs.vpn.util.SsidPermissionsHelper
+        .hasNearbyWifiPermission(context)
+    val locationServicesOn = com.privycs.vpn.util.SsidPermissionsHelper
+        .isLocationServicesEnabled(context)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SsidPermissionRow(
+            title = "Location permission",
+            description = "Required by Android to read the connected Wi-Fi SSID. Pre-Android-13 it is the only gate; on Android 13+ it is paired with Nearby Wi-Fi.",
+            granted = locationGranted,
+            actionLabel = if (locationGranted) "App settings" else "Grant",
+            onAction = {
+                if (locationGranted) {
+                    context.startActivity(
+                        com.privycs.vpn.util.SsidPermissionsHelper
+                            .openAppDetailsIntent(context),
+                    )
+                } else {
+                    ssidPermLauncher.location.launch(
+                        android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    )
+                }
+            },
+        )
+
+        SsidPermissionRow(
+            title = "Location services (OS toggle)",
+            description = "System → Location must be ON for the Wi-Fi APIs to return the SSID — even with the permission granted. The most common reason for \"Cannot determine SSID\".",
+            granted = locationServicesOn,
+            actionLabel = "Location settings",
+            onAction = {
+                context.startActivity(
+                    com.privycs.vpn.util.SsidPermissionsHelper
+                        .openLocationSettingsIntent(),
+                )
+            },
+        )
+
+        // Nearby-Wi-Fi only matters on Android 13+. Pre-13 the
+        // helper returns granted=true unconditionally; we hide
+        // the row so it doesn't look like a phantom permission
+        // the user can't grant.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            SsidPermissionRow(
+                title = "Nearby Wi-Fi devices",
+                description = "Android 13+: granted alongside Location permission lets the SSID-rule matching work even when the OS Location toggle is off on some ROMs.",
+                granted = nearbyWifiGranted,
+                actionLabel = if (nearbyWifiGranted) "App settings" else "Grant",
+                onAction = {
+                    if (nearbyWifiGranted) {
+                        context.startActivity(
+                            com.privycs.vpn.util.SsidPermissionsHelper
+                                .openAppDetailsIntent(context),
+                        )
+                    } else {
+                        ssidPermLauncher.nearbyWifi.launch(
+                            android.Manifest.permission.NEARBY_WIFI_DEVICES,
+                        )
+                    }
+                },
+            )
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun SsidPermissionRow(
+    title: String,
+    description: String,
+    granted: Boolean,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (granted) "Granted" else "Denied",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (granted)
+                        com.privycs.vpn.ui.theme.PrivycsTeal
+                    else
+                        MaterialTheme.colorScheme.error,
+                )
+            }
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        androidx.compose.material3.TextButton(onClick = onAction) {
+            Text(actionLabel)
+        }
     }
 }
