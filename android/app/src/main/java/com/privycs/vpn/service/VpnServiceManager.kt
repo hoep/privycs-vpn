@@ -57,6 +57,28 @@ class VpnServiceManager private constructor(private val context: Context) {
     val isConnected: Boolean
         get() = _status.value.connected
 
+    // Zombie-VpnService defense (v0.9.15.23). Tracks whether THIS app
+    // instance has ever brought a tunnel up to Connected. Set on every
+    // disconnected→connected transition, cleared on the reverse and at
+    // process start (= var default).
+    //
+    // The problem this guards against: a previous app/service crash
+    // leaves Android's VpnService framework holding an open TUN fd
+    // that the new app instance can't drive. isSystemVpnActive()
+    // returns true (TRANSPORT_VPN capability present on the network),
+    // refreshStatus() then mis-reconciles to connected=true via
+    // markConnected, TunnelHealth pings 8.8.8.8 → fails 3/3 → triggers
+    // recovery → disconnect, disconnect hangs (nothing in our
+    // singletons to tear down), Watchdog resets, user taps connect,
+    // teardownAllProtocols hits the same null-singletons → loop.
+    //
+    // With this flag: a fresh process that sees systemVpnActive=true
+    // but weEstablishedTunnel=false treats it as a zombie. Force
+    // cleanup (stopService + DISCONNECT intent) + report disconnected
+    // to the UI. User can then tap Connect for a fresh tunnel.
+    @Volatile
+    private var weEstablishedTunnel: Boolean = false
+
     // Watchdog that force-clears _isConnecting after a ceiling timeout
     // so the spinner can NEVER get stuck indefinitely. Stored as a Job
     // so a new connect() or a status push with connected=true can
@@ -670,6 +692,10 @@ class VpnServiceManager private constructor(private val context: Context) {
         // in sync with reality. Only fire on transitions to avoid
         // redundant coordinator writes on every poll tick.
         if (status.connected && !prev.connected) {
+            // First successful connect of this process: claim
+            // ownership so a future refreshStatus() distinguishes our
+            // live tunnel from a zombie from a previous instance.
+            weEstablishedTunnel = true
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markConnected(status.connectionId)
             }
@@ -736,6 +762,11 @@ class VpnServiceManager private constructor(private val context: Context) {
             }
         }
         if (!status.connected && prev.connected) {
+            // Release ownership claim. A subsequent refreshStatus
+            // that finds systemVpnActive=true now means it's either
+            // a zombie we couldn't tear down or a third-party VPN,
+            // not us.
+            weEstablishedTunnel = false
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
             }
@@ -790,11 +821,55 @@ class VpnServiceManager private constructor(private val context: Context) {
         val activeConn = connectionRepo.getActive()
         val systemVpnActive = isSystemVpnActive()
 
+        // Zombie detection (v0.9.15.23). If the OS reports a VPN
+        // capability but THIS app instance has not established a
+        // tunnel, the active TUN fd belongs to either:
+        //   (a) a previous instance of us that crashed without
+        //       releasing the fd — Android-framework still holds it,
+        //       our singletons are gone, we cannot drive it
+        //   (b) a third-party VPN app (rare, deserves to be left
+        //       alone — user picked that themselves)
+        //
+        // Pre-v0.9.15.23 we trusted the system flag and called
+        // markConnected on any systemVpnActive, which caused the
+        // user-reported loop: TunnelHealth pings fail through the
+        // zombie/foreign VPN → recovery → disconnect hangs (nothing
+        // in our singletons) → watchdog reset → connect → repeat.
+        //
+        // Verified by the user with reboot test: after a clean
+        // phone reboot (Android-framework TUN cache wiped), the
+        // same connect path that was looping starts working
+        // immediately. The TUN handle was the difference; the
+        // surrounding code is correct.
+        val zombieLikely = systemVpnActive && !weEstablishedTunnel
+        if (zombieLikely) {
+            PrivycsLogger.w(
+                TAG,
+                "refreshStatus: zombie / foreign VPN detected " +
+                    "(systemVpnActive=true, weEstablishedTunnel=false) — " +
+                    "NOT marking connected; attempting cleanup"
+            )
+            forceCleanupZombie()
+            // Report disconnected to the UI so the user can tap
+            // Connect for a fresh tunnel. Keep the active connection
+            // name visible so the UI doesn't blank out the connection
+            // card.
+            _status.value = VpnStatus(
+                connectionName = activeConn?.name ?: "",
+                connectionId = activeConn?.id ?: "",
+                activeProtocol = activeConn?.activeProtocol,
+                serverEndpoint = activeConn?.getActiveConfig()?.serverAddress ?: "",
+            )
+            scope.launch {
+                com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
+            }
+            return
+        }
+
         if (systemVpnActive && !isConnected) {
-            // Trust the system: a VPN is live but our state disagrees.
-            // Flip connected=true so the UI stops asking the user to
-            // re-connect something that's already connected, and clear
-            // any lingering spinner from a prior aborted connect().
+            // System VPN is up AND we established it — but our flow
+            // somehow has connected=false (race / aborted spinner).
+            // Reconcile to connected.
             PrivycsLogger.i(TAG, "refreshStatus: system says VPN is active - reconciling UI state")
             _status.value = _status.value.copy(
                 connected = true,
@@ -820,6 +895,36 @@ class VpnServiceManager private constructor(private val context: Context) {
                 activeProtocol = activeConn.activeProtocol,
                 serverEndpoint = activeConn.getActiveConfig()?.serverAddress ?: ""
             )
+        }
+    }
+
+    /**
+     * Force-cleanup a detected zombie VpnService. First sends an
+     * explicit DISCONNECT intent to our service in case it's still
+     * alive but unresponsive (chance the in-process tunnel-singletons
+     * are valid and a clean disconnect path works). Then unconditionally
+     * stopService to kill any lingering instance. Android-framework
+     * will release the TUN fd when the owning Service is destroyed.
+     *
+     * Caller in refreshStatus has already established we believe a
+     * zombie is present (systemVpnActive=true, weEstablishedTunnel=
+     * false). This function is best-effort; failures are swallowed
+     * because there's nothing constructive to do if cleanup itself
+     * throws.
+     */
+    private fun forceCleanupZombie() {
+        try {
+            val disconnectIntent = Intent(context, PrivycsVpnService::class.java).apply {
+                action = PrivycsVpnService.ACTION_DISCONNECT
+            }
+            context.startService(disconnectIntent)
+        } catch (e: Exception) {
+            PrivycsLogger.w(TAG, "forceCleanupZombie: DISCONNECT intent failed: ${e.message}")
+        }
+        try {
+            context.stopService(Intent(context, PrivycsVpnService::class.java))
+        } catch (e: Exception) {
+            PrivycsLogger.w(TAG, "forceCleanupZombie: stopService failed: ${e.message}")
         }
     }
 
