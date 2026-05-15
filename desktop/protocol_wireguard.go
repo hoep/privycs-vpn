@@ -135,6 +135,21 @@ func (w *WireGuardProtocol) Status() ProtocolStatus {
 		if err == nil && resp.Success && len(resp.Output) > 0 {
 			status.Connected = true
 			w.parseWgShowOutput(resp.Output, &status)
+			// v0.9.15.45: AWG on Windows runs in amneziawg-windows'
+			// per-tunnel SCM service which owns its own UAPI pipe.
+			// Our helper status path now returns only "running"
+			// (since v0.9.15.44 fix where the empty-vs-uapi-dump
+			// response was breaking app's connected-state detection)
+			// — that path no longer carries rx/tx bytes. Fall back
+			// to the same per-interface counter source the vanilla
+			// WG branch uses: GetIfEntry2 via getWindowsTrafficStats,
+			// indexed by the wintun adapter name.
+			if runtime.GOOS == "windows" && w.variant == VariantAmnezia {
+				if rx, tx := getWindowsTrafficStats(w.ifaceName); rx > 0 || tx > 0 {
+					status.BytesRx = rx
+					status.BytesTx = tx
+				}
+			}
 		}
 	}
 
