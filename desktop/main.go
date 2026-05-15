@@ -41,6 +41,16 @@ func main() {
 		return
 	}
 
+	// v0.9.15.44: dump the amneziawg-windows ringlogger memory-
+	// mapped log (their tunnel/service.go writes there after its
+	// first InitGlobalLogger call — our file log loses visibility
+	// past that point). Run as admin: PowerShell elevated +
+	// `privycs-vpn.exe --dump-awg-log`. Output goes to stdout.
+	if len(os.Args) >= 2 && os.Args[1] == "--dump-awg-log" {
+		dumpAwgLog()
+		return
+	}
+
 	app := NewApp()
 
 	// macOS menu bar — required for the standard ⌘Q (Quit) keystroke

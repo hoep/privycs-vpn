@@ -982,19 +982,25 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 		isAwg := cmd.Args["variant"] == VariantAmnezia
 		if runtime.GOOS == "windows" {
 			if isAwg {
-				// v0.9.15.30: AWG on Windows runs in a per-tunnel
-				// SCM service. Status comes from a JSON-over-pipe
-				// query to PrivycsAWGTunnel$<iface>'s named-pipe
-				// listener instead of the previous in-process
-				// wgWindowsStatusAwg lookup.
-				uapi, connected, err := queryAWGTunnelService(ifaceName)
+				// v0.9.15.44: AWG status — query SCM service state via
+				// queryAWGTunnelService (rewritten in .43 to drop our
+				// custom JSON-over-pipe since amneziawg-windows
+				// tunnel.Run owns its own UAPI pipe at
+				// \\.\pipe\ProtectedPrefix\Administrators\AmneziaWG\
+				// <name>). The fix here: emit the SAME response shape
+				// as the vanilla WG branch below — "running" string on
+				// success, "not connected" error on failure — so the
+				// app's status-parse path treats them identically and
+				// doesn't falsely declare the tunnel dead just because
+				// AWG returns an empty UAPI dump now.
+				_, connected, err := queryAWGTunnelService(ifaceName)
 				if err != nil {
 					return HelperResponse{Success: false, Error: "not connected", Output: err.Error()}
 				}
 				if !connected {
-					return HelperResponse{Success: true, Output: uapi}
+					return HelperResponse{Success: false, Error: "not connected"}
 				}
-				return HelperResponse{Success: true, Output: uapi}
+				return HelperResponse{Success: true, Output: "running"}
 			}
 			out, _ := exec.Command("sc", "query", "WireGuardTunnel$"+ifaceName).CombinedOutput()
 			if strings.Contains(string(out), "RUNNING") {

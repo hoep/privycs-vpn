@@ -532,7 +532,15 @@ jobs:
     # tolerate the release already existing (gh release create is
     # gated on existence; gh release upload appends).
     name: Propagate previous desktop assets
-    needs: [check-changes, build-linux, build-macos, build-windows]
+    # v0.9.15.44: depend on `release` so softprops/action-gh-release
+    # creates the GH release first; we then append propagated
+    # assets via `gh release upload`. Prior parallel-execution
+    # raced the propagate job's `gh release create` against
+    # softprops's create → softprops errored with 422 already_exists
+    # on its finalisation step ("error finalizing release: ...
+    # already_exists"). The serial order is safe: release runs
+    # always() too, so even if it failed propagate still proceeds.
+    needs: [check-changes, build-linux, build-macos, build-windows, release]
     if: |
       always()
       && (needs.check-changes.outputs.linux_changed   == 'false'
