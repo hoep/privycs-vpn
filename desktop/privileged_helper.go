@@ -601,11 +601,28 @@ func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
 		eventName := fmt.Sprintf("privycs_ovpn_exit_%d_%d",
 			os.Getpid(), time.Now().UnixNano())
 
+		// v0.9.15.48: --disable-dco forces OpenVPN to fall back to
+		// the Wintun virtual adapter instead of the kernel-DCO
+		// (ovpn-dco) data channel offload driver. Background — user
+		// report on Windows 10.0.26200 + OpenVPN 2.7.1 + DCO 2.8.2:
+		// connect runs all the way through TLS handshake + PUSH_REPLY
+		// parsing, then OpenVPN tries to install pushed DNS via
+		//   netsh interface ip set dns <iface> static <ip>  → ok
+		//   netsh interface ip add dns <iface> <ip>          → ERROR 1
+		// because the second call attempts to ADD the SAME ip that the
+		// first call already SET as primary. Windows 26200 rejects the
+		// duplicate. OpenVPN 2.7.1's DCO netsh code path issues both
+		// commands unconditionally; the older Wintun path uses a
+		// single set-multiple-DNS netsh form that doesn't hit this
+		// quirk. Same gateway-pushed config works on Linux openvpn 2.x
+		// and on Android ics-openvpn — confirming the regression is
+		// strictly in the Windows-2.7.1-DCO combination.
 		c := exec.Command(ovpnExe,
 			"--service", eventName, "0",
 			"--config", configPath,
 			"--log", logPath,
 			"--management", mgmtHost, mgmtPort,
+			"--disable-dco",
 		)
 		// Hide console window.
 		hideWindow(c)
