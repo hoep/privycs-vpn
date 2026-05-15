@@ -2257,20 +2257,38 @@ class PrivycsVpnService : VpnService() {
                         } catch (e: Exception) {
                             PrivycsLogger.w(TAG, "OpenVPN clear last-profile: ${e.message}")
                         }
-                        try {
-                            val openvpnStop = Intent(
-                                this@PrivycsVpnService,
-                                de.blinkt.openvpn.core.OpenVPNService::class.java,
-                            ).apply {
-                                action = de.blinkt.openvpn.core
-                                    .OpenVPNService.DISCONNECT_VPN
-                            }
-                            startService(openvpnStop)
-                            stopService(openvpnStop)
-                        } catch (e: Exception) {
-                            PrivycsLogger.w(TAG, "OpenVPNService stop intent: ${e.message}")
-                        }
-                    }
+                        // v0.9.15.51: removed the redundant
+                        //   startService(intent.setAction(DISCONNECT_VPN))
+                        //   stopService(intent)
+                        // pair that used to live here. It was supposed to be a
+                        // belt-and-braces stop signal but in practice TRIGGERED
+                        // the post-disconnect zombie pattern responsible for the
+                        // "switch from OpenVPN to WireGuard/AmneziaWG silently
+                        // fails" symptom.
+                        //
+                        // Root cause: ICS-OpenVPN's OpenVPNService.onStartCommand
+                        // (vendor/.../OpenVPNService.java:516-556) has NO handler
+                        // for the DISCONNECT_VPN action. When we send a
+                        // startService with that action, the service:
+                        //   1. logs "Building configuration..."
+                        //   2. mCommandHandler.post(startOpenVPN)
+                        //   3. returns START_STICKY ← marks service as sticky
+                        //   4. async startOpenVPN → fetchVPNProfile → no profile
+                        //      → bail → stopSelf
+                        // The service eventually stops, but between #1 and #4
+                        // (~10-30ms) it occupies the system VPN slot in
+                        // "Assuming always on" limbo. If our WG/AWG GoBackend$
+                        // VpnService brings itself up during that window
+                        // (typical 100-200ms after teardown), Android sees two
+                        // VpnServices in the app and destroys ours as the
+                        // "redundant" one. Coroutines die with
+                        // JobCancellationException, user sees
+                        // "Connection Failed Job Cancelled".
+                        //
+                        // OpenVpnTunnel.disconnect() already does the right
+                        // teardown — AIDL stopVPN(false), wait for
+                        // LEVEL_NOTCONNECTED state callback, explicit
+                        // stopService() at the end. No further intent needed.
                 } catch (e: Exception) {
                     PrivycsLogger.e(TAG, "Error during disconnect", e)
                 }
