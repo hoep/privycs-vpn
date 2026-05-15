@@ -2289,6 +2289,7 @@ class PrivycsVpnService : VpnService() {
                         // teardown — AIDL stopVPN(false), wait for
                         // LEVEL_NOTCONNECTED state callback, explicit
                         // stopService() at the end. No further intent needed.
+                    }
                 } catch (e: Exception) {
                     PrivycsLogger.e(TAG, "Error during disconnect", e)
                 }
