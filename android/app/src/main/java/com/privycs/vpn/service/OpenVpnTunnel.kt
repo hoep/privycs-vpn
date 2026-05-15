@@ -531,7 +531,16 @@ class OpenVpnTunnel(private val context: Context) {
             txBytes = tx,
             serverEndpoint = remoteEndpoint,
             localAddress = localAddress,
-            error = if (state == State.FAILED) lastErrorMessage else ""
+            // v0.9.15.45: emit null when not FAILED (was "" before).
+            // VpnServiceManager.updateStatus's `status.error != null`
+            // gate fired on every status-poll tick because empty
+            // string is not null in Kotlin → that path bridges into
+            // ConnectCoordinator.markDisconnected → forced state to
+            // Idle every second while the OpenVPN tunnel was UP.
+            // After the resulting desync, the next pill-switch (e.g.
+            // to WireGuard) got stuck in Connecting for 90 s until
+            // the Coordinator watchdog fired.
+            error = if (state == State.FAILED) lastErrorMessage else null
         )
     }
 

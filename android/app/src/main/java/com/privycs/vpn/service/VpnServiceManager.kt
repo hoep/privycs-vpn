@@ -817,7 +817,15 @@ class VpnServiceManager private constructor(private val context: Context) {
                     "tunnel drop while armed",
                 )
             }
-        } else if (status.error != null) {
+        } else if (!status.error.isNullOrBlank()) {
+            // v0.9.15.45: was `status.error != null`. Tunnel
+            // implementations that emit empty-string "" (not null)
+            // for the non-error case bridged into this path every
+            // status-poll tick and forced the Coordinator state to
+            // Idle even though the tunnel was UP. Now both null AND
+            // blank "" are treated as "no error" and skip the
+            // markDisconnected branch.
+            //
             // A connect attempt failed before reaching connected=true.
             // Reset coordinator to Idle so subsequent intents aren't
             // blocked on a zombie Connecting state.
