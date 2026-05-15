@@ -61,6 +61,7 @@ package main
 // `netsh set dns` if the service already set it correctly).
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -68,6 +69,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/Microsoft/go-winio"
+	"golang.org/x/sys/windows"
 )
 
 // openvpnInteractivePipe is the well-known control pipe the community
@@ -163,7 +165,25 @@ func buildOptionsLine(args []string) string {
 // refused the start (returned a non-zero error code).
 func startOpenVPNViaInteractiveService(configDir string, args []string) (int, error) {
 	timeout := 5 * time.Second
-	conn, err := winio.DialPipe(openvpnInteractivePipe, &timeout)
+	// CRITICAL: connect at SecurityImpersonation level. The OpenVPN
+	// Interactive Service calls ImpersonateNamedPipeClient() +
+	// OpenThreadToken() to determine which user to spawn openvpn.exe
+	// as and to authorise the request. go-winio's DialPipe /
+	// DialPipeAccess default to PipeImpLevelAnonymous — at that level
+	// OpenThreadToken fails with ERROR_CANT_OPEN_ANONYMOUS (0x543)
+	// and the service refuses the start ("code=0x00000543
+	// OpenThreadToken"). DialPipeAccessImpLevel with
+	// PipeImpLevelImpersonation lets the service impersonate our
+	// (LocalSystem helper) thread, which is what openvpn-gui /
+	// OpenVPN Connect do.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := winio.DialPipeAccessImpLevel(
+		ctx,
+		openvpnInteractivePipe,
+		uint32(windows.GENERIC_READ|windows.GENERIC_WRITE),
+		winio.PipeImpLevelImpersonation,
+	)
 	if err != nil {
 		return 0, fmt.Errorf("interactive service pipe unavailable: %w", err)
 	}
