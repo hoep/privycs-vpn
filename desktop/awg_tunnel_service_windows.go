@@ -16,6 +16,7 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	awgtunnel "github.com/amnezia-vpn/amneziawg-windows/tunnel"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -396,18 +397,41 @@ func installAWGTunnelService(ifaceName, confPath string) error {
 		}
 	}
 
-	// CreateService args are positional. Display name is what
-	// shows up in services.msc; we use the friendly per-tunnel
-	// name so the user can see which tunnel is which.
+	// v0.9.15.43: mgr.Config aligned with what
+	// amnezia-vpn/amneziawg-windows-client manager/install.go uses
+	// for its InstallTunnel — see GitHub source. Three critical
+	// fields that our previous mgr.Config was missing:
+	//
+	//   - SidType: SERVICE_SID_TYPE_UNRESTRICTED — gives the per-
+	//     tunnel service its own SID. tunnel.Run's
+	//     CopyConfigOwnerToIPCSecurityDescriptor and the IPC pipe
+	//     SecurityDescriptor rely on this. Without it, awgtunnel.Run
+	//     enters a code path that exits silently.
+	//
+	//   - Dependencies: Nsi + TcpIp — ensure the TCP/IP stack is
+	//     up before the tunnel-service starts. Irrelevant for
+	//     normal runtime starts but matters for boot-time auto-
+	//     start.
+	//
+	//   - StartType: StartAutomatic — matches their pattern.
+	//     We still call Start() explicitly below; the auto-start
+	//     attribute is for SCM bookkeeping consistency.
+	//
+	// Also: removed our hand-built BinaryPathName + the explicit
+	// "--awg-tunnel" + ifaceName args. CreateService builds the
+	// service's command line from (exePath, args...) automatically
+	// — our previous double-specification (BinaryPathName AND args)
+	// was the wrong contract. Now we pass "--awg-tunnel" + confPath
+	// + ifaceName as svc-args; CreateService appends them.
 	displayName := "Privycs AWG Tunnel: " + ifaceName
 	config := mgr.Config{
-		ServiceType:      0x10, // SERVICE_WIN32_OWN_PROCESS
-		StartType:        mgr.StartManual,
-		ErrorControl:     mgr.ErrorNormal,
-		BinaryPathName:   fmt.Sprintf(`"%s" --awg-tunnel "%s" "%s"`, exePath, confPath, ifaceName),
-		DisplayName:      displayName,
-		Description:      "Privycs VPN per-tunnel AmneziaWG worker service. Managed by PrivycsVPNHelper.",
-		ServiceStartName: "LocalSystem",
+		ServiceType:  windows.SERVICE_WIN32_OWN_PROCESS,
+		StartType:    mgr.StartAutomatic,
+		ErrorControl: mgr.ErrorNormal,
+		Dependencies: []string{"Nsi", "TcpIp"},
+		DisplayName:  displayName,
+		Description:  "Privycs VPN per-tunnel AmneziaWG worker service. Managed by PrivycsVPNHelper.",
+		SidType:      windows.SERVICE_SID_TYPE_UNRESTRICTED,
 	}
 
 	svcInst, err := m.CreateService(serviceName, exePath, config,

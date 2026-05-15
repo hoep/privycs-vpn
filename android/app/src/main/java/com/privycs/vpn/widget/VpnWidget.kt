@@ -520,9 +520,17 @@ class VpnWidget : AppWidgetProvider() {
             ?: activeConn?.activeProtocol
             ?: activeConn?.protocols?.firstOrNull()?.protocol
             ?: repo.connections.firstOrNull()?.protocols?.firstOrNull()?.protocol
+        // v0.9.15.43: AmneziaWG widget icon now uses dedicated
+        // awg_on / awg_off PNGs (user-provided 287×287 / 394×394
+        // brand artwork, placed in drawable-xxxhdpi/). These are
+        // pre-rendered for both states — connected uses the
+        // full-colour awg_on, disconnected uses the muted awg_off.
+        // The tint pass below is skipped for AWG so the brand
+        // colours render as designed.
+        val isAwgState = displayProtocol == VpnProtocol.AMNEZIAWG && !killSwitchSinkhole
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg_mono
+            displayProtocol == VpnProtocol.AMNEZIAWG -> if (connected) R.drawable.awg_on else R.drawable.awg_off
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
@@ -544,6 +552,7 @@ class VpnWidget : AppWidgetProvider() {
         //                   already self-coloured white on red.
         val iconTint: Int = when {
             killSwitchSinkhole -> 0
+            isAwgState -> 0 // awg_on/awg_off carry their own brand colours
             connected -> 0xFFFFFFFF.toInt()
             else -> 0xFFB5B5B5.toInt()
         }

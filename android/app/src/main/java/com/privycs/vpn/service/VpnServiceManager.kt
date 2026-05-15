@@ -327,42 +327,52 @@ class VpnServiceManager private constructor(private val context: Context) {
 
     private fun performSwitch(activeConnId: String) {
 
-        // Serialize disconnect -> wait -> connect on the manager's long-lived
-        // scope (not the service's scope, which dies with the service).
+        // Serialize disconnect -> wait-for-completion -> connect on
+        // the manager's long-lived scope.
         scope.launch {
-            val intent = Intent(context, PrivycsVpnService::class.java).apply {
-                action = PrivycsVpnService.ACTION_DISCONNECT
-            }
+            // v0.9.15.43: was previously firing ACTION_DISCONNECT
+            // intent directly to PrivycsVpnService and then waiting
+            // on _status.connected to flip false. Problem: our own
+            // disconnect() above ALREADY sets _status = VpnStatus()
+            // optimistically (line 276), so the wait returned
+            // immediately and the actual native teardown was still
+            // running in the background. Then we slept a blind
+            // 1500 ms and started the reconnect, hoping the
+            // teardown finished — but on slower devices /
+            // IPSec the next establish() raced against still-
+            // lingering charon IKE_SA_DELETE and the new tunnel
+            // came up but couldn't actually transit packets.
+            //
+            // Authoritative completion signal: ConnectCoordinator's
+            // state flips to State.Idle in markDisconnected() —
+            // which only fires AFTER the service's
+            // tunnelMutex.withLock teardown block completes the
+            // singleton-level disconnect for the active protocol
+            // PLUS the explicit stop intents to OpenVPNService /
+            // CharonVpnService. Wait on that, not on _status.
+            com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
+                context,
+                com.privycs.vpn.util.ConnectCoordinator.IntentSource.USER,
+            )
             try {
-                context.startService(intent)
-            } catch (e: Exception) {
-                PrivycsLogger.w(TAG, "switchProtocol: disconnect intent failed: ${e.message}")
-            }
-
-            // Wait for status.connected to flip false OR a 4s ceiling.
-            // 4s covers IPSec + WG teardown with ample margin; WireGuard
-            // typically <500ms, IPSec <2s. If the race runs short we
-            // return sooner via first().
-            try {
-                kotlinx.coroutines.withTimeout(4000) {
-                    _status.filter { !it.connected }.first()
+                kotlinx.coroutines.withTimeout(8000) {
+                    com.privycs.vpn.util.ConnectCoordinator.state
+                        .filter { it is com.privycs.vpn.util.ConnectCoordinator.State.Idle }
+                        .first()
                 }
+                PrivycsLogger.i(TAG, "switchProtocol: disconnect completed (Coordinator → Idle)")
             } catch (_: Exception) {
-                PrivycsLogger.w(TAG, "switchProtocol: disconnect wait timed out, connecting anyway")
+                PrivycsLogger.w(TAG, "switchProtocol: disconnect wait timed out after 8s, connecting anyway (tunnel may collide)")
             }
 
-            // Pad to let Service.onDestroy() complete its scope.cancel()
-            // AND let the previous protocol's native-side state finish its
-            // teardown before the next VpnService.Builder.establish() grabs
-            // the TUN slot. 150ms was not enough — the WireGuard GoBackend
-            // goroutines, strongSwan charon IKE_SA_DELETE, and OpenVPN
-            // subprocess exit all run asynchronously and routinely take
-            // 500ms-1500ms. A too-short pad causes the next tunnel to
-            // collide with the old one's lingering writes to /dev/tun,
-            // manifesting as "connected" UI with zero app traffic reaching
-            // the server (only keepalives visible in server status.log).
-            // 1500ms covers the slowest case (charon) with margin.
-            kotlinx.coroutines.delay(1500)
+            // Small breather to let Android's VpnService.onDestroy
+            // finish its kernel-side tun-fd close. Empirically
+            // 200 ms is enough once Coordinator.state has actually
+            // flipped to Idle — markDisconnected fires after the
+            // native teardown completes so the fd is on its way
+            // out by the time we get here. The blind 1500 ms pad
+            // we used to need is replaced by the real wait above.
+            kotlinx.coroutines.delay(200)
 
             connect(activeConnId)
         }
