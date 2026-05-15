@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -60,8 +61,17 @@ var allowedActions = map[string]bool{
 	// path? actually it didn't — same issue), but the unblock-on-
 	// disconnect path silently failed and left the rules stuck,
 	// breaking the local IPv6 stack until manual netsh cleanup.
-	"ipv6_block":                 true,
-	"ipv6_unblock":               true,
+	"ipv6_block":   true,
+	"ipv6_unblock": true,
+	// v0.9.15.53: Windows OpenVPN DNS — set the tunnel adapter's DNS
+	// ourselves with a single `netsh ... set dns`. OpenVPN 2.7.1-DCO
+	// on Windows 26200 does `set dns` THEN `add dns` for the same
+	// single pushed server and the duplicate `add` fails fatally; we
+	// `--pull-filter ignore "dhcp-option DNS"` to skip that code path
+	// entirely and apply DNS here instead. No restore action — the
+	// ovpn-dco/tap adapter is ephemeral and takes its DNS config with
+	// it on disconnect.
+	"windows_dns_set": true,
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.
@@ -313,6 +323,8 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdMacOSDNSOverrideRestore(cmd)
 	case "macos_dns_override_clean":
 		return h.cmdMacOSDNSOverrideClean(cmd)
+	case "windows_dns_set":
+		return h.cmdWindowsDNSSet(cmd)
 	case "remove_legacy_sudoers":
 		return h.cmdRemoveLegacySudoers(cmd)
 	case "macos_restart_charon":
@@ -601,39 +613,44 @@ func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
 		eventName := fmt.Sprintf("privycs_ovpn_exit_%d_%d",
 			os.Getpid(), time.Now().UnixNano())
 
-		// v0.9.15.50: explicit --windows-driver wintun (supersedes the
-		// v0.9.15.48 --disable-dco workaround).
+		// v0.9.15.53: stop fighting OpenVPN's Windows DNS code; skip it
+		// and set tunnel DNS ourselves.
 		//
 		// Layered bug story on Windows 10.0.26200 + OpenVPN 2.7.1:
-		//   v0.9.15.45: DCO 2.8.2 default driver. After TLS handshake
-		//   OpenVPN issued `netsh ... set dns` then `netsh ... add dns`
-		//   for the SAME pushed DNS server — Windows 26200 rejects the
-		//   duplicate, the second netsh returns error 1, OpenVPN exits
-		//   "due to fatal error". Same gateway-pushed config works on
-		//   Linux openvpn 2.x and on Android ics-openvpn.
-		//   v0.9.15.48: added --disable-dco. Worked around the DCO
-		//   netsh duplicate-DNS-add bug but fell back to the next
-		//   default driver, which OpenVPN 2.7.1 picks as TAP-Windows6
-		//   9.27 (TAP-Windows ships with the OpenVPN installer).
-		//   TAP-Windows6 9.27 on Windows 26200 has its own bug:
-		//   media-state stays "disconnected" after open, OpenVPN's
-		//   "TEST ROUTES" probe loops forever logging "Route: Waiting
-		//   for TUN/TAP interface to come up..." and the tunnel never
-		//   passes traffic.
-		//   v0.9.15.50: skip both broken paths. --windows-driver wintun
-		//   selects the Wintun adapter (WireGuard-style userspace
-		//   driver, shipped by the OpenVPN-Windows installer since
-		//   2.5.x). Wintun's adapter brings itself up reliably, has
-		//   its own netsh code path that handles the pushed DNS
-		//   without the duplicate-add issue, and is the recommended
-		//   driver on modern Windows. DCO offload is implicitly
-		//   disabled (Wintun is not a DCO driver).
+		//   v0.9.15.45: DCO 2.8.2 default. After TLS handshake OpenVPN
+		//   issues `netsh ... set dns <iface> static <ip>` THEN
+		//   `netsh ... add dns <iface> <ip>` for the SAME single
+		//   pushed server — Windows 26200 rejects the duplicate `add`,
+		//   netsh returns error 1, OpenVPN treats the netsh failure as
+		//   fatal and exits. Same gateway config works on Linux
+		//   openvpn 2.x and Android ics-openvpn.
+		//   v0.9.15.48: --disable-dco → fell back to TAP-Windows6 9.27
+		//   which has its own Windows-26200 media-state bug ("Route:
+		//   Waiting for TUN/TAP interface to come up..." forever).
+		//   v0.9.15.50: --windows-driver wintun → NO-OP. OpenVPN 2.7
+		//   removed Wintun support entirely ("DEPRECATED OPTION:
+		//   windows-driver ... Wintun support has been removed"),
+		//   silently falls back to DCO → back to the .45 netsh bug.
+		//   v0.9.15.53: all three OpenVPN-2.7.1 Windows drivers are
+		//   broken on Windows 26200, and the netsh duplicate-`add dns`
+		//   is internal to openvpn.exe (absolute netsh path, can't be
+		//   shimmed). So: `--pull-filter ignore "dhcp-option DNS"`
+		//   makes OpenVPN never run that netsh code path at all (the
+		//   raw PUSH_REPLY is still logged, so we can recover the
+		//   intended DNS), and the privileged helper applies the
+		//   tunnel DNS afterwards with a single `netsh ... set dns`
+		//   (never `add`). Mirrors the proven macOS swanctl DNS-
+		//   override pattern (cmdMacOSDNSOverrideSet) — no restore
+		//   needed here because the ovpn-dco/tap adapter is ephemeral
+		//   and drops its DNS config on disconnect. DCO offload stays
+		//   on (it works for data plane; only its netsh-DNS path is
+		//   broken, which we now bypass).
 		c := exec.Command(ovpnExe,
 			"--service", eventName, "0",
 			"--config", configPath,
 			"--log", logPath,
 			"--management", mgmtHost, mgmtPort,
-			"--windows-driver", "wintun",
+			"--pull-filter", "ignore", "dhcp-option DNS",
 		)
 		// Hide console window.
 		hideWindow(c)
@@ -2072,6 +2089,64 @@ func (h *PrivilegedHelper) cmdMacOSDNSOverrideClean(cmd HelperCommand) HelperRes
 	}
 	return HelperResponse{Success: true, Output: fmt.Sprintf("restored %d orphan DNS backup(s): %s",
 		len(restored), strings.Join(restored, ","))}
+}
+
+// cmdWindowsDNSSet applies the VPN-pushed DNS server to the OpenVPN
+// tunnel adapter with a SINGLE `netsh interface ip set dns ... static`
+// call. v0.9.15.53.
+//
+// Background: OpenVPN 2.7.1-DCO on Windows 26200 applies a pushed
+// `dhcp-option DNS <ip>` by issuing `netsh ... set dns <iface> static
+// <ip>` immediately followed by `netsh ... add dns <iface> <ip>` for
+// the SAME single server. Windows 26200 rejects the duplicate `add`,
+// netsh returns exit 1, and OpenVPN treats the netsh failure as fatal.
+// We launch openvpn.exe with `--pull-filter ignore "dhcp-option DNS"`
+// so it never runs that code path, then call this to set the tunnel
+// DNS the correct way — `set` only, no `add`, so no duplicate.
+//
+// No restore counterpart: the ovpn-dco / tap-windows6 adapter is
+// ephemeral. On disconnect the adapter is removed and its per-adapter
+// DNS configuration goes with it — there is no persistent host state
+// to roll back (unlike the macOS swanctl path which mutates the real
+// primary service and therefore needs cmdMacOSDNSOverride{Set,Restore}).
+//
+// iface: the OpenVPN tunnel adapter — accepts either the numeric
+// interface index (as OpenVPN itself uses, e.g. "14") or the adapter
+// friendly-name (e.g. "OpenVPN Data Channel Offload"). The caller
+// (protocol_openvpn.go) resolves it the same way it resolves the
+// adapter for traffic-stats.
+func (h *PrivilegedHelper) cmdWindowsDNSSet(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "windows" {
+		return HelperResponse{Success: true, Output: "windows_dns_set: no-op on non-windows"}
+	}
+	iface := strings.TrimSpace(cmd.Args["iface"])
+	dns := strings.TrimSpace(cmd.Args["dns"])
+	if iface == "" || dns == "" {
+		return HelperResponse{Success: false, Error: "iface and dns required"}
+	}
+	// Validate dns is an IP literal — never interpolate untrusted text
+	// straight into a netsh argv even though exec.Command does not use
+	// a shell. Belt-and-braces against a malformed PUSH_REPLY parse.
+	if net.ParseIP(dns) == nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("dns %q is not a valid IP", dns)}
+	}
+	// netsh accepts both `set dns <idx> ...` and `set dns name="<n>" ...`.
+	// A bare numeric token is treated as the index; anything else we
+	// pass as name=.
+	ifaceArg := iface
+	if _, err := strconv.Atoi(iface); err != nil {
+		ifaceArg = fmt.Sprintf("name=%s", iface)
+	}
+	args := []string{"interface", "ip", "set", "dns", ifaceArg, "static", dns, "validate=no"}
+	out, err := exec.Command("netsh", args...).CombinedOutput()
+	if err != nil {
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("netsh set dns: %s: %v", strings.TrimSpace(string(out)), err),
+		}
+	}
+	log.Printf("Windows DNS set on tunnel adapter %q → %s", iface, dns)
+	return HelperResponse{Success: true, Output: fmt.Sprintf("dns %s set on %s", dns, iface)}
 }
 
 // splitNonEmpty splits s by sep and drops empty fragments. Returns

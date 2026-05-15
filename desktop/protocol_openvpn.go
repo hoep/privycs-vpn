@@ -49,6 +49,14 @@ type OpenVPNProtocol struct {
 	// 250 ms; without throttling the CONNECTING-tail log line would
 	// fire 4×/s during the 30 s connect window and drown the app log.
 	lastLogReadDiagAt time.Time
+
+	// v0.9.15.53: Windows-only. Set true once we've applied the
+	// gateway-pushed DNS to the tunnel adapter via the privileged
+	// helper (we filter OpenVPN's own buggy netsh-DNS path with
+	// `--pull-filter ignore "dhcp-option DNS"`). Reset on every Up()
+	// so a fresh connect re-applies. Guards the once-only apply
+	// against the 2 s Status() poll loop.
+	windowsDNSApplied bool
 }
 
 // NewOpenVPNProtocol creates a new OpenVPN protocol handler
@@ -148,6 +156,7 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 	o.cachedState = ""
 	o.cachedStateTime = time.Time{}
 	o.tunIface = ""
+	o.windowsDNSApplied = false // v0.9.15.53: re-apply tunnel DNS each fresh connect
 
 	log.Printf("Starting OpenVPN via %s", ovpnExe)
 
@@ -327,6 +336,55 @@ func (o *OpenVPNProtocol) downUnixOpenVPN(ctx context.Context) {
 //     (tunnel torn down)
 //   - "":          log unreadable; caller treats as "unknown, assume
 //     not yet connected"
+//
+// parsePushedDNSFromLog extracts the first server-pushed IPv4 DNS
+// server from the most recent PUSH_REPLY line in openvpn.log.
+// v0.9.15.53.
+//
+// We launch openvpn.exe with `--pull-filter ignore "dhcp-option DNS"`
+// so OpenVPN never APPLIES the pushed DNS (its Windows-DCO netsh path
+// is broken — see cmdWindowsDNSSet doc). `--pull-filter ignore`
+// suppresses the option's effect but the raw PUSH_REPLY control
+// message is still written to the log verbatim, so the intended DNS
+// is recoverable here. Returns "" if no PUSH_REPLY / no DNS option /
+// log unreadable — caller simply retries on the next Status() poll.
+//
+// Format in the log:
+//
+//	PUSH: Received control message: 'PUSH_REPLY,...,dhcp-option DNS 10.100.10.150,...'
+func (o *OpenVPNProtocol) parsePushedDNSFromLog() string {
+	logPath := filepath.Join(appDataDir(), "openvpn.log")
+	buf, err := os.ReadFile(logPath)
+	if err != nil {
+		return ""
+	}
+	content := string(buf)
+	// Last PUSH_REPLY wins — a reconnect mid-session re-pushes.
+	idx := strings.LastIndex(content, "PUSH_REPLY")
+	if idx < 0 {
+		return ""
+	}
+	// Bound the scan to that PUSH_REPLY's line so we don't pick up a
+	// dhcp-option from a later unrelated log entry.
+	seg := content[idx:]
+	if nl := strings.IndexAny(seg, "\r\n"); nl >= 0 {
+		seg = seg[:nl]
+	}
+	// PUSH_REPLY is a comma-separated list. Find the first
+	// "dhcp-option DNS <ip>" entry and return a valid IPv4 literal.
+	for _, part := range strings.Split(seg, ",") {
+		f := strings.Fields(strings.TrimSpace(part))
+		// f == ["dhcp-option", "DNS", "10.100.10.150"]
+		if len(f) == 3 && f[0] == "dhcp-option" && f[1] == "DNS" {
+			ip := net.ParseIP(f[2])
+			if ip != nil && ip.To4() != nil {
+				return f[2]
+			}
+		}
+	}
+	return ""
+}
+
 func (o *OpenVPNProtocol) readOpenVPNStateFromLog() string {
 	logPath := filepath.Join(appDataDir(), "openvpn.log")
 	buf, err := os.ReadFile(logPath)
@@ -459,6 +517,39 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 			"tap",         // catch-all for tap variants
 		)
 		ovpnIface = findFirstTunlikeInterface([]string{"OpenVPN", "ovpn", "TAP-Windows", "Wintun", "tap"})
+		// v0.9.15.53: apply the gateway-pushed DNS to the tunnel
+		// adapter ourselves. We launch openvpn.exe with
+		// `--pull-filter ignore "dhcp-option DNS"` so it never runs
+		// its own buggy `set dns`+`add dns` netsh sequence (OpenVPN
+		// 2.7.1-DCO on Windows 26200 duplicates the single pushed
+		// server and the redundant `add` fails fatally). The raw
+		// PUSH_REPLY is still logged though, so we recover the
+		// intended DNS from there and hand it to the privileged
+		// helper for a single clean `netsh ... set dns`. Once-only
+		// per connect (Status() polls every 2 s); flag reset in Up().
+		if !o.windowsDNSApplied && ovpnIface != "" {
+			if dns := o.parsePushedDNSFromLog(); dns != "" {
+				client := NewHelperClient()
+				if client.IsHelperReachable() {
+					resp, err := client.SendCommand("windows_dns_set", map[string]string{
+						"iface": ovpnIface,
+						"dns":   dns,
+					})
+					if err == nil && resp.Success {
+						o.windowsDNSApplied = true
+						log.Printf("OpenVPN Windows: tunnel DNS %s applied to %q via helper", dns, ovpnIface)
+					} else {
+						errStr := ""
+						if err != nil {
+							errStr = err.Error()
+						} else {
+							errStr = resp.Error
+						}
+						log.Printf("OpenVPN Windows: helper windows_dns_set failed (will retry next poll): %s", errStr)
+					}
+				}
+			}
+		}
 	} else if runtime.GOOS == "linux" {
 		ovpnIface = "tun0"
 		status.BytesRx, status.BytesTx = getLinuxInterfaceStats(ovpnIface)
