@@ -103,6 +103,19 @@ class OpenVpnTunnel(private val context: Context) {
     @Volatile
     private var suppressInitialDisconnectedReplay = false
 
+    // v0.9.15.47: latch completed by stateListener when OpenVPN reports
+    // LEVEL_NOTCONNECTED (state → DISCONNECTED/FAILED). disconnect()
+    // waits on this instead of returning immediately after the AIDL
+    // stopVPN call. Without this, disconnect() returned ~50ms after
+    // kicking off shutdown — ICS-OpenVPN's minivpn-process teardown +
+    // tun-fd close + Service.onDestroy then ran concurrently with the
+    // next protocol's VpnService.Builder.establish(), producing the
+    // "switching OpenVPN → IPSec crashes / OpenVPN → WG hangs" symptom
+    // the user reported in 0.9.15.46. Authoritative completion signal
+    // is the state callback, not the AIDL return.
+    @Volatile
+    private var disconnectLatch: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+
     // VpnStatus listeners. We keep references so we can deregister on
     // disconnect - otherwise they leak across reconnects and we'd see stale
     // state from the previous session bleed into the next.
@@ -141,6 +154,10 @@ class OpenVpnTunnel(private val context: Context) {
                     if (level == ConnectionStatus.LEVEL_AUTH_FAILED) {
                         lastErrorMessage = logmessage ?: "Authentication failed"
                     }
+                    // v0.9.15.47: release any disconnect() that's
+                    // waiting for the authoritative teardown signal.
+                    // No-op if no disconnect is in flight.
+                    disconnectLatch?.complete(Unit)
                 }
                 state = newState
                 onStateChanged?.invoke(newState)
@@ -355,12 +372,27 @@ class OpenVpnTunnel(private val context: Context) {
         state = State.DISCONNECTING
         onStateChanged?.invoke(state)
 
+        // v0.9.15.47: arm the teardown-complete latch BEFORE issuing
+        // stopVPN. The stateListener completes this latch when ICS-
+        // OpenVPN emits LEVEL_NOTCONNECTED (authoritative signal that
+        // the native minivpn process exited, the tun fd closed, and
+        // OpenVPNService.onDestroy is on its way). Previously we
+        // completed the latch synchronously when the AIDL stopVPN()
+        // call returned — which is "kick off shutdown" not "shutdown
+        // complete". Net result: disconnect() returned ~50ms after
+        // bind while the actual teardown took 500-1500 ms more, and
+        // the next protocol's VpnService.Builder.establish() raced
+        // against OpenVPNService still holding the VPN slot. User-
+        // reported in 0.9.15.46: "OpenVPN → IPSec vollcrash",
+        // "OpenVPN → WG hang".
+        val teardownLatch = kotlinx.coroutines.CompletableDeferred<Unit>()
+        disconnectLatch = teardownLatch
+
         // Bind to OpenVPNService across the :openvpn process boundary,
         // issue stopVPN via IOpenVPNServiceInternal, then unbind. We can't
         // fire-and-forget a START_SERVICE intent with a stop flag -
         // OpenVPNService doesn't have an intent action for that; the only
         // public stop path is the AIDL binder.
-        val stopLatch = kotlinx.coroutines.CompletableDeferred<Unit>()
         val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                 try {
@@ -368,14 +400,20 @@ class OpenVpnTunnel(private val context: Context) {
                     svc?.stopVPN(false)
                 } catch (e: Exception) {
                     PrivycsLogger.w(TAG, "stopVPN() call failed: ${e.message}")
+                    // If the AIDL stop itself fails the state callback
+                    // won't fire — release the latch so we don't hang
+                    // the full 8s, then fall through to forced cleanup
+                    // in the finally block below.
+                    teardownLatch.complete(Unit)
                 } finally {
                     try { context.unbindService(this) } catch (_: Exception) {}
-                    stopLatch.complete(Unit)
                 }
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
-                stopLatch.complete(Unit)
+                // Service process died unexpectedly while we were bound.
+                // Treat as teardown complete.
+                teardownLatch.complete(Unit)
             }
         }
 
@@ -386,22 +424,34 @@ class OpenVpnTunnel(private val context: Context) {
         if (!bound) {
             PrivycsLogger.w(TAG, "bindService(OpenVPNService) returned false; forcing DISCONNECTED")
             try { context.unbindService(connection) } catch (_: Exception) {}
+            disconnectLatch = null
             state = State.DISCONNECTED
             onStateChanged?.invoke(state)
             cleanupListeners()
             return@withContext
         }
 
-        // Give the service up to 3s to acknowledge the stop. OpenVPN's
-        // SIGTERM handling is fast (<200ms) in practice - if we're past 3s
-        // something is wrong and we drop the bind regardless.
+        // Wait on the AUTHORITATIVE signal (state → DISCONNECTED via
+        // ICS-OpenVPN's LEVEL_NOTCONNECTED emission), not on the AIDL
+        // call's synchronous return. 8 s budget covers slow devices /
+        // unusual TLS-teardown paths. Past that we assume the callback
+        // is lost (process killed externally etc.) and force cleanup.
         try {
-            kotlinx.coroutines.withTimeout(3000) { stopLatch.await() }
+            kotlinx.coroutines.withTimeout(8000) { teardownLatch.await() }
+            PrivycsLogger.i(TAG, "OpenVPN teardown complete (state callback received)")
         } catch (_: Exception) {
-            PrivycsLogger.w(TAG, "stopVPN() timed out after 3s")
+            PrivycsLogger.w(TAG, "OpenVPN teardown timed out after 8 s — forcing cleanup")
             try { context.unbindService(connection) } catch (_: Exception) {}
         }
+        disconnectLatch = null
         cleanupListeners()
+
+        // Belt-and-braces: explicit stopService to nudge OpenVPNService's
+        // own onDestroy in case stopVPN(false) only flipped its internal
+        // state machine without firing the service-shutdown branch.
+        // Idempotent — Android tolerates stopService on an already-
+        // stopping/stopped service.
+        try { context.stopService(bindIntent) } catch (_: Exception) {}
 
         // State is finalized via the VpnStatus StateListener callback
         // when the native process exits (it emits LEVEL_NOTCONNECTED). If
