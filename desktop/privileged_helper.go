@@ -645,6 +645,45 @@ func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
 		//   and drops its DNS config on disconnect. DCO offload stays
 		//   on (it works for data plane; only its netsh-DNS path is
 		//   broken, which we now bypass).
+		// v0.9.15.54: prefer the OpenVPN Interactive Service. Spawning
+		// openvpn.exe ourselves gives `msg_channel=0` → OpenVPN runs
+		// every privileged op via its own broken direct-netsh code
+		// (Windows 26200 + 2.7.1-DCO: duplicate `add dns`, IPv6 `set
+		// address` fails, …). Going through the interactive service
+		// makes the service spawn openvpn with `--msg-channel <h>`;
+		// OpenVPN then delegates netsh/route to the service's working
+		// implementation. One structural fix for the whole netsh
+		// failure class instead of per-call whack-a-mole.
+		//
+		// Options for the interactive path do NOT carry the legacy
+		// `--service <event> 0` tokens (that is the old SCM model,
+		// mutually exclusive with --msg-channel) and NOT the binary
+		// path (the service uses its own openvpn.exe + appends
+		// --msg-channel). We keep --pull-filter "ignore dhcp-option
+		// DNS" + the windows_dns_set helper from v0.9.15.53: that DNS
+		// path is already proven to work on 26200, and not relying on
+		// the interactive service's own DNS handling keeps risk down
+		// (the service definitively fixes the IPv6-address / route
+		// netsh ops we have NO helper workaround for; DNS we already
+		// solved).
+		isvcArgs := []string{
+			"--config", configPath,
+			"--log", logPath,
+			"--management", mgmtHost, mgmtPort,
+			"--pull-filter", "ignore", "dhcp-option DNS",
+		}
+		if pid, isvcErr := startOpenVPNViaInteractiveService(filepath.Dir(configPath), isvcArgs); isvcErr == nil {
+			os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", pid)), 0644)
+			log.Printf("OpenVPN started via Interactive Service pid=%d", pid)
+			return HelperResponse{Success: true, Output: fmt.Sprintf("openvpn started pid=%d (interactive service)", pid)}
+		} else {
+			// Old OpenVPN install without the interactive service, or
+			// the service is stopped. Fall back to the legacy direct
+			// spawn — still subject to the netsh bugs on 26200, but
+			// the only option when the service isn't there.
+			log.Printf("Interactive Service unavailable (%v); falling back to direct openvpn spawn", isvcErr)
+		}
+
 		c := exec.Command(ovpnExe,
 			"--service", eventName, "0",
 			"--config", configPath,
