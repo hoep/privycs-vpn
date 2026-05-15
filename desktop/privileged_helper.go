@@ -601,28 +601,39 @@ func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
 		eventName := fmt.Sprintf("privycs_ovpn_exit_%d_%d",
 			os.Getpid(), time.Now().UnixNano())
 
-		// v0.9.15.48: --disable-dco forces OpenVPN to fall back to
-		// the Wintun virtual adapter instead of the kernel-DCO
-		// (ovpn-dco) data channel offload driver. Background — user
-		// report on Windows 10.0.26200 + OpenVPN 2.7.1 + DCO 2.8.2:
-		// connect runs all the way through TLS handshake + PUSH_REPLY
-		// parsing, then OpenVPN tries to install pushed DNS via
-		//   netsh interface ip set dns <iface> static <ip>  → ok
-		//   netsh interface ip add dns <iface> <ip>          → ERROR 1
-		// because the second call attempts to ADD the SAME ip that the
-		// first call already SET as primary. Windows 26200 rejects the
-		// duplicate. OpenVPN 2.7.1's DCO netsh code path issues both
-		// commands unconditionally; the older Wintun path uses a
-		// single set-multiple-DNS netsh form that doesn't hit this
-		// quirk. Same gateway-pushed config works on Linux openvpn 2.x
-		// and on Android ics-openvpn — confirming the regression is
-		// strictly in the Windows-2.7.1-DCO combination.
+		// v0.9.15.50: explicit --windows-driver wintun (supersedes the
+		// v0.9.15.48 --disable-dco workaround).
+		//
+		// Layered bug story on Windows 10.0.26200 + OpenVPN 2.7.1:
+		//   v0.9.15.45: DCO 2.8.2 default driver. After TLS handshake
+		//   OpenVPN issued `netsh ... set dns` then `netsh ... add dns`
+		//   for the SAME pushed DNS server — Windows 26200 rejects the
+		//   duplicate, the second netsh returns error 1, OpenVPN exits
+		//   "due to fatal error". Same gateway-pushed config works on
+		//   Linux openvpn 2.x and on Android ics-openvpn.
+		//   v0.9.15.48: added --disable-dco. Worked around the DCO
+		//   netsh duplicate-DNS-add bug but fell back to the next
+		//   default driver, which OpenVPN 2.7.1 picks as TAP-Windows6
+		//   9.27 (TAP-Windows ships with the OpenVPN installer).
+		//   TAP-Windows6 9.27 on Windows 26200 has its own bug:
+		//   media-state stays "disconnected" after open, OpenVPN's
+		//   "TEST ROUTES" probe loops forever logging "Route: Waiting
+		//   for TUN/TAP interface to come up..." and the tunnel never
+		//   passes traffic.
+		//   v0.9.15.50: skip both broken paths. --windows-driver wintun
+		//   selects the Wintun adapter (WireGuard-style userspace
+		//   driver, shipped by the OpenVPN-Windows installer since
+		//   2.5.x). Wintun's adapter brings itself up reliably, has
+		//   its own netsh code path that handles the pushed DNS
+		//   without the duplicate-add issue, and is the recommended
+		//   driver on modern Windows. DCO offload is implicitly
+		//   disabled (Wintun is not a DCO driver).
 		c := exec.Command(ovpnExe,
 			"--service", eventName, "0",
 			"--config", configPath,
 			"--log", logPath,
 			"--management", mgmtHost, mgmtPort,
-			"--disable-dco",
+			"--windows-driver", "wintun",
 		)
 		// Hide console window.
 		hideWindow(c)

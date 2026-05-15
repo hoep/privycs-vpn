@@ -207,6 +207,34 @@ android {
         dependsOn(syncOpenvpnRes)
     }
 
+    // v0.9.15.49: filter vendor Java sources so we can replace a single
+    // file (OpenVPNService.java) with a patched copy under
+    // openvpn-lib/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java.
+    // Mirror's the syncOpenvpnRes pattern above.
+    //
+    // The patch makes OpenVPNService exit cleanly when Android auto-restarts
+    // it with a null intent and there's no profile to resume — without it
+    // the post-disconnect zombie service holds Android's VPN slot in
+    // "Assuming always on" limbo, and a subsequent WG/AWG bringup from
+    // PrivycsVpnService races against it, causing Android to destroy
+    // PrivycsVpnService as a "redundant" VpnService. Symptom: WiFi-only,
+    // OpenVPN -> WG/AWG pill switch, "Connection Failed Job Cancelled".
+    //
+    // Submodule stays unmodified — vendor reference at the upstream commit
+    // pin still works. Future ics-openvpn updates: refresh this override
+    // file from upstream, re-apply the small patch hunk.
+    val openvpnJavaFiltered = layout.buildDirectory.dir("generated/openvpnJava")
+    val syncOpenvpnJava = tasks.register<Sync>("syncOpenvpnJava") {
+        outputs.upToDateWhen { false }
+        from("../vendor/ics-openvpn/main/src/main/java") {
+            exclude("de/blinkt/openvpn/core/OpenVPNService.java")
+        }
+        into(openvpnJavaFiltered)
+    }
+    tasks.matching { it.name == "preBuild" }.configureEach {
+        dependsOn(syncOpenvpnJava)
+    }
+
     sourceSets {
         getByName("main") {
             // Skeleton flavor sources provide NotImplemented / ProfileEncryption
@@ -217,9 +245,15 @@ android {
             // classes in the de.blinkt.openvpn.* package - same package as the
             // vendor code, so they can call package-private APIs our app
             // module cannot reach (notably StatusListener.init).
+            // v0.9.15.49: vendor Java tree routes through openvpnJavaFiltered
+            // (Sync task above) which excludes OpenVPNService.java. The
+            // local src/main/java entry holds our patched OpenVPNService.java
+            // under the same FQN (de.blinkt.openvpn.core.OpenVPNService), so
+            // class resolution remains identical to upstream but the patched
+            // version is what gets compiled.
             java.srcDirs(
                 "src/main/java",
-                "../vendor/ics-openvpn/main/src/main/java",
+                openvpnJavaFiltered,
                 "../vendor/ics-openvpn/main/src/skeleton/java"
             )
             res.srcDirs(
