@@ -2391,6 +2391,42 @@ class PrivycsVpnService : VpnService() {
                 return@launch
             }
 
+            // v0.9.15.55: pill-switch reconnect guard. The pill-switch
+            // (switchProtocol → performSwitch) does requestDisconnect
+            // THEN requestConnect on the SAME PrivycsVpnService
+            // instance. handleDisconnect runs first and reaches this
+            // point; the unconditional stopSelf() below used to be
+            // delivered LATE by Android (handleStopService) — after
+            // the subsequent connect had already brought the new
+            // tunnel up — destroying the live service ~30 ms after
+            // "tunnel up". The new tunnel's status never reached the
+            // coordinator (service dead), the UI sat on the spinner,
+            // and 90 s later the Connect watchdog fired. Trace
+            // signature: AmneziaTunnel "step 3/3 tunnel up" →
+            // "Received handshake response" → PrivycsVpnService
+            // "VPN service destroyed" within ~30 ms, only on
+            // OpenVPN → WG/AWG (the OpenVPN-zombie auto-restart that
+            // previously masked this is gone since v0.9.15.52).
+            //
+            // Same guard shape as onRevoke (search "self-revoke during
+            // Connecting"): if the coordinator is already in
+            // Connecting (a fresh connect — the pill-switch's second
+            // half — has been accepted on this service), the service
+            // MUST stay alive for that connect. Skip stopSelf; the
+            // in-flight connectWireGuard/connectIpSec/connectOpenVpn
+            // owns the lifecycle from here and will emit its own
+            // terminal state.
+            val coordState = com.privycs.vpn.util.ConnectCoordinator.state.value
+            if (coordState is com.privycs.vpn.util.ConnectCoordinator.State.Connecting) {
+                PrivycsLogger.i(
+                    TAG,
+                    "handleDisconnect: coordinator already Connecting " +
+                        "(source=${coordState.source}, target=${coordState.connectionId}) " +
+                        "— pill-switch reconnect in flight, NOT calling stopSelf",
+                )
+                return@launch
+            }
+
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
