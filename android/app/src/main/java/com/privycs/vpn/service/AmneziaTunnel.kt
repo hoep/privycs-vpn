@@ -133,7 +133,18 @@ class AmneziaTunnel(
         return total
     }
 
-    fun getStatus(connectionName: String, connectionId: String): VpnStatus {
+    // v0.9.15.46: protocol parameter — same AmneziaTunnel instance now
+    // serves both AMNEZIAWG and vanilla WIREGUARD configs (AmneziaWG-go
+    // is a strict superset of wireguard-go; parser accepts vanilla
+    // configs unchanged with all AWG-Optional fields = empty). Caller
+    // passes which protocol the user actually selected so the UI's pill
+    // / brand / icon matches user intent rather than the underlying
+    // library identity.
+    fun getStatus(
+        connectionName: String,
+        connectionId: String,
+        protocol: VpnProtocol = VpnProtocol.AMNEZIAWG,
+    ): VpnStatus {
         val state = getState()
         val isUp = state == Tunnel.State.UP
         val stats = if (isUp) getStatistics() else null
@@ -157,8 +168,8 @@ class AmneziaTunnel(
             connected = isUp,
             connectionName = connectionName,
             connectionId = connectionId,
-            activeProtocol = VpnProtocol.AMNEZIAWG,
-            variant = "amneziawg",
+            activeProtocol = protocol,
+            variant = if (protocol == VpnProtocol.AMNEZIAWG) "amneziawg" else "wireguard",
             uptime = if (isUp && connectedSince > 0) System.currentTimeMillis() - connectedSince else 0L,
             rxBytes = rxBytes,
             txBytes = txBytes,

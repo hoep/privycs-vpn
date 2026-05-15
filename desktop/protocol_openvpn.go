@@ -44,6 +44,11 @@ type OpenVPNProtocol struct {
 	// "Opened utun device utunN" log line on the first stats query
 	// after Up() and cached for the session.
 	tunIface string
+
+	// v0.9.15.46: throttle log-read diagnostic emission. Polling is
+	// 250 ms; without throttling the CONNECTING-tail log line would
+	// fire 4×/s during the 30 s connect window and drown the app log.
+	lastLogReadDiagAt time.Time
 }
 
 // NewOpenVPNProtocol creates a new OpenVPN protocol handler
@@ -326,6 +331,14 @@ func (o *OpenVPNProtocol) readOpenVPNStateFromLog() string {
 	logPath := filepath.Join(appDataDir(), "openvpn.log")
 	buf, err := os.ReadFile(logPath)
 	if err != nil {
+		// v0.9.15.46 diagnostic — fire at most every 5s so polling
+		// (every 250ms) doesn't drown the log. Logs the actual error
+		// so a permissions / path / locked-file scenario surfaces
+		// instead of disappearing into a silent return.
+		if time.Since(o.lastLogReadDiagAt) > 5*time.Second {
+			log.Printf("OpenVPN status: read %s failed: %v", logPath, err)
+			o.lastLogReadDiagAt = time.Now()
+		}
 		return ""
 	}
 	content := string(buf)
@@ -338,6 +351,19 @@ func (o *OpenVPNProtocol) readOpenVPNStateFromLog() string {
 	// reader seeked PAST the init-complete line and never matched it.
 	lastInit := strings.LastIndex(content, "Initialization Sequence Completed")
 	if lastInit < 0 {
+		// v0.9.15.46 diagnostic — surface the last 200 chars of the
+		// log every 5s while we're still in CONNECTING. If openvpn
+		// hit a fatal at startup but we never see init-complete,
+		// this is the only place that knows about it.
+		if time.Since(o.lastLogReadDiagAt) > 5*time.Second {
+			tail := content
+			if len(tail) > 200 {
+				tail = "..." + tail[len(tail)-200:]
+			}
+			log.Printf("OpenVPN status: still CONNECTING after %d bytes of log. Tail: %q",
+				len(content), strings.ReplaceAll(tail, "\n", " ⏎ "))
+			o.lastLogReadDiagAt = time.Now()
+		}
 		return "CONNECTING"
 	}
 

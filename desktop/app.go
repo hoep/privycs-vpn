@@ -1486,9 +1486,14 @@ func (a *App) disconnectInternal() error {
 // support a connection may hold multiple configs of the same
 // protocol type (e.g. WG-UDP + WG-TCP); SelectProtocol picks
 // "first config of this type" while SelectConfig lets the UI
-// pick a specific one. Same effect as SelectProtocol — no
-// disconnect/reconnect, just changes the slot that the next
-// Connect uses. Wails binding for the per-config pill row.
+// pick a specific one. Wails binding for the per-config pill row.
+//
+// v0.9.15.46: if a tunnel is currently up at call time, automatically
+// disconnect the old slot and reconnect the new one — matches user
+// expectation that clicking a pill while connected actually switches
+// the live tunnel, not just the next-connect slot. Previously this
+// silently rewrote the slot without action, so the running tunnel
+// kept routing the old protocol while the UI showed the new pill.
 func (a *App) SelectConfig(configID string) error {
 	// Serialise tunnel-state mutation — Configure() mutates the
 	// protocol handler's in-memory state which Up/Down read.
@@ -1507,6 +1512,7 @@ func (a *App) SelectConfig(configID string) error {
 	}
 
 	a.mu.Lock()
+	wasConnected := a.connected
 	conn.ActiveConfigID = configID
 	conn.ActiveProtocol = cfg.Protocol
 	a.activeProtocol = cfg.Protocol
@@ -1526,12 +1532,22 @@ func (a *App) SelectConfig(configID string) error {
 
 	log.Printf("Selected config: id=%s protocol=%s for %s", configID, protocol, conn.Name)
 	wailsRuntime.EventsEmit(a.ctx, "vpn:protocol_changed", protocol)
+
+	if wasConnected {
+		if _, err := a.selectReconnect(protocol); err != nil {
+			return fmt.Errorf("reconnect after select failed: %w", err)
+		}
+	}
 	return nil
 }
 
-// SelectProtocol changes the selected protocol for the active connection
-// WITHOUT disconnecting or connecting. The user must press Connect to apply.
+// SelectProtocol changes the selected protocol for the active connection.
 // Back-compat: switches to the first config of the requested protocol.
+//
+// v0.9.15.46: matches SelectConfig — if a tunnel is currently up at
+// call time, auto disconnect+reconnect through the new protocol. The
+// "must press Connect to apply" semantic was UX-counterintuitive when
+// the connect-button on the pill row already displays as "connected".
 func (a *App) SelectProtocol(protocol string) error {
 	// Serialise tunnel-state mutation. Same reasoning as SelectConfig.
 	a.tunnelMu.Lock()
@@ -1546,6 +1562,7 @@ func (a *App) SelectProtocol(protocol string) error {
 	}
 
 	a.mu.Lock()
+	wasConnected := a.connected
 	conn.ActiveProtocol = protocol
 	a.activeProtocol = protocol
 	a.settings.ActiveProtocol = protocol
@@ -1572,7 +1589,35 @@ func (a *App) SelectProtocol(protocol string) error {
 
 	log.Printf("Selected protocol: %s for %s", protocol, conn.Name)
 	wailsRuntime.EventsEmit(a.ctx, "vpn:protocol_changed", protocol)
+
+	if wasConnected {
+		if _, err := a.selectReconnect(protocol); err != nil {
+			return fmt.Errorf("reconnect after select failed: %w", err)
+		}
+	}
 	return nil
+}
+
+// selectReconnect tears down the currently-active tunnel and brings up the
+// new protocol slot, atomically under the caller-held tunnelMu. v0.9.15.46.
+// Caller MUST hold a.tunnelMu; this function locks a.mu around its
+// disconnect/connect internals exactly like the public Disconnect/Connect
+// wrappers do, but without re-acquiring tunnelMu (non-reentrant).
+func (a *App) selectReconnect(newProtocol string) (*StatusResponse, error) {
+	// Disconnect current. disconnectInternal requires a.mu held; matches
+	// the lock-shape of the public Disconnect wrapper above.
+	a.mu.Lock()
+	a.lastUserDisconnectAt = time.Now()
+	a.sessionByteBaselineRx = 0
+	a.sessionByteBaselineTx = 0
+	if err := a.disconnectInternal(); err != nil {
+		a.mu.Unlock()
+		log.Printf("selectReconnect: disconnectInternal failed: %v (continuing to reconnect)", err)
+	} else {
+		a.mu.Unlock()
+	}
+	// connectInternal acquires a.mu itself.
+	return a.connectInternal(newProtocol)
 }
 
 // SetProtocol switches the active VPN protocol (disconnects first if connected)
