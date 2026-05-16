@@ -190,7 +190,23 @@ fun AddConnectionScreen(
                                 when (val payload = parseQrPayload(raw)) {
                                     is QrCodePayload.WireGuardConfig -> {
                                         fileContent = payload.content
-                                        selectedFilename = "scanned.conf"
+                                        // Per-config filename derived
+                                        // from the scanned endpoint so
+                                        // two QR codes added to the same
+                                        // connection don't both become
+                                        // "scanned.conf" (which used to
+                                        // make the 2nd overwrite the
+                                        // 1st). Same QR re-scanned →
+                                        // same filename + content → in
+                                        // place update (idempotent).
+                                        val probe = ConfigParser.buildProtocolConfig(
+                                            payload.content, "scanned.conf"
+                                        )
+                                        val host = probe?.serverAddress
+                                            ?.substringBefore(':')?.trim().orEmpty()
+                                        selectedFilename = if (host.isNotBlank())
+                                            "wg-${host.replace(Regex("[^A-Za-z0-9_.-]"), "_")}.conf"
+                                        else "scanned.conf"
                                         detectedProtocol = ConfigParser.detectProtocol(
                                             payload.content, selectedFilename
                                         )

@@ -83,13 +83,16 @@ class ConnectionRepository(private val context: Context) {
         //      corresponds to an existing config. Re-import of the
         //      same logical endpoint, update in place.
         //
-        //   2. Filename + protocol fallback — fresh import (id="")
-        //      whose (protocol, filename) tuple matches an existing
-        //      config. Same gateway re-download, same drag-drop of
-        //      the same .conf, etc. Update in place; preserve the
-        //      existing id so external references stay valid.
+        //   2. Filename + protocol + CONTENT fallback — fresh
+        //      import (id="") whose (protocol, filename) tuple AND
+        //      configContent both match an existing config: a true
+        //      re-import of the exact same .conf. Update in place;
+        //      preserve the existing id so external references stay
+        //      valid. (Content equality is what stops two different
+        //      same-named .conf files from clobbering each other.)
         //
-        //   3. Otherwise — genuinely new config. Append.
+        //   3. Otherwise — genuinely new config. Append (with a
+        //      disambiguating nickname if it shares a name).
         //
         // The pre-v0.9.15.7 version did (1) only and silently
         // appended on every fresh import — even re-downloading the
@@ -120,22 +123,54 @@ class ConnectionRepository(private val context: Context) {
         if (protocolConfig.id.isNotEmpty()) {
             existingIndex = conn.protocols.indexOfFirst { it.id == protocolConfig.id }
         }
+        // Filename-fallback ONLY collapses a true re-import: same
+        // (protocol, filename) AND byte-identical configContent.
+        // Pre-fix this matched on (protocol, filename) alone, so two
+        // genuinely different WireGuard .conf files that happened to
+        // share a generic name (wg0.conf, privycs.conf, the same
+        // gateway peer_name, …) were treated as one slot and the 2nd
+        // silently OVERWROTE the 1st instead of being added as a 2nd
+        // config — the reported "2. conf überschreibt die 1." bug.
+        // Adding the content equality check means same-name /
+        // different-content now falls through to append (3) while
+        // re-importing the exact same file still updates in place
+        // and never accumulates duplicates.
         if (existingIndex < 0 && protocolConfig.filename.isNotEmpty()) {
             existingIndex = conn.protocols.indexOfFirst {
                 it.protocol == protocolConfig.protocol &&
-                    it.filename == protocolConfig.filename
+                    it.filename == protocolConfig.filename &&
+                    it.configContent == protocolConfig.configContent
             }
         }
         if (existingIndex >= 0) {
-            // Preserve id+nickname so activeConfigId / pool-member
-            // refs stay valid across re-imports.
+            // True re-import (or explicit stable-id update). Preserve
+            // id+nickname so activeConfigId / pool-member refs stay
+            // valid across re-imports.
             val keep = conn.protocols[existingIndex]
             conn.protocols[existingIndex] = withId.copy(
                 id = keep.id,
                 nickname = keep.nickname,
             )
         } else {
-            conn.protocols.add(withId)
+            // Genuinely new config. If it shares a (protocol,
+            // filename) with an already-attached config, give it a
+            // disambiguating nickname — the protocol-pill switcher
+            // falls back to nickname when a protocol type appears
+            // more than once, so two "wg0.conf" endpoints would
+            // otherwise be visually indistinguishable. Only when the
+            // caller didn't already supply a nickname.
+            val sameNameCount = conn.protocols.count {
+                it.protocol == withId.protocol &&
+                    it.filename == withId.filename
+            }
+            val appended = if (sameNameCount > 0 && withId.nickname.isBlank()) {
+                val base = withId.filename.substringBeforeLast('.')
+                    .ifBlank { withId.protocol.label }
+                withId.copy(nickname = "$base (${sameNameCount + 1})")
+            } else {
+                withId
+            }
+            conn.protocols.add(appended)
         }
 
         if (conn.name.isBlank() && cleanName.isNotBlank()) {

@@ -22,30 +22,30 @@ type ProtocolConfig struct {
 	// connect path uses. Empty for legacy persisted data; the
 	// load-time heal assigns a fresh UUID.
 	ID            string `json:"id,omitempty"`
-	Protocol      string `json:"protocol"`         // wireguard, amneziawg, openvpn, ipsec
-	ConfigContent string `json:"config_content"`   // raw config file content
-	Filename      string `json:"filename"`         // original filename
+	Protocol      string `json:"protocol"`       // wireguard, amneziawg, openvpn, ipsec
+	ConfigContent string `json:"config_content"` // raw config file content
+	Filename      string `json:"filename"`       // original filename
 	// Nickname — user-editable label, shown in the pill row when
 	// a connection has multiple configs of the same protocol
 	// type ("Home WG UDP" vs "Home WG TCP"). Empty → fall back
 	// to filename / protocol label.
 	Nickname      string `json:"nickname,omitempty"`
-	ServerAddress string `json:"server_address"`   // extracted endpoint
-	LocalAddress  string `json:"local_address"`    // VPN IP (if parseable)
+	ServerAddress string `json:"server_address"` // extracted endpoint
+	LocalAddress  string `json:"local_address"`  // VPN IP (if parseable)
 	AddedAt       string `json:"added_at"`
 }
 
 // SavedConnection represents a VPN server/endpoint with one or more protocol configs
 type SavedConnection struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	ActiveProtocol string            `json:"active_protocol"` // legacy field — derived from ActiveConfigID
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	ActiveProtocol string `json:"active_protocol"` // legacy field — derived from ActiveConfigID
 	// ActiveConfigID — the ID of the currently-active ProtocolConfig.
 	// Replaces the old "ActiveProtocol enum" semantics which assumed
 	// at most one config per protocol type. Empty on legacy data;
 	// load() reconciles against ActiveProtocol.
 	ActiveConfigID string            `json:"active_config_id,omitempty"`
-	Protocols      []*ProtocolConfig `json:"protocols"`       // all available configs
+	Protocols      []*ProtocolConfig `json:"protocols"` // all available configs
 	CreatedAt      time.Time         `json:"created_at"`
 	LastConnected  time.Time         `json:"last_connected,omitempty"`
 	IsFavorite     bool              `json:"is_favorite"`
@@ -56,7 +56,7 @@ type SavedConnection struct {
 	// corporate DNS, Public uses Cloudflare" without flipping
 	// global Settings on every switch. Mirrors Android's
 	// VpnConnection.dnsOverride.
-	DnsOverride    string            `json:"dns_override,omitempty"`
+	DnsOverride string `json:"dns_override,omitempty"`
 }
 
 // GetProtocol returns the FIRST config for a specific protocol, or
@@ -229,11 +229,14 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 	//   1. Explicit ID match — caller passed a non-empty ID
 	//      corresponding to an existing config. Re-import of
 	//      the same logical endpoint, update in place.
-	//   2. Filename + protocol fallback — fresh import whose
-	//      (Protocol, Filename) tuple already exists. Same
-	//      gateway re-download. Update in place; preserve the
-	//      existing ID + Nickname so refs stay valid.
-	//   3. Otherwise — genuinely new config. Append.
+	//   2. Filename + protocol + CONTENT fallback — fresh import
+	//      whose (Protocol, Filename) tuple AND ConfigContent both
+	//      already exist: a true re-import of the exact same .conf.
+	//      Update in place; preserve the existing ID + Nickname so
+	//      refs stay valid. (Content equality is what stops two
+	//      different same-named .conf files clobbering each other.)
+	//   3. Otherwise — genuinely new config. Append (with a
+	//      disambiguating nickname if it shares a name).
 	//
 	// The v0.9.15.4–v0.9.15.6 version did (1) only and silently
 	// appended on every fresh import — even re-downloading the
@@ -242,10 +245,10 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 	// disambiguation logic (which keys on "same protocol type
 	// appears more than once") then showed the per-config
 	// filename instead of the clean protocol label.
-	// Match strategy — the slot is identified by (Protocol, Filename).
-	// Re-import of the SAME slot replaces in place; any other
-	// combination (different protocol type, different filename
-	// within the same protocol) appends a new slot.
+	// Match strategy — a slot is identified by (Protocol, Filename,
+	// ConfigContent). A byte-identical re-import replaces in place;
+	// any other combination (different protocol, different filename,
+	// or same name but different content) appends a new slot.
 	//
 	// User-stated intent (v0.9.15.10): "ich möchte in eine
 	// connection auch 10 versch. gleiche protokoll configs laden
@@ -268,8 +271,20 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 		}
 	}
 	if replacedAt < 0 && pc.Filename != "" {
+		// Filename-fallback ONLY collapses a true re-import: same
+		// (Protocol, Filename) AND byte-identical ConfigContent.
+		// Pre-fix this matched on (Protocol, Filename) alone, so two
+		// genuinely different WireGuard .conf files sharing a generic
+		// name (wg0.conf, privycs.conf, the same gateway peer_name,
+		// …) were treated as one slot and the 2nd silently OVERWROTE
+		// the 1st instead of being added as a 2nd config. The content
+		// check lets same-name/different-content fall through to
+		// append while exact re-imports still update in place and
+		// never accumulate duplicates.
 		for i, existing := range conn.Protocols {
-			if existing.Protocol == pc.Protocol && existing.Filename == pc.Filename {
+			if existing.Protocol == pc.Protocol &&
+				existing.Filename == pc.Filename &&
+				existing.ConfigContent == pc.ConfigContent {
 				replacedAt = i
 				break
 			}
@@ -282,6 +297,25 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 		pc.Nickname = keep.Nickname
 		conn.Protocols[replacedAt] = pc
 	} else {
+		// Genuinely new config. If it shares a (Protocol, Filename)
+		// with an already-attached config, give it a disambiguating
+		// nickname — the protocol-pill switcher falls back to the
+		// nickname when a protocol type appears more than once, so
+		// two same-named endpoints would otherwise be visually
+		// indistinguishable. Only when the caller didn't supply one.
+		sameName := 0
+		for _, existing := range conn.Protocols {
+			if existing.Protocol == pc.Protocol && existing.Filename == pc.Filename {
+				sameName++
+			}
+		}
+		if sameName > 0 && pc.Nickname == "" {
+			base := pc.Filename[:len(pc.Filename)-len(filepath.Ext(pc.Filename))]
+			if base == "" {
+				base = pc.Protocol
+			}
+			pc.Nickname = fmt.Sprintf("%s (%d)", base, sameName+1)
+		}
 		conn.Protocols = append(conn.Protocols, pc)
 	}
 

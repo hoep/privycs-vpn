@@ -317,13 +317,33 @@ fun ConnectionsScreen(
                                 val raw = QrCodeScanner.scan(act) ?: return@launch
                                 when (val payload = parseQrPayload(raw)) {
                                     is QrCodePayload.WireGuardConfig -> {
-                                        val filename = "scanned.conf"
-                                        val pc = ConfigParser.buildProtocolConfig(
-                                            payload.content, filename
+                                        // Derive a per-config filename
+                                        // from the scanned endpoint so
+                                        // two different QR codes don't
+                                        // both land as "scanned.conf"
+                                        // (which used to make the 2nd
+                                        // scan overwrite the 1st). Same
+                                        // QR re-scanned → same filename
+                                        // + same content → addOrUpdate
+                                        // updates in place (idempotent).
+                                        val probe = ConfigParser.buildProtocolConfig(
+                                            payload.content, "scanned.conf"
                                         )
-                                        if (pc != null) {
+                                        if (probe != null) {
+                                            val host = probe.serverAddress
+                                                .substringBefore(':').trim()
+                                            val filename = if (host.isNotBlank())
+                                                "wg-${host.replace(Regex("[^A-Za-z0-9_.-]"), "_")}.conf"
+                                            else "scanned.conf"
+                                            val pc = probe.copy(filename = filename)
                                             val name = ConfigParser.deriveConnectionName(filename)
-                                            connectionRepo.addOrUpdate(null, name, pc)
+                                            // Each scan = its own config
+                                            // in the active (chosen)
+                                            // connection when there is
+                                            // one; otherwise a fresh
+                                            // connection.
+                                            val targetId = connectionRepo.getActive()?.id
+                                            connectionRepo.addOrUpdate(targetId, name, pc)
                                         } else {
                                             gatewayError = "Scanned QR did not validate as WireGuard"
                                         }
