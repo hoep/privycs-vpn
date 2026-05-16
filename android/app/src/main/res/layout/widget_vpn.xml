@@ -125,7 +125,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/widget_status_disconnected"
+                    android:text="@string/widget_connect"
                     android:textSize="10sp"
                     android:fontFamily="sans-serif-medium"
                     android:textColor="#FFFFFFFF"
@@ -153,7 +153,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:visibility="gone"
-                android:text="@string/widget_status_disconnected"
+                android:text="@string/widget_connect"
                 android:textSize="12sp"
                 android:textColor="@color/widget_text_secondary"
                 android:singleLine="true" />

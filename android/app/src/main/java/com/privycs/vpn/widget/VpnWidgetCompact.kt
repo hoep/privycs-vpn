@@ -120,14 +120,14 @@ class VpnWidgetCompact : AppWidgetProvider() {
             ?: activeConn?.activeProtocol
             ?: activeConn?.protocols?.firstOrNull()?.protocol
             ?: repo.connections.firstOrNull()?.protocols?.firstOrNull()?.protocol
-        // v0.9.15.43: AmneziaWG widget icon uses dedicated awg_on /
-        // awg_off PNGs (see VpnWidget for full rationale). Brand
-        // artwork pre-rendered for each state; tint pass is skipped
-        // for AWG.
-        val isAwgState = displayProtocol == VpnProtocol.AMNEZIAWG && !killSwitchSinkhole
+        // EXACT mirror of the in-app ConnectButton
+        // (ConnectScreen.kt:1034-1057), same as VpnWidget: all 4
+        // protocols use their monochrome brand silhouette + the
+        // state tint cascade below. AmneziaWG uses the tintable
+        // ic_protocol_amneziawg (not awg_on/awg_off colour art).
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            displayProtocol == VpnProtocol.AMNEZIAWG -> if (connected) R.drawable.awg_on else R.drawable.awg_off
+            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
@@ -137,11 +137,13 @@ class VpnWidgetCompact : AppWidgetProvider() {
         // Icon tint mirrors ConnectScreen.kt:1032-1033 (see VpnWidget
         // for the full comment). v0.9.15.29 bumped disconnected from
         // #5F6368 to #B5B5B5 for visibility.
+        // EXACT mirror of ConnectScreen.kt:1032-1033 (see VpnWidget
+        // for the full comment): white when connected, #9CA3AF
+        // (app dark-theme onSurfaceVariant) when not.
         val iconTint: Int = when {
             killSwitchSinkhole -> 0
-            isAwgState -> 0 // awg_on/awg_off carry their own brand colours
             connected -> 0xFFFFFFFF.toInt()
-            else -> 0xFFB5B5B5.toInt()
+            else -> 0xFF9CA3AF.toInt()
         }
         views.setInt(R.id.widget_button_icon, "setColorFilter", iconTint)
 
@@ -150,11 +152,17 @@ class VpnWidgetCompact : AppWidgetProvider() {
         val statusLabel = when {
             killSwitchSinkhole -> context.getString(R.string.widget_status_kill_switch_active)
             connected -> context.getString(R.string.widget_status_connected)
-            else -> context.getString(R.string.widget_status_disconnected)
+            else -> context.getString(R.string.widget_connect)
         }
         views.setViewVisibility(R.id.widget_button_label, android.view.View.VISIBLE)
         views.setTextViewText(R.id.widget_button_label, statusLabel)
-        views.setTextColor(R.id.widget_button_label, iconTint.takeIf { it != 0 } ?: 0xFFFFFFFFL.toInt())
+        // Label colour mirrors ConnectScreen.kt:1077-1078: connected
+        // -> White @90% (#E6FFFFFF), disconnected -> #9CA3AF.
+        views.setTextColor(
+            R.id.widget_button_label,
+            if (connected || killSwitchSinkhole) 0xE6FFFFFFL.toInt()
+            else 0xFF9CA3AF.toInt(),
+        )
 
         // ---- Click targets ----
         // Body tap (everywhere on the widget) opens the main app.

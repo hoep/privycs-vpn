@@ -520,17 +520,17 @@ class VpnWidget : AppWidgetProvider() {
             ?: activeConn?.activeProtocol
             ?: activeConn?.protocols?.firstOrNull()?.protocol
             ?: repo.connections.firstOrNull()?.protocols?.firstOrNull()?.protocol
-        // v0.9.15.43: AmneziaWG widget icon now uses dedicated
-        // awg_on / awg_off PNGs (user-provided 287×287 / 394×394
-        // brand artwork, placed in drawable-xxxhdpi/). These are
-        // pre-rendered for both states — connected uses the
-        // full-colour awg_on, disconnected uses the muted awg_off.
-        // The tint pass below is skipped for AWG so the brand
-        // colours render as designed.
-        val isAwgState = displayProtocol == VpnProtocol.AMNEZIAWG && !killSwitchSinkhole
+        // Connect-button icon is now an EXACT mirror of the in-app
+        // ConnectButton (ConnectScreen.kt:1034-1057): the active
+        // protocol's monochrome brand silhouette, tinted by the
+        // state cascade below. AmneziaWG uses the same tintable
+        // ic_protocol_amneziawg as the app — NOT the widget-only
+        // awg_on/awg_off colour artwork — so all 4 protocols render
+        // identically to the connect screen in both on and off
+        // states.
         val iconRes = when {
             killSwitchSinkhole -> R.drawable.ic_kill_switch_sinkhole
-            displayProtocol == VpnProtocol.AMNEZIAWG -> if (connected) R.drawable.awg_on else R.drawable.awg_off
+            displayProtocol == VpnProtocol.AMNEZIAWG -> R.drawable.ic_protocol_amneziawg
             displayProtocol == VpnProtocol.WIREGUARD -> R.drawable.ic_protocol_wireguard
             displayProtocol == VpnProtocol.OPENVPN -> R.drawable.ic_protocol_openvpn
             displayProtocol == VpnProtocol.IPSEC -> R.drawable.ic_protocol_strongswan
@@ -550,11 +550,15 @@ class VpnWidget : AppWidgetProvider() {
         //                   outline-stroke disconnected circle.
         //   sinkhole     -> no tint; the kill-switch drawable is
         //                   already self-coloured white on red.
+        // EXACT mirror of ConnectScreen.kt:1032-1033:
+        //   connected    -> Color.White
+        //   disconnected -> onSurfaceVariant (#9CA3AF, the app's
+        //                   dark-theme value)
+        //   sinkhole     -> no tint (self-coloured shield)
         val iconTint: Int = when {
             killSwitchSinkhole -> 0
-            isAwgState -> 0 // awg_on/awg_off carry their own brand colours
             connected -> 0xFFFFFFFF.toInt()
-            else -> 0xFFB5B5B5.toInt()
+            else -> 0xFF9CA3AF.toInt()
         }
         views.setInt(R.id.widget_button_icon, "setColorFilter", iconTint)
 
@@ -568,11 +572,20 @@ class VpnWidget : AppWidgetProvider() {
         val statusLabel = when {
             killSwitchSinkhole -> context.getString(R.string.widget_status_kill_switch_active)
             connected -> context.getString(R.string.widget_status_connected)
-            else -> context.getString(R.string.widget_status_disconnected)
+            else -> context.getString(R.string.widget_connect)
         }
         views.setViewVisibility(R.id.widget_button_label, android.view.View.VISIBLE)
         views.setTextViewText(R.id.widget_button_label, statusLabel)
-        views.setTextColor(R.id.widget_button_label, iconTint.takeIf { it != 0 } ?: 0xFFFFFFFFL.toInt())
+        // Label colour matches the in-app ConnectButton
+        // (ConnectScreen.kt:1077-1078): connected -> White @90%
+        // (#E6FFFFFF); disconnected -> onSurfaceVariant #9CA3AF.
+        // Sinkhole keeps the bright label so "Kill Switch Active"
+        // stays readable on the red disc.
+        views.setTextColor(
+            R.id.widget_button_label,
+            if (connected || killSwitchSinkhole) 0xE6FFFFFFL.toInt()
+            else 0xFF9CA3AF.toInt(),
+        )
         // Right-column duplicate kept hidden — see XML for the
         // rationale. The text is still set so any future code reading
         // widget_status_text gets a sensible value.

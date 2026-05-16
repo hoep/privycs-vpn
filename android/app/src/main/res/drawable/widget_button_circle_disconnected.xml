@@ -1,17 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Disconnected-state circle background. Transparent fill + 2dp
-    outline stroke, mirrors the in-app ConnectButton's disconnected
-    branch `Modifier.background(surface).border(2dp, outline,
-    CircleShape)` (ConnectScreen.kt:996-998). On widget the
-    transparent fill lets the wallpaper show through inside the
-    ring, which reads unambiguously as "not connected" against the
-    solid-fill connected state.
+    Disconnected-state circle background. EXACT mirror of the in-app
+    ConnectButton's disconnected branch
+    (ConnectScreen.kt:996-998):
+
+        Modifier.background(MaterialTheme.colorScheme.surface)
+                .border(2.dp, MaterialTheme.colorScheme.outline,
+                        CircleShape)
+
+    Resolved against the app's dark color scheme (Theme.kt) — the
+    widget connect button is rendered from a single, non
+    night-qualified drawable and the widget chrome is dark, so we
+    bake the dark-theme values:
+        surface = DarkSurface #1A1F2E  -> solid fill
+        outline = #374151              -> 2dp stroke
+    (Previously transparent + #5F6368, a widget-only divergence.)
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="#00000000" />
+    <solid android:color="#FF1A1F2E" />
     <stroke
         android:width="2dp"
-        android:color="#5F6368" />
+        android:color="#FF374151" />
 </shape>
