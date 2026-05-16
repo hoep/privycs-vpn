@@ -763,22 +763,63 @@ class NetworkMonitor private constructor(private val context: Context) {
             PrivycsLogger.w(TAG, "Failed to enumerate networks: ${e.message}")
             return "none"
         }
-        // Two-pass to bias toward the system default if it's non-VPN:
-        // first try the system default explicitly, then fall back to
-        // any other non-VPN network with INTERNET capability.
-        connectivityManager.activeNetwork?.let { active ->
-            val caps = connectivityManager.getNetworkCapabilities(active)
-            if (caps != null && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
-                classifyTransport(caps)?.let { return it }
+        // 1. VPN down (or not the system default): the system default
+        //    IS the real physical transport — classify it directly.
+        val activeCaps = connectivityManager.activeNetwork?.let {
+            connectivityManager.getNetworkCapabilities(it)
+        }
+        if (activeCaps != null &&
+            !activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        ) {
+            classifyTransport(activeCaps)?.let { return it }
+        }
+
+        // 2. VPN IS the system default. We must classify the VPN's
+        //    UNDERLYING physical network, NOT "the first non-VPN entry
+        //    in allNetworks". allNetworks order is unspecified, and on
+        //    a Mobile→WiFi handover while the tunnel is up the cellular
+        //    network lingers for a while as the VPN's backup underlying
+        //    net. The old iteration-order pick then returned "mobile"
+        //    while the user was actually on WiFi — the status stuck on
+        //    "connected via Mobile" and the SSID/except rule never ran
+        //    because the network was never classified as wifi. Only a
+        //    COD off/on re-register "fixed" it (by which point the
+        //    lingering cellular net had been torn down). underlying-
+        //    Networks is the documented authoritative answer (API 31+).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activeCaps != null) {
+            activeCaps.underlyingNetworks?.forEach { u ->
+                val uc = connectivityManager.getNetworkCapabilities(u) ?: return@forEach
+                if (uc.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return@forEach
+                classifyTransport(uc)?.let { return it }
             }
         }
+
+        // 3. Fallback (pre-31, or underlyingNetworks unavailable):
+        //    collect every non-VPN INTERNET transport, then resolve
+        //    DETERMINISTICALLY ethernet > wifi > mobile instead of
+        //    arbitrary allNetworks order. The decisive change vs the
+        //    old code: when both a WiFi and a (lingering) cellular
+        //    network are present under an active VPN, pick wifi — that
+        //    is what the device is actually on after the handover.
+        var hasWifi = false
+        var hasCellular = false
+        var hasEthernet = false
         for (n in networks) {
             val c = connectivityManager.getNetworkCapabilities(n) ?: continue
             if (c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
             if (!c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
-            classifyTransport(c)?.let { return it }
+            when {
+                c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> hasWifi = true
+                c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> hasCellular = true
+                c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> hasEthernet = true
+            }
         }
-        return "none"
+        return when {
+            hasEthernet -> "ethernet"
+            hasWifi -> "wifi"
+            hasCellular -> "mobile"
+            else -> "none"
+        }
     }
 
     private fun classifyTransport(c: NetworkCapabilities): String? {
