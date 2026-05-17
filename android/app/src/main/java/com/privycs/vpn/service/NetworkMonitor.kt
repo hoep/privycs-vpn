@@ -774,33 +774,26 @@ class NetworkMonitor private constructor(private val context: Context) {
             classifyTransport(activeCaps)?.let { return it }
         }
 
-        // 2. VPN IS the system default. We must classify the VPN's
-        //    UNDERLYING physical network, NOT "the first non-VPN entry
-        //    in allNetworks". allNetworks order is unspecified, and on
-        //    a Mobile→WiFi handover while the tunnel is up the cellular
-        //    network lingers for a while as the VPN's backup underlying
-        //    net. The old iteration-order pick then returned "mobile"
-        //    while the user was actually on WiFi — the status stuck on
-        //    "connected via Mobile" and the SSID/except rule never ran
-        //    because the network was never classified as wifi. Only a
-        //    COD off/on re-register "fixed" it (by which point the
-        //    lingering cellular net had been torn down). underlying-
-        //    Networks is the documented authoritative answer (API 31+).
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activeCaps != null) {
-            activeCaps.underlyingNetworks?.forEach { u ->
-                val uc = connectivityManager.getNetworkCapabilities(u) ?: return@forEach
-                if (uc.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return@forEach
-                classifyTransport(uc)?.let { return it }
-            }
-        }
-
-        // 3. Fallback (pre-31, or underlyingNetworks unavailable):
-        //    collect every non-VPN INTERNET transport, then resolve
-        //    DETERMINISTICALLY ethernet > wifi > mobile instead of
-        //    arbitrary allNetworks order. The decisive change vs the
-        //    old code: when both a WiFi and a (lingering) cellular
-        //    network are present under an active VPN, pick wifi — that
-        //    is what the device is actually on after the handover.
+        // 2. VPN IS the system default (tunnel up). Do NOT pick "the
+        //    first non-VPN entry in allNetworks" — that list's order is
+        //    unspecified, and on a Mobile→WiFi handover while the
+        //    tunnel is up the cellular network lingers for a while as
+        //    the VPN's backup transport. The old iteration-order pick
+        //    then returned "mobile" while the user was actually on
+        //    WiFi: the status stuck on "connected via Mobile" and the
+        //    SSID/except rule never ran because the network was never
+        //    classified wifi. Only a COD off/on re-register "fixed" it
+        //    (by which point the lingering cellular net was gone).
+        //
+        //    Resolve DETERMINISTICALLY instead: collect every non-VPN
+        //    INTERNET transport currently present and rank
+        //    ethernet > wifi > mobile, so a present WiFi wins over a
+        //    lingering cellular link after the handover. (NetworkCap-
+        //    abilities.underlyingNetworks would be the "authoritative"
+        //    source but is not resolvable against this module's SDK
+        //    classpath — this ranking is the robust, SDK-safe answer
+        //    and is correct for the phone handover case the bug is
+        //    about.)
         var hasWifi = false
         var hasCellular = false
         var hasEthernet = false
