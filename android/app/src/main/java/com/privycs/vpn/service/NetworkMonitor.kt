@@ -482,8 +482,26 @@ class NetworkMonitor private constructor(private val context: Context) {
             if (rawSsid.isNotEmpty()) {
                 lastResolvedSsid = rawSsid
                 lastResolvedNetworkType = networkType
-            } else if (networkType != lastResolvedNetworkType) {
+            } else if (networkType == "none") {
+                // Drop the sticky SSID ONLY when connectivity is
+                // genuinely gone — NOT on a wifi->mobile transport
+                // flip. The old "networkType != lastResolvedNetworkType"
+                // wipe is the root cause of the multiply-reported
+                // "trusted-WiFi except-rule not applied after WiFi
+                // off->on while the VPN is up" bug: the cache is
+                // consumed only when networkType == "wifi" (see
+                // effectiveSsid below), so keeping it across the
+                // cellular leg has ZERO effect on the mobile-side
+                // decision, but lets the except/only rule still
+                // resolve against the last real SSID on WiFi-return —
+                // where the live SSID is OS-redacted in the background
+                // on Android 12+ without ACCESS_BACKGROUND_LOCATION.
+                // A genuinely different WiFi overwrites the cache via
+                // the rawSsid.isNotEmpty() branch the moment the SSID
+                // is readable (foreground, or background once the
+                // Part-2 background-location grant lands).
                 lastResolvedSsid = ""
+                lastResolvedNetworkType = networkType
             }
             val effectiveSsid = if (rawSsid.isEmpty() && networkType == "wifi") {
                 lastResolvedSsid.also {
