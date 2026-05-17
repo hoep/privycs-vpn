@@ -644,25 +644,25 @@ func (a *App) onSecondInstance(data options.SecondInstanceData) {
 
 // StatusResponse is the full status returned to the frontend
 type StatusResponse struct {
-	Connected           bool     `json:"connected"`
-	ActiveProtocol      string   `json:"active_protocol"`
-	AvailableProtocols  []string `json:"available_protocols"`
-	ServerAddress       string   `json:"server_address,omitempty"`
-	ServerCountryCode   string   `json:"server_country_code,omitempty"` // ISO 3166-1 alpha-2 (e.g. "IT")
-	ServerCity          string   `json:"server_city,omitempty"`         // best-effort from pool-member name pattern
-	LocalAddress        string   `json:"local_address,omitempty"`
-	BytesRx             int64    `json:"bytes_rx"`
-	BytesTx             int64    `json:"bytes_tx"`
-	ConnectedAt         string   `json:"connected_at,omitempty"`
-	LastHandshake       string   `json:"last_handshake,omitempty"`
-	LatencyMs           float64  `json:"latency_ms,omitempty"`
-	Uptime              string   `json:"uptime,omitempty"`
-	KillSwitchEnabled   bool     `json:"kill_switch_enabled"`
-	KillSwitchState     string   `json:"kill_switch_state"` // "IDLE" / "ARMED" / "SINKHOLE"
-	AutoConnectEnabled  bool     `json:"auto_connect_enabled"`
-	PauseRemainingSec   int      `json:"pause_remaining_sec"` // 0 when not paused
-	ConnectionName      string   `json:"connection_name,omitempty"`
-	ConnectionID        string   `json:"connection_id,omitempty"`
+	Connected           bool                         `json:"connected"`
+	ActiveProtocol      string                       `json:"active_protocol"`
+	AvailableProtocols  []string                     `json:"available_protocols"`
+	ServerAddress       string                       `json:"server_address,omitempty"`
+	ServerCountryCode   string                       `json:"server_country_code,omitempty"` // ISO 3166-1 alpha-2 (e.g. "IT")
+	ServerCity          string                       `json:"server_city,omitempty"`         // best-effort from pool-member name pattern
+	LocalAddress        string                       `json:"local_address,omitempty"`
+	BytesRx             int64                        `json:"bytes_rx"`
+	BytesTx             int64                        `json:"bytes_tx"`
+	ConnectedAt         string                       `json:"connected_at,omitempty"`
+	LastHandshake       string                       `json:"last_handshake,omitempty"`
+	LatencyMs           float64                      `json:"latency_ms,omitempty"`
+	Uptime              string                       `json:"uptime,omitempty"`
+	KillSwitchEnabled   bool                         `json:"kill_switch_enabled"`
+	KillSwitchState     string                       `json:"kill_switch_state"` // "IDLE" / "ARMED" / "SINKHOLE"
+	AutoConnectEnabled  bool                         `json:"auto_connect_enabled"`
+	PauseRemainingSec   int                          `json:"pause_remaining_sec"` // 0 when not paused
+	ConnectionName      string                       `json:"connection_name,omitempty"`
+	ConnectionID        string                       `json:"connection_id,omitempty"`
 	ConnectionProtocols []string                     `json:"connection_protocols,omitempty"` // distinct protocol types on this connection
 	ConnectionConfigs   []ConnectionConfigDescriptor `json:"connection_configs,omitempty"`   // per-config descriptors for multi-config-aware UI
 	ConnectionActiveID  string                       `json:"connection_active_config_id,omitempty"`
@@ -975,6 +975,42 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 	// SINKHOLE state engaging on user-initiated disconnect (see the
 	// disconnect path), which is how the user enters the protected
 	// state in the first place after their initial successful connect.
+
+	// Re-render the active config from its CURRENT stored content
+	// right before Up(). connectInternal previously trusted whatever
+	// confPath / on-disk file the last operation left behind. The
+	// "connect the already-active config without re-selecting" path
+	// never re-Configures, so for an AmneziaWG connection w.confPath
+	// stayed the bare <id>.conf (set by setTunnelName) instead of the
+	// variant-correct <id>-amneziawg.conf that Configure() produces —
+	// the tunnel then launched a STALE / wrong-variant file, the WG
+	// handshake never completed (rx frozen, tx retransmitting) and
+	// TunnelHealth tore it down. Selected / failover / startup
+	// connects all already Configure() and worked; only this path
+	// didn't. Re-Configuring here makes connectInternal authoritative
+	// (current content + correct variant→confPath), matching Android
+	// which always uses the live config content.
+	//
+	// SINGLE-CONNECTION ONLY. Pool members are bound via
+	// AdoptExistingConfig (deliberately no file write) by the pool
+	// path before it calls connectInternal; a.activePoolID != ""
+	// in that case, so we skip and never clobber the adopted file.
+	if a.activePoolID == "" {
+		if conn := a.connections.Active(); conn != nil {
+			if cfg := conn.GetActiveConfig(); cfg != nil &&
+				cfg.Protocol == a.activeProtocol {
+				if rp, ok := a.protocols[cfg.Protocol]; ok {
+					tn := tunnelNameForSlot(cfg.ID, conn.Name)
+					setTunnelName(rp, tn)
+					if cerr := rp.Configure(
+						a.applyDnsOverride([]byte(cfg.ConfigContent), rp.Name()),
+					); cerr != nil {
+						log.Printf("Connect: re-Configure of active %s config failed: %v", cfg.Protocol, cerr)
+					}
+				}
+			}
+		}
+	}
 
 	log.Printf("Connecting via %s...", a.activeProtocol)
 	wailsRuntime.EventsEmit(a.ctx, "vpn:connecting", a.activeProtocol)
