@@ -380,24 +380,15 @@ class PrivycsApp : StrongSwanApplication() {
                 wasCod = isCod
             }
         }
-        // diagnostics: verbose on-demand decision log. Opt-in via the
-        // (low-importance) system channel; deduped so an unchanged
-        // decision doesn't re-post every backstop tick.
-        appScope.launch {
-            var last = ""
-            com.privycs.vpn.service.NetworkMonitor
-                .getInstance(applicationContext)
-                .networkState.collect { ns ->
-                    if (ns.ruleMatch.isBlank()) return@collect
-                    val ssidPart =
-                        if (ns.ssid.isNotEmpty()) " \"${ns.ssid}\"" else ""
-                    val msg = "${ns.networkType}$ssidPart → ${ns.ruleMatch}"
-                    if (msg == last) return@collect
-                    last = msg
-                    com.privycs.vpn.util.EventNotifier
-                        .diagnostics(applicationContext, msg)
-                }
-        }
+        // NOTE: the verbose per-networkState "diagnostics" observer
+        // was removed — it posted a (separate-channel) notification
+        // on every network event, so a single Wi-Fi/mobile change
+        // could surface up to 3 notifications (status + diagnostics
+        // + occasionally security). Diagnostics is now strictly
+        // opt-in: EventNotifier.diagnostics() still exists but is
+        // never auto-fired. Net result: at most ONE notification per
+        // real COD action (connect/disconnect/failover, coalesced on
+        // a single id), plus the rare security alert.
 
         // WorkManager-backed auto-tunnel backstop. NetworkCallback in
         // NetworkMonitor stays the primary fast-reaction path; the

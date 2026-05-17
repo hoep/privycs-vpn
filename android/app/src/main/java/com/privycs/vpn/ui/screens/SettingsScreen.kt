@@ -1,6 +1,7 @@
 package com.privycs.vpn.ui.screens
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
@@ -1377,9 +1378,11 @@ private fun SsidPermissionsPanel(
             actionLabel = if (locationGranted) "App settings" else "Grant",
             onAction = {
                 if (locationGranted) {
-                    context.startActivity(
+                    safeOpenSettings(
+                        context,
                         com.privycs.vpn.util.SsidPermissionsHelper
                             .openAppDetailsIntent(context),
+                        "Could not open App settings",
                     )
                 } else {
                     ssidPermLauncher.location.launch(
@@ -1395,9 +1398,11 @@ private fun SsidPermissionsPanel(
             granted = locationServicesOn,
             actionLabel = "Location settings",
             onAction = {
-                context.startActivity(
+                safeOpenSettings(
+                    context,
                     com.privycs.vpn.util.SsidPermissionsHelper
                         .openLocationSettingsIntent(),
+                    "Could not open Location settings",
                 )
             },
         )
@@ -1414,9 +1419,11 @@ private fun SsidPermissionsPanel(
                 actionLabel = if (nearbyWifiGranted) "App settings" else "Grant",
                 onAction = {
                     if (nearbyWifiGranted) {
-                        context.startActivity(
+                        safeOpenSettings(
+                            context,
                             com.privycs.vpn.util.SsidPermissionsHelper
                                 .openAppDetailsIntent(context),
+                            "Could not open App settings",
                         )
                     } else {
                         ssidPermLauncher.nearbyWifi.launch(
@@ -1469,4 +1476,26 @@ private fun SsidPermissionRow(
             Text(actionLabel)
         }
     }
+}
+
+/**
+ * Launch a system-settings intent defensively. The SSID-permission
+ * rows previously called context.startActivity() bare — on ROMs
+ * where ACTION_LOCATION_SOURCE_SETTINGS / ACTION_APPLICATION_DETAILS
+ * isn't directly resolvable this threw ActivityNotFoundException and
+ * the link "failed" (user-reported). Fall back to the always-present
+ * top-level system Settings, and only then surface a Toast.
+ */
+private fun safeOpenSettings(context: Context, primary: Intent, failMsg: String) {
+    runCatching { context.startActivity(primary) }
+        .onFailure {
+            runCatching {
+                context.startActivity(
+                    Intent(Settings.ACTION_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }.onFailure {
+                Toast.makeText(context, failMsg, Toast.LENGTH_SHORT).show()
+            }
+        }
 }

@@ -47,6 +47,12 @@ object EventNotifier {
     private const val ID_STATUS = 1002
     private const val ID_DIAGNOSTICS = 1003
 
+    // NOTE: Android locks a channel's importance to user control
+    // after first creation — these levels only apply to fresh
+    // installs (or after the user clears data). They are intentionally
+    // unobtrusive: only the security channel may interrupt; status is
+    // silent shade-only; diagnostics is minimised. Users tune further
+    // in system per-app notification settings (Settings deep-link).
     /** Registered once from PrivycsApp.createNotificationChannels(). */
     fun createChannels(mgr: NotificationManager) {
         mgr.createNotificationChannel(
@@ -62,7 +68,7 @@ object EventNotifier {
             NotificationChannel(
                 CHANNEL_STATUS,
                 "Connection events",
-                NotificationManager.IMPORTANCE_DEFAULT,
+                NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description =
                     "On-demand auto connect/disconnect and protocol failover"
@@ -73,7 +79,7 @@ object EventNotifier {
             NotificationChannel(
                 CHANNEL_DIAGNOSTICS,
                 "On-demand diagnostics",
-                NotificationManager.IMPORTANCE_LOW,
+                NotificationManager.IMPORTANCE_MIN,
             ).apply {
                 description =
                     "Verbose on-demand decision log (disable this channel " +
