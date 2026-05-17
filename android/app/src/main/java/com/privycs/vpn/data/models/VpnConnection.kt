@@ -185,7 +185,20 @@ data class VpnConnection(
 data class ConnectionRegistry(
     val connections: MutableList<VpnConnection> = mutableListOf(),
     @SerialName("active_id")
-    var activeId: String = ""
+    var activeId: String = "",
+    // Transient, monotonically-increasing revision — NOT serialised.
+    // Exists solely so StateFlow conflation can't swallow a change:
+    // repository mutators edit nested lists (connections /
+    // VpnConnection.protocols) IN PLACE, then save()/notifyChanged()
+    // reassign _registry.value to a .copy(). Because this is a data
+    // class with structural equals and .copy() is shallow (same list
+    // references, already mutated), the "new" value is .equals() to
+    // the old one, so MutableStateFlow drops the emission and Compose
+    // never recomposes until navigation re-reads (the "deleted config
+    // still shows until I switch pages" glitch). save()/notifyChanged()
+    // bump rev so every persisted change is a genuinely-distinct value.
+    @kotlinx.serialization.Transient
+    var rev: Long = 0L
 )
 
 data class VpnStatus(

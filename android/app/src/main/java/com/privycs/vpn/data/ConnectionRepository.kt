@@ -560,8 +560,11 @@ class ConnectionRepository(private val context: Context) {
         try {
             file.parentFile?.mkdirs()
             file.writeText(json.encodeToString(ConnectionRegistry.serializer(), _registry.value))
-            // Emit updated state
-            _registry.value = _registry.value.copy()
+            // Emit updated state. rev bump is mandatory: mutators
+            // edit nested lists in place, so a plain .copy() is
+            // .equals() to the held value and StateFlow conflates it
+            // away (UI then only refreshes on navigation).
+            _registry.value = _registry.value.copy(rev = _registry.value.rev + 1)
             // Refresh the home-screen widget too — its protocol-pill
             // visibility reads availableProtocols() of the active
             // connection, so adding/removing a protocol from a
@@ -609,6 +612,6 @@ class ConnectionRepository(private val context: Context) {
      * Useful after in-place mutations of connection list items.
      */
     fun notifyChanged() {
-        _registry.value = _registry.value.copy()
+        _registry.value = _registry.value.copy(rev = _registry.value.rev + 1)
     }
 }
