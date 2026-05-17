@@ -2,6 +2,7 @@ package com.privycs.vpn
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -72,51 +73,106 @@ class MainActivity : ComponentActivity() {
                     // Asking proactively + with a rationale closes
                     // that whole class of confusion at install time.
                     val coScope = rememberCoroutineScope()
-                    var showPermissionDialog by remember {
-                        mutableStateOf(false)
-                    }
+                    var showPermissionDialog by remember { mutableStateOf(false) }
+                    var showBackgroundDialog by remember { mutableStateOf(false) }
 
-                    val permissionLauncher = rememberLauncherForActivityResult(
-                        ActivityResultContracts.RequestPermission()
-                    ) { _ ->
-                        // Mark first-launch complete regardless of
-                        // grant/deny. The user made their choice;
-                        // re-prompting on every app open would be
-                        // hostile UX.
+                    fun finishFirstRun() {
                         coScope.launch {
                             settingsRepository.markFirstLaunchCompleted()
                         }
                     }
 
+                    // Background-location request (Android 10+). Asked
+                    // ONLY after foreground location is granted (OS
+                    // requirement) and SOLELY so Android reveals the
+                    // Wi-Fi name to the backgrounded app for on-demand
+                    // rules. Never used for geolocation; nothing leaves
+                    // the device. Ends the first-run flow either way.
+                    val backgroundLocationLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestPermission()
+                    ) { _ -> finishFirstRun() }
+
+                    // Foreground batch: notifications (13+) + fine
+                    // location + nearby-wifi (13+). On result, if fine
+                    // location is granted and the OS gates background
+                    // separately, surface the background rationale;
+                    // otherwise the first-run flow ends here.
+                    val foregroundPermsLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestMultiplePermissions()
+                    ) { _ ->
+                        val fineGranted = ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (fineGranted &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                        ) {
+                            showBackgroundDialog = true
+                        } else {
+                            finishFirstRun()
+                        }
+                    }
+
                     LaunchedEffect(settings.firstLaunchCompleted) {
                         if (settings.firstLaunchCompleted) return@LaunchedEffect
-                        val granted = ContextCompat.checkSelfPermission(
+                        val fineAlready = ContextCompat.checkSelfPermission(
                             this@MainActivity,
                             Manifest.permission.ACCESS_FINE_LOCATION
                         ) == PackageManager.PERMISSION_GRANTED
-                        if (granted) {
-                            // Already granted (e.g. app reinstalled
-                            // without revoking the permission).
-                            // Skip dialog, just mark complete.
-                            settingsRepository.markFirstLaunchCompleted()
+                        if (fineAlready) {
+                            // Foreground already granted (e.g. reinstall).
+                            // Offer the background step if the OS gates
+                            // it separately and it isn't granted yet;
+                            // otherwise finish.
+                            val bgMissing = Build.VERSION.SDK_INT >=
+                                Build.VERSION_CODES.Q &&
+                                ContextCompat.checkSelfPermission(
+                                    this@MainActivity,
+                                    Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                                ) != PackageManager.PERMISSION_GRANTED
+                            if (bgMissing) {
+                                showBackgroundDialog = true
+                            } else {
+                                settingsRepository.markFirstLaunchCompleted()
+                            }
                         } else {
                             showPermissionDialog = true
                         }
                     }
 
                     if (showPermissionDialog) {
-                        LocationPermissionRationaleDialog(
+                        FirstRunPermissionDisclosureDialog(
                             onGrant = {
                                 showPermissionDialog = false
-                                permissionLauncher.launch(
-                                    Manifest.permission.ACCESS_FINE_LOCATION
-                                )
+                                val perms = buildList {
+                                    add(Manifest.permission.ACCESS_FINE_LOCATION)
+                                    if (Build.VERSION.SDK_INT >=
+                                        Build.VERSION_CODES.TIRAMISU
+                                    ) {
+                                        add(Manifest.permission.POST_NOTIFICATIONS)
+                                        add(Manifest.permission.NEARBY_WIFI_DEVICES)
+                                    }
+                                }.toTypedArray()
+                                foregroundPermsLauncher.launch(perms)
                             },
                             onSkip = {
                                 showPermissionDialog = false
-                                coScope.launch {
-                                    settingsRepository.markFirstLaunchCompleted()
-                                }
+                                finishFirstRun()
+                            }
+                        )
+                    }
+
+                    if (showBackgroundDialog) {
+                        BackgroundLocationRationaleDialog(
+                            onGrant = {
+                                showBackgroundDialog = false
+                                backgroundLocationLauncher.launch(
+                                    Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                                )
+                            },
+                            onSkip = {
+                                showBackgroundDialog = false
+                                finishFirstRun()
                             }
                         )
                     }
@@ -151,33 +207,68 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Prominent disclosure (Google Play requirement): shown BEFORE any
+// system permission prompt, clearly stating what is accessed and why,
+// with an explicit accept/decline.
 @androidx.compose.runtime.Composable
-private fun LocationPermissionRationaleDialog(
+private fun FirstRunPermissionDisclosureDialog(
     onGrant: () -> Unit,
     onSkip: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onSkip,
-        title = { Text("Allow WiFi name detection?") },
+        title = { Text("Permissions Privycs uses") },
         text = {
             Text(
-                "Privycs needs Location access to read the name of " +
-                    "your current WiFi network. This is required if you " +
-                    "want to use Connect-on-Demand rules based on WiFi " +
-                    "name (e.g. \"VPN only outside my home network\").\n\n" +
-                    "Privycs does NOT send location data anywhere. The " +
-                    "permission is used only locally for SSID detection."
+                "To work fully, Privycs asks for a few permissions now:\n\n" +
+                    "• Notifications — to show VPN status and on-demand " +
+                    "events.\n" +
+                    "• Location / Nearby Wi-Fi — required by Android only " +
+                    "so the app can read the NAME of your current Wi-Fi " +
+                    "network for Connect-on-Demand rules (e.g. \"VPN off " +
+                    "on my home Wi-Fi\"). It is never used to determine " +
+                    "your geographic location, and nothing is ever sent " +
+                    "off your device.\n\n" +
+                    "After that you'll be asked to \"Allow all the time\" " +
+                    "— Android needs that so on-demand rules keep working " +
+                    "while the app is closed or the screen is off. You " +
+                    "can change any of this later in Settings."
             )
         },
         confirmButton = {
-            TextButton(onClick = onGrant) {
-                Text("Allow")
-            }
+            TextButton(onClick = onGrant) { Text("Continue") }
         },
         dismissButton = {
-            TextButton(onClick = onSkip) {
-                Text("Later")
-            }
+            TextButton(onClick = onSkip) { Text("Not now") }
+        }
+    )
+}
+
+@androidx.compose.runtime.Composable
+private fun BackgroundLocationRationaleDialog(
+    onGrant: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onSkip,
+        title = { Text("Allow Wi-Fi rules in the background?") },
+        text = {
+            Text(
+                "On the next screen, choose \"Allow all the time\". " +
+                    "Android only reveals your Wi-Fi network name to a " +
+                    "backgrounded app with this setting — without it, " +
+                    "Connect-on-Demand rules based on Wi-Fi name only " +
+                    "work while Privycs is open on screen.\n\n" +
+                    "Privycs uses this solely to read the Wi-Fi name " +
+                    "locally for your rules. It never derives or " +
+                    "transmits your location."
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onGrant) { Text("Continue") }
+        },
+        dismissButton = {
+            TextButton(onClick = onSkip) { Text("Skip") }
         }
     )
 }

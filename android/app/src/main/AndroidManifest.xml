@@ -23,6 +23,21 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- v0.9.15.x — Connect-on-Demand by Wi-Fi name in the
+         background. On Android 10+ the OS redacts the Wi-Fi SSID
+         from a backgrounded app UNLESS it holds background location.
+         Without this, trusted-/untrusted-WiFi on-demand rules cannot
+         be evaluated while the screen is off (the root cause of the
+         repeatedly-reported "VPN doesn't disconnect on my home Wi-Fi
+         after WiFi off->on" bug — see NetworkMonitor.kt evaluate /
+         the sticky-SSID logic). Requested at first run AFTER a
+         prominent in-app disclosure and only AFTER foreground
+         location is granted. Used SOLELY to let Android reveal the
+         Wi-Fi name locally for rule matching; never used to derive
+         or transmit geographic location. Google Play accepted use
+         case for VPN apps with network-based auto-connect; declared
+         accordingly in the Play Data-safety form + privacy policy. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- Required for reliable Connect-on-Demand reaction in Doze /
          App Standby (v0.9.15.24). Without battery-optimization
          exemption Android defers our NetworkCallback delivery to
