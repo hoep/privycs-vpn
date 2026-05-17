@@ -1154,6 +1154,41 @@ fun SettingsScreen(
                 ) {
                     Text("View Logs")
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        // Event notifications (security / status /
+                        // diagnostics) are configured in Android's
+                        // per-app notification settings — open them
+                        // directly; fall back to the app detail page.
+                        try {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                    putExtra(
+                                        Settings.EXTRA_APP_PACKAGE,
+                                        context.packageName,
+                                    )
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                },
+                            )
+                        } catch (_: Exception) {
+                            try {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        android.net.Uri.parse(
+                                            "package:${context.packageName}",
+                                        ),
+                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            } catch (_: Exception) {
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Notification settings")
+                }
             }
 
             // -- Appearance --

@@ -338,6 +338,67 @@ class PrivycsApp : StrongSwanApplication() {
             Log.e("PrivycsApp", "PoolKeepaliveWatcher start failed", t)
         }
 
+        // ---- Event notifications (see util/EventNotifier) ----
+        // security: kill-switch sinkhole engaged/cleared. Single
+        // authoritative source = KillSwitchManager.state.
+        appScope.launch {
+            var last: com.privycs.vpn.util.KillSwitchManager.State? = null
+            com.privycs.vpn.util.KillSwitchManager.state.collect { st ->
+                if (st == last) return@collect
+                last = st
+                if (st == com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE) {
+                    com.privycs.vpn.util.EventNotifier
+                        .sinkholeEngaged(applicationContext)
+                } else {
+                    com.privycs.vpn.util.EventNotifier
+                        .sinkholeCleared(applicationContext)
+                }
+            }
+        }
+        // status: COD auto-connect. Rising edge of "Connected with
+        // source == ON_DEMAND" on the Coordinator (the accurate point;
+        // the matching auto-disconnect notification is fired inline at
+        // NetworkMonitor's ON_DEMAND requestDisconnect site).
+        appScope.launch {
+            var wasCod = false
+            com.privycs.vpn.util.ConnectCoordinator.state.collect { st ->
+                val isCod = st is
+                    com.privycs.vpn.util.ConnectCoordinator.State.Connected &&
+                    st.source ==
+                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND
+                if (isCod && !wasCod) {
+                    val reason = try {
+                        com.privycs.vpn.service.NetworkMonitor
+                            .getInstance(applicationContext)
+                            .networkState.value.ruleMatch
+                    } catch (_: Throwable) {
+                        ""
+                    }
+                    com.privycs.vpn.util.EventNotifier
+                        .codConnected(applicationContext, reason)
+                }
+                wasCod = isCod
+            }
+        }
+        // diagnostics: verbose on-demand decision log. Opt-in via the
+        // (low-importance) system channel; deduped so an unchanged
+        // decision doesn't re-post every backstop tick.
+        appScope.launch {
+            var last = ""
+            com.privycs.vpn.service.NetworkMonitor
+                .getInstance(applicationContext)
+                .networkState.collect { ns ->
+                    if (ns.ruleMatch.isBlank()) return@collect
+                    val ssidPart =
+                        if (ns.ssid.isNotEmpty()) " \"${ns.ssid}\"" else ""
+                    val msg = "${ns.networkType}$ssidPart → ${ns.ruleMatch}"
+                    if (msg == last) return@collect
+                    last = msg
+                    com.privycs.vpn.util.EventNotifier
+                        .diagnostics(applicationContext, msg)
+                }
+        }
+
         // WorkManager-backed auto-tunnel backstop. NetworkCallback in
         // NetworkMonitor stays the primary fast-reaction path; the
         // worker is the slow safety net (15-min periodic, the OS
@@ -529,6 +590,11 @@ class PrivycsApp : StrongSwanApplication() {
 
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
+
+        // Event-notification channels (security / status / diagnostics).
+        // Configured by the user in Android's per-app notification
+        // settings; the Settings screen deep-links there.
+        com.privycs.vpn.util.EventNotifier.createChannels(manager)
     }
 
     companion object {

@@ -1526,6 +1526,12 @@ class PrivycsVpnService : VpnService() {
                             )
                             PrivycsApp.instance.connectionRepository
                                 .setActiveConfig(connectionId, attemptConfigId)
+                            com.privycs.vpn.util.EventNotifier.failover(
+                                applicationContext,
+                                "Now connected via ${proto.label} — the " +
+                                    "previous connection failed and " +
+                                    "automatically failed over.",
+                            )
                         }
                         break
                     } catch (e: Throwable) {

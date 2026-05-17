@@ -722,6 +722,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
                 )
                 PrivycsLogger.i(TAG, "on-demand disconnect requested ($ruleMatch) -> $r")
+                com.privycs.vpn.util.EventNotifier.codDisconnected(context, ruleMatch)
                 // Stamp the on-demand-disconnect so the connect-side
                 // gate above suppresses the immediate reconnect from
                 // the teardown's transient NetworkCapabilities events.
