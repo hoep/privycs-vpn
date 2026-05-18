@@ -7,6 +7,28 @@ import (
 	"time"
 )
 
+const (
+	// Befund 3 (Android-parität) — debounce window applied by the
+	// single eval consumer. A platform event fires an immediate
+	// trigger plus a deliberate +2s follow-up; the safety ticker and
+	// Reevaluate() add more. Collapsing a sub-second burst into one
+	// serialized evaluation removes the data race on lastRuleKey and
+	// the unserialized connect/disconnect calls that concurrent
+	// checkAndAct invocations had. 250ms << the intentional 2s
+	// follow-up, so that re-check still lands as its own evaluation.
+	networkMonitorDebounce = 250 * time.Millisecond
+
+	// Befund 4 — startup grace. Within this window after Start(), an
+	// "except"-mode WiFi whose SSID is not yet resolved is treated
+	// conservatively (defer connect) instead of the steady-state
+	// "unknown SSID = untrusted = connect" default, so the app does
+	// not briefly auto-connect on a possibly-trusted WiFi before the
+	// SSID has populated (D-Bus/WlanAPI lag, association settling —
+	// the same case the run() "+2s follow-up" comment acknowledges).
+	// After the window the documented steady-state behaviour resumes.
+	networkMonitorStartupGrace = 15 * time.Second
+)
+
 // NetworkState represents the current network environment
 type NetworkState struct {
 	NetworkType string `json:"network_type"` // "wifi", "ethernet", "mobile", "none"
@@ -19,14 +41,14 @@ type NetworkState struct {
 // ConnectOnDemandSettings rules.  A safety poll at 60-second intervals
 // ensures changes are never missed even if the OS event is lost.
 type NetworkMonitor struct {
-	mu              sync.Mutex
-	running         bool
-	stopCh          chan struct{}
-	settings        *ConnectOnDemandSettings
-	connectFn       func()
-	disconnectFn    func()
-	isConnected     func() bool
-	isPaused        func() bool // optional - when set and returns true, monitor suppresses all actions
+	mu           sync.Mutex
+	running      bool
+	stopCh       chan struct{}
+	settings     *ConnectOnDemandSettings
+	connectFn    func()
+	disconnectFn func()
+	isConnected  func() bool
+	isPaused     func() bool // optional - when set and returns true, monitor suppresses all actions
 	// ruleResolver returns the RuleResolution for the current
 	// network state; empty Action = no rule matched, fall through
 	// to legacy COD logic. Set via SetRuleEngine.
@@ -42,10 +64,20 @@ type NetworkMonitor struct {
 	// ActivatePool / SwitchActiveConnection / disconnectInternal
 	// to ping-pong: tunnel-up triggers a new network event ->
 	// next tick -> apply -> disconnect -> reconnect -> loop.
-	lastRuleKey string
+	lastRuleKey     string
 	lastState       NetworkState
 	stopWatcher     func() // platform watcher teardown
 	changeObservers []func()
+
+	// Befund 3 — conflated trigger consumed by ONE goroutine. Every
+	// trigger source (platform watcher immediate + 2s follow-up,
+	// 60s safety ticker, Reevaluate, initial) sends here instead of
+	// calling checkAndAct directly / in its own goroutine. Buffered
+	// cap-1 = conflated: extra triggers while one is pending are
+	// dropped (the pending one already covers them). Created fresh
+	// per Start() so a Stop()+Start() cycle is restart-safe.
+	evalCh    chan struct{}
+	startedAt time.Time
 }
 
 // SetRuleEngine wires the per-network rules engine into the
@@ -130,6 +162,8 @@ func (nm *NetworkMonitor) Start(settings *ConnectOnDemandSettings, connectFn fun
 	nm.disconnectFn = disconnectFn
 	nm.isConnected = isConnectedFn
 	nm.stopCh = make(chan struct{})
+	nm.evalCh = make(chan struct{}, 1)
+	nm.startedAt = time.Now()
 	nm.running = true
 
 	log.Printf("Network monitor: started (trigger=%s, ssid_mode=%s)", settings.Trigger, settings.SSIDMode)
@@ -151,8 +185,35 @@ func (nm *NetworkMonitor) Stop() {
 		nm.stopWatcher()
 		nm.stopWatcher = nil
 	}
+	nm.evalCh = nil
 	nm.running = false
 	log.Println("Network monitor: stopped")
+}
+
+// trigger requests one evaluation via the conflated channel (Befund
+// 3). Non-blocking: if a request is already pending it is dropped —
+// the pending evaluation will observe the latest state anyway. Safe
+// to call before Start()/after Stop() (nil channel = no-op).
+func (nm *NetworkMonitor) trigger() {
+	nm.mu.Lock()
+	ch := nm.evalCh
+	nm.mu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+// inStartupGrace reports whether we are still within
+// networkMonitorStartupGrace of Start() (Befund 4).
+func (nm *NetworkMonitor) inStartupGrace() bool {
+	nm.mu.Lock()
+	t := nm.startedAt
+	nm.mu.Unlock()
+	return !t.IsZero() && time.Since(t) < networkMonitorStartupGrace
 }
 
 // IsRunning returns whether the monitor is active
@@ -189,7 +250,7 @@ func (nm *NetworkMonitor) UpdateSettings(settings *ConnectOnDemandSettings) {
 // settings WITHOUT firing a re-eval. Keeping the two operations
 // separate lets the caller pick the right behaviour.
 func (nm *NetworkMonitor) Reevaluate() {
-	go nm.checkAndAct()
+	nm.trigger()
 }
 
 // run sets up the platform event watcher and the safety poll timer.
@@ -200,6 +261,12 @@ func (nm *NetworkMonitor) run() {
 	case <-nm.stopCh:
 		return
 	}
+
+	// Befund 3 — single eval consumer. ALL trigger sources feed
+	// nm.trigger(); this one goroutine serializes evaluateOnce() so
+	// lastRuleKey / connectFn / disconnectFn are never touched
+	// concurrently.
+	go nm.runEvalConsumer()
 
 	// Start native OS event watcher.
 	//
@@ -218,10 +285,10 @@ func (nm *NetworkMonitor) run() {
 	// be more synchronous so the follow-up is just a no-op.
 	stopWatcher, err := startPlatformWatcher(func() {
 		nm.fireChangeObservers()
-		nm.checkAndAct()
+		nm.trigger()
 		go func() {
 			time.Sleep(2 * time.Second)
-			nm.checkAndAct()
+			nm.trigger()
 		}()
 	})
 	if err != nil {
@@ -233,7 +300,7 @@ func (nm *NetworkMonitor) run() {
 	}
 
 	// Run initial check immediately
-	nm.checkAndAct()
+	nm.trigger()
 
 	// Safety poll at 60-second intervals in case an OS event is missed
 	ticker := time.NewTicker(60 * time.Second)
@@ -244,12 +311,37 @@ func (nm *NetworkMonitor) run() {
 		case <-nm.stopCh:
 			return
 		case <-ticker.C:
-			nm.checkAndAct()
+			nm.trigger()
 		}
 	}
 }
 
-func (nm *NetworkMonitor) checkAndAct() {
+// runEvalConsumer is the single goroutine that performs evaluations
+// (Befund 3). It owns lastRuleKey and is the only caller of
+// evaluateOnce(), so no evaluation ever races another. A short
+// debounce collapses the immediate+ticker burst; the deliberate +2s
+// platform-watcher follow-up (2s >> debounce) still arrives as its
+// own trigger and re-evaluates.
+func (nm *NetworkMonitor) runEvalConsumer() {
+	for {
+		select {
+		case <-nm.stopCh:
+			return
+		case <-nm.evalCh:
+			select {
+			case <-time.After(networkMonitorDebounce):
+			case <-nm.stopCh:
+				return
+			}
+			nm.evaluateOnce()
+		}
+	}
+}
+
+// evaluateOnce performs one full rule evaluation + action. Called
+// ONLY by runEvalConsumer (Befund 3) so lastRuleKey and the
+// connect/disconnect calls are never concurrent.
+func (nm *NetworkMonitor) evaluateOnce() {
 	state := detectNetworkState()
 
 	nm.mu.Lock()
@@ -334,6 +426,20 @@ func (nm *NetworkMonitor) checkAndAct() {
 	// fire on edge prev->current) was tried but had a hole: VPN that
 	// was already up at app start with no-longer-matching rules
 	// stayed up indefinitely, contradicting user expectation.
+	// Befund 4 — startup-grace conservatism. evaluateRules() returns
+	// true for except-mode WiFi with an empty SSID ("unknown =
+	// untrusted = connect"), which is the right steady-state default
+	// but wrong in the first seconds after Start() when the SSID has
+	// simply not populated yet (D-Bus/WlanAPI lag) — it would briefly
+	// auto-connect on a possibly-trusted WiFi. Defer; the SSID
+	// resolves within seconds and the next trigger re-evaluates.
+	if match && !connected && nm.inStartupGrace() &&
+		state.NetworkType == "wifi" && state.SSID == "" &&
+		settings.SSIDMode == "except" {
+		log.Printf("Network monitor: startup grace - except-mode WiFi SSID not yet resolved, deferring connect")
+		return
+	}
+
 	if match && !connected {
 		log.Printf("Network monitor: triggering connect")
 		nm.connectFn()
