@@ -511,7 +511,15 @@ class NetworkMonitor private constructor(private val context: Context) {
                 }
             } else rawSsid
 
-            val (shouldConnect, ruleMatch) = evaluateRules(codSettings, networkType, effectiveSsid)
+            // Cache hit = the live SSID was OS-redacted and we fell
+            // back to lastResolvedSsid. Decision is still valid; the
+            // text just must not claim it as the *current* network.
+            val ssidFromCache = rawSsid.isEmpty() && networkType == "wifi" &&
+                effectiveSsid.isNotEmpty()
+
+            val (shouldConnect, ruleMatch) = evaluateRules(
+                codSettings, networkType, effectiveSsid, ssidFromCache
+            )
 
             // Stability guard: while VPN is up AND SSID detection is
             // still uncertain (empty raw AND no cache), be cautious —
@@ -1008,7 +1016,17 @@ class NetworkMonitor private constructor(private val context: Context) {
     private fun evaluateRules(
         settings: ConnectOnDemandSettings,
         networkType: String,
-        ssid: String
+        ssid: String,
+        // v0.9.15.x — true when `ssid` did not come from a live read
+        // but from the sticky cache (lastResolvedSsid) because the OS
+        // redacted the background SSID. The decision below is unchanged
+        // (the cached name is still a real, last-seen network), but the
+        // human-readable text must NOT assert it as the *current*
+        // network — otherwise a move between two exception-list WLANs
+        // shows the previous WLAN's name in the notification/banner
+        // ("display glitch" report 2026-05-18). We label it "last-known"
+        // so the text is honest about the uncertainty.
+        ssidIsStale: Boolean = false
     ): Pair<Boolean, String> {
         if (!settings.enabled) {
             return Pair(false, "Connect on demand is disabled")
@@ -1041,12 +1059,20 @@ class NetworkMonitor private constructor(private val context: Context) {
             return Pair(true, "Connected via $networkType (matches trigger)")
         }
 
+        // Honest network label: when the SSID is the cached last-known
+        // one (OS-redacted live read), say so instead of asserting it
+        // as the current network. Decision predicates below keep using
+        // raw `ssid` — only the display string changes.
+        val netName = if (ssidIsStale) "last-known WiFi \"$ssid\"" else "WiFi \"$ssid\""
+
         // For WiFi, evaluate SSID rules
         return when (settings.ssidMode) {
             "all" -> {
                 // Explicit parentheses: the previous version had a Kotlin operator-precedence
                 // bug where " (all SSIDs)" was only appended when ssid was empty.
-                val ssidPart = if (ssid.isNotEmpty()) " \"$ssid\"" else ""
+                val ssidPart = if (ssid.isNotEmpty()) {
+                    if (ssidIsStale) " (last-known \"$ssid\")" else " \"$ssid\""
+                } else ""
                 Pair(true, "Connected to WiFi$ssidPart (all SSIDs)")
             }
             "only" -> {
@@ -1057,9 +1083,9 @@ class NetworkMonitor private constructor(private val context: Context) {
                     ssid.isEmpty() ->
                         Pair(false, "Cannot determine SSID (grant Location permission to detect WiFi name)")
                     list.any { it.equals(ssid, ignoreCase = true) } ->
-                        Pair(true, "WiFi \"$ssid\" matches the allowed list")
+                        Pair(true, "$netName matches the allowed list")
                     else ->
-                        Pair(false, "WiFi \"$ssid\" is not in the allowed list")
+                        Pair(false, "$netName is not in the allowed list")
                 }
             }
             "except" -> {
@@ -1073,9 +1099,9 @@ class NetworkMonitor private constructor(private val context: Context) {
                         // is not stranded without VPN on a new WiFi.
                         Pair(true, "Cannot determine SSID, connecting (except-list not checked)")
                     list.any { it.equals(ssid, ignoreCase = true) } ->
-                        Pair(false, "WiFi \"$ssid\" is in the exception list")
+                        Pair(false, "$netName is in the exception list")
                     else ->
-                        Pair(true, "WiFi \"$ssid\" is not in the exception list")
+                        Pair(true, "$netName is not in the exception list")
                 }
             }
             else -> Pair(false, "Unknown SSID mode: ${settings.ssidMode}")
