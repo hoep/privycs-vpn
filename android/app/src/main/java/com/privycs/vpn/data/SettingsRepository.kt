@@ -36,6 +36,11 @@ class SettingsRepository(private val context: Context) {
         val TUNNEL_HEALTH_MODE = stringPreferencesKey("tunnel_health_mode")
         val TUNNEL_HEALTH_TARGET = stringPreferencesKey("tunnel_health_target")
         val KEEP_MONITOR_ALIVE = booleanPreferencesKey("keep_monitor_alive")
+        // v0.9.15.72 — user-configurable protocol failover order,
+        // CSV of lowercase enum names (e.g. "amneziawg,wireguard,
+        // openvpn,ipsec"). Empty / missing key falls back to the
+        // AppSettings default in the data class.
+        val PROTOCOL_FAILOVER_ORDER = stringPreferencesKey("protocol_failover_order")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -59,7 +64,32 @@ class SettingsRepository(private val context: Context) {
             firstLaunchCompleted = prefs[Keys.FIRST_LAUNCH_COMPLETED] ?: false,
             tunnelHealthMode = prefs[Keys.TUNNEL_HEALTH_MODE] ?: "auto",
             tunnelHealthTarget = prefs[Keys.TUNNEL_HEALTH_TARGET] ?: "",
-            keepMonitorAlive = prefs[Keys.KEEP_MONITOR_ALIVE] ?: false
+            keepMonitorAlive = prefs[Keys.KEEP_MONITOR_ALIVE] ?: false,
+            protocolFailoverOrder = (prefs[Keys.PROTOCOL_FAILOVER_ORDER] ?: "")
+                .split(",")
+                .mapNotNull { VpnProtocol.fromString(it.trim()) }
+                .let { parsed ->
+                    if (parsed.isEmpty()) {
+                        listOf(
+                            VpnProtocol.AMNEZIAWG,
+                            VpnProtocol.WIREGUARD,
+                            VpnProtocol.OPENVPN,
+                            VpnProtocol.IPSEC,
+                        )
+                    } else {
+                        // Append any protocol the user hasn't placed
+                        // explicitly so a partial list (e.g. after a
+                        // future protocol addition) still produces a
+                        // total order in enum sequence.
+                        val seen = parsed.toSet()
+                        parsed + listOf(
+                            VpnProtocol.AMNEZIAWG,
+                            VpnProtocol.WIREGUARD,
+                            VpnProtocol.OPENVPN,
+                            VpnProtocol.IPSEC,
+                        ).filter { it !in seen }
+                    }
+                }
         )
     }
 
@@ -90,6 +120,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.TUNNEL_HEALTH_MODE] = settings.tunnelHealthMode
             prefs[Keys.TUNNEL_HEALTH_TARGET] = settings.tunnelHealthTarget
             prefs[Keys.KEEP_MONITOR_ALIVE] = settings.keepMonitorAlive
+            prefs[Keys.PROTOCOL_FAILOVER_ORDER] =
+                settings.protocolFailoverOrder.joinToString(",") { it.name.lowercase() }
         }
     }
 

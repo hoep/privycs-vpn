@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -1149,7 +1148,13 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(end = 8.dp),
                         )
-                        Image(
+                        // Brand-coloured icon — mirrors the ConnectScreen
+                        // pill row: single mono-path drawable + brand-
+                        // colour tint via Icon's tint param so AmneziaWG
+                        // renders in its purple/indigo (#6366F1), WG in
+                        // its dark red (#88171A), OpenVPN in orange
+                        // (#EA7E20), IPSec in blue (#2563EB).
+                        Icon(
                             painter = androidx.compose.ui.res.painterResource(
                                 id = when (proto) {
                                     com.privycs.vpn.data.models.VpnProtocol.AMNEZIAWG ->
@@ -1163,6 +1168,16 @@ fun SettingsScreen(
                                 },
                             ),
                             contentDescription = proto.label,
+                            tint = when (proto) {
+                                com.privycs.vpn.data.models.VpnProtocol.AMNEZIAWG ->
+                                    com.privycs.vpn.ui.theme.AmneziaWgIndigo
+                                com.privycs.vpn.data.models.VpnProtocol.WIREGUARD ->
+                                    com.privycs.vpn.ui.theme.WireGuardRed
+                                com.privycs.vpn.data.models.VpnProtocol.OPENVPN ->
+                                    com.privycs.vpn.ui.theme.OpenVpnOrange
+                                com.privycs.vpn.data.models.VpnProtocol.IPSEC ->
+                                    com.privycs.vpn.ui.theme.IpSecBlue
+                            },
                             modifier = Modifier.size(28.dp),
                         )
                         Spacer(modifier = Modifier.width(12.dp))
