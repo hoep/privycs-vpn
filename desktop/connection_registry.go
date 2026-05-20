@@ -121,7 +121,8 @@ func (c *SavedConnection) OrderedConfigs() []*ProtocolConfig {
 // protocolOrdinal returns the failover-preference rank for a
 // protocol id. AmneziaWG first (DPI-evasion wins on restrictive
 // networks), then vanilla WireGuard, then OpenVPN, then IPSec.
-// Mirrors the Android enum order.
+// Mirrors the Android enum order. Used as the DEFAULT order when
+// the user has no explicit ProtocolFailoverOrder configured.
 func protocolOrdinal(p string) int {
 	switch p {
 	case "amneziawg":
@@ -134,6 +135,43 @@ func protocolOrdinal(p string) int {
 		return 3
 	}
 	return 99
+}
+
+// OrderedConfigsFor returns the connection's protocol configs in
+// failover-preference order driven by the supplied protocol list
+// (typically AppSettings.ProtocolFailoverOrder). An empty/nil list
+// falls back to the default enum order via OrderedConfigs(). Any
+// protocol absent from the list is sorted after the listed ones in
+// enum order. v0.9.15.70 — used by tryFailoverProtocol so a user's
+// configured preference takes effect at failover time.
+func (c *SavedConnection) OrderedConfigsFor(failoverOrder []string) []*ProtocolConfig {
+	if len(failoverOrder) == 0 {
+		return c.OrderedConfigs()
+	}
+	rank := map[string]int{}
+	for i, p := range failoverOrder {
+		if _, exists := rank[p]; !exists {
+			rank[p] = i
+		}
+	}
+	rankOf := func(p string) int {
+		if r, ok := rank[p]; ok {
+			return r
+		}
+		// Any protocol not listed by the user: sort it AFTER the
+		// listed ones, but in deterministic enum order.
+		return len(failoverOrder) + protocolOrdinal(p)
+	}
+	out := make([]*ProtocolConfig, len(c.Protocols))
+	copy(out, c.Protocols)
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, rj := rankOf(out[i].Protocol), rankOf(out[j].Protocol)
+		if ri != rj {
+			return ri < rj
+		}
+		return out[i].AddedAt < out[j].AddedAt
+	})
+	return out
 }
 
 // AvailableProtocols returns the distinct list of protocol names

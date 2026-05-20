@@ -101,7 +101,10 @@ func (a *App) tryFailoverProtocol(excludeOriginalConfigID string) (string, error
 	if conn == nil {
 		return "", fmt.Errorf("failover: no active connection")
 	}
-	candidates := conn.OrderedConfigs()
+	// v0.9.15.70 — read user-configured failover order (default =
+	// pre-v0.9.15.70 enum order when empty/nil).
+	failoverOrder := a.settings.ProtocolFailoverOrder
+	candidates := conn.OrderedConfigsFor(failoverOrder)
 	if len(candidates) <= 1 {
 		return "", fmt.Errorf("failover: connection %q has no alternate config", conn.Name)
 	}

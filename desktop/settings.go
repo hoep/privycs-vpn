@@ -74,6 +74,17 @@ type AppSettings struct {
 	// Trades battery life for connection stability. Default OFF — opt-
 	// in. No-op on non-darwin.
 	PreventDisplaySleep bool `json:"prevent_display_sleep,omitempty"`
+	// v0.9.15.70 — user-configurable protocol failover order. When a
+	// connection holds multiple ProtocolConfigs (one or more per
+	// protocol class), SavedConnection.OrderedConfigsFor returns
+	// them in THIS order — driving the recovery target picked by
+	// tryFailoverProtocol when the current tunnel fails. Default
+	// (empty/nil) = the pre-v0.9.15.70 hard-coded enum order
+	// (amneziawg → wireguard → openvpn → ipsec). Any protocol
+	// missing from the list is appended at the end in enum order so
+	// an older / partial list still produces a total order. Mirrors
+	// the Android AppSettings.protocolFailoverOrder field.
+	ProtocolFailoverOrder []string `json:"protocol_failover_order,omitempty"`
 }
 
 // ReconnectOnSystemWakeEnabled is the canonical accessor — falls back

@@ -136,19 +136,30 @@ class NetworkMonitor private constructor(private val context: Context) {
     // connect" banner has to be true, not aspirational.
     private var lastShouldConnect: Boolean? = null
 
-    // Sticky SSID cache: once we resolve the current WiFi SSID to a
-    // real name, we remember it across evaluations. This is critical
-    // because Android's WifiManager.connectionInfo can start returning
-    // <unknown ssid> or empty once a VPN becomes the active transport,
-    // and naive re-evaluation in "except" mode then flips shouldConnect
-    // between true ("cannot determine SSID -> connect") and false
-    // ("SSID in except list") depending on which resolution the OS
-    // felt like giving us that tick. The flip-flop drove a disconnect
-    // /reconnect oscillation after a manual OpenVPN connect on a
-    // trusted-except WiFi. Cleared on network-type change so a real
-    // WiFi switch picks up the new SSID instead of reusing the old.
-    private var lastResolvedSsid: String = ""
-    private var lastResolvedNetworkType: String = ""
+    // v0.9.15.70 — Callback-driven SSID state machine. On Android 12+
+    // the OS REDACTS WifiInfo.ssid in every poll-style API
+    // (WifiManager.connectionInfo, ConnectivityManager.getNetwork-
+    // Capabilities) when the app is in the background, EVEN with
+    // ACCESS_BACKGROUND_LOCATION granted. The unredacted SSID is
+    // delivered exclusively through a NetworkCallback registered with
+    // FLAG_INCLUDE_LOCATION_INFO. We therefore make the callback the
+    // single source of truth:
+    //   - currentWifiNetwork: latched in onAvailable() when the new
+    //     Network has TRANSPORT_WIFI && !TRANSPORT_VPN, cleared in
+    //     onLost() when it matches — so a stale SSID can never carry
+    //     over into a wrong rule decision after leaving a WiFi.
+    //   - currentWifiSsid: written from caps.transportInfo in
+    //     onCapabilitiesChanged() (unredacted via the flag); cleared
+    //     together with currentWifiNetwork.
+    // detectCurrentSsid() reads currentWifiSsid synchronously (no
+    // polling, no "returned empty" attempts). A foreground fallback
+    // via WifiManager.connectionInfo is used only when the latch is
+    // empty AND the app is currently visible (e.g. first run, before
+    // any callback has fired).
+    @Volatile
+    private var currentWifiNetwork: Network? = null
+    @Volatile
+    private var currentWifiSsid: String = ""
 
     // v0.9.14.71 fix: how many consecutive evaluator-skip cycles we
     // tolerate when SSID detection comes back empty AND no cached
@@ -241,58 +252,64 @@ class NetworkMonitor private constructor(private val context: Context) {
             }
         }
 
-        // Doze-resilient SSID hook (v0.9.15.11). The callback's
-        // onCapabilitiesChanged receives unredacted WifiInfo *only if*
-        // the callback was registered with FLAG_INCLUDE_LOCATION_INFO
-        // (API 31+). Without the flag, Android 12+ redacts SSID/BSSID
-        // to "<unknown ssid>" whenever the app is in the background —
-        // and Doze counts as background even for foreground-services.
-        // Below we register the callback with the flag on API 31+, and
-        // here we pull the SSID straight out of the capabilities the
-        // system just handed us. That value populates lastResolvedSsid
-        // BEFORE evaluateCurrentNetwork() runs, so rule evaluation has
-        // a fresh SSID without going through getNetworkCapabilities()
-        // (which DOES NOT honour the flag and stays redacted in Doze).
-        val cacheSsidFromCaps = { caps: NetworkCapabilities ->
+        // v0.9.15.70 — Callback-driven SSID state machine. On Android 12+
+        // the OS redacts SSID in every poll API (WifiManager.connection-
+        // Info, ConnectivityManager.getNetworkCapabilities) when the app
+        // is in the background, EVEN with ACCESS_BACKGROUND_LOCATION.
+        // The unredacted SSID is only delivered through a callback
+        // registered with FLAG_INCLUDE_LOCATION_INFO (set at registration
+        // below on API 31+). We therefore make the callback the single
+        // source of truth: latch the current WiFi Network + SSID here;
+        // clear them in onLost when the latched network goes away. The
+        // evaluator and detectCurrentSsid() read the latch directly —
+        // no polling, no "returned empty" attempts, no stale-cache risk
+        // when leaving a WiFi.
+        val updateWifiLatchFromCaps = { network: Network, caps: NetworkCapabilities ->
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
                     !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
-                    val info = caps.transportInfo as? android.net.wifi.WifiInfo
-                    val raw = info?.ssid?.removeSurrounding("\"")
-                    if (!raw.isNullOrEmpty() && raw != "<unknown ssid>") {
-                        // Fix 2 (v0.9.15.68) — only refresh the sticky
-                        // cache from an UNAMBIGUOUS WiFi environment.
-                        // During WiFi→WiFi / off→on, both the outgoing
-                        // and incoming network briefly emit caps
-                        // events; writing the cache from the OUTGOING
-                        // one poisons every later cache-fallback
-                        // evaluation with the previous network's name.
-                        // (With background-location granted,
-                        // currentWifiSsids() sees both → size>1 → skip;
-                        // without it the set is redacted/empty → size<=1
-                        // → accept the callback's own unredacted SSID,
-                        // which is the most-current we can know.)
-                        val visible = currentWifiSsids()
-                        if (visible.size <= 1) {
-                            if (lastResolvedSsid != raw) {
-                                PrivycsLogger.d(TAG, "Callback SSID refresh -> \"$raw\"")
+                    currentWifiNetwork = network
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val info = caps.transportInfo as? android.net.wifi.WifiInfo
+                        val raw = info?.ssid?.removeSurrounding("\"")
+                        if (!raw.isNullOrEmpty() && raw != "<unknown ssid>") {
+                            if (currentWifiSsid != raw) {
+                                PrivycsLogger.d(TAG, "WiFi SSID latched -> \"$raw\" (network $network)")
                             }
-                            lastResolvedSsid = raw
-                            lastResolvedNetworkType = "wifi"
-                        } else {
-                            PrivycsLogger.d(
-                                TAG,
-                                "Skipping cache refresh: ${visible.size} WiFi networks visible (transition)"
-                            )
+                            currentWifiSsid = raw
                         }
+                        // If raw is empty here, caps were redacted (rare
+                        // when registered with FLAG_INCLUDE_LOCATION_INFO
+                        // and ACCESS_BACKGROUND_LOCATION granted; happens
+                        // briefly during a transition before the proper
+                        // caps event arrives). Keep the previous SSID
+                        // until either a non-empty value lands or onLost
+                        // for this very Network clears it.
                     }
                 }
             } catch (_: Exception) { /* never let the callback throw */ }
         }
 
+        val isWifiNonVpn = { network: Network ->
+            val c = try {
+                connectivityManager.getNetworkCapabilities(network)
+            } catch (_: Exception) {
+                null
+            }
+            c != null &&
+                c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                !c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        }
+
         val onAvailableImpl: (Network) -> Unit = { network ->
             PrivycsLogger.d(TAG, "Network available: $network")
+            // Latch the new WiFi Network the moment it appears. The SSID
+            // arrives shortly after via onCapabilitiesChanged; until
+            // then currentWifiSsid stays empty (the indeterminate-skip
+            // guard handles the brief window).
+            if (isWifiNonVpn(network)) {
+                currentWifiNetwork = network
+            }
             evaluateCurrentNetwork()
         }
         val onLostImpl: (Network) -> Unit = { network ->
@@ -304,11 +321,23 @@ class NetworkMonitor private constructor(private val context: Context) {
             // evaluator saw state=none, tore down the VPN, and only then
             // noticed the new network had arrived.
             PrivycsLogger.d(TAG, "Network lost: $network — re-evaluating current state")
+            // v0.9.15.70 — clear the WiFi latch if this is the network
+            // we were tracking. Without this, the cached SSID would
+            // carry over into the next WiFi (or worse, into a hotel /
+            // foreign WLAN), producing wrong rule decisions until a new
+            // unredacted SSID arrives.
+            if (network == currentWifiNetwork) {
+                if (currentWifiSsid.isNotEmpty()) {
+                    PrivycsLogger.d(TAG, "WiFi SSID latch cleared (network $network lost)")
+                }
+                currentWifiNetwork = null
+                currentWifiSsid = ""
+            }
             evaluateCurrentNetwork()
         }
         val onCapsImpl: (Network, NetworkCapabilities) -> Unit = { network, caps ->
             PrivycsLogger.d(TAG, "Network capabilities changed: $network")
-            cacheSsidFromCaps(caps)
+            updateWifiLatchFromCaps(network, caps)
             evaluateCurrentNetwork()
         }
         val onLinkImpl: (Network, android.net.LinkProperties) -> Unit = { network, _ ->
@@ -536,56 +565,18 @@ class NetworkMonitor private constructor(private val context: Context) {
             val codSettings = settings.connectOnDemand
 
             val networkType = detectNetworkType()
-            val rawSsid = detectCurrentSsid()
-
-            // Sticky SSID fallback. Android's WifiManager can start
-            // returning "" or <unknown ssid> once a VPN is the active
-            // transport on the device; we keep the last real SSID
-            // around and use it when the fresh detection came back
-            // empty, so "except" and "only" rules stay stable across
-            // the VPN-up/down flicker. Cleared on genuine network-
-            // type change (wifi -> mobile / mobile -> none / etc.)
-            // so a real network switch picks up the new SSID.
-            if (rawSsid.isNotEmpty()) {
-                lastResolvedSsid = rawSsid
-                lastResolvedNetworkType = networkType
-            } else if (networkType == "none") {
-                // Drop the sticky SSID ONLY when connectivity is
-                // genuinely gone — NOT on a wifi->mobile transport
-                // flip. The old "networkType != lastResolvedNetworkType"
-                // wipe is the root cause of the multiply-reported
-                // "trusted-WiFi except-rule not applied after WiFi
-                // off->on while the VPN is up" bug: the cache is
-                // consumed only when networkType == "wifi" (see
-                // effectiveSsid below), so keeping it across the
-                // cellular leg has ZERO effect on the mobile-side
-                // decision, but lets the except/only rule still
-                // resolve against the last real SSID on WiFi-return —
-                // where the live SSID is OS-redacted in the background
-                // on Android 12+ without ACCESS_BACKGROUND_LOCATION.
-                // A genuinely different WiFi overwrites the cache via
-                // the rawSsid.isNotEmpty() branch the moment the SSID
-                // is readable (foreground, or background once the
-                // Part-2 background-location grant lands).
-                lastResolvedSsid = ""
-                lastResolvedNetworkType = networkType
-            }
-            val effectiveSsid = if (rawSsid.isEmpty() && networkType == "wifi") {
-                lastResolvedSsid.also {
-                    if (it.isNotEmpty()) {
-                        PrivycsLogger.d(TAG, "SSID detection returned empty, using cached \"$it\"")
-                    }
-                }
-            } else rawSsid
-
-            // Cache hit = the live SSID was OS-redacted and we fell
-            // back to lastResolvedSsid. Decision is still valid; the
-            // text just must not claim it as the *current* network.
-            val ssidFromCache = rawSsid.isEmpty() && networkType == "wifi" &&
-                effectiveSsid.isNotEmpty()
+            // v0.9.15.70 — single SSID source: the callback-driven
+            // latch. detectCurrentSsid() reads currentWifiSsid (set in
+            // onCapabilitiesChanged, cleared in onLost). No polling, no
+            // sticky-cache contortions, no stale value leaking into a
+            // different WiFi: when we leave a network, onLost wipes
+            // the latch, so until the next callback delivers a name we
+            // honestly have no SSID — exactly the right input for the
+            // indeterminate-skip guard below.
+            val effectiveSsid = if (networkType == "wifi") detectCurrentSsid() else ""
 
             val (shouldConnect, ruleMatch) = evaluateRules(
-                codSettings, networkType, effectiveSsid, ssidFromCache
+                codSettings, networkType, effectiveSsid, false
             )
 
             // Stability guard: while VPN is up AND SSID detection is
@@ -604,7 +595,7 @@ class NetworkMonitor private constructor(private val context: Context) {
             // SSID-list), but we never act on it.
             val vpnManagerForGuard = VpnServiceManager.getInstance(context)
             val indeterminate = vpnManagerForGuard.isConnected && networkType == "wifi" &&
-                rawSsid.isEmpty() && lastResolvedSsid.isEmpty()
+                effectiveSsid.isEmpty()
             if (indeterminate) {
                 if (indeterminateSkipCount < maxIndeterminateSkips) {
                     indeterminateSkipCount++
@@ -931,78 +922,41 @@ class NetworkMonitor private constructor(private val context: Context) {
 
     /**
      * Detect the current WiFi SSID.
-     * Requires ACCESS_FINE_LOCATION permission on Android 8+.
-     * Returns empty string if not on WiFi or SSID cannot be determined.
+     * v0.9.15.70 — Returns the SSID we are CURRENTLY connected to,
+     * read from the callback-driven latch (currentWifiSsid). On
+     * Android 12+ in the background the latch is the ONLY reliable
+     * source: every poll API (WifiManager.connectionInfo,
+     * ConnectivityManager.getNetworkCapabilities().transportInfo)
+     * returns "<unknown ssid>" / "" outside a callback context even
+     * with ACCESS_BACKGROUND_LOCATION granted. The latch is written
+     * from the FLAG_INCLUDE_LOCATION_INFO callback in
+     * onCapabilitiesChanged and cleared in onLost when the latched
+     * Network goes away — so we can never serve a stale SSID after
+     * leaving a WiFi.
      *
-     * v0.9.14.71 strategy:
-     *   1. API 29+: prefer NetworkCapabilities.transportInfo on the
-     *      first non-VPN WiFi network. transportInfo carries a
-     *      WifiInfo even when VPN is the system default — the path
-     *      WifiManager.connectionInfo can't honour that on Android
-     *      10+ once VPN is active and starts returning empty/
-     *      "<unknown ssid>".
-     *   2. Fallback: WifiManager.connectionInfo (legacy API 26-28).
-     *   3. Cleaner: the sticky-cache lastResolvedSsid in
-     *      evaluateCurrentNetwork() runs as a third layer.
-     */
-    /**
-     * Distinct, non-empty SSIDs of all currently-present non-VPN
-     * WiFi networks. Fix 2 (v0.9.15.68): the old detectCurrentSsid()
-     * returned the FIRST WiFi in connectivityManager.allNetworks,
-     * whose order is UNSPECIFIED — during a WiFi→WiFi / off→on
-     * transition allNetworks momentarily holds BOTH the outgoing
-     * (still carrying its stale WifiInfo) and the incoming network,
-     * so "first" could be the network the user just left. Returning
-     * the full set lets the caller treat size>1 as "ambiguous, do
-     * not assert an SSID" instead of guessing wrong.
+     * Foreground fallback: WifiManager.connectionInfo returns the
+     * real SSID when the app is in the foreground (not subject to
+     * background redaction). Used only when the latch is empty —
+     * e.g. very first launch before any callback fires, or while
+     * the BootReceiver runs.
      */
     @Suppress("DEPRECATION")
-    private fun currentWifiSsids(): List<String> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            // Legacy path (API 26-28): WifiManager is reliable here
-            // (the VPN-blanks-it problem is Android 10+).
-            val s = try {
-                wifiManager.connectionInfo?.ssid?.removeSurrounding("\"")
-            } catch (_: Exception) {
-                null
-            }
-            return if (!s.isNullOrEmpty() && s != "<unknown ssid>") listOf(s) else emptyList()
-        }
-        val out = LinkedHashSet<String>()
-        try {
-            for (n in connectivityManager.allNetworks) {
-                val c = connectivityManager.getNetworkCapabilities(n) ?: continue
-                if (c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
-                if (!c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
-                val info = c.transportInfo as? android.net.wifi.WifiInfo ?: continue
-                val raw = info.ssid?.removeSurrounding("\"") ?: continue
-                if (raw.isNotEmpty() && raw != "<unknown ssid>") out.add(raw)
-            }
-        } catch (e: SecurityException) {
-            PrivycsLogger.w(TAG, "No location permission for SSID detection", e)
-        } catch (e: Exception) {
-            PrivycsLogger.e(TAG, "Failed to enumerate WiFi SSIDs", e)
-        }
-        return out.toList()
-    }
-
     private fun detectCurrentSsid(): String {
-        val ssids = currentWifiSsids()
-        return when {
-            ssids.size == 1 -> ssids[0]
-            ssids.isEmpty() -> ""
-            else -> {
-                // Ambiguous: WiFi→WiFi / off→on in flight. Returning
-                // "" (rather than an arbitrary, possibly-outgoing
-                // name) hands the decision to the sticky cache +
-                // indeterminate-skip guard, which ride out the
-                // transition until exactly one WiFi remains.
-                PrivycsLogger.w(
-                    TAG,
-                    "SSID ambiguous: ${ssids.size} WiFi networks visible — deferring to sticky cache"
-                )
-                ""
-            }
+        val latched = currentWifiSsid
+        if (latched.isNotEmpty()) return latched
+        // Foreground fallback. Avoid burning ACCESS_FINE_LOCATION
+        // checks when the call would be redacted anyway: only attempt
+        // WifiManager.connectionInfo when we have NO latched SSID. In
+        // background this still returns "" / "<unknown ssid>"; that's
+        // fine — we return "" and the indeterminate-skip guard waits
+        // for the callback.
+        return try {
+            val ssid = wifiManager.connectionInfo?.ssid?.removeSurrounding("\"") ?: return ""
+            if (ssid.isEmpty() || ssid == "<unknown ssid>") "" else ssid
+        } catch (_: SecurityException) {
+            ""
+        } catch (_: Exception) {
+            ""
         }
     }
 
@@ -1236,19 +1190,14 @@ class NetworkMonitor private constructor(private val context: Context) {
      */
     fun evaluateRulesNow(settings: ConnectOnDemandSettings): Boolean {
         val networkType = detectNetworkType()
-        val rawSsid = detectCurrentSsid()
-        val effectiveSsid = if (rawSsid.isEmpty() && networkType == "wifi") {
-            lastResolvedSsid
-        } else {
-            rawSsid
-        }
-        // Fix 4 (v0.9.15.68) — boot-path conservatism. At boot
-        // lastResolvedSsid is empty and the background SSID is
-        // redacted, so an except/only rule with an unresolved SSID
-        // would hit the "cannot determine SSID → connect" default
-        // (evaluateRules except branch) and auto-connect on a
-        // possibly-trusted WiFi at every reboot. The live monitor
-        // corrects within seconds once the SSID resolves; until
+        val effectiveSsid = if (networkType == "wifi") detectCurrentSsid() else ""
+        // Boot-path conservatism (Fix 4, v0.9.15.68 → carried in
+        // v0.9.15.70 latch architecture): at boot the SSID latch is
+        // empty until the first callback fires (sometimes seconds
+        // later). An except/only rule with an unresolved SSID would
+        // otherwise hit the "cannot determine SSID → connect" default
+        // and auto-connect on a possibly-trusted WiFi at every reboot.
+        // The live monitor corrects once the callback lands; until
         // then, do NOT auto-connect on an unidentified WiFi at boot.
         if (networkType == "wifi" && effectiveSsid.isEmpty() &&
             (settings.ssidMode == "except" || settings.ssidMode == "only")

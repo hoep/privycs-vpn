@@ -125,16 +125,35 @@ data class VpnConnection(
     var activeConfigId: String = ""
 ) {
     /**
-     * The configs configured on this connection, sorted in
-     * failover-preference order: protocol enum first (AWG → WG →
-     * OVPN → IPSec), then insertion order within a protocol. Used
-     * by TunnelHealthMonitor.recovery and ProtocolBadges in the UI.
-     * Reflects multi-config-per-protocol — the same list may
-     * contain e.g. two WG entries if the user added both a UDP and
-     * a TCP endpoint to the same logical "Home Server" connection.
+     * The configs on this connection in failover-preference order:
+     * protocol class first (per `failoverOrder`, defaulting to the
+     * enum's natural AWG→WG→OVPN→IPSec), then insertion order
+     * within a protocol. Used by TunnelHealthMonitor.recovery and
+     * ProtocolBadges in the UI. Reflects multi-config-per-protocol
+     * — the same list may contain e.g. two WG entries if the user
+     * added both a UDP and a TCP endpoint to the same logical
+     * "Home Server" connection.
+     *
+     * Callers that respect the user's per-Settings failover order
+     * should pass `AppSettings.protocolFailoverOrder`. Any protocol
+     * missing from the supplied list is sorted to the end in enum
+     * order so a partial / legacy list still produces a total order.
      */
-    fun orderedConfigs(): List<ProtocolConfig> =
-        protocols.sortedWith(compareBy({ it.protocol.ordinal }, { it.addedAt }))
+    fun orderedConfigs(
+        failoverOrder: List<VpnProtocol> = listOf(
+            VpnProtocol.AMNEZIAWG,
+            VpnProtocol.WIREGUARD,
+            VpnProtocol.OPENVPN,
+            VpnProtocol.IPSEC,
+        ),
+    ): List<ProtocolConfig> {
+        val explicit = failoverOrder.distinct()
+        val rankOf = { p: VpnProtocol ->
+            val i = explicit.indexOf(p)
+            if (i >= 0) i else explicit.size + p.ordinal
+        }
+        return protocols.sortedWith(compareBy({ rankOf(it.protocol) }, { it.addedAt }))
+    }
 
     /**
      * Returns the active ProtocolConfig — i.e. the one identified
@@ -326,7 +345,25 @@ data class AppSettings(
     // off so users opt in only if they value reaction speed over
     // a persistent notification entry.
     @SerialName("keep_monitor_alive")
-    val keepMonitorAlive: Boolean = false
+    val keepMonitorAlive: Boolean = false,
+    // v0.9.15.70 — user-configurable protocol failover order. When a
+    // connection holds multiple ProtocolConfigs (one or more per
+    // protocol class), Connection.orderedConfigs() returns them in
+    // THIS order — driving (a) the recovery target picked by
+    // TunnelHealthMonitor when the current tunnel fails, and (b) the
+    // default protocol pill order in the UI. Default mirrors the
+    // pre-v0.9.15.70 hard-coded enum order (AWG-first because the
+    // DPI-evasion variant is the safer first try on a censored
+    // network), but is now fully overridable from Settings. Any
+    // missing protocol is appended at the end in enum order so an
+    // older list still functions after a future protocol addition.
+    @SerialName("protocol_failover_order")
+    val protocolFailoverOrder: List<VpnProtocol> = listOf(
+        VpnProtocol.AMNEZIAWG,
+        VpnProtocol.WIREGUARD,
+        VpnProtocol.OPENVPN,
+        VpnProtocol.IPSEC,
+    )
 )
 
 // Gateway API models matching desktop api_client.go

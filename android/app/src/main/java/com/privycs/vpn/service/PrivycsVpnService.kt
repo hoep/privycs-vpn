@@ -23,6 +23,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -1546,9 +1547,15 @@ class PrivycsVpnService : VpnService() {
                         try { teardownAllProtocols() } catch (_: Throwable) { /* best-effort */ }
                     }
 
-                    // Pick the next config to try.
+                    // Pick the next config to try, in user-configured
+                    // failover order (default = AWG → WG → OVPN →
+                    // IPSec). v0.9.15.70.
                     val refreshed = PrivycsApp.instance.connectionRepository.getById(connectionId)
-                    val nextCfg = refreshed?.orderedConfigs()?.firstOrNull { cfg ->
+                    val failoverOrder = kotlinx.coroutines.runBlocking {
+                        PrivycsApp.instance.settingsRepository.settingsFlow
+                            .first().protocolFailoverOrder
+                    }
+                    val nextCfg = refreshed?.orderedConfigs(failoverOrder)?.firstOrNull { cfg ->
                         cfg.id !in triedIds
                     }
                     if (nextCfg == null) {

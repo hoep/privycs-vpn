@@ -446,6 +446,37 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
         </router-link>
       </div>
 
+      <!-- Protocol Failover Order (v0.9.15.70) -->
+      <div class="card p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Protocol Failover Order</h3>
+        <p class="text-[10px] text-gray-400 mb-3">
+          When a connection holds multiple protocols, failover walks them in this order. Move a protocol up to try it first.
+        </p>
+        <div class="space-y-1.5">
+          <div v-for="(p, idx) in failoverOrder" :key="p" class="flex items-center gap-2 px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700">
+            <span class="text-[10px] text-gray-400 w-4">{{ idx + 1 }}.</span>
+            <ProtocolIcon :protocol="p" size="lg" />
+            <span class="flex-1 text-xs font-medium text-gray-700 dark:text-gray-200">{{ protocolLabel(p) }}</span>
+            <button
+              class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              :disabled="idx === 0"
+              @click="moveFailover(idx, idx - 1)"
+              title="Move up"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+            </button>
+            <button
+              class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              :disabled="idx === failoverOrder.length - 1"
+              @click="moveFailover(idx, idx + 1)"
+              title="Move down"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Logs -->
       <div class="card p-4">
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Diagnostics</h3>
@@ -578,7 +609,40 @@ import { useVpnStore } from '@/stores/vpn'
 import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath, ValidateDnsOverride, TestDnsResolution, GetDnsProviders } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
 import DnsOverrideField from '@/components/DnsOverrideField.vue'
+import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import { Switch } from '@headlessui/vue'
+
+// v0.9.15.70 — Protocol failover order. Default mirrors the
+// pre-v0.9.15.70 hard-coded enum order (AmneziaWG first → safer on
+// censored / DPI-restricted networks). Persisted as
+// settings.protocol_failover_order; reads/writes drive
+// SavedConnection.OrderedConfigsFor in tryFailoverProtocol.
+const PROTOCOL_DEFAULT_ORDER: string[] = ['amneziawg', 'wireguard', 'openvpn', 'ipsec']
+const PROTOCOL_LABELS: Record<string, string> = {
+  amneziawg: 'AmneziaWG',
+  wireguard: 'WireGuard',
+  openvpn: 'OpenVPN',
+  ipsec: 'IPSec / IKEv2',
+}
+const failoverOrder = computed<string[]>(() => {
+  const o = (settings.value?.protocol_failover_order ?? []) as string[]
+  if (!o || o.length === 0) return [...PROTOCOL_DEFAULT_ORDER]
+  // Defensive: append any default protocol missing from the saved
+  // list so the UI always shows all four.
+  const seen = new Set(o)
+  return [...o, ...PROTOCOL_DEFAULT_ORDER.filter((p) => !seen.has(p))]
+})
+function protocolLabel(p: string): string {
+  return PROTOCOL_LABELS[p] ?? p
+}
+function moveFailover(from: number, to: number) {
+  if (to < 0 || to >= failoverOrder.value.length || from === to) return
+  const next = [...failoverOrder.value]
+  const [item] = next.splice(from, 1)
+  next.splice(to, 0, item)
+  settings.value.protocol_failover_order = next
+  saveSettings()
+}
 
 const vpn = useVpnStore()
 

@@ -1,2 +1,2 @@
-versionCode=10251
-versionName=0.9.15.68
+versionCode=10252
+versionName=0.9.15.70

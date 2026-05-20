@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -29,6 +30,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -1101,6 +1104,92 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Manage Network Rules")
+                }
+            }
+
+            // -- Protocol Failover Order (v0.9.15.70) --
+            SettingsSection(title = "PROTOCOL FAILOVER ORDER") {
+                Text(
+                    text = "When a connection holds multiple protocols, " +
+                        "failover and the protocol pills use this order. " +
+                        "Move a protocol up to try it first.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                val order = settings.protocolFailoverOrder.ifEmpty {
+                    listOf(
+                        com.privycs.vpn.data.models.VpnProtocol.AMNEZIAWG,
+                        com.privycs.vpn.data.models.VpnProtocol.WIREGUARD,
+                        com.privycs.vpn.data.models.VpnProtocol.OPENVPN,
+                        com.privycs.vpn.data.models.VpnProtocol.IPSEC,
+                    )
+                }
+                fun moveProtocol(from: Int, to: Int) {
+                    if (to < 0 || to >= order.size || from == to) return
+                    val mut = order.toMutableList()
+                    val item = mut.removeAt(from)
+                    mut.add(to, item)
+                    scope.launch {
+                        settingsRepository.updateSettings(
+                            settings.copy(protocolFailoverOrder = mut),
+                        )
+                    }
+                }
+                order.forEachIndexed { idx, proto ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "${idx + 1}.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                        Image(
+                            painter = androidx.compose.ui.res.painterResource(
+                                id = when (proto) {
+                                    com.privycs.vpn.data.models.VpnProtocol.AMNEZIAWG ->
+                                        com.privycs.vpn.R.drawable.ic_protocol_amneziawg
+                                    com.privycs.vpn.data.models.VpnProtocol.WIREGUARD ->
+                                        com.privycs.vpn.R.drawable.ic_protocol_wireguard
+                                    com.privycs.vpn.data.models.VpnProtocol.OPENVPN ->
+                                        com.privycs.vpn.R.drawable.ic_protocol_openvpn
+                                    com.privycs.vpn.data.models.VpnProtocol.IPSEC ->
+                                        com.privycs.vpn.R.drawable.ic_protocol_strongswan
+                                },
+                            ),
+                            contentDescription = proto.label,
+                            modifier = Modifier.size(28.dp),
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = proto.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(
+                            onClick = { moveProtocol(idx, idx - 1) },
+                            enabled = idx > 0,
+                        ) {
+                            Icon(
+                                Icons.Filled.KeyboardArrowUp,
+                                contentDescription = "Move up",
+                            )
+                        }
+                        IconButton(
+                            onClick = { moveProtocol(idx, idx + 1) },
+                            enabled = idx < order.size - 1,
+                        ) {
+                            Icon(
+                                Icons.Filled.KeyboardArrowDown,
+                                contentDescription = "Move down",
+                            )
+                        }
+                    }
                 }
             }
 

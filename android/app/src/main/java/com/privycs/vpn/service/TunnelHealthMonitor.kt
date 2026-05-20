@@ -12,6 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
@@ -272,13 +273,22 @@ object TunnelHealthMonitor {
             // Pre-multi-config behaviour (one config per protocol
             // type) is the degenerate case of this same loop.
             val deadConfigId = connection.activeConfigId
-            val nextConfig = connection.orderedConfigs().firstOrNull { it.id != deadConfigId }
+            // v0.9.15.70 — failover order from user settings (default
+            // = AWG → WG → OVPN → IPSec). Snapshot the latest settings
+            // value at recovery-fire time so a recent reorder takes
+            // effect immediately.
+            val failoverOrder = kotlinx.coroutines.runBlocking {
+                PrivycsApp.instance.settingsRepository.settingsFlow
+                    .first().protocolFailoverOrder
+            }
+            val ordered = connection.orderedConfigs(failoverOrder)
+            val nextConfig = ordered.firstOrNull { it.id != deadConfigId }
             if (nextConfig != null) {
                 PrivycsLogger.i(
                     TAG,
                     "recovery: failover ${connection.activeProtocol.label}/${deadConfigId.take(8)} → " +
                         "${nextConfig.protocol.label}/${nextConfig.id.take(8)} " +
-                        "(available: ${connection.orderedConfigs().map { "${it.protocol.shortLabel}:${it.displayLabel()}" }})",
+                        "(available: ${ordered.map { "${it.protocol.shortLabel}:${it.displayLabel()}" }})",
                 )
                 PrivycsApp.instance.connectionRepository.setActiveConfig(connection.id, nextConfig.id)
                 val refreshed = PrivycsApp.instance.connectionRepository.getById(connection.id) ?: connection
