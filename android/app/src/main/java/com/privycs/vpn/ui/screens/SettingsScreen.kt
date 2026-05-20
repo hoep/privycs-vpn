@@ -1131,7 +1131,7 @@ fun SettingsScreen(
                     val item = mut.removeAt(from)
                     mut.add(to, item)
                     scope.launch {
-                        settingsRepository.updateSettings(
+                        settingsRepo.updateSettings(
                             settings.copy(protocolFailoverOrder = mut),
                         )
                     }
