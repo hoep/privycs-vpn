@@ -34,6 +34,7 @@ object Routes {
     const val PER_APP_VPN = "per_app_vpn"
     const val NETWORK_RULES = "network_rules"
     const val CONNECT_ON_DEMAND = "connect_on_demand"
+    const val LICENSES = "licenses"
     const val HELP = "help"
 
     // Pool routes. POOL_ADD reuses the "Add" tab via a flag so the
@@ -144,6 +145,15 @@ fun AppNavigation(
                     onNavigateToNetworkRules = {
                         navController.navigate(Routes.NETWORK_RULES)
                     },
+                    onNavigateToLicenses = {
+                        navController.navigate(Routes.LICENSES)
+                    },
+                )
+            }
+
+            composable(Routes.LICENSES) {
+                com.privycs.vpn.ui.screens.OssLicensesScreen(
+                    onBack = { navController.popBackStack() },
                 )
             }
 

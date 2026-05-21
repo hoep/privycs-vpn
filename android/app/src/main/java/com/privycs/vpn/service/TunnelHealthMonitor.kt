@@ -125,6 +125,11 @@ object TunnelHealthMonitor {
                     if (ok) {
                         if (consecutiveFailures > 0) {
                             PrivycsLogger.i(TAG, "tunnel health restored after $consecutiveFailures fails")
+                            // C (v0.9.15.74): clear any "not passing
+                            // traffic" alert now that traffic flows.
+                            com.privycs.vpn.util.EventNotifier.tunnelDegradedCleared(
+                                PrivycsApp.instance.applicationContext,
+                            )
                         }
                         consecutiveFailures = 0
                         _state.value = State.HEALTHY
@@ -199,8 +204,15 @@ object TunnelHealthMonitor {
         val currentState = ConnectCoordinator.state.value
         if (currentState is ConnectCoordinator.State.Connected &&
             currentState.source == ConnectCoordinator.IntentSource.USER) {
-            PrivycsLogger.i(TAG, "recovery: skip — current tunnel is USER-initiated, not auto-recovering")
+            // C (v0.9.15.74): auto-recovery stays OFF for a USER-
+            // initiated tunnel (the user controls their own tunnel),
+            // but do NOT give up silently. The health monitor has
+            // declared this tunnel dead — without a signal the user
+            // sits "connected" with no traffic and no idea. Surface
+            // it so they can reconnect.
+            PrivycsLogger.i(TAG, "recovery: skip auto-recovery — USER tunnel; notifying user of dead tunnel")
             _state.value = State.DEGRADED
+            com.privycs.vpn.util.EventNotifier.tunnelDegraded(context)
             return
         }
 
@@ -277,10 +289,8 @@ object TunnelHealthMonitor {
             // = AWG → WG → OVPN → IPSec). Snapshot the latest settings
             // value at recovery-fire time so a recent reorder takes
             // effect immediately.
-            val failoverOrder = kotlinx.coroutines.runBlocking {
-                PrivycsApp.instance.settingsRepository.settingsFlow
-                    .first().protocolFailoverOrder
-            }
+            val failoverOrder = PrivycsApp.instance.settingsRepository
+                .getSettingsBlocking().protocolFailoverOrder
             val ordered = connection.orderedConfigs(failoverOrder)
             val nextConfig = ordered.firstOrNull { it.id != deadConfigId }
             if (nextConfig != null) {

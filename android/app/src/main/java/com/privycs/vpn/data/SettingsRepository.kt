@@ -11,9 +11,13 @@ import com.privycs.vpn.data.models.AppSettings
 import com.privycs.vpn.data.models.AppTheme
 import com.privycs.vpn.data.models.ConnectOnDemandSettings
 import com.privycs.vpn.data.models.VpnProtocol
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -52,7 +56,7 @@ class SettingsRepository(private val context: Context) {
             theme = prefs[Keys.THEME]?.let { parseTheme(it) } ?: AppTheme.SYSTEM,
             dnsOverride = prefs[Keys.DNS_OVERRIDE] ?: "",
             gatewayUrl = prefs[Keys.GATEWAY_URL] ?: "",
-            apiKey = prefs[Keys.API_KEY] ?: "",
+            apiKey = decryptApiKey(prefs[Keys.API_KEY]),
             connectOnDemand = ConnectOnDemandSettings(
                 enabled = prefs[Keys.COD_ENABLED] ?: false,
                 trigger = prefs[Keys.COD_TRIGGER] ?: "wifi_mobile",
@@ -95,12 +99,49 @@ class SettingsRepository(private val context: Context) {
 
     fun defaultSettings(): AppSettings = AppSettings()
 
+    // v0.9.15.74 (B-5): in-memory cache of the latest AppSettings so
+    // getSettingsBlocking() is a non-blocking read once the cache has
+    // warmed (within milliseconds of construction). Eliminates the
+    // runBlocking DataStore read from ~15 call sites — several on the
+    // Compose UI thread (connection picker, QS-Tile disconnect) where
+    // it was an ANR risk. The collector keeps the cache current on
+    // every persisted change, so reads are never stale.
+    @Volatile
+    private var cachedSettings: AppSettings? = null
+    private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        cacheScope.launch {
+            settingsFlow.collect { cachedSettings = it }
+        }
+    }
+
     /**
      * Synchronous read for boot receiver and service startup.
-     * Prefer settingsFlow for UI observation.
+     * Returns the in-memory cache once warm (the common case — every
+     * call after the first few ms of process life); only a call that
+     * lands before the cache warms falls back to a one-shot blocking
+     * DataStore read. Prefer settingsFlow for UI observation.
      */
-    fun getSettingsBlocking(): AppSettings = runBlocking {
-        settingsFlow.first()
+    fun getSettingsBlocking(): AppSettings =
+        cachedSettings ?: runBlocking { settingsFlow.first() }.also { cachedSettings = it }
+
+    // v0.9.15.74 (audit item B): the gateway API key is encrypted at
+    // rest via the Keystore-backed SecretCrypto. A legacy plaintext
+    // value decrypt-fails and falls through to the raw string, which
+    // is re-stored as ciphertext on the next write (transparent
+    // migration). Empty stays empty (no ciphertext for a blank key).
+    private fun encryptApiKey(plain: String): String =
+        if (plain.isBlank()) "" else com.privycs.vpn.util.SecretCrypto.encrypt(plain)
+
+    private fun decryptApiKey(stored: String?): String {
+        if (stored.isNullOrBlank()) return ""
+        return try {
+            com.privycs.vpn.util.SecretCrypto.decrypt(stored)
+        } catch (e: Exception) {
+            // Legacy plaintext value, or (rare) Keystore key lost.
+            stored
+        }
     }
 
     suspend fun updateSettings(settings: AppSettings) {
@@ -111,7 +152,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.THEME] = settings.theme.name.lowercase()
             prefs[Keys.DNS_OVERRIDE] = settings.dnsOverride
             prefs[Keys.GATEWAY_URL] = settings.gatewayUrl
-            prefs[Keys.API_KEY] = settings.apiKey
+            prefs[Keys.API_KEY] = encryptApiKey(settings.apiKey)
             prefs[Keys.COD_ENABLED] = settings.connectOnDemand.enabled
             prefs[Keys.COD_TRIGGER] = settings.connectOnDemand.trigger
             prefs[Keys.COD_SSID_MODE] = settings.connectOnDemand.ssidMode
@@ -140,7 +181,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun updateGatewayConfig(url: String, apiKey: String) {
         context.dataStore.edit { prefs ->
             prefs[Keys.GATEWAY_URL] = url
-            prefs[Keys.API_KEY] = apiKey
+            prefs[Keys.API_KEY] = encryptApiKey(apiKey)
         }
     }
 

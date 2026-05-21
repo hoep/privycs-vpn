@@ -66,6 +66,24 @@ class VpnWidget : AppWidgetProvider() {
         const val EXTRA_VARIANT = "variant"
         const val EXTRA_TARGET_PROTOCOL = "target_protocol"
 
+        // v0.9.15.74 (B-5 hardening): an AppWidget receiver must be
+        // exported (the system delivers APPWIDGET_UPDATE to it), so a
+        // foreign app could otherwise forge a TOGGLE / SWITCH_PROTOCOL
+        // broadcast and drive the VPN. Our own control PendingIntents
+        // carry this token, kept in app-private storage; onReceive
+        // rejects any control broadcast whose token does not match. A
+        // foreign app cannot read app-private prefs, so it cannot
+        // forge a valid control broadcast.
+        const val EXTRA_CONTROL_TOKEN = "control_token"
+
+        fun controlToken(context: Context): String {
+            val prefs = context.getSharedPreferences("widget", Context.MODE_PRIVATE)
+            prefs.getString("control_token", null)?.let { return it }
+            val fresh = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString("control_token", fresh).apply()
+            return fresh
+        }
+
         private const val ALWAYS_ON_WIDGET_PAUSE_MINUTES = 15
 
         // Application-lifetime scope for the widget's post-disconnect
@@ -161,6 +179,19 @@ class VpnWidget : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
+
+        // v0.9.15.74 (B-5 hardening): reject forged TOGGLE /
+        // SWITCH_PROTOCOL broadcasts. The receiver is exported, so a
+        // foreign app could explicit-component-target it; our own
+        // PendingIntents carry a token from app-private storage that
+        // a foreign app can neither read nor guess.
+        val act = intent.action
+        if ((act == ACTION_TOGGLE || act == ACTION_SWITCH_PROTOCOL) &&
+            intent.getStringExtra(EXTRA_CONTROL_TOKEN) != controlToken(context)
+        ) {
+            Log.w(TAG, "Rejected widget control broadcast with missing/invalid token")
+            return
+        }
 
         when (intent.action) {
             ACTION_TOGGLE -> handleToggle(context)
@@ -817,7 +848,10 @@ class VpnWidget : AppWidgetProvider() {
             R.id.widget_button,
             PendingIntent.getBroadcast(
                 context, appWidgetId,
-                Intent(context, VpnWidget::class.java).apply { action = ACTION_TOGGLE },
+                Intent(context, VpnWidget::class.java).apply {
+                    action = ACTION_TOGGLE
+                    putExtra(EXTRA_CONTROL_TOKEN, controlToken(context))
+                },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             ),
         )
@@ -906,6 +940,7 @@ class VpnWidget : AppWidgetProvider() {
         val intent = Intent(context, VpnWidget::class.java).apply {
             action = ACTION_SWITCH_PROTOCOL
             putExtra(EXTRA_TARGET_PROTOCOL, target.name.lowercase())
+            putExtra(EXTRA_CONTROL_TOKEN, controlToken(context))
             data = android.net.Uri.parse("privycs-widget://switch/$appWidgetId/${target.name.lowercase()}")
         }
         return PendingIntent.getBroadcast(

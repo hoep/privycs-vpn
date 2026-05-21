@@ -46,6 +46,7 @@ object EventNotifier {
     private const val ID_SECURITY = 1001
     private const val ID_STATUS = 1002
     private const val ID_DIAGNOSTICS = 1003
+    private const val ID_TUNNEL_DEGRADED = 1004
 
     // NOTE: Android locks a channel's importance to user control
     // after first creation — these levels only apply to fresh
@@ -175,6 +176,26 @@ object EventNotifier {
         "Switched connection",
         text,
     )
+
+    // ---- security: tunnel up but not passing traffic ----
+    // v0.9.15.74 (audit item C). A USER-initiated tunnel the health
+    // monitor has declared dead (consecutive ping failures). Auto-
+    // recovery is deliberately OFF for USER tunnels — the user
+    // controls their own tunnel — but without this notification they
+    // would sit "connected" with no traffic and no signal. HIGH-
+    // importance channel: a loss-of-protection condition the user
+    // must see. Own id (not ID_SECURITY) so it coexists with a
+    // kill-switch alert instead of replacing it.
+    fun tunnelDegraded(ctx: Context) = post(
+        ctx,
+        ID_TUNNEL_DEGRADED,
+        CHANNEL_SECURITY,
+        "VPN not passing traffic",
+        "The tunnel is connected but no traffic is getting through. " +
+            "Open Privycs VPN and reconnect.",
+    )
+
+    fun tunnelDegradedCleared(ctx: Context) = cancel(ctx, ID_TUNNEL_DEGRADED)
 
     // ---- diagnostics (opt-in via system channel) ----
     fun diagnostics(ctx: Context, text: String) = post(

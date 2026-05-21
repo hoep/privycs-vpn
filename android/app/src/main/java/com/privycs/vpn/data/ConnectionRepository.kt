@@ -379,10 +379,37 @@ class ConnectionRepository(private val context: Context) {
         return if (trimmed.length > 64) trimmed.substring(0, 64) else trimmed
     }
 
+    /**
+     * Read connections.json, decrypting it (v0.9.15.74, audit item B —
+     * the file holds WireGuard private keys + OpenVPN credentials).
+     * A legacy plaintext file (a JSON object starts with '{'; an
+     * encrypted blob is Base64 and never does) is migrated to
+     * encrypted form on this read. A decrypt failure propagates to
+     * load()'s catch, which starts with an empty registry rather than
+     * crashing.
+     */
+    private fun readRegistryFile(): String {
+        val raw = file.readText()
+        if (raw.trimStart().startsWith("{")) {
+            // Legacy plaintext — re-write encrypted now so the
+            // private keys are not left in cleartext.
+            try {
+                file.writeText(com.privycs.vpn.util.SecretCrypto.encrypt(raw))
+            } catch (e: Exception) {
+                android.util.Log.w(
+                    "ConnectionRepository",
+                    "plaintext→encrypted migration write failed: ${e.message}",
+                )
+            }
+            return raw
+        }
+        return com.privycs.vpn.util.SecretCrypto.decrypt(raw)
+    }
+
     private fun load(): ConnectionRegistry {
         val registry = try {
             if (file.exists()) {
-                json.decodeFromString<ConnectionRegistry>(file.readText())
+                json.decodeFromString<ConnectionRegistry>(readRegistryFile())
             } else {
                 ConnectionRegistry()
             }
@@ -524,7 +551,11 @@ class ConnectionRepository(private val context: Context) {
         if (healed) {
             try {
                 file.parentFile?.mkdirs()
-                file.writeText(json.encodeToString(ConnectionRegistry.serializer(), registry))
+                file.writeText(
+                    com.privycs.vpn.util.SecretCrypto.encrypt(
+                        json.encodeToString(ConnectionRegistry.serializer(), registry),
+                    ),
+                )
             } catch (e: Exception) {
                 // Heal-save best-effort. If it fails the in-memory
                 // heal still protects the UI for this session;
@@ -559,7 +590,11 @@ class ConnectionRepository(private val context: Context) {
     private fun save() {
         try {
             file.parentFile?.mkdirs()
-            file.writeText(json.encodeToString(ConnectionRegistry.serializer(), _registry.value))
+            file.writeText(
+                com.privycs.vpn.util.SecretCrypto.encrypt(
+                    json.encodeToString(ConnectionRegistry.serializer(), _registry.value),
+                ),
+            )
             // Emit updated state. rev bump is mandatory: mutators
             // edit nested lists in place, so a plain .copy() is
             // .equals() to the held value and StateFlow conflates it

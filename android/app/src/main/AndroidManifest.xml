@@ -173,10 +173,16 @@
         <receiver
             android:name=".widget.VpnWidget"
             android:exported="true">
+            <!-- v0.9.15.74 (B-5 hardening): TOGGLE / SWITCH_PROTOCOL
+                 are intentionally NOT in the intent-filter. The
+                 widget's own control PendingIntents are explicit-
+                 component, so they need no filter; keeping the
+                 actions out stops implicit broadcasts from foreign
+                 apps from even reaching onReceive. onReceive
+                 additionally token-checks every control broadcast. -->
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="com.privycs.vpn.widget.STATUS_CHANGED" />
-                <action android:name="com.privycs.vpn.widget.TOGGLE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

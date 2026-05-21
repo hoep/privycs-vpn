@@ -60,6 +60,7 @@ fun PoolDetailHost(
 ) {
     val app = PrivycsApp.instance
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     val registry by app.poolRepository.registry.collectAsState()
     val pool: Pool? = remember(poolId, registry) {
         registry.pools.firstOrNull { it.id == poolId }
@@ -102,7 +103,13 @@ fun PoolDetailHost(
             app.poolRepository.clearAllMembersUnreachable(poolId)
         },
         onActivate = {
-            kotlinx.coroutines.runBlocking {
+            // v0.9.15.74 (B-5): whole activation on the Compose scope
+            // instead of runBlocking on the UI thread. setActive +
+            // setActiveId are suspend calls and run sequentially here,
+            // so switchActivePool still observes the cleared/updated
+            // selection — same ordering guarantee as the old
+            // runBlocking, without blocking the main thread.
+            scope.launch {
                 // Activating a pool clears the active single-connection
                 // selection so the Connect screen does not show stale
                 // "Currently:" text from a previously-selected single
@@ -110,52 +117,37 @@ fun PoolDetailHost(
                 // app_pool.go:407 `a.connections.SetActive("")`.
                 app.connectionRepository.setActive("")
                 app.poolRepository.setActiveId(poolId)
-            }
-            // Warm the SelfIp cache in the background so the next
-            // pickAndConnect (about to fire via the service intent
-            // below) gets the user's country from cache instead of
-            // probing synchronously in the connect critical path.
-            // Mirrors desktop's app_pool.go:434 `go autoRestrictRoundRobinToHomeRegion(p)`
-            // which is what populates the cache for the connect-time
-            // pick.
-            //
-            // 3-second budget here; if probing takes longer the picker
-            // still completes (degraded to RestrictRegions-only) and a
-            // later background call will repopulate the cache.
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                try {
-                    app.selfIpDetector.countryFor(timeoutMs = 3_000L)
-                } catch (e: Exception) {
-                    // Probe failed (no internet, captive portal).
-                    // Picker tier-1+2 short-circuit; tier-3 random pick
-                    // (within RestrictRegions) still works.
+
+                // Warm the SelfIp cache in the background so the next
+                // pickAndConnect (about to fire via the service intent
+                // below) gets the user's country from cache instead of
+                // probing synchronously in the connect critical path.
+                // 3-second budget; if probing takes longer the picker
+                // still completes (degraded to RestrictRegions-only).
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try {
+                        app.selfIpDetector.countryFor(timeoutMs = 3_000L)
+                    } catch (e: Exception) {
+                        // Probe failed (no internet, captive portal).
+                        // Picker tiers still degrade gracefully.
+                    }
                 }
+                // Funnel pool selection through VpnServiceManager
+                // .switchActivePool (clears single-active, sets pool-
+                // active, updates status, lets COD decide reconnect).
+                // Pool tap NEVER auto-connects directly here — that was
+                // the v0.9.11.59 over-connect bug.
+                com.privycs.vpn.service.VpnServiceManager
+                    .getInstance(ctx)
+                    .switchActivePool(poolId)
+                onActivated()
             }
-            // Funnel pool selection through VpnServiceManager
-            // .switchActivePool which:
-            //   - clears single-active, sets pool-active
-            //   - updates _status to a tentative pool view so the
-            //     Connect screen reflects the pick immediately
-            //   - if currently connected: fires disconnect, lets
-            //     COD/NetworkMonitor decide reconnect to the new
-            //     pool target
-            //   - if not connected + COD on + rules match:
-            //     re-evaluates so COD fires connect now
-            //   - if not connected + COD off: stays down, user
-            //     must tap Connect explicitly
-            //
-            // Pool tap NEVER auto-connects directly here. That was
-            // the v0.9.11.59 over-connect bug: with COD off the
-            // tap forced a connect that overrode the user's
-            // "manual mode" intent.
-            com.privycs.vpn.service.VpnServiceManager
-                .getInstance(ctx)
-                .switchActivePool(poolId)
-            onActivated()
         },
         onDelete = {
-            kotlinx.coroutines.runBlocking { app.poolRepository.delete(poolId) }
-            onDeleted()
+            scope.launch {
+                app.poolRepository.delete(poolId)
+                onDeleted()
+            }
         }
     )
 
@@ -164,8 +156,10 @@ fun PoolDetailHost(
             pool = pool,
             onDismiss = { showEditSheet = false },
             onSave = { updated ->
-                kotlinx.coroutines.runBlocking { app.poolRepository.update(updated) }
-                showEditSheet = false
+                scope.launch {
+                    app.poolRepository.update(updated)
+                    showEditSheet = false
+                }
             }
         )
     }

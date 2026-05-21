@@ -79,7 +79,8 @@ import kotlinx.coroutines.withContext
 fun SettingsScreen(
     onNavigateToLogs: () -> Unit,
     onNavigateToPerAppVpn: () -> Unit = {},
-    onNavigateToNetworkRules: () -> Unit = {}
+    onNavigateToNetworkRules: () -> Unit = {},
+    onNavigateToLicenses: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val settingsRepo = remember { PrivycsApp.instance.settingsRepository }
@@ -931,6 +932,32 @@ fun SettingsScreen(
                 // default "Protocol" line was misleading (suggested the
                 // app only spoke one). Show the full supported set.
                 SettingsInfoRow("Protocols", "WireGuard, OpenVPN, IPSec")
+                SettingsInfoRow("License", "GNU GPL v3 (free software)")
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onNavigateToLicenses,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open-Source Licenses")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(
+                                    Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(
+                                        "https://www.privycs.com/docs/android-client-privacy",
+                                    ),
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Privacy Policy")
+                }
             }
 
             // v0.9.14.91: dropped the 32dp trailing spacer that

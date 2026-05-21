@@ -148,6 +148,26 @@ class PrivycsVpnService : VpnService() {
     // Kill Switch off or a real tunnel replaces it.
     private var sinkholeTunFd: android.os.ParcelFileDescriptor? = null
 
+    // v0.9.15.74 (B-4): sinkhole intent active (state SINKHOLE) but
+    // VpnService.Builder.establish() failed, so no block-all fd
+    // exists and traffic is NOT actually blocked. Drives an honest
+    // notification instead of the reassuring "traffic blocked"
+    // template; reset on a successful establish / on leaving the
+    // sinkhole. The 3s watchdog keeps retrying establish meanwhile.
+    @Volatile
+    private var sinkholeEstablishFailed = false
+
+    // v0.9.15.74 (B-4 hybrid persistence): records whether the Kill
+    // Switch was actively protecting (state ARMED/SINKHOLE) at the
+    // last observed transition. Read on a START_STICKY null-intent
+    // respawn (OEM killed our running process) to re-engage the
+    // sinkhole; a cold device boot triggers no sticky restart so it
+    // is never consulted there. Plain SharedPreferences for a fast
+    // synchronous read at service start (no DataStore coroutine).
+    private val killSwitchPrefs by lazy {
+        getSharedPreferences("kill_switch", Context.MODE_PRIVATE)
+    }
+
     // Kill-Switch network watcher. Android-level onLost() fires
     // when the default non-VPN network goes away - e.g. airplane
     // mode, WiFi + mobile both off, device loses signal. Most
@@ -227,6 +247,15 @@ class PrivycsVpnService : VpnService() {
             com.privycs.vpn.util.KillSwitchManager.state.collect { state ->
                 val previous = previousKillSwitchState
                 previousKillSwitchState = state
+                // B-4 hybrid persistence: persist whether the Kill
+                // Switch is actively protecting so a START_STICKY
+                // respawn after an OEM kill can re-engage it.
+                killSwitchPrefs.edit()
+                    .putBoolean(
+                        "was_protecting",
+                        state != com.privycs.vpn.util.KillSwitchManager.State.IDLE,
+                    )
+                    .apply()
                 when (state) {
                     com.privycs.vpn.util.KillSwitchManager.State.SINKHOLE -> enterSinkholeMode()
                     else -> {
@@ -417,8 +446,19 @@ class PrivycsVpnService : VpnService() {
                 .addDisallowedApplication(packageName)
             sinkholeTunFd = builder.establish()
             if (sinkholeTunFd == null) {
-                PrivycsLogger.w(TAG, "enterSinkholeMode: establish returned null (prepare not granted?)")
+                // B-4: establish() failed — the sinkhole intent is
+                // active but no block-all fd exists, so traffic is
+                // NOT blocked. Surface the truth instead of the
+                // reassuring template; the 3s watchdog retries.
+                sinkholeEstablishFailed = true
+                PrivycsLogger.w(
+                    TAG,
+                    "enterSinkholeMode: establish() returned null — Kill Switch is NOT " +
+                        "blocking traffic (VPN permission revoked?); watchdog will retry",
+                )
+                updateNotification("Kill Switch could not block traffic")
             } else {
+                sinkholeEstablishFailed = false
                 updateNotification(
                     "Kill Switch active — traffic blocked",
                     sinkholeMode = true,
@@ -439,6 +479,7 @@ class PrivycsVpnService : VpnService() {
     }
 
     private fun exitSinkholeMode() {
+        sinkholeEstablishFailed = false
         val fd = sinkholeTunFd ?: return
         try {
             PrivycsLogger.i(TAG, "exitSinkholeMode: closing block-all tunnel")
@@ -718,11 +759,31 @@ class PrivycsVpnService : VpnService() {
             }
 
             else -> {
-                // Always-on VPN restart: try to reconnect with last active connection
                 startForeground(
                     PrivycsApp.NOTIFICATION_ID_VPN,
                     buildNotification("Reconnecting...")
                 )
+                // B-4 hybrid persistence: intent == null means the OS
+                // recreated this service via START_STICKY after our
+                // process was killed (typically an aggressive OEM
+                // battery killer) — NOT a cold device boot, which
+                // starts us via an explicit intent or not at all. If
+                // the Kill Switch was protecting when we were killed,
+                // re-engage the sinkhole now so traffic stays blocked
+                // until the reconnect below succeeds.
+                if (intent == null &&
+                    killSwitchPrefs.getBoolean("was_protecting", false)
+                ) {
+                    PrivycsLogger.i(
+                        TAG,
+                        "START_STICKY respawn + Kill Switch was protecting → re-engaging sinkhole",
+                    )
+                    com.privycs.vpn.util.KillSwitchManager.forceSinkhole(
+                        "process respawn after kill — Kill Switch was protecting",
+                    )
+                    enterSinkholeMode()
+                }
+                // Always-on VPN restart: reconnect with last active connection
                 handleAlwaysOnReconnect()
             }
         }
@@ -1551,10 +1612,8 @@ class PrivycsVpnService : VpnService() {
                     // failover order (default = AWG → WG → OVPN →
                     // IPSec). v0.9.15.70.
                     val refreshed = PrivycsApp.instance.connectionRepository.getById(connectionId)
-                    val failoverOrder = kotlinx.coroutines.runBlocking {
-                        PrivycsApp.instance.settingsRepository.settingsFlow
-                            .first().protocolFailoverOrder
-                    }
+                    val failoverOrder = PrivycsApp.instance.settingsRepository
+                        .getSettingsBlocking().protocolFailoverOrder
                     val nextCfg = refreshed?.orderedConfigs(failoverOrder)?.firstOrNull { cfg ->
                         cfg.id !in triedIds
                     }
@@ -2643,6 +2702,7 @@ class PrivycsVpnService : VpnService() {
         text: String,
         sinkholeMode: Boolean = false,
         monitorMode: Boolean = false,
+        sinkholeFailed: Boolean = false,
     ): Notification {
         val openIntent = Intent(this, MainActivity::class.java)
         val pendingOpen = PendingIntent.getActivity(
@@ -2651,6 +2711,7 @@ class PrivycsVpnService : VpnService() {
         )
 
         val title = when {
+            sinkholeFailed -> "Privycs VPN — Kill Switch NOT active"
             sinkholeMode -> "Privycs VPN — Kill Switch Active"
             monitorMode -> "Privycs VPN — Monitoring network"
             else -> getString(R.string.vpn_notification_title)
@@ -2741,9 +2802,22 @@ class PrivycsVpnService : VpnService() {
         // within 2 seconds of engaging it and the user never sees
         // the kill-switch message.
         val killSwitchActive = com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()
-        val effectiveText = if (killSwitchActive) "Kill Switch active — traffic blocked" else text
+        // B-4: sinkhole intent active but establish() failed → the
+        // Kill Switch is NOT blocking; the notification must say so
+        // rather than show the reassuring "traffic blocked" text.
+        val sinkholeFailed = killSwitchActive && sinkholeEstablishFailed
+        val effectiveText = when {
+            sinkholeFailed ->
+                "Kill Switch could NOT block traffic — you are unprotected. Tap Retry."
+            killSwitchActive -> "Kill Switch active — traffic blocked"
+            else -> text
+        }
         val effectiveSinkhole = sinkholeMode || killSwitchActive
-        val notification = buildNotification(effectiveText, effectiveSinkhole)
+        val notification = buildNotification(
+            effectiveText,
+            sinkholeMode = effectiveSinkhole,
+            sinkholeFailed = sinkholeFailed,
+        )
         val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(PrivycsApp.NOTIFICATION_ID_VPN, notification)
     }

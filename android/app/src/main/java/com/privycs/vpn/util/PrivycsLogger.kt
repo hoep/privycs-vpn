@@ -38,6 +38,27 @@ object PrivycsLogger {
     fun e(tag: String, msg: String) = log("ERROR", tag, msg) { Log.e(tag, msg) }
     fun e(tag: String, msg: String, t: Throwable) = log("ERROR", tag, "$msg: ${t.message}") { Log.e(tag, msg, t) }
 
+    /**
+     * Redact a Wi-Fi SSID for logging (v0.9.15.74 — B-5/privacy).
+     * SSIDs are personal data; this log file is shown in-app
+     * (LogsScreen) and included in bug-report exports, so the raw
+     * name must not land in it. Keeps the first character + length
+     * so a developer can still tell two networks apart.
+     */
+    fun redactSsid(ssid: String): String = when {
+        ssid.isEmpty() -> "<none>"
+        ssid.length == 1 -> "* (1)"
+        else -> "${ssid.first()}… (${ssid.length} chars)"
+    }
+
+    /**
+     * Redact every double-quoted substring of a free-form string
+     * (e.g. an SSID embedded in a rule-match message) for logging,
+     * leaving the surrounding text intact for diagnostics.
+     */
+    fun redactQuoted(s: String): String =
+        s.replace(Regex("\"[^\"]*\""), "\"…\"")
+
     private inline fun log(level: String, tag: String, msg: String, logcat: () -> Unit) {
         logcat()
         val ctx: Context = try {

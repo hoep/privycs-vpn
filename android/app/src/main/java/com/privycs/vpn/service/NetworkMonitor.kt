@@ -274,7 +274,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                         val raw = info?.ssid?.removeSurrounding("\"")
                         if (!raw.isNullOrEmpty() && raw != "<unknown ssid>") {
                             if (currentWifiSsid != raw) {
-                                PrivycsLogger.d(TAG, "WiFi SSID latched -> \"$raw\" (network $network)")
+                                PrivycsLogger.d(TAG, "WiFi SSID latched -> ${PrivycsLogger.redactSsid(raw)} (network $network)")
                             }
                             currentWifiSsid = raw
                         }
@@ -783,7 +783,7 @@ class NetworkMonitor private constructor(private val context: Context) {
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
                     connection,
                 )
-                PrivycsLogger.d(TAG, "on-demand requestConnect -> $result (rules=$ruleMatch)")
+                PrivycsLogger.d(TAG, "on-demand requestConnect -> $result (rules=${PrivycsLogger.redactQuoted(ruleMatch)})")
             } else if (!shouldConnect && vpnManager.isConnected) {
                 // Drop the `&& transitioned` gate that lived here: if
                 // we're connected and the rules say we shouldn't be,
@@ -805,14 +805,14 @@ class NetworkMonitor private constructor(private val context: Context) {
                     context,
                     com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
                 )
-                PrivycsLogger.i(TAG, "on-demand disconnect requested ($ruleMatch) -> $r")
+                PrivycsLogger.i(TAG, "on-demand disconnect requested (${PrivycsLogger.redactQuoted(ruleMatch)}) -> $r")
                 com.privycs.vpn.util.EventNotifier.codDisconnected(context, ruleMatch)
                 // Stamp the on-demand-disconnect so the connect-side
                 // gate above suppresses the immediate reconnect from
                 // the teardown's transient NetworkCapabilities events.
                 com.privycs.vpn.util.AlwaysOnDetector.stampOnDemandDisconnect(context)
             } else if (transitioned) {
-                PrivycsLogger.d(TAG, "Rules transitioned but already in desired state: $ruleMatch")
+                PrivycsLogger.d(TAG, "Rules transitioned but already in desired state: ${PrivycsLogger.redactQuoted(ruleMatch)}")
             }
     }
 

@@ -8,11 +8,14 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.privycs.vpn.data.models.NetworkRule
 import com.privycs.vpn.data.models.RuleResolution
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
@@ -46,13 +49,24 @@ class NetworkRulesRepository(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val serializer = ListSerializer(NetworkRule.serializer())
 
-    private val _rules = MutableStateFlow<List<NetworkRule>>(loadBlocking())
+    // v0.9.15.74 (B-5): start empty and load asynchronously. The
+    // constructor runs on the main thread (PrivycsApp.onCreate); a
+    // runBlocking DataStore read at field-init stalled cold start.
+    // Consumers observe `rules` / `rulesFlow`, so they pick up the
+    // persisted list as soon as the async load completes.
+    private val _rules = MutableStateFlow<List<NetworkRule>>(emptyList())
     val rules = _rules.asStateFlow()
 
     val rulesFlow: Flow<List<NetworkRule>> = _rules
 
-    private fun loadBlocking(): List<NetworkRule> = runBlocking {
-        try {
+    private val loadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        loadScope.launch { _rules.value = loadRules() }
+    }
+
+    private suspend fun loadRules(): List<NetworkRule> {
+        return try {
             val raw = context.networkRulesStore.data.first()[Keys.RULES_JSON].orEmpty()
             if (raw.isBlank()) emptyList() else json.decodeFromString(serializer, raw)
         } catch (e: Exception) {
