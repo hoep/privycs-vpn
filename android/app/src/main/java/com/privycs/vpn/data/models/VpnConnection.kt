@@ -369,7 +369,10 @@ data class AppSettings(
 // Gateway API models matching desktop api_client.go
 @Serializable
 data class RemoteConfigEntry(
-    val id: Int,
+    // Defaulted (v0.9.15.75) so a single malformed entry — missing or
+    // null `id` from the gateway — doesn't abort decoding the entire
+    // config list (every other field already has a default).
+    val id: Int = 0,
     @SerialName("peer_name")
     val peerName: String,
     val protocol: String,

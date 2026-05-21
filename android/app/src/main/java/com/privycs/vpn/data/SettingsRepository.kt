@@ -2,9 +2,11 @@ package com.privycs.vpn.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.privycs.vpn.data.models.AppSettings
@@ -15,12 +17,22 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.io.IOException
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "settings",
+    // v0.9.15.75: a truncated/corrupt settings file (abrupt power
+    // loss or an OEM task-kill mid-edit) would otherwise throw
+    // CorruptionException on every read — crashing the app at launch
+    // and on every BootReceiver/widget/tile getSettingsBlocking call.
+    // Replace it with empty prefs → all defaults via the map below.
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+)
 
 class SettingsRepository(private val context: Context) {
 
@@ -47,7 +59,15 @@ class SettingsRepository(private val context: Context) {
         val PROTOCOL_FAILOVER_ORDER = stringPreferencesKey("protocol_failover_order")
     }
 
-    val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
+    val settingsFlow: Flow<AppSettings> = context.dataStore.data
+        .catch { e ->
+            // corruptionHandler above replaces a corrupt file; this
+            // catches other transient read failures (disk I/O) so a
+            // settings read never crashes a collector. Empty prefs →
+            // all defaults via the map below.
+            if (e is IOException) emit(emptyPreferences()) else throw e
+        }
+        .map { prefs ->
         AppSettings(
             activeProtocol = prefs[Keys.ACTIVE_PROTOCOL]?.let { VpnProtocol.fromString(it) }
                 ?: VpnProtocol.WIREGUARD,

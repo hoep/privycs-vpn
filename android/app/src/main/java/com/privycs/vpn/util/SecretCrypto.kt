@@ -38,6 +38,13 @@ object SecretCrypto {
     private const val IV_LENGTH = 12
     private const val TAG_BITS = 128
 
+    // @Synchronized: getEntry-then-generateKey is check-then-act. Two
+    // threads racing on first run (ConnectionRepository.load on the
+    // main thread + the SettingsRepository cache collector on IO) could
+    // otherwise each generate a key under the same alias — the loser
+    // overwrites the winner and any data the winner encrypted becomes
+    // permanently undecryptable. Serialise key access.
+    @Synchronized
     private fun secretKey(): SecretKey {
         val ks = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }

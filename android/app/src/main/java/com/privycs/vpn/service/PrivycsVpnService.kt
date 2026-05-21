@@ -1261,9 +1261,9 @@ class PrivycsVpnService : VpnService() {
      * Vivo): even though we're a foreground service that should
      * survive task removal per Android spec, those OEMs kill the
      * service anyway. We schedule a self-restart via AlarmManager
-     * with `setExactAndAllowWhileIdle` so the service comes back
-     * within ~5 s even if the OEM killed us — and the alarm itself
-     * survives Doze.
+     * with `setAndAllowWhileIdle` (inexact — needs no alarm
+     * permission) so the service comes back within a few seconds of
+     * the swipe even if the OEM killed us; the alarm survives Doze.
      *
      * Only re-arms when:
      *   - Foreground-keep-monitor-alive is enabled (otherwise the
@@ -1314,7 +1314,7 @@ class PrivycsVpnService : VpnService() {
                 )
                 val am = applicationContext.getSystemService(android.content.Context.ALARM_SERVICE)
                     as android.app.AlarmManager
-                am.setExactAndAllowWhileIdle(
+                am.setAndAllowWhileIdle(
                     android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
                     android.os.SystemClock.elapsedRealtime() + 5_000L,
                     pi,

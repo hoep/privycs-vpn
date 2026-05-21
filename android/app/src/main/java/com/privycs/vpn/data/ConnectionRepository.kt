@@ -392,9 +392,10 @@ class ConnectionRepository(private val context: Context) {
         val raw = file.readText()
         if (raw.trimStart().startsWith("{")) {
             // Legacy plaintext — re-write encrypted now so the
-            // private keys are not left in cleartext.
+            // private keys are not left in cleartext. Atomic: a crash
+            // mid-migration leaves the original plaintext intact.
             try {
-                file.writeText(com.privycs.vpn.util.SecretCrypto.encrypt(raw))
+                writeRegistryFile(raw)
             } catch (e: Exception) {
                 android.util.Log.w(
                     "ConnectionRepository",
@@ -404,6 +405,31 @@ class ConnectionRepository(private val context: Context) {
             return raw
         }
         return com.privycs.vpn.util.SecretCrypto.decrypt(raw)
+    }
+
+    /**
+     * Atomically persist the registry JSON, encrypted at rest
+     * (v0.9.15.75 — fixes the non-atomic write the encryption shipped
+     * with). The encrypted payload is written to a sibling temp file
+     * and then rename(2)'d onto connections.json, so the live file is
+     * ALWAYS either the complete old content or the complete new
+     * content — never a half-written prefix. A partial encrypted blob
+     * would be undecryptable and load() would fall back to an empty
+     * registry, silently losing every connection and private key.
+     */
+    private fun writeRegistryFile(jsonText: String) {
+        file.parentFile?.mkdirs()
+        val blob = com.privycs.vpn.util.SecretCrypto.encrypt(jsonText)
+        val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
+        tmp.writeText(blob)
+        if (!tmp.renameTo(file)) {
+            // renameTo can fail on exotic filesystems; last-resort
+            // direct write rather than orphan the .tmp (same fallback
+            // PrivycsLogger.rotate uses). app-private filesDir is one
+            // filesystem, so in practice the rename always succeeds.
+            file.writeText(blob)
+            tmp.delete()
+        }
     }
 
     private fun load(): ConnectionRegistry {
@@ -550,11 +576,8 @@ class ConnectionRepository(private val context: Context) {
         }
         if (healed) {
             try {
-                file.parentFile?.mkdirs()
-                file.writeText(
-                    com.privycs.vpn.util.SecretCrypto.encrypt(
-                        json.encodeToString(ConnectionRegistry.serializer(), registry),
-                    ),
+                writeRegistryFile(
+                    json.encodeToString(ConnectionRegistry.serializer(), registry),
                 )
             } catch (e: Exception) {
                 // Heal-save best-effort. If it fails the in-memory
@@ -589,11 +612,8 @@ class ConnectionRepository(private val context: Context) {
 
     private fun save() {
         try {
-            file.parentFile?.mkdirs()
-            file.writeText(
-                com.privycs.vpn.util.SecretCrypto.encrypt(
-                    json.encodeToString(ConnectionRegistry.serializer(), _registry.value),
-                ),
+            writeRegistryFile(
+                json.encodeToString(ConnectionRegistry.serializer(), _registry.value),
             )
             // Emit updated state. rev bump is mandatory: mutators
             // edit nested lists in place, so a plain .copy() is

@@ -32,11 +32,12 @@ import com.privycs.vpn.receiver.PoolAlarmReceiver
  *   the next alarm gets scheduled, the service idles or stops.
  *
  *   Doze + Battery-Saver:
- *     setExactAndAllowWhileIdle is the right primitive — fires even
- *     in Doze (limited to once per ~9min in Doze, but rotation is
- *     rarely faster than that anyway) and respects Battery-Saver.
- *     The user can opt into "ignore battery optimizations" if they
- *     want sub-9min rotation in Doze (we prompt on first activate).
+ *     setAndAllowWhileIdle is the right primitive — inexact (needs
+ *     no alarm permission) yet still fires in Doze (limited to once
+ *     per ~9min there, but rotation is rarely faster anyway) and
+ *     respects Battery-Saver. The user can opt into "ignore battery
+ *     optimizations" if they want sub-9min rotation in Doze (we
+ *     prompt on first activate).
  */
 class PoolRotationScheduler(private val context: Context) {
 
@@ -108,8 +109,8 @@ class PoolRotationScheduler(private val context: Context) {
      *
      * If idle-aware is on AND the device is in interactive use
      * (screen on or recently used), we still arm — Doze coordination
-     * happens via setExactAndAllowWhileIdle which handles the
-     * deferral semantics for us.
+     * happens via setAndAllowWhileIdle which handles the deferral
+     * semantics for us.
      *
      * Battery-saver halves rotation frequency: in saver mode, the
      * actual scheduled interval is doubled. Prevents pool churn
@@ -145,24 +146,23 @@ class PoolRotationScheduler(private val context: Context) {
         val canPreWarm = preWarmAt > now + 5_000
 
         if (canPreWarm) {
-            scheduleExactAlarm(preWarmAt, prewarmIntent(poolId, seq))
+            scheduleAlarm(preWarmAt, prewarmIntent(poolId, seq))
         }
-        scheduleExactAlarm(rotateAt, rotateIntent(poolId, seq))
+        scheduleAlarm(rotateAt, rotateIntent(poolId, seq))
 
         Log.i(TAG, "armed pool=$poolId seq=$seq rotateAt=${rotateAt - now}ms preWarmAt=${if (canPreWarm) "${preWarmAt - now}ms" else "skipped"}")
     }
 
-    private fun scheduleExactAlarm(triggerAtMs: Long, pi: PendingIntent) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // S+ requires SCHEDULE_EXACT_ALARM permission for setExact*.
-            // setExactAndAllowWhileIdle does NOT need it (Doze-managed
-            // imprecision in exchange for whitelist access). This is
-            // the right tradeoff for pool rotation: ±9min in Doze is
-            // acceptable, exact-when-active is what the user perceives.
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
-        } else {
-            alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
-        }
+    private fun scheduleAlarm(triggerAtMs: Long, pi: PendingIntent) {
+        // v0.9.15.75: setAndAllowWhileIdle (inexact). It needs NO
+        // alarm permission — unlike setExact* / setExactAndAllowWhileIdle,
+        // which on Android 12+ require SCHEDULE_EXACT_ALARM (not auto-
+        // granted for apps targeting 14+) or the Play-restricted
+        // USE_EXACT_ALARM. Pool rotation tolerates the OS batching
+        // window: the interval is minutes and the receiver re-arms the
+        // next cycle on fire, so drift never compounds. Still fires in
+        // Doze (≈once per 9 min cap there).
+        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
     }
 
     private fun prewarmIntent(poolId: String? = null, seq: Long = 0L): PendingIntent {

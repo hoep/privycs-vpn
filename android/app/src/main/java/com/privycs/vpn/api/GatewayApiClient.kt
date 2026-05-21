@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.TimeUnit
@@ -215,11 +216,14 @@ class GatewayApiClient(
         val serverPublicKey = config["server_public_key"]?.jsonPrimitive?.content ?: ""
         val presharedKey = config["preshared_key"]?.jsonPrimitive?.content
         val serverEndpoint = config["server_endpoint"]?.jsonPrimitive?.content ?: ""
-        val serverPort = config["server_port"]?.jsonPrimitive?.int ?: 51820
+        // intOrNull (not int): tolerates the gateway emitting a
+        // numeric field as a JSON string ("51820") — int would throw
+        // NumberFormatException and abort the whole config download.
+        val serverPort = config["server_port"]?.jsonPrimitive?.intOrNull ?: 51820
         val allowedIPs = config["allowed_ips"]?.jsonPrimitive?.content ?: "0.0.0.0/0"
         val dns = config["dns"]?.jsonPrimitive?.content ?: ""
-        val mtu = config["mtu"]?.jsonPrimitive?.int ?: 0
-        val keepalive = config["persistent_keepalive"]?.jsonPrimitive?.int ?: 25
+        val mtu = config["mtu"]?.jsonPrimitive?.intOrNull ?: 0
+        val keepalive = config["persistent_keepalive"]?.jsonPrimitive?.intOrNull ?: 25
         // AmneziaWG obfuscation block — server (privycs v0.8.4.18+)
         // pre-renders the AWG keys (Jc/Jmin/Jmax/S1-4/H1-4/I1-5) as
         // ready-to-append config lines. Without this, AWG configs

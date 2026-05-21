@@ -29,6 +29,17 @@ import com.privycs.vpn.navigation.AppNavigation
 import com.privycs.vpn.ui.theme.PrivycsVpnTheme
 import kotlinx.coroutines.launch
 
+// v0.9.15.75: the open-test build ships WITHOUT ACCESS_BACKGROUND_LOCATION
+// — declaring it would trigger Google Play's background-location
+// declaration form + demo-video review gate and block the open-test
+// launch. SSID-based Connect-on-Demand therefore runs foreground-only
+// for now (NetworkMonitor already degrades: the OS redacts the SSID to
+// a backgrounded app without this permission). To re-enable for the
+// production release: flip this to true AND re-add the
+// <uses-permission ACCESS_BACKGROUND_LOCATION> line in AndroidManifest.xml
+// (then prepare the Play Console declaration form + demo video).
+private const val BACKGROUND_LOCATION_ENABLED = false
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,7 +115,7 @@ class MainActivity : ComponentActivity() {
                             this@MainActivity,
                             Manifest.permission.ACCESS_FINE_LOCATION,
                         ) == PackageManager.PERMISSION_GRANTED
-                        if (fineGranted &&
+                        if (BACKGROUND_LOCATION_ENABLED && fineGranted &&
                             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                         ) {
                             showBackgroundDialog = true
@@ -124,7 +135,8 @@ class MainActivity : ComponentActivity() {
                             // Offer the background step if the OS gates
                             // it separately and it isn't granted yet;
                             // otherwise finish.
-                            val bgMissing = Build.VERSION.SDK_INT >=
+                            val bgMissing = BACKGROUND_LOCATION_ENABLED &&
+                                Build.VERSION.SDK_INT >=
                                 Build.VERSION_CODES.Q &&
                                 ContextCompat.checkSelfPermission(
                                     this@MainActivity,
@@ -229,10 +241,17 @@ private fun FirstRunPermissionDisclosureDialog(
                     "on my home Wi-Fi\"). It is never used to determine " +
                     "your geographic location, and nothing is ever sent " +
                     "off your device.\n\n" +
-                    "After that you'll be asked to \"Allow all the time\" " +
-                    "— Android needs that so on-demand rules keep working " +
-                    "while the app is closed or the screen is off. You " +
-                    "can change any of this later in Settings."
+                    if (BACKGROUND_LOCATION_ENABLED) {
+                        "After that you'll be asked to \"Allow all the " +
+                            "time\" — Android needs that so on-demand " +
+                            "rules keep working while the app is closed " +
+                            "or the screen is off. You can change any " +
+                            "of this later in Settings."
+                    } else {
+                        "Connect-on-Demand by Wi-Fi name works while " +
+                            "Privycs is open on screen. You can change " +
+                            "any of this later in Settings."
+                    }
             )
         },
         confirmButton = {

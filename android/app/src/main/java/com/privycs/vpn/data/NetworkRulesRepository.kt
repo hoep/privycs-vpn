@@ -2,8 +2,10 @@ package com.privycs.vpn.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.privycs.vpn.data.models.NetworkRule
@@ -23,7 +25,10 @@ import kotlinx.serialization.json.Json
 // settings keyspace. Single-name preferencesDataStore creates the
 // file lazily on first access.
 private val Context.networkRulesStore: DataStore<Preferences> by preferencesDataStore(
-    name = "network_rules"
+    name = "network_rules",
+    // v0.9.15.75: replace a corrupt rules file rather than throw
+    // CorruptionException (loadRules() also catches — belt + braces).
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
 )
 
 /**

@@ -123,6 +123,17 @@ class IpSecTunnel(private val context: Context) {
     @Volatile
     private var txBaseline: Long = 0L
 
+    // v0.9.15.75: separate baseline for the readVpnInterfaceBytes()
+    // fallback used when per-UID TrafficStats is UNSUPPORTED. The
+    // /sys + /proc counters are interface-lifetime, not session-
+    // scoped, so they need their own baseline subtracted for the UI
+    // counter to start at 0/0. -1 = not captured yet (0 is a valid
+    // fresh-interface reading and must not be taken for "unset").
+    @Volatile
+    private var ifaceRxBaseline: Long = -1L
+    @Volatile
+    private var ifaceTxBaseline: Long = -1L
+
     // Long-lived bind to strongSwan's VpnStateService. Bound on connect(),
     // unbound on disconnect() so the VpnStateListener callbacks can drive
     // our state updates for the whole tunnel lifetime. Nullable because
@@ -434,6 +445,10 @@ class IpSecTunnel(private val context: Context) {
                     // for the "current session".
                     rxBaseline = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
                     txBaseline = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
+                    // Re-arm the interface-counter fallback baseline so
+                    // a new session re-captures it on its first poll.
+                    ifaceRxBaseline = -1L
+                    ifaceTxBaseline = -1L
                 }
                 State.CONNECTED
             }
@@ -520,6 +535,22 @@ class IpSecTunnel(private val context: Context) {
             val uid = android.os.Process.myUid()
             val curRx = android.net.TrafficStats.getUidRxBytes(uid)
             val curTx = android.net.TrafficStats.getUidTxBytes(uid)
+            if (curRx < 0L || curTx < 0L) {
+                // v0.9.15.75: per-UID TrafficStats returns UNSUPPORTED
+                // (-1) on many Android 10+ ROMs — the baseline would
+                // then be -1 and every delta clamps to 0, freezing the
+                // counter at 0/0. Fall back to reading the VPN tun
+                // interface's own statistics directly (not UID-scoped).
+                // Those counters are interface-lifetime, so baseline
+                // them on the first poll of the session — otherwise
+                // the counter jumps to a large absolute number at
+                // connect instead of starting at 0/0.
+                val (ifRx, ifTx) = readVpnInterfaceBytes()
+                if (ifaceRxBaseline < 0L) ifaceRxBaseline = ifRx
+                if (ifaceTxBaseline < 0L) ifaceTxBaseline = ifTx
+                (ifRx - ifaceRxBaseline).coerceAtLeast(0L) to
+                    (ifTx - ifaceTxBaseline).coerceAtLeast(0L)
+            } else {
             // Self-heal lazy baseline. The primary baseline write is
             // in handleStateChanged on the CONNECTED transition, BEFORE
             // state is published. With @Volatile the visibility window
@@ -536,6 +567,7 @@ class IpSecTunnel(private val context: Context) {
             val r = (curRx - rxBaseline).coerceAtLeast(0L)
             val t = (curTx - txBaseline).coerceAtLeast(0L)
             r to t
+            }
         } else 0L to 0L
         return VpnStatus(
             connected = up,
