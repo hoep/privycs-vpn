@@ -26,117 +26,6 @@
               <span class="toggle-knob" :class="settings.kill_switch_enabled && platform.kill_switch_supported ? 'translate-x-5' : 'translate-x-0'" />
             </button>
           </div>
-          <!-- Connect on Demand -->
-          <div>
-            <div class="flex items-center justify-between">
-              <div>
-                <span class="text-sm text-gray-700 dark:text-gray-300">Connect on Demand</span>
-                <p class="text-[10px] text-gray-400 mt-0.5">
-                  Auto-connect based on network
-                </p>
-              </div>
-              <button
-                @click="toggleConnectOnDemand"
-                class="toggle"
-                :class="[
-                  connectOnDemand.enabled && platform.auto_connect_supported ? 'toggle-enabled' : 'toggle-disabled',
-                  !platform.auto_connect_supported ? 'opacity-40 cursor-not-allowed' : ''
-                ]"
-                :disabled="!platform.auto_connect_supported"
-              >
-                <span class="toggle-knob" :class="connectOnDemand.enabled && platform.auto_connect_supported ? 'translate-x-5' : 'translate-x-0'" />
-              </button>
-            </div>
-
-            <!-- On-demand options (visible when enabled) -->
-            <div v-if="connectOnDemand.enabled && platform.auto_connect_supported" class="mt-3 ml-1 space-y-2.5 border-l-2 border-gray-200 dark:border-gray-600 pl-3">
-              <div class="flex items-center justify-between">
-                <span class="text-xs text-gray-600 dark:text-gray-400">When connected to</span>
-                <AppSelect
-                  :model-value="connectOnDemand.trigger || 'any'"
-                  @update:model-value="connectOnDemand.trigger = $event; saveOnDemandSettings()"
-                  :options="[
-                    { value: 'any', label: 'Any network' },
-                    { value: 'wifi', label: 'WiFi only' },
-                    { value: 'ethernet', label: 'Ethernet only' },
-                    { value: 'mobile', label: 'Mobile only' },
-                    { value: 'wifi_mobile', label: 'WiFi & Mobile' },
-                  ]"
-                />
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-xs text-gray-600 dark:text-gray-400">WiFi networks</span>
-                <AppSelect
-                  :model-value="connectOnDemand.ssid_mode || 'all'"
-                  @update:model-value="connectOnDemand.ssid_mode = $event; saveOnDemandSettings()"
-                  :options="[
-                    { value: 'all', label: 'All SSIDs' },
-                    { value: 'only', label: 'Only these SSIDs' },
-                    { value: 'except', label: 'Except these SSIDs' },
-                  ]"
-                />
-              </div>
-              <div v-if="connectOnDemand.ssid_mode === 'only' || connectOnDemand.ssid_mode === 'except'">
-                <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">
-                  {{ connectOnDemand.ssid_mode === 'only' ? 'Connect only on' : 'Do not connect on' }}
-                </label>
-                <div class="flex gap-1.5">
-                  <input
-                    v-model="newSSID"
-                    @keyup.enter="addSSID"
-                    type="text"
-                    placeholder="Type SSID and press Enter (or Add)"
-                    class="input text-xs flex-1"
-                  />
-                  <button
-                    @click="addSSID"
-                    type="button"
-                    class="btn-secondary px-2 py-1 text-xs whitespace-nowrap"
-                    :disabled="!newSSID.trim()"
-                  >
-                    Add
-                  </button>
-                </div>
-                <div
-                  v-if="connectOnDemand.ssid_list && connectOnDemand.ssid_list.length > 0"
-                  class="flex flex-wrap gap-1.5 mt-2"
-                >
-                  <span
-                    v-for="ssid in connectOnDemand.ssid_list"
-                    :key="ssid"
-                    class="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-full"
-                  >
-                    {{ ssid }}
-                    <button
-                      @click="removeSSID(ssid)"
-                      type="button"
-                      class="hover:text-red-500 ml-0.5 text-base leading-none"
-                      :title="`Remove ${ssid}`"
-                    >&times;</button>
-                  </span>
-                </div>
-                <p
-                  v-else
-                  class="text-[10px] text-gray-400 mt-1"
-                >
-                  No SSIDs added yet. {{ connectOnDemand.ssid_mode === 'only' ? 'Connect-on-Demand will not trigger until you add at least one.' : 'Connect-on-Demand will trigger on every WiFi.' }}
-                </p>
-              </div>
-              <!-- Live status indicator -->
-              <div v-if="codStatus" class="flex items-center gap-1.5 pt-1">
-                <span class="inline-block w-1.5 h-1.5 rounded-full"
-                  :class="codStatus.vpn_connected ? 'bg-green-400' : (codStatus.rule_match ? 'bg-yellow-400' : 'bg-gray-400')"
-                />
-                <span class="text-[10px] text-gray-500 dark:text-gray-400">
-                  <template v-if="codStatus.ssid">{{ codStatus.ssid }} ({{ codStatus.network_type }})</template>
-                  <template v-else-if="codStatus.network_type !== 'none'">{{ codStatus.network_type }}</template>
-                  <template v-else>No network</template>
-                  <template v-if="codStatus.vpn_connected"> -- VPN: Active</template>
-                  <template v-else-if="codStatus.rule_match"> -- Connecting...</template>
-                </span>
-              </div>
-            </div>
-          </div>
           <div class="flex items-center justify-between">
             <span class="text-sm text-gray-700 dark:text-gray-300">Minimize to tray</span>
             <button
@@ -416,33 +305,18 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
         </div>
       </div>
 
-      <!-- Network Rules (Phase 2) -->
+      <!-- On-Demand & Network Rules (unified — v0.9.15.73) -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network Rules</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">On-Demand &amp; Network Rules</h3>
         <p class="text-[10px] text-gray-400 mb-3">
-          Per-network auto-tunnel routing. Define rules matching SSID / BSSID / network type → Pool / Connection / No-VPN.
-          When enabled, rules drive the choice of target (overrides Connect-on-Demand's simple SSID-match above).
-        </p>
-        <div class="flex items-center justify-between mb-1">
-          <span class="text-sm text-gray-700 dark:text-gray-300">Engine enabled</span>
-          <Switch
-            :model-value="!!settings.network_rules_enabled"
-            @update:model-value="(v: boolean) => { settings.network_rules_enabled = v; saveSettings() }"
-            :class="settings.network_rules_enabled ? 'toggle-enabled' : 'toggle-disabled'"
-            class="toggle"
-          >
-            <span class="toggle-knob" :class="settings.network_rules_enabled ? 'translate-x-5' : 'translate-x-0'" />
-          </Switch>
-        </div>
-        <p class="text-[10px] text-gray-500 mb-3">
-          Requires Connect-on-Demand to be enabled. Rules are not evaluated when COD is off — manual control wins.
-        </p>
-        <p v-if="!settings.network_rules_enabled" class="text-[10px] text-amber-500 mb-3">
-          Disabled by default in v0.9.13.4 after stability reports. Toggle on to activate. Existing rules persist.
+          Automatically connect — or stay off — based on the network you're on. Network
+          Rules are checked first, top to bottom; the first rule that matches the current
+          network wins. Any network no rule matches falls back to the Connect-on-Demand
+          default. The engine toggle and the default behaviour both live there.
         </p>
         <router-link to="/network-rules"
           class="btn-secondary block w-full py-2 text-center text-xs">
-          Manage Network Rules
+          Open On-Demand &amp; Network Rules
         </router-link>
       </div>
 
@@ -606,7 +480,7 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useVpnStore } from '@/stores/vpn'
-import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetConnectOnDemandStatus, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath, ValidateDnsOverride, TestDnsResolution, GetDnsProviders } from '../../wailsjs/go/main/App'
+import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath, ValidateDnsOverride, TestDnsResolution, GetDnsProviders } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
 import DnsOverrideField from '@/components/DnsOverrideField.vue'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
@@ -807,112 +681,6 @@ const settings = ref<any>({
   prevent_display_sleep: false,
 })
 
-// Connect on Demand state
-const connectOnDemand = ref<any>({
-  enabled: false,
-  trigger: 'any',
-  ssid_mode: 'all',
-  ssid_list: [],
-})
-const ssidListText = ref('') // legacy - kept for backward compat in loadSettings
-const newSSID = ref('')
-const codStatus = ref<any>(null)
-let codStatusInterval: ReturnType<typeof setInterval> | null = null
-
-async function toggleConnectOnDemand() {
-  connectOnDemand.value.enabled = !connectOnDemand.value.enabled
-  await saveOnDemandSettings()
-  if (connectOnDemand.value.enabled) {
-    startCodStatusPolling()
-  } else {
-    stopCodStatusPolling()
-    codStatus.value = null
-  }
-}
-
-async function saveOnDemandSettings() {
-  settings.value.connect_on_demand = { ...connectOnDemand.value }
-  // Keep legacy field in sync
-  settings.value.auto_connect_on_start = connectOnDemand.value.enabled
-  // SYNCHRONOUS save - the 300ms debounce on saveSettings() races
-  // with view re-mount: if the user toggles COD off and navigates
-  // away within 300ms, the Settings view re-mounts and calls
-  // loadSettings BEFORE the debounce timeout fires. loadSettings
-  // overwrites settings.value with the OLD-disk-state (still on),
-  // then the pending timeout fires UpdateSettings(settings.value)
-  // with the now-reloaded ON state - undoing the toggle. User-
-  // reported "COD toggle comes back after switching screens".
-  // Toggle clicks are intentional discrete events, no debounce
-  // needed. saveSettingsImmediate writes immediately.
-  await saveSettingsImmediate()
-}
-
-// Add a single SSID via the chip-input pattern (Android-style):
-// user types one network name, presses Enter (or clicks Add), it
-// appears as a removable chip below. Duplicates are silently
-// ignored. Empty input is a no-op so accidental Enter keystrokes
-// while the field is empty don't add blank entries.
-function addSSID() {
-  const trimmed = newSSID.value.trim()
-  if (!trimmed) return
-  if (!connectOnDemand.value.ssid_list) {
-    connectOnDemand.value.ssid_list = []
-  }
-  if (connectOnDemand.value.ssid_list.includes(trimmed)) {
-    // Already present - just clear input so the user knows nothing
-    // new happened.
-    newSSID.value = ''
-    return
-  }
-  connectOnDemand.value.ssid_list = [...connectOnDemand.value.ssid_list, trimmed]
-  newSSID.value = '' // clear input ready for the next entry
-  saveOnDemandSettings()
-}
-
-// Remove an SSID chip when the user clicks the chip's X.
-function removeSSID(ssid: string) {
-  if (!connectOnDemand.value.ssid_list) return
-  connectOnDemand.value.ssid_list = connectOnDemand.value.ssid_list.filter(
-    (s: string) => s !== ssid,
-  )
-  saveOnDemandSettings()
-}
-
-// Legacy comma-separated parser. Kept ONLY because loadSettings()
-// previously populated `ssidListText` for the old textarea. With the
-// chip-based UI we read from connectOnDemand.value.ssid_list directly,
-// so this function is no longer wired in the template - retained as
-// a no-op stub to avoid breaking any external bindings until we
-// fully retire it.
-function parseAndSaveSSIDs() {
-  const text = ssidListText.value.trim()
-  if (text) {
-    connectOnDemand.value.ssid_list = text.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
-  }
-  saveOnDemandSettings()
-}
-
-async function pollCodStatus() {
-  try {
-    codStatus.value = await GetConnectOnDemandStatus()
-  } catch (e) {
-    // Silently ignore polling errors
-  }
-}
-
-function startCodStatusPolling() {
-  if (codStatusInterval) return
-  pollCodStatus()
-  codStatusInterval = setInterval(pollCodStatus, 5000)
-}
-
-function stopCodStatusPolling() {
-  if (codStatusInterval) {
-    clearInterval(codStatusInterval)
-    codStatusInterval = null
-  }
-}
-
 // Platform features — controls which settings toggles are available
 const platform = ref<any>({
   kill_switch_supported: false,
@@ -934,16 +702,6 @@ async function loadSettings() {
     // Default to 'system' if not set
     if (!settings.value.theme) {
       settings.value.theme = 'system'
-    }
-    // Sync connect-on-demand state from loaded settings
-    if (settings.value.connect_on_demand) {
-      connectOnDemand.value = { ...settings.value.connect_on_demand }
-      if (connectOnDemand.value.ssid_list && connectOnDemand.value.ssid_list.length > 0) {
-        ssidListText.value = connectOnDemand.value.ssid_list.join(', ')
-      }
-      if (connectOnDemand.value.enabled) {
-        startCodStatusPolling()
-      }
     }
     applyTheme()
   } catch (e) {
@@ -1132,6 +890,5 @@ onUnmounted(() => {
   if (mediaQuery) {
     mediaQuery.removeEventListener('change', onSystemThemeChange)
   }
-  stopCodStatusPolling()
 })
 </script>

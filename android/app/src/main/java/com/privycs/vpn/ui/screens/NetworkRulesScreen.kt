@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.data.models.ConnectOnDemandSettings
 import com.privycs.vpn.data.models.NetworkRule
 import com.privycs.vpn.data.models.RuleAction
 import com.privycs.vpn.data.models.RuleMatchType
@@ -24,22 +25,28 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
- * Per-network auto-tunnel rules editor. Phase 2 of the wgtunnel-
- * inspired roadmap. List of rules in priority order; first
- * matching rule on every network change determines the active
- * VPN target (or "no VPN" for trusted networks).
+ * Unified On-Demand & Network Rules screen. Phase 2 of the wgtunnel-
+ * inspired roadmap, made the single source of truth for on-demand
+ * behaviour in v0.9.15.73 (Option A1 — COD + Network-Rules
+ * unification).
  *
- * Rules engine is authoritative once the user has at least one
- * rule. With zero rules, the legacy COD trigger / SSID-mode
- * logic runs as before - existing users see no change until
- * they add a rule. Communicated in the empty-state banner.
+ * Evaluation is strict first-match-then-fallback and the engine is
+ * unchanged: on every network change the rules are checked top to
+ * bottom, the first match wins; if no rule matches, the legacy
+ * Connect-on-Demand trigger / SSID-list runs as the "Default
+ * behaviour" shown pinned at the bottom. A1 only made that
+ * precedence visible — it did not rewrite the engine.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NetworkRulesScreen(onBack: () -> Unit) {
+fun NetworkRulesScreen(onBack: () -> Unit, onEditDefault: () -> Unit) {
     val app = PrivycsApp.instance
     val repo = remember { app.networkRulesRepository }
     val rules by repo.rules.collectAsState()
+    val settingsRepo = remember { app.settingsRepository }
+    val settings by settingsRepo.settingsFlow.collectAsState(
+        initial = settingsRepo.defaultSettings(),
+    )
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<NetworkRule?>(null) }
     var showCreate by remember { mutableStateOf(false) }
@@ -47,7 +54,9 @@ fun NetworkRulesScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Network Rules", fontWeight = FontWeight.SemiBold) },
+                title = {
+                    Text("On-Demand & Network Rules", fontWeight = FontWeight.SemiBold)
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -61,68 +70,68 @@ fun NetworkRulesScreen(onBack: () -> Unit) {
             }
         },
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 16.dp),
         ) {
-            if (rules.isEmpty()) {
+            item {
                 Spacer(Modifier.height(12.dp))
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    ),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "No rules defined",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "When empty, the legacy Connect-on-Demand " +
-                                "trigger + SSID list (Settings → Connect on Demand) " +
-                                "drives the lifecycle. Add a rule below to take " +
-                                "fine-grained control: per-SSID / per-BSSID / per-" +
-                                "transport routing to a specific Pool, Connection, " +
-                                "or No VPN.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
+                PrecedenceHeaderCard()
+                Spacer(Modifier.height(16.dp))
+            }
+
+            if (rules.isEmpty()) {
+                item { EmptyRulesCard() }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(rules, key = { it.id }) { rule ->
-                        RuleRow(
-                            rule = rule,
-                            onEdit = { editing = rule },
-                            onDelete = { scope.launch { repo.delete(rule.id) } },
-                            onMoveUp = {
-                                val idx = rules.indexOf(rule)
-                                if (idx > 0) {
-                                    val ids = rules.map { it.id }.toMutableList()
-                                    ids[idx] = ids[idx - 1].also { ids[idx - 1] = ids[idx] }
-                                    scope.launch { repo.reorder(ids) }
-                                }
-                            },
-                            onMoveDown = {
-                                val idx = rules.indexOf(rule)
-                                if (idx < rules.size - 1) {
-                                    val ids = rules.map { it.id }.toMutableList()
-                                    ids[idx] = ids[idx + 1].also { ids[idx + 1] = ids[idx] }
-                                    scope.launch { repo.reorder(ids) }
-                                }
-                            },
-                            onToggle = {
-                                scope.launch {
-                                    repo.update(rule.copy(enabled = !rule.enabled))
-                                }
-                            },
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
+                item {
+                    Text(
+                        "RULES — CHECKED TOP TO BOTTOM",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
                 }
+                items(rules, key = { it.id }) { rule ->
+                    RuleRow(
+                        rule = rule,
+                        onEdit = { editing = rule },
+                        onDelete = { scope.launch { repo.delete(rule.id) } },
+                        onMoveUp = {
+                            val idx = rules.indexOf(rule)
+                            if (idx > 0) {
+                                val ids = rules.map { it.id }.toMutableList()
+                                ids[idx] = ids[idx - 1].also { ids[idx - 1] = ids[idx] }
+                                scope.launch { repo.reorder(ids) }
+                            }
+                        },
+                        onMoveDown = {
+                            val idx = rules.indexOf(rule)
+                            if (idx < rules.size - 1) {
+                                val ids = rules.map { it.id }.toMutableList()
+                                ids[idx] = ids[idx + 1].also { ids[idx + 1] = ids[idx] }
+                                scope.launch { repo.reorder(ids) }
+                            }
+                        },
+                        onToggle = {
+                            scope.launch {
+                                repo.update(rule.copy(enabled = !rule.enabled))
+                            }
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(8.dp))
+                DefaultBehaviourCard(
+                    cod = settings.connectOnDemand,
+                    onEdit = onEditDefault,
+                )
+                Spacer(Modifier.height(24.dp))
             }
         }
 
@@ -150,6 +159,138 @@ fun NetworkRulesScreen(onBack: () -> Unit) {
                 },
             )
         }
+    }
+}
+
+/**
+ * Precedence explainer pinned at the top — the visible-precedence
+ * half of Option A1. Before unification, neither the Settings COD
+ * section nor this screen told the user that rules win over the
+ * simple trigger.
+ */
+@Composable
+private fun PrecedenceHeaderCard() {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "How this screen decides",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "On every network change the rules below are checked " +
+                    "top to bottom — the first rule that matches the " +
+                    "current Wi-Fi or mobile network wins. If no rule " +
+                    "matches, the Default behaviour pinned at the bottom " +
+                    "applies. Rules are only evaluated while " +
+                    "Connect-on-Demand is enabled.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyRulesCard() {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("No rules yet", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Every network falls through to the Default behaviour " +
+                    "below. Add a rule with the + button to override it " +
+                    "for a specific Wi-Fi SSID, BSSID, or network type — " +
+                    "routing that network to a Pool, a Connection, or " +
+                    "No VPN.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+/**
+ * The pinned, non-deletable fallback card. Summarises the legacy
+ * Connect-on-Demand trigger / SSID-list and links to the full
+ * editor (ConnectOnDemandScreen).
+ */
+@Composable
+private fun DefaultBehaviourCard(cod: ConnectOnDemandSettings, onEdit: () -> Unit) {
+    Text(
+        "FALLBACK — WHEN NO RULE MATCHES",
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(8.dp))
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Default behaviour",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        "Connect on Demand — applies to any network no rule above matched",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = onEdit) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("Edit")
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                connectOnDemandSummary(cod),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
+private fun connectOnDemandSummary(cod: ConnectOnDemandSettings): String {
+    if (!cod.enabled) {
+        return "Connect-on-Demand is off — the VPN stays under manual " +
+            "control on networks no rule matched."
+    }
+    val trigger = when (cod.trigger) {
+        "wifi" -> "Connect on Wi-Fi"
+        "mobile" -> "Connect on mobile data"
+        else -> "Connect on Wi-Fi & mobile data"
+    }
+    val wifiInTrigger = cod.trigger == "wifi" || cod.trigger == "wifi_mobile"
+    if (!wifiInTrigger) return trigger
+    val n = cod.ssidList.size
+    val nets = "Wi-Fi network" + if (n == 1) "" else "s"
+    return when (cod.ssidMode) {
+        "only" -> "$trigger — but only on $n saved $nets"
+        "except" -> "$trigger — except $n saved $nets"
+        else -> "$trigger — on every Wi-Fi network"
     }
 }
 
