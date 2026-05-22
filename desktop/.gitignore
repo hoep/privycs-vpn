@@ -8,3 +8,12 @@ frontend/dist
 # assets/geoip/ for the disk-fallback lookup path; that copy is large
 # (~6 MB) and stays out of source control.
 assets/geoip/Country.mmdb
+
+# Compiled app binaries — release builds are produced by CI, never
+# committed. desktop/desktop and desktop/desktop.exe were committed
+# by accident and removed in the pre-public-release cleanup.
+desktop
+desktop.exe
+
+# npm build-cache fingerprint.
+frontend/package.json.md5

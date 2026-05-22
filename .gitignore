@@ -21,3 +21,35 @@
 # Specifically the Play Console "Download deployment_cert" file —
 # regardless of where saved.
 deployment_cert*
+
+# ── Local / internal files — never publish ───────────────────────
+# AI-assistant working notes and internal planning docs: local-only.
+CLAUDE.md
+OPEN_TEST_BLOCKERS_PLAN.md
+
+# Stray debug / log dumps.
+debug.txt
+*.log
+
+# ── Build outputs ────────────────────────────────────────────────
+# Release artifacts are produced by CI and attached to GitHub
+# Releases — they are never committed to the source tree.
+*.apk
+*.aab
+
+# ── OS / editor cruft ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*~
+*.bak
+*.orig
+*.swp
+.idea/
+.vscode/
+*.iml
+
+# ── Play Store listing assets — local-only ───────────────────────
+# Store icons + listing screenshots. The screenshots here are the
+# UN-blurred originals (real server hostnames / IP addresses); the
+# blurred, repo-safe versions live in screenshots/.
+android/play-store/
