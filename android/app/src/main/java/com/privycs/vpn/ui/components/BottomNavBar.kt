@@ -63,7 +63,10 @@ fun BottomNavBar(
                 label = {
                     Text(
                         text = itemLabel,
-                        style = MaterialTheme.typography.labelSmall
+                        style = MaterialTheme.typography.labelSmall,
+                        // Single line — long localised labels (de/es/fr)
+                        // must not wrap the nav bar onto two rows.
+                        maxLines = 1
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(

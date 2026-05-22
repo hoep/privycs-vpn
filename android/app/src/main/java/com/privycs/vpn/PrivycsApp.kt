@@ -39,7 +39,7 @@ import java.util.UUID
 class PrivycsApp : StrongSwanApplication() {
 
     override fun attachBaseContext(base: Context?) {
-        super.attachBaseContext(base)
+        super.attachBaseContext(if (base != null) com.privycs.vpn.util.AppLocale.wrap(base) else null)
         // Crash handler: write the full stack trace to externalFilesDir
         // (/storage/emulated/0/Android/data/com.privycs.vpn/files/) so the
         // user can open it in any Files app without ADB or root. The

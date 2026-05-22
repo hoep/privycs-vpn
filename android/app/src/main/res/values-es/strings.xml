@@ -323,7 +323,7 @@
 
     <!-- BottomNavBar -->
     <string name="nav_label_connect">Conectar</string>
-    <string name="nav_label_configs">Configuraciones</string>
+    <string name="nav_label_configs">Perfiles</string>
     <string name="nav_label_add">Añadir</string>
     <string name="nav_label_settings">Ajustes</string>
     <string name="nav_label_help">Ayuda</string>
@@ -477,6 +477,8 @@
     <string name="settings_theme_system">Sistema</string>
     <string name="settings_theme_dark">Oscuro</string>
     <string name="settings_theme_light">Claro</string>
+    <string name="settings_language_label">Idioma</string>
+    <string name="settings_language_system">Predeterminado del sistema</string>
     <string name="settings_about_app_label">Aplicación</string>
     <string name="settings_about_version_label">Versión</string>
     <string name="settings_about_protocols_label">Protocolos</string>

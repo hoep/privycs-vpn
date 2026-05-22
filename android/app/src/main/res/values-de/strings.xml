@@ -323,9 +323,9 @@
 
     <!-- BottomNavBar -->
     <string name="nav_label_connect">Verbinden</string>
-    <string name="nav_label_configs">Konfigurationen</string>
-    <string name="nav_label_add">Hinzufügen</string>
-    <string name="nav_label_settings">Einstellungen</string>
+    <string name="nav_label_configs">Profile</string>
+    <string name="nav_label_add">Neu</string>
+    <string name="nav_label_settings">Optionen</string>
     <string name="nav_label_help">Hilfe</string>
 
     <!-- ConnectScreen -->
@@ -477,6 +477,8 @@
     <string name="settings_theme_system">System</string>
     <string name="settings_theme_dark">Dunkel</string>
     <string name="settings_theme_light">Hell</string>
+    <string name="settings_language_label">Sprache</string>
+    <string name="settings_language_system">Systemstandard</string>
     <string name="settings_about_app_label">App</string>
     <string name="settings_about_version_label">Version</string>
     <string name="settings_about_protocols_label">Protokolle</string>

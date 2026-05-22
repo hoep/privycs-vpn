@@ -1,6 +1,7 @@
 package com.privycs.vpn
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -29,6 +30,7 @@ import com.privycs.vpn.R
 import com.privycs.vpn.data.models.AppTheme
 import com.privycs.vpn.navigation.AppNavigation
 import com.privycs.vpn.ui.theme.PrivycsVpnTheme
+import com.privycs.vpn.util.AppLocale
 import kotlinx.coroutines.launch
 
 // v0.9.15.75: the open-test build ships WITHOUT ACCESS_BACKGROUND_LOCATION
@@ -43,6 +45,13 @@ import kotlinx.coroutines.launch
 private const val BACKGROUND_LOCATION_ENABLED = false
 
 class MainActivity : ComponentActivity() {
+
+    // Apply the in-app language choice before the UI inflates. On
+    // Android 13+ the framework LocaleManager handles it; this wrap is
+    // the Android 8–12 path. See AppLocale.
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

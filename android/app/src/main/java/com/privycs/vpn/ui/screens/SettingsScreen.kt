@@ -72,6 +72,7 @@ import com.privycs.vpn.R
 import com.privycs.vpn.api.GatewayApiClient
 import com.privycs.vpn.backup.CloudBackupManager
 import com.privycs.vpn.data.models.AppTheme
+import com.privycs.vpn.util.AppLocale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -972,6 +973,58 @@ fun SettingsScreen(
                                 )
                             ) {
                                 Text(label, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+
+                // -- App language: in-app picker. Works on Android
+                // 8–12 too, which have no system per-app language
+                // setting (Android 13+ also has the system picker). --
+                Spacer(modifier = Modifier.height(16.dp))
+                run {
+                    val langContext = LocalContext.current
+                    val langActivity = langContext as? Activity
+                    var langMenuOpen by remember { mutableStateOf(false) }
+                    val currentLang = remember { AppLocale.currentTag(langContext) }
+                    val systemLabel = stringResource(R.string.settings_language_system)
+                    fun langName(tag: String) = when (tag) {
+                        "" -> systemLabel
+                        "en" -> "English"
+                        "de" -> "Deutsch"
+                        "es" -> "Español"
+                        "fr" -> "Français"
+                        else -> tag
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_language_label),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Box {
+                            TextButton(onClick = { langMenuOpen = true }) {
+                                Text(langName(currentLang))
+                            }
+                            DropdownMenu(
+                                expanded = langMenuOpen,
+                                onDismissRequest = { langMenuOpen = false }
+                            ) {
+                                AppLocale.SUPPORTED.forEach { tag ->
+                                    DropdownMenuItem(
+                                        text = { Text(langName(tag)) },
+                                        onClick = {
+                                            langMenuOpen = false
+                                            if (tag != currentLang && langActivity != null) {
+                                                AppLocale.setLanguage(langActivity, tag)
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
