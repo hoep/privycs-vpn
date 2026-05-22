@@ -326,9 +326,11 @@ class VpnWidget : AppWidgetProvider() {
                 // delayed reconnect never fires.
                 scope.launch {
                     try {
-                        val settings = com.privycs.vpn.PrivycsApp.instance
-                            .settingsRepository.getSettingsBlocking()
-                        if (!settings.connectOnDemand.enabled) return@launch
+                        if (!com.privycs.vpn.PrivycsApp.instance
+                                .networkRulesRepository.hasRules
+                        ) {
+                            return@launch
+                        }
                         delay(400)
                         val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
                         nm.reevaluate()

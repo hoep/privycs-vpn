@@ -29,8 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.privycs.vpn.R
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.html.HtmlPlugin
@@ -84,7 +86,7 @@ fun HelpScreen() {
             is HelpState.Error -> Centered {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "Could not load help",
+                        text = stringResource(R.string.help_load_error_title),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
@@ -97,7 +99,7 @@ fun HelpScreen() {
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = {
                         state = HelpState.Loading
-                    }) { Text("Retry") }
+                    }) { Text(stringResource(R.string.help_retry)) }
                 }
             }
             is HelpState.Loaded -> MarkdownView(s.markdown)

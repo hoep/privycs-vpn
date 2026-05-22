@@ -23,7 +23,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.AppTheme
 import com.privycs.vpn.navigation.AppNavigation
 import com.privycs.vpn.ui.theme.PrivycsVpnTheme
@@ -201,12 +203,14 @@ class MainActivity : ComponentActivity() {
                     // launch (user grants once, OS persists). Re-
                     // checking on every app start in case the user
                     // later denied or the OS auto-revoked.
+                    val codRules by PrivycsApp.instance.networkRulesRepository
+                        .rules.collectAsState()
                     LaunchedEffect(
                         settings.firstLaunchCompleted,
-                        settings.connectOnDemand.enabled,
+                        codRules.isEmpty(),
                     ) {
                         if (!settings.firstLaunchCompleted) return@LaunchedEffect
-                        if (!settings.connectOnDemand.enabled) return@LaunchedEffect
+                        if (codRules.isEmpty()) return@LaunchedEffect
                         if (com.privycs.vpn.util.BatteryOptimizationHelper
                                 .isIgnoringBatteryOptimizations(this@MainActivity)
                         ) return@LaunchedEffect
@@ -229,36 +233,26 @@ private fun FirstRunPermissionDisclosureDialog(
 ) {
     AlertDialog(
         onDismissRequest = onSkip,
-        title = { Text("Permissions Privycs uses") },
+        title = { Text(stringResource(R.string.mainact_perm_dialog_title)) },
         text = {
             Text(
-                "To work fully, Privycs asks for a few permissions now:\n\n" +
-                    "• Notifications — to show VPN status and on-demand " +
-                    "events.\n" +
-                    "• Location / Nearby Wi-Fi — required by Android only " +
-                    "so the app can read the NAME of your current Wi-Fi " +
-                    "network for Connect-on-Demand rules (e.g. \"VPN off " +
-                    "on my home Wi-Fi\"). It is never used to determine " +
-                    "your geographic location, and nothing is ever sent " +
-                    "off your device.\n\n" +
+                stringResource(R.string.mainact_perm_dialog_body) +
                     if (BACKGROUND_LOCATION_ENABLED) {
-                        "After that you'll be asked to \"Allow all the " +
-                            "time\" — Android needs that so on-demand " +
-                            "rules keep working while the app is closed " +
-                            "or the screen is off. You can change any " +
-                            "of this later in Settings."
+                        stringResource(R.string.mainact_perm_dialog_body_bg)
                     } else {
-                        "Connect-on-Demand by Wi-Fi name works while " +
-                            "Privycs is open on screen. You can change " +
-                            "any of this later in Settings."
+                        stringResource(R.string.mainact_perm_dialog_body_nobg)
                     }
             )
         },
         confirmButton = {
-            TextButton(onClick = onGrant) { Text("Continue") }
+            TextButton(onClick = onGrant) {
+                Text(stringResource(R.string.mainact_button_continue))
+            }
         },
         dismissButton = {
-            TextButton(onClick = onSkip) { Text("Not now") }
+            TextButton(onClick = onSkip) {
+                Text(stringResource(R.string.mainact_button_not_now))
+            }
         }
     )
 }
@@ -270,24 +264,19 @@ private fun BackgroundLocationRationaleDialog(
 ) {
     AlertDialog(
         onDismissRequest = onSkip,
-        title = { Text("Allow Wi-Fi rules in the background?") },
+        title = { Text(stringResource(R.string.mainact_bg_dialog_title)) },
         text = {
-            Text(
-                "On the next screen, choose \"Allow all the time\". " +
-                    "Android only reveals your Wi-Fi network name to a " +
-                    "backgrounded app with this setting — without it, " +
-                    "Connect-on-Demand rules based on Wi-Fi name only " +
-                    "work while Privycs is open on screen.\n\n" +
-                    "Privycs uses this solely to read the Wi-Fi name " +
-                    "locally for your rules. It never derives or " +
-                    "transmits your location."
-            )
+            Text(stringResource(R.string.mainact_bg_dialog_body))
         },
         confirmButton = {
-            TextButton(onClick = onGrant) { Text("Continue") }
+            TextButton(onClick = onGrant) {
+                Text(stringResource(R.string.mainact_button_continue))
+            }
         },
         dismissButton = {
-            TextButton(onClick = onSkip) { Text("Skip") }
+            TextButton(onClick = onSkip) {
+                Text(stringResource(R.string.mainact_button_skip))
+            }
         }
     )
 }

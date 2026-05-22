@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -313,7 +314,7 @@ fun ConnectScreen(
                 if (isSinkholeActive) {
                     android.widget.Toast.makeText(
                         context,
-                        "Kill Switch is active. Toggle Kill Switch off in Settings to release.",
+                        context.getString(R.string.connect_kill_switch_active_toast),
                         android.widget.Toast.LENGTH_LONG,
                     ).show()
                 } else {
@@ -336,8 +337,7 @@ fun ConnectScreen(
                         // re-enter within roughly one second, every time.
                         vpnManager.disconnect()
                         coroutineScope.launch {
-                            val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
-                            if (!settings.connectOnDemand.enabled) return@launch
+                            if (!PrivycsApp.instance.networkRulesRepository.hasRules) return@launch
                             // Give the disconnect a moment to propagate
                             // (service stopSelf + scope.cancel + status=empty).
                             kotlinx.coroutines.delay(400)
@@ -378,7 +378,10 @@ fun ConnectScreen(
             val mins = pauseRemainingSec / 60
             val secs = pauseRemainingSec % 60
             Text(
-                text = "Paused — ${String.format("%d:%02d", mins, secs)} remaining",
+                text = stringResource(
+                    R.string.connect_paused_remaining,
+                    String.format("%d:%02d", mins, secs)
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -397,7 +400,7 @@ fun ConnectScreen(
                     }
                 },
             ) {
-                Text("Resume now")
+                Text(stringResource(R.string.connect_resume_now))
             }
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -461,7 +464,7 @@ fun ConnectScreen(
                     Icon(
                         imageVector = if (showConnectionPicker) Icons.Filled.KeyboardArrowUp
                         else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = "Switch connection",
+                        contentDescription = stringResource(R.string.connect_switch_connection),
                         // 18dp -> 16dp matches the Material icon
                         // baseline for in-line-with-bodyMedium
                         // contexts; visually paired better with
@@ -486,7 +489,7 @@ fun ConnectScreen(
                 ) {
                     if (connections.isNotEmpty()) {
                         Text(
-                            text = "Connections",
+                            text = stringResource(R.string.connect_section_connections),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -573,7 +576,7 @@ fun ConnectScreen(
                                     ) {
                                         android.widget.Toast.makeText(
                                             context,
-                                            "Kill Switch active. This will block your reconnect!",
+                                            context.getString(R.string.connect_kill_switch_block_reconnect_toast),
                                             android.widget.Toast.LENGTH_LONG,
                                         ).show()
                                     }
@@ -588,7 +591,7 @@ fun ConnectScreen(
                             )
                         }
                         Text(
-                            text = "Pools",
+                            text = stringResource(R.string.connect_section_pools),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -744,7 +747,7 @@ fun ConnectScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 TransferCard(
-                    label = "Download",
+                    label = stringResource(R.string.connect_transfer_download),
                     bytes = status.rxBytes,
                     icon = Icons.Outlined.ArrowDownward,
                     iconTint = Color(0xFF22C55E),
@@ -753,7 +756,7 @@ fun ConnectScreen(
                     modifier = Modifier.weight(1f)
                 )
                 TransferCard(
-                    label = "Upload",
+                    label = stringResource(R.string.connect_transfer_upload),
                     bytes = status.txBytes,
                     icon = Icons.Outlined.ArrowUpward,
                     iconTint = Color(0xFF3B82F6),
@@ -887,7 +890,7 @@ private fun WelcomeView(onNavigateToAdd: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Welcome to Privycs VPN",
+            text = stringResource(R.string.connect_welcome_title),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground
@@ -896,7 +899,7 @@ private fun WelcomeView(onNavigateToAdd: () -> Unit) {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Import a VPN config to get started",
+            text = stringResource(R.string.connect_welcome_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -909,7 +912,7 @@ private fun WelcomeView(onNavigateToAdd: () -> Unit) {
                 containerColor = MaterialTheme.colorScheme.primary
             )
         ) {
-            Text("Add Connection")
+            Text(stringResource(R.string.connect_add_connection))
         }
     }
 }
@@ -1019,7 +1022,7 @@ private fun ConnectButton(
                     // to read the status text.
                     Icon(
                         imageVector = Icons.Filled.GppBad,
-                        contentDescription = "Kill Switch Active",
+                        contentDescription = stringResource(R.string.connect_kill_switch_active_desc),
                         modifier = Modifier.size(56.dp),
                         tint = Color.White,
                     )
@@ -1058,7 +1061,7 @@ private fun ConnectButton(
                     } else {
                         Icon(
                             imageVector = Icons.Filled.GppGood,
-                            contentDescription = "Privycs",
+                            contentDescription = stringResource(R.string.connect_app_name_desc),
                             modifier = Modifier.size(56.dp),
                             tint = tint
                         )
@@ -1067,10 +1070,10 @@ private fun ConnectButton(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = when {
-                        isConnecting && isConnected -> "Disconnecting..."
-                        isConnecting -> "Connecting..."
-                        isConnected -> "Connected"
-                        else -> "Connect"
+                        isConnecting && isConnected -> stringResource(R.string.connect_status_disconnecting)
+                        isConnecting -> stringResource(R.string.connect_status_connecting)
+                        isConnected -> stringResource(R.string.connect_status_connected)
+                        else -> stringResource(R.string.connect_status_connect)
                     },
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
@@ -1178,7 +1181,7 @@ private fun ProtocolBadges(
                     Spacer(modifier = Modifier.width(2.dp))
                     Icon(
                         imageVector = Icons.Filled.ArrowDropDown,
-                        contentDescription = "Pick config",
+                        contentDescription = stringResource(R.string.connect_pick_config),
                         tint = textColor,
                         modifier = Modifier.size(12.dp),
                     )
@@ -1235,7 +1238,7 @@ private fun MultiConfigPickerSheet(
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(
-                text = "Choose ${protocol.label} config",
+                text = stringResource(R.string.connect_choose_config, protocol.label),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -1279,7 +1282,7 @@ private fun MultiConfigPickerSheet(
                     }
                     if (isActive) {
                         Text(
-                            text = "active",
+                            text = stringResource(R.string.connect_config_active),
                             style = MaterialTheme.typography.labelSmall,
                             color = badgeColor,
                         )
@@ -1380,13 +1383,13 @@ private fun ConnectionDetails(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (localAddress.isNotBlank()) {
-            DetailRow(label = "VPN IP", value = localAddress)
+            DetailRow(label = stringResource(R.string.connect_detail_vpn_ip), value = localAddress)
         }
         if (serverAddress.isNotBlank()) {
-            DetailRow(label = "Endpoint", value = serverAddress)
+            DetailRow(label = stringResource(R.string.connect_detail_endpoint), value = serverAddress)
         }
         if (lastHandshake.isNotBlank()) {
-            DetailRow(label = "Handshake", value = lastHandshake)
+            DetailRow(label = stringResource(R.string.connect_detail_handshake), value = lastHandshake)
         }
     }
 }
@@ -1441,11 +1444,11 @@ private fun DetailRow(label: String, value: String) {
 private fun HealthPill(state: com.privycs.vpn.service.TunnelHealthMonitor.State) {
     val (color, label) = when (state) {
         com.privycs.vpn.service.TunnelHealthMonitor.State.HEALTHY ->
-            Color(0xFF10B981) to "Tunnel OK"
+            Color(0xFF10B981) to stringResource(R.string.connect_health_ok)
         com.privycs.vpn.service.TunnelHealthMonitor.State.DEGRADED ->
-            Color(0xFFF59E0B) to "Tunnel checks failing"
+            Color(0xFFF59E0B) to stringResource(R.string.connect_health_degraded)
         com.privycs.vpn.service.TunnelHealthMonitor.State.RECOVERING ->
-            Color(0xFFDC2626) to "Recovery in progress"
+            Color(0xFFDC2626) to stringResource(R.string.connect_health_recovering)
         else -> Color(0xFF6B7280) to ""
     }
     Row(

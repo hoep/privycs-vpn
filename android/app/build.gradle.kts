@@ -260,6 +260,12 @@ dependencies {
     // ZXing (older, more boilerplate).
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 
+    // Google Play Billing — the one-time "Privycs Pro" in-app purchase
+    // (managed product privycs_pro_lifetime). billing-ktx is the base
+    // billing library plus Kotlin coroutine extensions. v7.x is the
+    // minimum the Play Store accepts for new uploads.
+    implementation("com.android.billingclient:billing-ktx:7.1.1")
+
     // MMDB reader for Pool feature's country-of-origin lookup. We
     // use the lightweight maxmind-db library (NOT geoip2) - it just
     // reads the binary MMDB format without the GeoIP2-specific

@@ -17,7 +17,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.privycs.vpn.R
 import com.privycs.vpn.util.DnsValidator
 
 /**
@@ -41,7 +43,7 @@ import com.privycs.vpn.util.DnsValidator
 fun DnsPresetPicker(
     onPick: (servers: String) -> Unit,
     modifier: Modifier = Modifier,
-    label: String = "Or pick a preset…",
+    label: String = stringResource(R.string.dnspreset_pick_preset_label),
 ) {
     var open by remember { mutableStateOf(false) }
     Box(modifier = modifier.fillMaxWidth()) {

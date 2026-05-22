@@ -34,9 +34,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.Pool
 import com.privycs.vpn.data.models.PoolPolicy
 import com.privycs.vpn.data.models.RegionCoverage
@@ -219,19 +222,19 @@ private fun EditPoolSheet(
                 .imePadding()
                 .verticalScroll(rememberScrollState())
         ) {
-            Text("Edit pool", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.pooldetailhost_edit_pool_title), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(16.dp))
 
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Pool name") },
+                label = { Text(stringResource(R.string.pooldetailhost_pool_name_label)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(16.dp))
 
-            Text("Policy", style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.pooldetailhost_policy_label), style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(4.dp))
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 val policies = PoolPolicy.values()
@@ -251,7 +254,7 @@ private fun EditPoolSheet(
                     onValueChange = {
                         intervalMin = it.filter { ch -> ch.isDigit() }
                     },
-                    label = { Text("Rotation interval (minutes)") },
+                    label = { Text(stringResource(R.string.pooldetailhost_rotation_interval_label)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -265,13 +268,11 @@ private fun EditPoolSheet(
             Spacer(Modifier.height(20.dp))
             androidx.compose.material3.HorizontalDivider()
             Spacer(Modifier.height(12.dp))
-            Text("Split tunnel (bypass)",
+            Text(stringResource(R.string.pooldetailhost_split_tunnel_title),
                 style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Traffic to these IP ranges goes around the VPN. " +
-                        "WireGuard + OpenVPN; IPSec members are skipped " +
-                        "(server-side traffic-selector negotiation).",
+                stringResource(R.string.pooldetailhost_split_tunnel_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -286,11 +287,10 @@ private fun EditPoolSheet(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Exclude private networks",
+                    Text(stringResource(R.string.pooldetailhost_exclude_private_label),
                         style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        "RFC1918 (10/8, 172.16/12, 192.168/16) + " +
-                                "IPv6 ULA fc00::/7 + link-local",
+                        stringResource(R.string.pooldetailhost_exclude_private_desc),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -308,8 +308,8 @@ private fun EditPoolSheet(
             OutlinedTextField(
                 value = bypassCidrsText,
                 onValueChange = { bypassCidrsText = it },
-                label = { Text("Custom bypass CIDRs (one per line)") },
-                placeholder = { Text("203.0.113.0/24\n2001:db8::/32\n198.51.100.42") },
+                label = { Text(stringResource(R.string.pooldetailhost_bypass_cidrs_label)) },
+                placeholder = { Text(stringResource(R.string.pooldetailhost_bypass_cidrs_placeholder)) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(120.dp),
@@ -317,15 +317,20 @@ private fun EditPoolSheet(
                     val (total, invalidCount, invalidLines) = bypassValidation
                     when {
                         total == 0 -> Text(
-                            "Empty = no custom CIDRs (private-networks toggle still applies)"
+                            stringResource(R.string.pooldetailhost_bypass_cidrs_empty)
                         )
                         invalidCount == 0 -> Text(
-                            "$total CIDR${if (total == 1) "" else "s"} valid",
+                            pluralStringResource(
+                                R.plurals.pooldetailhost_bypass_cidrs_valid, total, total
+                            ),
                             color = MaterialTheme.colorScheme.primary
                         )
                         else -> Text(
-                            "$invalidCount of $total invalid: " +
-                                    invalidLines.take(3).joinToString(", "),
+                            stringResource(
+                                R.string.pooldetailhost_bypass_cidrs_invalid,
+                                invalidCount, total,
+                                invalidLines.take(3).joinToString(", ")
+                            ),
                             color = MaterialTheme.colorScheme.error
                         )
                     }
@@ -343,21 +348,24 @@ private fun EditPoolSheet(
             OutlinedTextField(
                 value = dnsOverride,
                 onValueChange = { dnsOverride = it },
-                label = { Text("DNS Override (per-pool)") },
-                placeholder = { Text("e.g. 1.1.1.1, 2606:4700:4700::1111") },
+                label = { Text(stringResource(R.string.pooldetailhost_dns_override_label)) },
+                placeholder = { Text(stringResource(R.string.pooldetailhost_dns_override_placeholder)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 supportingText = {
                     when {
                         dnsOverride.isBlank() -> Text(
-                            "Empty = inherit global Settings DNS Override"
+                            stringResource(R.string.pooldetailhost_dns_override_empty)
                         )
                         dnsInvalid.isEmpty() -> Text(
-                            "Valid",
+                            stringResource(R.string.pooldetailhost_dns_override_valid),
                             color = MaterialTheme.colorScheme.primary
                         )
                         else -> Text(
-                            "Invalid: ${dnsInvalid.joinToString(", ")}",
+                            stringResource(
+                                R.string.pooldetailhost_dns_override_invalid,
+                                dnsInvalid.joinToString(", ")
+                            ),
                             color = MaterialTheme.colorScheme.error
                         )
                     }
@@ -378,7 +386,7 @@ private fun EditPoolSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
             ) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.pooldetailhost_cancel)) }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     enabled = name.isNotBlank(),
@@ -408,7 +416,7 @@ private fun EditPoolSheet(
                         )
                         scope.launch { onSave(updated) }
                     }
-                ) { Text("Save") }
+                ) { Text(stringResource(R.string.pooldetailhost_save)) }
             }
             Spacer(Modifier.height(8.dp))
         }

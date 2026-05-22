@@ -8,7 +8,8 @@ import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
 import com.privycs.vpn.PrivycsApp
-import com.privycs.vpn.data.models.ConnectOnDemandSettings
+import com.privycs.vpn.data.models.RuleMatchType
+import com.privycs.vpn.data.models.RuleResolution
 import com.privycs.vpn.util.AlwaysOnDetector
 import com.privycs.vpn.util.PrivycsLogger
 import kotlinx.coroutines.CoroutineScope
@@ -18,9 +19,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 data class NetworkState(
@@ -127,15 +126,6 @@ class NetworkMonitor private constructor(private val context: Context) {
     // captive-portal-validation phase). Unregistered in stop().
     private var wakeReceiver: android.content.BroadcastReceiver? = null
 
-    // Edge-trigger state. Only used on the DISCONNECT side so that a
-    // flipping rule does not keep issuing redundant disconnect calls while
-    // the VPN is already torn down. The connect side intentionally does
-    // NOT require a transition: if on-demand rules match and the VPN is
-    // off, we connect immediately, even 2 seconds after the user manually
-    // disconnected. That is the whole point of on-demand - the "VPN will
-    // connect" banner has to be true, not aspirational.
-    private var lastShouldConnect: Boolean? = null
-
     // v0.9.15.70 — Callback-driven SSID state machine. On Android 12+
     // the OS REDACTS WifiInfo.ssid in every poll-style API
     // (WifiManager.connectionInfo, ConnectivityManager.getNetwork-
@@ -187,8 +177,8 @@ class NetworkMonitor private constructor(private val context: Context) {
     // settings flow, VPN-status flow) used to scope.launch its own
     // evaluateCurrentNetwork() coroutine. On Dispatchers.Main they
     // don't run in parallel but DO interleave at suspend points
-    // (settingsFlow.first(), requestConnect/Disconnect), racing
-    // lastShouldConnect / lastRuleKey / indeterminateSkipCount / the
+    // (rule resolve(), requestConnect/Disconnect), racing
+    // lastRuleKey / indeterminateSkipCount / the
     // SSID cache → sporadic wrong decisions. A CONFLATED channel +
     // one consumer collapses a callback burst into a single, ordered
     // evaluation with the latest settled state. The channel is never
@@ -206,25 +196,22 @@ class NetworkMonitor private constructor(private val context: Context) {
         started = true
         PrivycsLogger.d(TAG, "Starting network monitor")
 
-        // Re-evaluate when on-demand settings change (SSID list, mode,
-        // trigger). Without this the user's rule edits only take effect on
-        // the next spontaneous network event.
+        // Re-evaluate whenever the rule list changes — the user adds /
+        // edits / deletes / reorders a rule, or the COD→rules migration
+        // runs. Without this a rule edit only takes effect on the next
+        // spontaneous network event.
         scope.launch {
-            PrivycsApp.instance.settingsRepository.settingsFlow
-                .map { it.connectOnDemand }
+            PrivycsApp.instance.networkRulesRepository.rules
                 .distinctUntilChanged()
                 .collect {
-                    PrivycsLogger.d(TAG, "Connect-on-demand settings changed, re-evaluating")
-                    // Force edge transition on settings change so a rule flip
-                    // is applied immediately even if the network state is
-                    // unchanged.
-                    lastShouldConnect = null
-                    // Clear the manual-disconnect cooldown stamp.
-                    // Toggling COD or editing rules is an explicit
-                    // user intent in its own right; a stale "I tapped
-                    // Disconnect 5 seconds ago" stamp should not
-                    // silently suppress the evaluation that runs as
-                    // a direct consequence of the new settings.
+                    PrivycsLogger.d(TAG, "Network rules changed, re-evaluating")
+                    // Force a transition so an edited rule is applied
+                    // immediately even if the network state is unchanged.
+                    lastRuleKey = ""
+                    // Editing a rule is an explicit user intent in its
+                    // own right; a stale "I tapped Disconnect 5 s ago"
+                    // stamp should not suppress the evaluation that runs
+                    // as a direct consequence of the new rule.
                     AlwaysOnDetector.clearUserDisconnectStamp(context)
                     evaluateCurrentNetwork()
                 }
@@ -244,8 +231,11 @@ class NetworkMonitor private constructor(private val context: Context) {
             var wasConnected = false
             VpnServiceManager.getInstance(context).status.collect { status ->
                 if (wasConnected && !status.connected) {
-                    PrivycsLogger.d(TAG, "VPN transitioned to disconnected, re-evaluating on-demand rules")
-                    lastShouldConnect = null // force edge so connect branch fires
+                    PrivycsLogger.d(TAG, "VPN transitioned to disconnected, re-evaluating rules")
+                    // Force a rule re-apply so a connect-type rule
+                    // reconnects after a manual disconnect (subject to
+                    // the manual-disconnect cooldown inside the applier).
+                    lastRuleKey = ""
                     evaluateCurrentNetwork()
                 }
                 wasConnected = status.connected
@@ -561,259 +551,119 @@ class NetworkMonitor private constructor(private val context: Context) {
     }
 
     private suspend fun runEvaluation() {
-            val settings = PrivycsApp.instance.settingsRepository.settingsFlow.first()
-            val codSettings = settings.connectOnDemand
+        val networkType = detectNetworkType()
+        // v0.9.15.70 — single SSID source: the callback-driven latch.
+        // detectCurrentSsid() reads currentWifiSsid (set in
+        // onCapabilitiesChanged, cleared in onLost) — no polling, no
+        // stale value leaking into a different WiFi.
+        val effectiveSsid = if (networkType == "wifi") detectCurrentSsid() else ""
 
-            val networkType = detectNetworkType()
-            // v0.9.15.70 — single SSID source: the callback-driven
-            // latch. detectCurrentSsid() reads currentWifiSsid (set in
-            // onCapabilitiesChanged, cleared in onLost). No polling, no
-            // sticky-cache contortions, no stale value leaking into a
-            // different WiFi: when we leave a network, onLost wipes
-            // the latch, so until the next callback delivers a name we
-            // honestly have no SSID — exactly the right input for the
-            // indeterminate-skip guard below.
-            val effectiveSsid = if (networkType == "wifi") detectCurrentSsid() else ""
-
-            val (shouldConnect, ruleMatch) = evaluateRules(
-                codSettings, networkType, effectiveSsid, false
-            )
-
-            // Stability guard: while VPN is up AND SSID detection is
-            // still uncertain (empty raw AND no cache), be cautious —
-            // acting on "safety-first shouldConnect=true" plus the
-            // previous "correctly detected in-except false" created
-            // the disconnect/reconnect oscillation reported after
-            // manual OpenVPN connect on trusted-except WiFi.
-            //
-            // BUT: v0.9.14.71 limits how many consecutive ticks the
-            // skip can fire. After maxIndeterminateSkips we evaluate
-            // anyway with ssid="" — the rule outcome may be
-            // suboptimal for one tick, but the alternative (silent
-            // forever-skip) is worse: user moves WiFi → Mobile under
-            // VPN, the rule no longer applies (mobile not in WiFi
-            // SSID-list), but we never act on it.
-            val vpnManagerForGuard = VpnServiceManager.getInstance(context)
-            val indeterminate = vpnManagerForGuard.isConnected && networkType == "wifi" &&
-                effectiveSsid.isEmpty()
-            if (indeterminate) {
-                if (indeterminateSkipCount < maxIndeterminateSkips) {
-                    indeterminateSkipCount++
-                    PrivycsLogger.d(
-                        TAG,
-                        "Skipping evaluate: VPN up but SSID indeterminate (no cache) — " +
-                            "skip $indeterminateSkipCount/$maxIndeterminateSkips"
-                    )
-                    return
-                }
-                PrivycsLogger.w(
+        // Stability guard: while the VPN is up AND the SSID is still
+        // unresolved (background redaction not yet lifted by a
+        // callback), skip rather than act on an unknown SSID — acting
+        // could tear down the tunnel on a trusted WiFi we just haven't
+        // identified yet. Capped at maxIndeterminateSkips so a genuine
+        // WiFi→Mobile move is not skipped forever.
+        val vpnManagerForGuard = VpnServiceManager.getInstance(context)
+        val indeterminate = vpnManagerForGuard.isConnected && networkType == "wifi" &&
+            effectiveSsid.isEmpty()
+        if (indeterminate) {
+            if (indeterminateSkipCount < maxIndeterminateSkips) {
+                indeterminateSkipCount++
+                PrivycsLogger.d(
                     TAG,
-                    "Indeterminate-skip threshold reached, evaluating with empty ssid (forcing decision)"
+                    "Skipping evaluate: VPN up but SSID indeterminate — " +
+                        "skip $indeterminateSkipCount/$maxIndeterminateSkips",
                 )
+                return
             }
-            indeterminateSkipCount = 0
-
-            // Use effective SSID from here on for state reporting so
-            // the UI banner reflects the value we actually decided on.
-            val ssid = effectiveSsid
-            val bssid = detectCurrentBssid()
-
-            val newState = NetworkState(
-                networkType = networkType,
-                ssid = ssid,
-                shouldConnect = shouldConnect,
-                ruleMatch = ruleMatch
+            PrivycsLogger.w(
+                TAG,
+                "Indeterminate-skip threshold reached, evaluating with empty ssid",
             )
-            _networkState.value = newState
+        }
+        indeterminateSkipCount = 0
 
-            // Phase 2: Per-network rules engine. When the user has
-            // defined any network rule, the rules engine becomes
-            // authoritative for the connect lifecycle. Walk rules
-            // in priority order, first match wins:
-            //   - NoVpn: if connected, disconnect; else stay down.
-            //   - Pool/Connection: switch target if different;
-            //     otherwise leave as-is.
-            //   - NoMatch (no rules OR none matched): fall through
-            //     to the legacy COD logic below for backwards-compat.
-            val ruleResolution = PrivycsApp.instance.networkRulesRepository
-                .resolve(networkType, ssid, bssid)
-            if (ruleResolution !is com.privycs.vpn.data.models.RuleResolution.NoMatch) {
-                // Transition guard: same rule applied as last tick =
-                // skip. Otherwise the engine drives switch/disconnect
-                // in a loop because tunnel-up itself fires another
-                // NetworkCallback event which re-evaluates and
-                // re-applies. Reset on NoMatch so the next match
-                // fires applier even if it lands on the same target.
-                val key = when (ruleResolution) {
-                    is com.privycs.vpn.data.models.RuleResolution.NoVpn -> "no_vpn:"
-                    is com.privycs.vpn.data.models.RuleResolution.Pool ->
-                        "pool:${ruleResolution.poolId}"
-                    is com.privycs.vpn.data.models.RuleResolution.Connection ->
-                        "connection:${ruleResolution.connectionId}"
-                    else -> ""
-                }
-                if (key != lastRuleKey) {
-                    lastRuleKey = key
-                    PrivycsLogger.i(TAG, "rule transition -> $key")
-                    applyRuleResolution(ruleResolution)
-                }
-                return
-            } else {
-                // No rule matched - reset transition key so the
-                // next match fires applier even if same as before.
-                lastRuleKey = ""
-            }
+        val ssid = effectiveSsid
+        val bssid = detectCurrentBssid()
 
-            if (!codSettings.enabled) {
-                PrivycsLogger.d(TAG, "Connect on demand disabled, skipping action")
-                lastShouldConnect = null
-                return
-            }
+        // The rule list is the single source of truth — the legacy
+        // "simple COD" was migrated into rules (see
+        // NetworkRulesRepository.migrateLegacyCod). Walk it in priority
+        // order; the first matching rule wins.
+        val resolution = PrivycsApp.instance.networkRulesRepository
+            .resolve(networkType, ssid, bssid)
 
-            val vpnManager = VpnServiceManager.getInstance(context)
-            val prev = lastShouldConnect
-            lastShouldConnect = shouldConnect
+        val wantsVpn = resolution is RuleResolution.ConnectActive ||
+            resolution is RuleResolution.Pool ||
+            resolution is RuleResolution.Connection
+        _networkState.value = NetworkState(
+            networkType = networkType,
+            ssid = ssid,
+            shouldConnect = wantsVpn,
+            ruleMatch = describeResolution(resolution, networkType, ssid),
+        )
 
-            // CONNECT side: on-demand is authoritative. If the rules match
-            // and the VPN is off, bring it up - no matter whether
-            // shouldConnect just flipped or was already `true` on the last
-            // evaluation. This is intentional: a user who manually taps
-            // Disconnect while on-demand is enabled and the current
-            // network satisfies the rules sees the tunnel come back up
-            // within one NetworkCallback tick. On-demand only does
-            // anything USEFUL if it can override stale user intent - the
-            // "VPN will connect" banner has to actually connect.
-            //
-            // DISCONNECT side keeps the edge-trigger (only act on
-            // transition from match -> no-match) so we do not fight an
-            // already-down tunnel with spurious disconnect calls while
-            // rules consistently fail to match. prevState comparison above
-            // handled the network-transition case; here we just suppress
-            // noise.
-            val transitioned = prev == null || prev != shouldConnect
+        // NoMatch — no rule covers this network. The engine takes no
+        // action; the VPN stays in whatever state the user left it.
+        if (resolution is RuleResolution.NoMatch) {
+            lastRuleKey = ""
+            return
+        }
 
-            if (shouldConnect && !vpnManager.isConnected && !vpnManager.isConnecting.value) {
-                // Manual-disconnect cooldown. If the user tapped
-                // Disconnect within MANUAL_DISCONNECT_COOLDOWN_MS,
-                // honour their intent and skip the auto-reconnect.
-                // Without this gate, on-demand fires within ~500ms
-                // of a manual disconnect and the user sees their
-                // tap silently undone.
-                if (com.privycs.vpn.util.AlwaysOnDetector
-                        .wasRecentlyManuallyDisconnected(
-                            context, MANUAL_DISCONNECT_COOLDOWN_MS
-                        )
-                ) {
-                    PrivycsLogger.i(
-                        TAG,
-                        "on-demand reconnect suppressed: manual disconnect within ${MANUAL_DISCONNECT_COOLDOWN_MS / 1000}s cooldown"
-                    )
-                    return
-                }
+        // Apply when the resolved rule changed (key != lastRuleKey) OR
+        // when the VPN is settled in the wrong state — down while a
+        // connect-rule matches, or up while a NoVpn rule matches — and
+        // nothing is in flight. The settled-wrong path re-asserts a
+        // rule after a manual disconnect once the cooldown passes, and
+        // retries a connect that failed; lastRuleKey alone would skip
+        // those. While a connect IS in flight (isConnecting) we do NOT
+        // re-fire — that is the ping-pong guard.
+        val key = resolutionKey(resolution)
+        val vpnManager = VpnServiceManager.getInstance(context)
+        val settledWrong = if (resolution is RuleResolution.NoVpn) {
+            vpnManager.isConnected
+        } else {
+            !vpnManager.isConnected && !vpnManager.isConnecting.value
+        }
+        if (key != lastRuleKey || settledWrong) {
+            lastRuleKey = key
+            PrivycsLogger.i(TAG, "rule -> $key (settledWrong=$settledWrong)")
+            applyRuleResolution(resolution)
+        }
+    }
 
-                // On-demand-disconnect cooldown (v0.9.15.24). After
-                // we ourselves fired a rule-triggered disconnect,
-                // suppress the next on-demand reconnect for a few
-                // seconds so the teardown's transient
-                // NetworkCapabilities events don't flip the SSID
-                // cache and re-trigger via the "Cannot determine
-                // SSID, connecting" fallback. See
-                // AlwaysOnDetector.stampOnDemandDisconnect for the
-                // full loop pattern.
-                if (com.privycs.vpn.util.AlwaysOnDetector
-                        .wasRecentlyOnDemandDisconnected(
-                            context, ON_DEMAND_DISCONNECT_COOLDOWN_MS
-                        )
-                ) {
-                    PrivycsLogger.i(
-                        TAG,
-                        "on-demand reconnect suppressed: on-demand disconnect within ${ON_DEMAND_DISCONNECT_COOLDOWN_MS / 1000}s cooldown — waiting for SSID stabilisation"
-                    )
-                    return
-                }
+    /** Stable identity of a resolution, for the transition guard. */
+    private fun resolutionKey(r: RuleResolution): String = when (r) {
+        is RuleResolution.NoMatch -> ""
+        is RuleResolution.NoVpn -> "no_vpn:"
+        is RuleResolution.ConnectActive -> "connect_active:"
+        is RuleResolution.Pool -> "pool:${r.poolId}"
+        is RuleResolution.Connection -> "connection:${r.connectionId}"
+    }
 
-                // Pool-active wins. When the user's active selection
-                // is a Pool we have explicitly cleared
-                // connectionRepository.activeId (so the Connect
-                // screen does not show a stale single-connection
-                // name underneath the pool card). That means
-                // getActive() returns null in the pool case, and
-                // before this branch existed COD silently early-
-                // returned with "no active connection, skipping"
-                // for pool users.
-                //
-                // Pool now flows through ConnectCoordinator
-                // .requestPoolConnect() with the same gate set as
-                // single-connection: Kill Switch sinkhole, system-
-                // revoke cooldown, Always-On pause, manual pause,
-                // and the manual-disconnect cooldown above. The
-                // Coordinator fires ACTION_POOL_CONNECT internally
-                // when accepted.
-                val poolReg = PrivycsApp.instance.poolRepository.registry.value
-                val activePoolId = poolReg.activeId
-                val activePool = poolReg.pools.firstOrNull { it.id == activePoolId }
-                if (activePoolId.isNotEmpty() && activePool != null) {
-                    val poolResult = com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
-                        context,
-                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
-                        activePoolId,
-                        activePool.name,
-                    )
-                    PrivycsLogger.d(
-                        TAG,
-                        "on-demand requestPoolConnect -> $poolResult (poolId=$activePoolId rules=$ruleMatch)"
-                    )
-                    return
-                }
-
-                // Single-connection path. All gating + serialisation
-                // happens inside ConnectCoordinator: system-revoke
-                // cooldown, always-on pause flag, preemption by
-                // USER-source intents, duplicate-connect guard
-                // while Connecting is in flight. We just hand off
-                // the intent with the ON_DEMAND source tag and
-                // trust the coordinator's decision.
-                val connection = PrivycsApp.instance.connectionRepository.getActive()
-                if (connection == null) {
-                    PrivycsLogger.d(TAG, "Rules match but no active connection or pool, skipping")
-                    return
-                }
-                val result = com.privycs.vpn.util.ConnectCoordinator.requestConnect(
-                    context,
-                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
-                    connection,
-                )
-                PrivycsLogger.d(TAG, "on-demand requestConnect -> $result (rules=${PrivycsLogger.redactQuoted(ruleMatch)})")
-            } else if (!shouldConnect && vpnManager.isConnected) {
-                // Drop the `&& transitioned` gate that lived here: if
-                // we're connected and the rules say we shouldn't be,
-                // always issue a disconnect - not only on the flip
-                // from shouldConnect=true. Without this, a user who
-                // connects manually while already sitting inside an
-                // except-list SSID stays connected forever because
-                // the rule state is stable-false across polls (no
-                // transition event), even though the rule clearly
-                // says "disconnect here". requestDisconnect is
-                // idempotent (returns AlreadyIdle if tunnel is
-                // already down), so re-firing is free.
-                // v0.9.14.96: log the result so a disconnect that
-                // didn't actually tear down the tunnel can be
-                // diagnosed (the new desync-safety in
-                // ConnectCoordinator.requestDisconnect logs WARN on
-                // the desync path).
-                val r = com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
-                    context,
-                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
-                )
-                PrivycsLogger.i(TAG, "on-demand disconnect requested (${PrivycsLogger.redactQuoted(ruleMatch)}) -> $r")
-                com.privycs.vpn.util.EventNotifier.codDisconnected(context, ruleMatch)
-                // Stamp the on-demand-disconnect so the connect-side
-                // gate above suppresses the immediate reconnect from
-                // the teardown's transient NetworkCapabilities events.
-                com.privycs.vpn.util.AlwaysOnDetector.stampOnDemandDisconnect(context)
-            } else if (transitioned) {
-                PrivycsLogger.d(TAG, "Rules transitioned but already in desired state: ${PrivycsLogger.redactQuoted(ruleMatch)}")
-            }
+    /**
+     * Human-readable description of the engine's decision — fed into
+     * the NetworkState the UI banner reads.
+     */
+    private fun describeResolution(
+        r: RuleResolution,
+        networkType: String,
+        ssid: String,
+    ): String {
+        val net = when {
+            networkType == "wifi" && ssid.isNotEmpty() -> "WiFi \"$ssid\""
+            networkType == "wifi" -> "WiFi"
+            networkType == "none" -> "no network"
+            else -> networkType
+        }
+        return when (r) {
+            is RuleResolution.NoMatch -> "$net — no rule matches"
+            is RuleResolution.NoVpn -> "$net — rule: disconnect (no VPN)"
+            is RuleResolution.ConnectActive -> "$net — rule: connect"
+            is RuleResolution.Pool -> "$net — rule: switch pool"
+            is RuleResolution.Connection -> "$net — rule: switch connection"
+        }
     }
 
     /**
@@ -961,36 +811,86 @@ class NetworkMonitor private constructor(private val context: Context) {
     }
 
     /**
-     * Apply a non-NoMatch rule resolution. Drives target switching
-     * via the existing switchActivePool / switchActiveConnection
-     * machinery so we get the same disconnect-wait-reconnect grace
-     * pattern, Coordinator gating, and tentative-status propagation
-     * that manual switches use.
-     *
-     * Honours the manual-disconnect cooldown and Always-On pause
-     * by routing through the Coordinator (via switch helpers,
-     * vpnManager.connect, requestDisconnect). USER source preserves
-     * the same gate semantics as a tap.
+     * Apply a rule resolution. Connect-type resolutions route through
+     * ConnectCoordinator with the ON_DEMAND source so they inherit the
+     * same gating (Kill Switch, Always-On pause, preemption) as a
+     * manual tap. The CONNECT_ACTIVE path additionally honours the
+     * manual- and on-demand-disconnect cooldowns, reproducing the
+     * legacy "simple COD" connect behaviour. Each branch is idempotent
+     * — already-in-desired-state is a no-op — so re-invocation by the
+     * settled-wrong retry path in runEvaluation is safe.
      */
-    private suspend fun applyRuleResolution(
-        resolution: com.privycs.vpn.data.models.RuleResolution,
-    ) {
+    private suspend fun applyRuleResolution(resolution: RuleResolution) {
         val app = PrivycsApp.instance
         val vpnManager = VpnServiceManager.getInstance(context)
         when (resolution) {
-            is com.privycs.vpn.data.models.RuleResolution.NoVpn -> {
+            is RuleResolution.NoVpn -> {
                 if (vpnManager.isConnected) {
                     PrivycsLogger.i(TAG, "rule -> NO_VPN, disconnecting")
                     com.privycs.vpn.util.ConnectCoordinator.requestDisconnect(
                         context,
                         com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
                     )
-                    // Same cooldown stamp as the legacy COD disconnect
-                    // branch — see line 691 / ON_DEMAND_DISCONNECT_COOLDOWN_MS.
-                    com.privycs.vpn.util.AlwaysOnDetector.stampOnDemandDisconnect(context)
+                    // Suppress the teardown-flap reconnect — see
+                    // ON_DEMAND_DISCONNECT_COOLDOWN_MS.
+                    AlwaysOnDetector.stampOnDemandDisconnect(context)
                 }
             }
-            is com.privycs.vpn.data.models.RuleResolution.Pool -> {
+            is RuleResolution.ConnectActive -> {
+                if (vpnManager.isConnected || vpnManager.isConnecting.value) return
+                // Manual-disconnect cooldown — honour a recent user tap.
+                if (AlwaysOnDetector.wasRecentlyManuallyDisconnected(
+                        context, MANUAL_DISCONNECT_COOLDOWN_MS,
+                    )
+                ) {
+                    PrivycsLogger.i(
+                        TAG,
+                        "rule -> CONNECT_ACTIVE suppressed: manual-disconnect cooldown",
+                    )
+                    return
+                }
+                // On-demand-disconnect cooldown — bridge the SSID-flap
+                // window after a rule-driven disconnect.
+                if (AlwaysOnDetector.wasRecentlyOnDemandDisconnected(
+                        context, ON_DEMAND_DISCONNECT_COOLDOWN_MS,
+                    )
+                ) {
+                    PrivycsLogger.i(
+                        TAG,
+                        "rule -> CONNECT_ACTIVE suppressed: on-demand-disconnect cooldown",
+                    )
+                    return
+                }
+                // Pool-active wins — getActive() is null when a pool
+                // owns the user's active slot.
+                val poolReg = app.poolRepository.registry.value
+                val activePool = poolReg.pools.firstOrNull { it.id == poolReg.activeId }
+                if (poolReg.activeId.isNotEmpty() && activePool != null) {
+                    val r = com.privycs.vpn.util.ConnectCoordinator.requestPoolConnect(
+                        context,
+                        com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
+                        activePool.id,
+                        activePool.name,
+                    )
+                    PrivycsLogger.d(TAG, "rule -> CONNECT_ACTIVE pool -> $r")
+                    return
+                }
+                val connection = app.connectionRepository.getActive()
+                if (connection == null) {
+                    PrivycsLogger.d(
+                        TAG,
+                        "rule -> CONNECT_ACTIVE but no active connection or pool",
+                    )
+                    return
+                }
+                val r = com.privycs.vpn.util.ConnectCoordinator.requestConnect(
+                    context,
+                    com.privycs.vpn.util.ConnectCoordinator.IntentSource.ON_DEMAND,
+                    connection,
+                )
+                PrivycsLogger.d(TAG, "rule -> CONNECT_ACTIVE connection -> $r")
+            }
+            is RuleResolution.Pool -> {
                 val poolReg = app.poolRepository.registry.value
                 val pool = poolReg.pools.firstOrNull { it.id == resolution.poolId }
                 if (pool == null) {
@@ -1003,20 +903,22 @@ class NetworkMonitor private constructor(private val context: Context) {
                 PrivycsLogger.i(TAG, "rule -> POOL ${pool.name}")
                 vpnManager.switchActivePool(pool.id)
             }
-            is com.privycs.vpn.data.models.RuleResolution.Connection -> {
+            is RuleResolution.Connection -> {
                 val conn = app.connectionRepository.getById(resolution.connectionId)
                 if (conn == null) {
-                    PrivycsLogger.w(TAG, "rule -> CONNECTION ${resolution.connectionId} but not found")
+                    PrivycsLogger.w(
+                        TAG,
+                        "rule -> CONNECTION ${resolution.connectionId} but not found",
+                    )
                     return
                 }
-                val currentActive = app.connectionRepository.activeId
-                if (currentActive == conn.id && vpnManager.isConnected) {
+                if (app.connectionRepository.activeId == conn.id && vpnManager.isConnected) {
                     return
                 }
                 PrivycsLogger.i(TAG, "rule -> CONNECTION ${conn.name}")
                 vpnManager.switchActiveConnection(conn.id)
             }
-            else -> Unit
+            is RuleResolution.NoMatch -> Unit
         }
     }
 
@@ -1064,105 +966,6 @@ class NetworkMonitor private constructor(private val context: Context) {
     }
 
     /**
-     * Evaluate connect-on-demand rules against current network state.
-     * Returns a pair of (shouldConnect, ruleDescription).
-     */
-    private fun evaluateRules(
-        settings: ConnectOnDemandSettings,
-        networkType: String,
-        ssid: String,
-        // v0.9.15.x — true when `ssid` did not come from a live read
-        // but from the sticky cache (lastResolvedSsid) because the OS
-        // redacted the background SSID. The decision below is unchanged
-        // (the cached name is still a real, last-seen network), but the
-        // human-readable text must NOT assert it as the *current*
-        // network — otherwise a move between two exception-list WLANs
-        // shows the previous WLAN's name in the notification/banner
-        // ("display glitch" report 2026-05-18). We label it "last-known"
-        // so the text is honest about the uncertainty.
-        ssidIsStale: Boolean = false
-    ): Pair<Boolean, String> {
-        if (!settings.enabled) {
-            return Pair(false, "Connect on demand is disabled")
-        }
-
-        if (networkType == "none") {
-            return Pair(false, "No network available")
-        }
-
-        // Check if the network type matches the trigger
-        val typeMatches = when (settings.trigger) {
-            "wifi" -> networkType == "wifi"
-            "mobile" -> networkType == "mobile"
-            "wifi_mobile" -> networkType == "wifi" || networkType == "mobile"
-            else -> false
-        }
-
-        if (!typeMatches) {
-            val triggerLabel = when (settings.trigger) {
-                "wifi" -> "WiFi"
-                "mobile" -> "Mobile"
-                "wifi_mobile" -> "WiFi or Mobile"
-                else -> settings.trigger
-            }
-            return Pair(false, "Network type \"$networkType\" does not match trigger \"$triggerLabel\"")
-        }
-
-        // For non-WiFi networks, type match is sufficient
-        if (networkType != "wifi") {
-            return Pair(true, "Connected via $networkType (matches trigger)")
-        }
-
-        // Honest network label: when the SSID is the cached last-known
-        // one (OS-redacted live read), say so instead of asserting it
-        // as the current network. Decision predicates below keep using
-        // raw `ssid` — only the display string changes.
-        val netName = if (ssidIsStale) "last-known WiFi \"$ssid\"" else "WiFi \"$ssid\""
-
-        // For WiFi, evaluate SSID rules
-        return when (settings.ssidMode) {
-            "all" -> {
-                // Explicit parentheses: the previous version had a Kotlin operator-precedence
-                // bug where " (all SSIDs)" was only appended when ssid was empty.
-                val ssidPart = if (ssid.isNotEmpty()) {
-                    if (ssidIsStale) " (last-known \"$ssid\")" else " \"$ssid\""
-                } else ""
-                Pair(true, "Connected to WiFi$ssidPart (all SSIDs)")
-            }
-            "only" -> {
-                val list = settings.ssidList.filter { it.isNotBlank() }
-                when {
-                    list.isEmpty() ->
-                        Pair(false, "Only-SSIDs list is empty — add at least one SSID or switch to All SSIDs")
-                    ssid.isEmpty() ->
-                        Pair(false, "Cannot determine SSID (grant Location permission to detect WiFi name)")
-                    list.any { it.equals(ssid, ignoreCase = true) } ->
-                        Pair(true, "$netName matches the allowed list")
-                    else ->
-                        Pair(false, "$netName is not in the allowed list")
-                }
-            }
-            "except" -> {
-                val list = settings.ssidList.filter { it.isNotBlank() }
-                when {
-                    list.isEmpty() ->
-                        // No exceptions configured = behave like "all"
-                        Pair(true, "Connected to WiFi" + if (ssid.isNotEmpty()) " \"$ssid\"" else "" + " (no exceptions)")
-                    ssid.isEmpty() ->
-                        // Cannot determine SSID — default to connect so the user
-                        // is not stranded without VPN on a new WiFi.
-                        Pair(true, "Cannot determine SSID, connecting (except-list not checked)")
-                    list.any { it.equals(ssid, ignoreCase = true) } ->
-                        Pair(false, "$netName is in the exception list")
-                    else ->
-                        Pair(true, "$netName is not in the exception list")
-                }
-            }
-            else -> Pair(false, "Unknown SSID mode: ${settings.ssidMode}")
-        }
-    }
-
-    /**
      * Force a re-evaluation from outside. Call this after the user changes
      * connect-on-demand settings so the state/rule-match text and the auto
      * connect decision refresh immediately instead of waiting for the next
@@ -1174,37 +977,30 @@ class NetworkMonitor private constructor(private val context: Context) {
     }
 
     /**
-     * Synchronous one-shot rule check - does the current network
-     * environment satisfy the COD rules? Returns true if a connect
-     * intent SHOULD fire right now, false otherwise.
-     *
-     * Does NOT fire any intent, does NOT update lastShouldConnect,
-     * does NOT touch the state flow. Pure read-only evaluation.
-     *
-     * Used by BootReceiver to gate the boot-time auto-connect: when
-     * COD is enabled the user expects boot connect ONLY when rules
-     * currently match. The async evaluateCurrentNetwork() path
-     * cannot serve this because BootReceiver may finish before the
-     * Main-dispatcher launch runs, in which case the process can be
-     * killed before the eval lands.
+     * Synchronous one-shot rule check — does the current network
+     * resolve to a connect right now? Returns true iff a connect
+     * intent SHOULD fire. Does NOT fire any intent or touch state.
+     * Used by BootReceiver to gate boot-time auto-connect.
      */
-    fun evaluateRulesNow(settings: ConnectOnDemandSettings): Boolean {
+    fun evaluateRulesNow(): Boolean {
         val networkType = detectNetworkType()
         val effectiveSsid = if (networkType == "wifi") detectCurrentSsid() else ""
-        // Boot-path conservatism (Fix 4, v0.9.15.68 → carried in
-        // v0.9.15.70 latch architecture): at boot the SSID latch is
-        // empty until the first callback fires (sometimes seconds
-        // later). An except/only rule with an unresolved SSID would
-        // otherwise hit the "cannot determine SSID → connect" default
-        // and auto-connect on a possibly-trusted WiFi at every reboot.
-        // The live monitor corrects once the callback lands; until
-        // then, do NOT auto-connect on an unidentified WiFi at boot.
-        if (networkType == "wifi" && effectiveSsid.isEmpty() &&
-            (settings.ssidMode == "except" || settings.ssidMode == "only")
-        ) {
-            return false
+        // Boot conservatism: the SSID latch is empty until the first
+        // callback fires. If any SSID-matching rule exists, do NOT
+        // decide on an unidentified WiFi at boot — the live monitor
+        // corrects once the callback lands.
+        if (networkType == "wifi" && effectiveSsid.isEmpty()) {
+            val hasSsidRule = PrivycsApp.instance.networkRulesRepository.rules.value.any {
+                it.matchType == RuleMatchType.SSID_EXACT ||
+                    it.matchType == RuleMatchType.SSID_PATTERN
+            }
+            if (hasSsidRule) return false
         }
-        val (shouldConnect, _) = evaluateRules(settings, networkType, effectiveSsid)
-        return shouldConnect
+        val bssid = detectCurrentBssid()
+        val resolution = PrivycsApp.instance.networkRulesRepository
+            .resolve(networkType, effectiveSsid, bssid)
+        return resolution is RuleResolution.ConnectActive ||
+            resolution is RuleResolution.Pool ||
+            resolution is RuleResolution.Connection
     }
 }

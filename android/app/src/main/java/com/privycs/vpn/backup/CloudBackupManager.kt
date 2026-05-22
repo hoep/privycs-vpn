@@ -379,6 +379,15 @@ class CloudBackupManager(private val context: Context) {
             Log.d(TAG, "Restored ${decoded.networkRules.size} network rules from backup")
         }
 
+        // A restored backup may carry a legacy "simple COD" config
+        // (connectOnDemand.enabled=true). Convert it into rules now —
+        // exactly as the app-start path does — so a restored pre-
+        // conversion backup behaves identically to an in-place update.
+        runBlocking {
+            PrivycsApp.instance.networkRulesRepository
+                .migrateLegacyCod(PrivycsApp.instance.settingsRepository)
+        }
+
         Log.d(TAG, "Merged $addedCount new connections from backup")
         return addedCount
     }

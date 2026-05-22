@@ -463,7 +463,7 @@ class VpnServiceManager private constructor(private val context: Context) {
         // next network event.
         val settings = com.privycs.vpn.PrivycsApp.instance
             .settingsRepository.getSettingsBlocking()
-        if (!settings.connectOnDemand.enabled) return false
+        if (!com.privycs.vpn.PrivycsApp.instance.networkRulesRepository.hasRules) return false
 
         val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
         nm.reevaluate()
@@ -605,8 +605,7 @@ class VpnServiceManager private constructor(private val context: Context) {
                 // network event. With COD off this is a no-op
                 // and the user will tap Connect manually.
                 val codEnabled = com.privycs.vpn.PrivycsApp.instance
-                    .settingsRepository.getSettingsBlocking()
-                    .connectOnDemand.enabled
+                    .networkRulesRepository.hasRules
                 if (codEnabled) {
                     val nm = com.privycs.vpn.service.NetworkMonitor.getInstance(context)
                     nm.reevaluate()

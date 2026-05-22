@@ -137,6 +137,16 @@ class PrivycsApp : StrongSwanApplication() {
     lateinit var selfIpDetector: SelfIpDetector
         private set
 
+    /** Pro / Free entitlement — single source of truth. Created in
+     *  every process (a cheap encrypted on-disk read). */
+    lateinit var entitlementRepository: com.privycs.vpn.data.EntitlementRepository
+        private set
+
+    /** Google Play Billing for the one-time Pro purchase. Initialised
+     *  in the main process only; null in the :openvpn subprocess. */
+    var billingManager: com.privycs.vpn.billing.BillingManager? = null
+        private set
+
     // Kept as a GC root for the AIDL ServiceConnection inside StatusListener;
     // losing this reference lets the OpenVPNStatusService unbind and we stop
     // receiving state/log/byte-count events from the :openvpn subprocess.
@@ -168,6 +178,16 @@ class PrivycsApp : StrongSwanApplication() {
         val combinedResolver = CombinedCountryResolver(mmdbResolver, HostnameCountryResolver())
         poolImporter = PoolImporter(this, combinedResolver)
         selfIpDetector = SelfIpDetector(applicationContext, mmdbResolver)
+
+        // Pro entitlement + Play Billing. EntitlementRepository is a
+        // cheap on-disk read, created in every process; the Play
+        // BillingClient runs in the main process only.
+        entitlementRepository = com.privycs.vpn.data.EntitlementRepository(this)
+        if (isMainProcess()) {
+            billingManager = com.privycs.vpn.billing.BillingManager(
+                this, entitlementRepository,
+            ).also { it.start() }
+        }
 
         // Warm the SelfIp cache on a background coroutine. Pool
         // activation reads this cache synchronously in the connect
@@ -253,7 +273,14 @@ class PrivycsApp : StrongSwanApplication() {
         // rules match does not reconnect" - root cause exactly this.
         appScope.launch {
             val s = settingsRepository.getSettingsBlocking()
-            val codEnabled = s.connectOnDemand.enabled
+            // Convert any legacy "simple Connect-on-Demand" config into
+            // network rules (idempotent — a no-op once migrated), then
+            // gate the monitor on whether ANY rule exists. The post-
+            // conversion engine is rule-driven; the legacy
+            // connectOnDemand.enabled flag no longer starts it.
+            networkRulesRepository.migrateLegacyCod(settingsRepository)
+            networkRulesRepository.awaitLoaded()
+            val codEnabled = networkRulesRepository.rules.value.isNotEmpty()
             if (codEnabled) {
                 try {
                     com.privycs.vpn.service.NetworkMonitor.getInstance(applicationContext).start()
@@ -305,7 +332,7 @@ class PrivycsApp : StrongSwanApplication() {
                 // who want the FGS even WITHOUT COD (rare, but
                 // valid for tunnel-health monitoring outside the
                 // rule-trigger context).
-                if (s.keepMonitorAlive || s.connectOnDemand.enabled) {
+                if (s.keepMonitorAlive || codEnabled) {
                     try {
                         val intent = android.content.Intent(
                             applicationContext,
@@ -586,6 +613,22 @@ class PrivycsApp : StrongSwanApplication() {
         // Configured by the user in Android's per-app notification
         // settings; the Settings screen deep-links there.
         com.privycs.vpn.util.EventNotifier.createChannels(manager)
+    }
+
+    /**
+     * True when running in the app's main process (not the `:openvpn`
+     * subprocess). PrivycsApp.onCreate runs in every process; the Play
+     * BillingClient only belongs in the main one.
+     */
+    private fun isMainProcess(): Boolean {
+        val name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            android.app.Application.getProcessName()
+        } else {
+            val pid = android.os.Process.myPid()
+            (getSystemService(ACTIVITY_SERVICE) as? android.app.ActivityManager)
+                ?.runningAppProcesses?.firstOrNull { it.pid == pid }?.processName
+        }
+        return name == null || !name.contains(':')
     }
 
     companion object {

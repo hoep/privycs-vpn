@@ -45,8 +45,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.PoolImportProgress
 import com.privycs.vpn.data.models.PoolPolicy
 import kotlinx.coroutines.launch
@@ -73,6 +76,7 @@ fun AddPoolScreen(
 
     val progress by importer.progress.collectAsState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -82,7 +86,10 @@ fun AddPoolScreen(
             // Default name from first picked file.
             if (name.isEmpty()) {
                 val first = uris.first()
-                name = "Pool from ${first.lastPathSegment ?: "import"}"
+                name = context.getString(
+                    R.string.addpool_default_name,
+                    first.lastPathSegment ?: context.getString(R.string.addpool_default_name_fallback)
+                )
             }
         }
     }
@@ -90,10 +97,13 @@ fun AddPoolScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Add Pool") },
+                title = { Text(stringResource(R.string.addpool_title)) },
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Cancel")
+                        Icon(
+                            Icons.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.addpool_cancel)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -128,11 +138,14 @@ fun AddPoolScreen(
                 )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("1. Pick configs", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        stringResource(R.string.addpool_step1_title),
+                        style = MaterialTheme.typography.titleSmall
+                    )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        if (pickedUris.isEmpty()) "Select a .zip with multiple configs, or pick individual .conf / .ovpn / .sswan files."
-                        else "${pickedUris.size} file(s) selected",
+                        if (pickedUris.isEmpty()) stringResource(R.string.addpool_step1_hint)
+                        else stringResource(R.string.addpool_files_selected, pickedUris.size),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -147,7 +160,10 @@ fun AddPoolScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (pickedUris.isEmpty()) "Choose files" else "Replace selection")
+                        Text(
+                            if (pickedUris.isEmpty()) stringResource(R.string.addpool_choose_files)
+                            else stringResource(R.string.addpool_replace_selection)
+                        )
                     }
                 }
             }
@@ -162,19 +178,25 @@ fun AddPoolScreen(
                 )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("2. Pool settings", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        stringResource(R.string.addpool_step2_title),
+                        style = MaterialTheme.typography.titleSmall
+                    )
                     Spacer(Modifier.height(8.dp))
 
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Pool name") },
+                        label = { Text(stringResource(R.string.addpool_pool_name_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(12.dp))
 
-                    Text("Policy", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        stringResource(R.string.addpool_policy_label),
+                        style = MaterialTheme.typography.labelMedium
+                    )
                     Spacer(Modifier.height(4.dp))
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         val policies = PoolPolicy.values()
@@ -197,19 +219,19 @@ fun AddPoolScreen(
                                 // still empty.
                                 intervalMin = it.filter { ch -> ch.isDigit() }
                             },
-                            label = { Text("Rotation interval (minutes)") },
-                            placeholder = { Text("e.g. 30") },
+                            label = { Text(stringResource(R.string.addpool_interval_label)) },
+                            placeholder = { Text(stringResource(R.string.addpool_interval_placeholder)) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             supportingText = {
-                                Text("Default 30 min. Lower values rotate more often but cost more battery.")
+                                Text(stringResource(R.string.addpool_interval_supporting))
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
                         val intervalNum = intervalMin.toIntOrNull()
                         if (intervalNum != null && intervalNum < 5) {
                             Spacer(Modifier.height(8.dp))
-                            BatteryWarning("Intervals under 5 minutes use noticeably more battery (~3-5% extra/day).")
+                            BatteryWarning(stringResource(R.string.addpool_warning_short_interval))
                         }
                     }
                 }
@@ -223,7 +245,9 @@ fun AddPoolScreen(
                     progress.imported >= MEMBER_COUNT_WARNING
             if (showLargePoolWarning) {
                 Spacer(Modifier.height(12.dp))
-                BatteryWarning("Pools with more than $MEMBER_COUNT_WARNING members may import slowly on older devices.")
+                BatteryWarning(
+                    stringResource(R.string.addpool_warning_large_pool, MEMBER_COUNT_WARNING)
+                )
             }
 
             // Step 3: progress + create button.
@@ -248,9 +272,9 @@ fun AddPoolScreen(
 
             if (!canCreate && !isImporting) {
                 val hint = when {
-                    missingFiles && missingName -> "Pick configs and enter a pool name to continue."
-                    missingFiles -> "Pick configs to continue."
-                    else -> "Enter a pool name to continue."
+                    missingFiles && missingName -> stringResource(R.string.addpool_hint_files_and_name)
+                    missingFiles -> stringResource(R.string.addpool_hint_files)
+                    else -> stringResource(R.string.addpool_hint_name)
                 }
                 Text(
                     text = hint,
@@ -276,7 +300,7 @@ fun AddPoolScreen(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Create Pool")
+                Text(stringResource(R.string.addpool_create_button))
             }
         }
     }
@@ -287,10 +311,14 @@ private fun ImportProgressCard(progress: PoolImportProgress) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             val label = when (progress.stage) {
-                PoolImportProgress.Stage.EXTRACTING -> "Extracting archive..."
-                PoolImportProgress.Stage.PARSING -> "Parsing configs ${progress.current}/${progress.total}"
-                PoolImportProgress.Stage.RESOLVING -> "Resolving locations ${progress.current}/${progress.total}"
-                PoolImportProgress.Stage.DONE -> "Done — ${progress.imported} imported, ${progress.skipped} skipped"
+                PoolImportProgress.Stage.EXTRACTING ->
+                    stringResource(R.string.addpool_progress_extracting)
+                PoolImportProgress.Stage.PARSING ->
+                    stringResource(R.string.addpool_progress_parsing, progress.current, progress.total)
+                PoolImportProgress.Stage.RESOLVING ->
+                    stringResource(R.string.addpool_progress_resolving, progress.current, progress.total)
+                PoolImportProgress.Stage.DONE ->
+                    stringResource(R.string.addpool_progress_done, progress.imported, progress.skipped)
             }
             Text(label, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))

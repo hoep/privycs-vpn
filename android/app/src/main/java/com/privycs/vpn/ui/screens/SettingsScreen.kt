@@ -63,10 +63,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.R
 import com.privycs.vpn.api.GatewayApiClient
 import com.privycs.vpn.backup.CloudBackupManager
 import com.privycs.vpn.data.models.AppTheme
@@ -141,7 +143,10 @@ fun SettingsScreen(
             },
             title = {
                 Text(
-                    text = if (passwordDialogMode == "export") "Export Backup" else "Import Backup",
+                    text = if (passwordDialogMode == "export")
+                        stringResource(R.string.settings_backup_export_dialog_title)
+                    else
+                        stringResource(R.string.settings_backup_import_dialog_title),
                     style = MaterialTheme.typography.titleMedium
                 )
             },
@@ -149,9 +154,9 @@ fun SettingsScreen(
                 Column {
                     Text(
                         text = if (passwordDialogMode == "export")
-                            "Enter a password to encrypt the backup."
+                            stringResource(R.string.settings_backup_export_dialog_text)
                         else
-                            "Enter the password used when this backup was created.",
+                            stringResource(R.string.settings_backup_import_dialog_text),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -159,7 +164,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = backupPassword,
                         onValueChange = { backupPassword = it },
-                        label = { Text("Password") },
+                        label = { Text(stringResource(R.string.settings_backup_password_label)) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
@@ -185,10 +190,14 @@ fun SettingsScreen(
                                             backupManager.importAndMerge(password, uri)
                                         }
                                     }
-                                    val msg = if (mode == "export") "Backup exported" else "Backup imported"
+                                    val msg = if (mode == "export")
+                                        context.getString(R.string.settings_backup_export_success)
+                                    else
+                                        context.getString(R.string.settings_backup_import_success)
                                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 } catch (e: Exception) {
-                                    val errMsg = e.message ?: "Operation failed"
+                                    val errMsg = e.message
+                                        ?: context.getString(R.string.settings_backup_operation_failed)
                                     Toast.makeText(context, errMsg, Toast.LENGTH_LONG).show()
                                 }
                             }
@@ -197,7 +206,12 @@ fun SettingsScreen(
                     },
                     enabled = backupPassword.isNotBlank()
                 ) {
-                    Text(if (passwordDialogMode == "export") "Export" else "Import")
+                    Text(
+                        if (passwordDialogMode == "export")
+                            stringResource(R.string.settings_backup_export_button)
+                        else
+                            stringResource(R.string.settings_backup_import_button)
+                    )
                 }
             },
             dismissButton = {
@@ -206,7 +220,7 @@ fun SettingsScreen(
                     backupPassword = ""
                     pendingImportUri = null
                 }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.settings_cancel))
                 }
             }
         )
@@ -217,7 +231,7 @@ fun SettingsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "Settings",
+                        stringResource(R.string.settings_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -242,7 +256,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // -- Privycs Gateway --
-            SettingsSection(title = "PRIVYCS GATEWAY") {
+            SettingsSection(title = stringResource(R.string.settings_section_gateway)) {
                 OutlinedTextField(
                     value = gatewayUrl,
                     onValueChange = {
@@ -251,7 +265,7 @@ fun SettingsScreen(
                             settingsRepo.updateGatewayConfig(it, apiKey)
                         }
                     },
-                    label = { Text("Gateway URL") },
+                    label = { Text(stringResource(R.string.settings_gateway_url_label)) },
                     placeholder = { Text("https://app.privycs.com") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -267,7 +281,7 @@ fun SettingsScreen(
                             settingsRepo.updateGatewayConfig(gatewayUrl, it)
                         }
                     },
-                    label = { Text("API Key") },
+                    label = { Text(stringResource(R.string.settings_gateway_api_key_label)) },
                     placeholder = { Text("pvcs_...") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
@@ -290,9 +304,20 @@ fun SettingsScreen(
                                     val client = GatewayApiClient(gatewayUrl, apiKey)
                                     val profile = client.fetchProfile()
                                     client.close()
-                                    verifyResult = Pair(true, "${profile.user} (${profile.count} configs)")
+                                    verifyResult = Pair(
+                                        true,
+                                        context.getString(
+                                            R.string.settings_gateway_verify_result,
+                                            profile.user,
+                                            profile.count,
+                                        ),
+                                    )
                                 } catch (e: Exception) {
-                                    verifyResult = Pair(false, e.message ?: "Connection failed")
+                                    verifyResult = Pair(
+                                        false,
+                                        e.message
+                                            ?: context.getString(R.string.settings_gateway_connection_failed),
+                                    )
                                 } finally {
                                     verifying = false
                                 }
@@ -310,7 +335,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                         } else {
-                            Text("Verify & Sync")
+                            Text(stringResource(R.string.settings_gateway_verify_button))
                         }
                     }
 
@@ -333,15 +358,15 @@ fun SettingsScreen(
             }
 
             // -- Connection --
-            SettingsSection(title = "CONNECTION") {
+            SettingsSection(title = stringResource(R.string.settings_section_connection)) {
                 val alwaysOnActive by com.privycs.vpn.util.AlwaysOnDetector.detected.collectAsState()
                 val killSwitchDescription = if (alwaysOnActive) {
-                    "Android Always-On VPN is active — system kill switch is in effect"
+                    stringResource(R.string.settings_kill_switch_desc_always_on)
                 } else {
-                    "Block traffic if the VPN tunnel drops unexpectedly. Arms after first connect; requires app disarm to release."
+                    stringResource(R.string.settings_kill_switch_desc_default)
                 }
                 SettingsToggle(
-                    title = "Kill Switch",
+                    title = stringResource(R.string.settings_kill_switch_title),
                     description = killSwitchDescription,
                     checked = settings.killSwitchEnabled,
                     onCheckedChange = { persistScope.launch { settingsRepo.updateKillSwitch(it) } }
@@ -380,7 +405,7 @@ fun SettingsScreen(
                             }.onFailure {
                                 Toast.makeText(
                                     context,
-                                    "Could not open Android VPN settings",
+                                    context.getString(R.string.settings_vpn_settings_open_failed),
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -389,19 +414,19 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "System Always-On VPN",
+                            text = stringResource(R.string.settings_system_always_on_title),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Optional: enforce the tunnel at OS level (blocks traffic without VPN even if the app is killed). Must be enabled in Android Settings — Android does not allow apps to set this programmatically.",
+                            text = stringResource(R.string.settings_system_always_on_desc),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = "Open Android VPN settings",
+                        contentDescription = stringResource(R.string.settings_open_vpn_settings_cd),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(start = 12.dp)
                     )
@@ -409,7 +434,7 @@ fun SettingsScreen(
             }
 
             // -- Network --
-            SettingsSection(title = "NETWORK") {
+            SettingsSection(title = stringResource(R.string.settings_section_network)) {
                 // Live validation: parse the entry, show inline
                 // error listing invalid IPs. Provider hint surfaces
                 // when the user pasted servers belonging to a known
@@ -430,23 +455,30 @@ fun SettingsScreen(
                             settingsRepo.updateSettings(settings.copy(dnsOverride = it))
                         }
                     },
-                    label = { Text("DNS Override") },
-                    placeholder = { Text("e.g. 1.1.1.1, 2606:4700:4700::1111") },
+                    label = { Text(stringResource(R.string.settings_dns_override_label)) },
+                    placeholder = { Text(stringResource(R.string.settings_dns_override_placeholder)) },
                     singleLine = true,
                     isError = dnsInvalid.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth(),
                     supportingText = {
                         when {
                             dnsInvalid.isNotEmpty() -> Text(
-                                "Invalid: ${dnsInvalid.joinToString(", ")}",
+                                stringResource(
+                                    R.string.settings_dns_invalid,
+                                    dnsInvalid.joinToString(", "),
+                                ),
                                 color = MaterialTheme.colorScheme.error
                             )
                             dnsProvider != null -> Text(
-                                "Detected: ${dnsProvider.label} · DoT host: ${dnsProvider.dotHost}",
+                                stringResource(
+                                    R.string.settings_dns_detected,
+                                    dnsProvider.label,
+                                    dnsProvider.dotHost,
+                                ),
                                 color = MaterialTheme.colorScheme.primary
                             )
                             else -> Text(
-                                "IPv4 + IPv6, comma-separated. Empty = use server-pushed DNS."
+                                stringResource(R.string.settings_dns_override_hint)
                             )
                         }
                     }
@@ -493,14 +525,26 @@ fun SettingsScreen(
                         },
                         enabled = !dnsTesting
                     ) {
-                        Text(if (dnsTesting) "Testing…" else "Test DNS")
+                        Text(
+                            if (dnsTesting)
+                                stringResource(R.string.settings_dns_test_in_progress)
+                            else
+                                stringResource(R.string.settings_dns_test_button)
+                        )
                     }
                     Spacer(Modifier.width(12.dp))
                     val res = dnsTestResult
                     if (res != null) {
                         Text(
-                            text = if (res.error != null) "Error: ${res.error}"
-                                   else "${res.host} → ${res.addresses.firstOrNull() ?: "?"} (${res.durationMs}ms)",
+                            text = if (res.error != null)
+                                stringResource(R.string.settings_dns_test_error, res.error)
+                            else
+                                stringResource(
+                                    R.string.settings_dns_test_success,
+                                    res.host,
+                                    res.addresses.firstOrNull() ?: "?",
+                                    res.durationMs,
+                                ),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (res.error != null) MaterialTheme.colorScheme.error
                                     else MaterialTheme.colorScheme.onSurfaceVariant
@@ -524,15 +568,17 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                "Tip: enable encrypted DNS",
+                                stringResource(R.string.settings_dns_tip_title),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                "${dnsProvider.label} also offers DNS-over-TLS. " +
-                                        "For end-to-end encryption: Android Settings → Network → " +
-                                        "Private DNS → enter \"${dnsProvider.dotHost}\".",
+                                stringResource(
+                                    R.string.settings_dns_tip_body,
+                                    dnsProvider.label,
+                                    dnsProvider.dotHost,
+                                ),
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -541,13 +587,9 @@ fun SettingsScreen(
             }
 
             // -- Tunnel Health (Phase 1 visible UX) --
-            SettingsSection(title = "TUNNEL HEALTH") {
+            SettingsSection(title = stringResource(R.string.settings_section_tunnel_health)) {
                 Text(
-                    text = "Periodic ICMP ping to verify the tunnel is " +
-                        "actually carrying traffic (not just \"connected\"). " +
-                        "Three consecutive failures trigger recovery: " +
-                        "pool member rotation or single-connection " +
-                        "disconnect/reconnect.",
+                    text = stringResource(R.string.settings_tunnel_health_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -555,9 +597,9 @@ fun SettingsScreen(
                 val mode = settings.tunnelHealthMode
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(
-                        "auto" to "Auto (recovery for pool & single)",
-                        "always" to "Always on",
-                        "off" to "Off",
+                        "auto" to stringResource(R.string.settings_tunnel_health_mode_auto),
+                        "always" to stringResource(R.string.settings_tunnel_health_mode_always),
+                        "off" to stringResource(R.string.settings_tunnel_health_mode_off),
                     ).forEach { (value, label) ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -595,21 +637,21 @@ fun SettingsScreen(
                             )
                         }
                     },
-                    label = { Text("Ping target (optional)") },
-                    placeholder = { Text("default: 1.1.1.1") },
+                    label = { Text(stringResource(R.string.settings_ping_target_label)) },
+                    placeholder = { Text(stringResource(R.string.settings_ping_target_placeholder)) },
                     singleLine = true,
                     isError = pingTargetInvalid,
                     modifier = Modifier.fillMaxWidth(),
                     supportingText = {
                         when {
                             pingTargetInvalid -> Text(
-                                "Not a valid IP",
+                                stringResource(R.string.settings_ping_target_invalid),
                                 color = MaterialTheme.colorScheme.error,
                             )
                             pingTarget.isBlank() -> Text(
-                                "Empty = use default 1.1.1.1",
+                                stringResource(R.string.settings_ping_target_empty_hint),
                             )
-                            else -> Text("Custom probe target")
+                            else -> Text(stringResource(R.string.settings_ping_target_custom))
                         }
                     },
                 )
@@ -642,7 +684,7 @@ fun SettingsScreen(
                                     }
                                 }
                         },
-                        label = { Text("Interval (s)") },
+                        label = { Text(stringResource(R.string.settings_tunnel_health_interval_label)) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
@@ -660,13 +702,13 @@ fun SettingsScreen(
                                     }
                                 }
                         },
-                        label = { Text("Dead-fails") },
+                        label = { Text(stringResource(R.string.settings_tunnel_health_dead_fails_label)) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
                 }
                 Text(
-                    "Max detection = interval × threshold. Default 5 × 2 = max 10 s.",
+                    stringResource(R.string.settings_tunnel_health_cadence_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
@@ -674,14 +716,9 @@ fun SettingsScreen(
             }
 
             // -- On-Demand & Network Rules (unified — v0.9.15.73) --
-            SettingsSection(title = "ON-DEMAND & NETWORK RULES") {
+            SettingsSection(title = stringResource(R.string.settings_section_on_demand)) {
                 Text(
-                    text = "Automatically connect — or stay off — based " +
-                        "on the network you're on. Network Rules are " +
-                        "checked first, top to bottom; the first rule that " +
-                        "matches the current network wins. Any network no " +
-                        "rule matches falls back to the Connect-on-Demand " +
-                        "default.",
+                    text = stringResource(R.string.settings_on_demand_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -690,16 +727,14 @@ fun SettingsScreen(
                     onClick = onNavigateToNetworkRules,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Open On-Demand & Network Rules")
+                    Text(stringResource(R.string.settings_on_demand_open_button))
                 }
             }
 
             // -- Protocol Failover Order (v0.9.15.70) --
-            SettingsSection(title = "PROTOCOL FAILOVER ORDER") {
+            SettingsSection(title = stringResource(R.string.settings_section_protocol_failover)) {
                 Text(
-                    text = "When a connection holds multiple protocols, " +
-                        "failover and the protocol pills use this order. " +
-                        "Move a protocol up to try it first.",
+                    text = stringResource(R.string.settings_protocol_failover_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -780,7 +815,7 @@ fun SettingsScreen(
                         ) {
                             Icon(
                                 Icons.Filled.KeyboardArrowUp,
-                                contentDescription = "Move up",
+                                contentDescription = stringResource(R.string.settings_protocol_move_up),
                             )
                         }
                         IconButton(
@@ -789,7 +824,7 @@ fun SettingsScreen(
                         ) {
                             Icon(
                                 Icons.Filled.KeyboardArrowDown,
-                                contentDescription = "Move down",
+                                contentDescription = stringResource(R.string.settings_protocol_move_down),
                             )
                         }
                     }
@@ -797,9 +832,9 @@ fun SettingsScreen(
             }
 
             // -- Per-App VPN --
-            SettingsSection(title = "PER-APP VPN") {
+            SettingsSection(title = stringResource(R.string.settings_section_per_app)) {
                 Text(
-                    text = "Choose which apps use the VPN tunnel.",
+                    text = stringResource(R.string.settings_per_app_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -808,14 +843,14 @@ fun SettingsScreen(
                     onClick = onNavigateToPerAppVpn,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Configure Per-App VPN")
+                    Text(stringResource(R.string.settings_per_app_configure_button))
                 }
             }
 
             // -- Cloud Backup --
-            SettingsSection(title = "CLOUD BACKUP") {
+            SettingsSection(title = stringResource(R.string.settings_section_cloud_backup)) {
                 Text(
-                    text = "Export or import VPN connections with AES-256 encryption.",
+                    text = stringResource(R.string.settings_cloud_backup_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -828,24 +863,24 @@ fun SettingsScreen(
                         onClick = { exportLauncher.launch("privycs-backup.json") },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Export")
+                        Text(stringResource(R.string.settings_backup_export_button))
                     }
                     OutlinedButton(
                         onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Import")
+                        Text(stringResource(R.string.settings_backup_import_button))
                     }
                 }
             }
 
             // -- Diagnostics --
-            SettingsSection(title = "DIAGNOSTICS") {
+            SettingsSection(title = stringResource(R.string.settings_section_diagnostics)) {
                 OutlinedButton(
                     onClick = onNavigateToLogs,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("View Logs")
+                    Text(stringResource(R.string.settings_view_logs_button))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
@@ -880,28 +915,28 @@ fun SettingsScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Notification settings")
+                    Text(stringResource(R.string.settings_notification_settings_button))
                 }
             }
 
             // -- Appearance --
-            SettingsSection(title = "APPEARANCE") {
+            SettingsSection(title = stringResource(R.string.settings_section_appearance)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Theme",
+                        text = stringResource(R.string.settings_theme_label),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
                     SingleChoiceSegmentedButtonRow {
                         val themes = listOf(
-                            AppTheme.SYSTEM to "System",
-                            AppTheme.DARK to "Dark",
-                            AppTheme.LIGHT to "Light"
+                            AppTheme.SYSTEM to stringResource(R.string.settings_theme_system),
+                            AppTheme.DARK to stringResource(R.string.settings_theme_dark),
+                            AppTheme.LIGHT to stringResource(R.string.settings_theme_light)
                         )
                         themes.forEachIndexed { index, (theme, label) ->
                             SegmentedButton(
@@ -922,23 +957,29 @@ fun SettingsScreen(
             }
 
             // -- About --
-            SettingsSection(title = "ABOUT") {
-                SettingsInfoRow("App", "Privycs VPN")
+            SettingsSection(title = stringResource(R.string.settings_section_about)) {
+                SettingsInfoRow(stringResource(R.string.settings_about_app_label), "Privycs VPN")
                 SettingsInfoRow(
-                    "Version",
+                    stringResource(R.string.settings_about_version_label),
                     "${com.privycs.vpn.BuildConfig.VERSION_NAME} (${com.privycs.vpn.BuildConfig.VERSION_CODE})"
                 )
                 // The app supports all three protocols; the per-user
                 // default "Protocol" line was misleading (suggested the
                 // app only spoke one). Show the full supported set.
-                SettingsInfoRow("Protocols", "WireGuard, OpenVPN, IPSec")
-                SettingsInfoRow("License", "GNU GPL v3 (free software)")
+                SettingsInfoRow(
+                    stringResource(R.string.settings_about_protocols_label),
+                    "WireGuard, OpenVPN, IPSec"
+                )
+                SettingsInfoRow(
+                    stringResource(R.string.settings_about_license_label),
+                    stringResource(R.string.settings_about_license_value)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = onNavigateToLicenses,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Open-Source Licenses")
+                    Text(stringResource(R.string.settings_open_source_licenses_button))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
@@ -956,7 +997,7 @@ fun SettingsScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Privacy Policy")
+                    Text(stringResource(R.string.settings_privacy_policy_button))
                 }
             }
 

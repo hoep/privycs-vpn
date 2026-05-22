@@ -1,5 +1,6 @@
 package com.privycs.vpn.ui.screens
 
+import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,10 +15,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.privycs.vpn.PrivycsApp
-import com.privycs.vpn.data.models.ConnectOnDemandSettings
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.NetworkRule
 import com.privycs.vpn.data.models.RuleAction
 import com.privycs.vpn.data.models.RuleMatchType
@@ -25,28 +28,19 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
- * Unified On-Demand & Network Rules screen. Phase 2 of the wgtunnel-
- * inspired roadmap, made the single source of truth for on-demand
- * behaviour in v0.9.15.73 (Option A1 — COD + Network-Rules
- * unification).
- *
- * Evaluation is strict first-match-then-fallback and the engine is
- * unchanged: on every network change the rules are checked top to
- * bottom, the first match wins; if no rule matches, the legacy
- * Connect-on-Demand trigger / SSID-list runs as the "Default
- * behaviour" shown pinned at the bottom. A1 only made that
- * precedence visible — it did not rewrite the engine.
+ * On-Demand & Network Rules screen — the single source of truth for
+ * auto-tunnel behaviour. The rule list is checked top to bottom on
+ * every network change; the first matching rule wins. When no rule
+ * matches, the engine takes no action (see the pinned fallback card).
+ * The legacy "simple Connect-on-Demand" was converted into rules by a
+ * one-time migration (NetworkRulesRepository.migrateLegacyCod).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NetworkRulesScreen(onBack: () -> Unit, onEditDefault: () -> Unit) {
+fun NetworkRulesScreen(onBack: () -> Unit) {
     val app = PrivycsApp.instance
     val repo = remember { app.networkRulesRepository }
     val rules by repo.rules.collectAsState()
-    val settingsRepo = remember { app.settingsRepository }
-    val settings by settingsRepo.settingsFlow.collectAsState(
-        initial = settingsRepo.defaultSettings(),
-    )
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<NetworkRule?>(null) }
     var showCreate by remember { mutableStateOf(false) }
@@ -55,18 +49,27 @@ fun NetworkRulesScreen(onBack: () -> Unit, onEditDefault: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = {
-                    Text("On-Demand & Network Rules", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        stringResource(R.string.netrules_screen_title),
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.netrules_back),
+                        )
                     }
                 },
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreate = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "Add rule")
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = stringResource(R.string.netrules_add_rule),
+                )
             }
         },
     ) { padding ->
@@ -87,7 +90,7 @@ fun NetworkRulesScreen(onBack: () -> Unit, onEditDefault: () -> Unit) {
             } else {
                 item {
                     Text(
-                        "RULES — CHECKED TOP TO BOTTOM",
+                        stringResource(R.string.netrules_rules_header),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -127,10 +130,7 @@ fun NetworkRulesScreen(onBack: () -> Unit, onEditDefault: () -> Unit) {
 
             item {
                 Spacer(Modifier.height(8.dp))
-                DefaultBehaviourCard(
-                    cod = settings.connectOnDemand,
-                    onEdit = onEditDefault,
-                )
+                DefaultBehaviourCard()
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -178,18 +178,13 @@ private fun PrecedenceHeaderCard() {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                "How this screen decides",
+                stringResource(R.string.netrules_precedence_title),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "On every network change the rules below are checked " +
-                    "top to bottom — the first rule that matches the " +
-                    "current Wi-Fi or mobile network wins. If no rule " +
-                    "matches, the Default behaviour pinned at the bottom " +
-                    "applies. Rules are only evaluated while " +
-                    "Connect-on-Demand is enabled.",
+                stringResource(R.string.netrules_precedence_body),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -206,14 +201,13 @@ private fun EmptyRulesCard() {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("No rules yet", style = MaterialTheme.typography.titleSmall)
+            Text(
+                stringResource(R.string.netrules_empty_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Every network falls through to the Default behaviour " +
-                    "below. Add a rule with the + button to override it " +
-                    "for a specific Wi-Fi SSID, BSSID, or network type — " +
-                    "routing that network to a Pool, a Connection, or " +
-                    "No VPN.",
+                stringResource(R.string.netrules_empty_body),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -221,14 +215,14 @@ private fun EmptyRulesCard() {
 }
 
 /**
- * The pinned, non-deletable fallback card. Summarises the legacy
- * Connect-on-Demand trigger / SSID-list and links to the full
- * editor (ConnectOnDemandScreen).
+ * The pinned fallback explainer. Post the COD→rules conversion there
+ * is no separate "default behaviour" to edit — when no rule matches,
+ * the engine simply takes no action.
  */
 @Composable
-private fun DefaultBehaviourCard(cod: ConnectOnDemandSettings, onEdit: () -> Unit) {
+private fun DefaultBehaviourCard() {
     Text(
-        "FALLBACK — WHEN NO RULE MATCHES",
+        stringResource(R.string.netrules_fallback_header),
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -241,56 +235,17 @@ private fun DefaultBehaviourCard(cod: ConnectOnDemandSettings, onEdit: () -> Uni
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Default behaviour",
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        "Connect on Demand — applies to any network no rule above matched",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                TextButton(onClick = onEdit) {
-                    Icon(
-                        Icons.Filled.Edit,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text("Edit")
-                }
-            }
-            Spacer(Modifier.height(8.dp))
             Text(
-                connectOnDemandSummary(cod),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
+                stringResource(R.string.netrules_default_behaviour_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.netrules_default_behaviour_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-private fun connectOnDemandSummary(cod: ConnectOnDemandSettings): String {
-    if (!cod.enabled) {
-        return "Connect-on-Demand is off — the VPN stays under manual " +
-            "control on networks no rule matched."
-    }
-    val trigger = when (cod.trigger) {
-        "wifi" -> "Connect on Wi-Fi"
-        "mobile" -> "Connect on mobile data"
-        else -> "Connect on Wi-Fi & mobile data"
-    }
-    val wifiInTrigger = cod.trigger == "wifi" || cod.trigger == "wifi_mobile"
-    if (!wifiInTrigger) return trigger
-    val n = cod.ssidList.size
-    val nets = "Wi-Fi network" + if (n == 1) "" else "s"
-    return when (cod.ssidMode) {
-        "only" -> "$trigger — but only on $n saved $nets"
-        "except" -> "$trigger — except $n saved $nets"
-        else -> "$trigger — on every Wi-Fi network"
     }
 }
 
@@ -328,12 +283,31 @@ private fun RuleRow(
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onMoveUp) { Icon(Icons.Filled.ArrowUpward, "Up") }
-                IconButton(onClick = onMoveDown) { Icon(Icons.Filled.ArrowDownward, "Down") }
+                IconButton(onClick = onMoveUp) {
+                    Icon(
+                        Icons.Filled.ArrowUpward,
+                        stringResource(R.string.netrules_move_up),
+                    )
+                }
+                IconButton(onClick = onMoveDown) {
+                    Icon(
+                        Icons.Filled.ArrowDownward,
+                        stringResource(R.string.netrules_move_down),
+                    )
+                }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, "Edit") }
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        stringResource(R.string.netrules_edit),
+                    )
+                }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
+                    Icon(
+                        Icons.Filled.Delete,
+                        stringResource(R.string.netrules_delete),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }
@@ -343,11 +317,16 @@ private fun RuleRow(
 @Composable
 private fun ruleSummary(rule: NetworkRule): String {
     val match = when (rule.matchType) {
-        RuleMatchType.SSID_EXACT -> "SSID = \"${rule.matchValue}\""
-        RuleMatchType.SSID_PATTERN -> "SSID matches \"${rule.matchValue}\""
-        RuleMatchType.NETWORK_TYPE -> "Network = ${rule.matchValue}"
-        RuleMatchType.BSSID -> "BSSID = ${rule.matchValue}"
-        RuleMatchType.ANY -> "Any network"
+        RuleMatchType.SSID_EXACT ->
+            stringResource(R.string.netrules_summary_ssid_exact, rule.matchValue)
+        RuleMatchType.SSID_PATTERN ->
+            stringResource(R.string.netrules_summary_ssid_pattern, rule.matchValue)
+        RuleMatchType.NETWORK_TYPE ->
+            stringResource(R.string.netrules_summary_network_type, rule.matchValue)
+        RuleMatchType.BSSID ->
+            stringResource(R.string.netrules_summary_bssid, rule.matchValue)
+        RuleMatchType.ANY ->
+            stringResource(R.string.netrules_summary_any)
     }
     val app = PrivycsApp.instance
     // collectAsState on the pool registry so renames / additions
@@ -356,19 +335,22 @@ private fun ruleSummary(rule: NetworkRule): String {
     // it would not subscribe to updates.
     val poolRegistry by app.poolRepository.registry.collectAsState()
     val connectionRegistry by app.connectionRepository.registry.collectAsState()
+    val missing = stringResource(R.string.netrules_summary_missing_target)
     val target = when (rule.action) {
-        RuleAction.NO_VPN -> "→ No VPN"
+        RuleAction.NO_VPN -> stringResource(R.string.netrules_summary_target_no_vpn)
+        RuleAction.CONNECT_ACTIVE ->
+            stringResource(R.string.netrules_summary_target_connect_active)
         RuleAction.POOL -> {
             val pool = poolRegistry.pools.firstOrNull { it.id == rule.targetId }
-            "→ Pool: ${pool?.name ?: "(missing)"}"
+            stringResource(R.string.netrules_summary_target_pool, pool?.name ?: missing)
         }
         RuleAction.CONNECTION -> {
             val conn = connectionRegistry.connections
                 .firstOrNull { it.id == rule.targetId }
-            "→ Connection: ${conn?.name ?: "(missing)"}"
+            stringResource(R.string.netrules_summary_target_connection, conn?.name ?: missing)
         }
     }
-    return "$match  $target"
+    return stringResource(R.string.netrules_summary_combined, match, target)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -379,6 +361,7 @@ private fun RuleEditDialog(
     onSave: (NetworkRule) -> Unit,
 ) {
     val app = PrivycsApp.instance
+    val context = LocalContext.current
     // collectAsState so the dropdown picker stays fresh if a pool /
     // connection is added or renamed while the dialog is open.
     // .value direct-access here triggers the
@@ -403,13 +386,18 @@ private fun RuleEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "Add Rule" else "Edit Rule") },
+        title = {
+            Text(
+                if (initial == null) stringResource(R.string.netrules_dialog_add_title)
+                else stringResource(R.string.netrules_dialog_edit_title),
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name (optional)") },
+                    label = { Text(stringResource(R.string.netrules_field_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -418,7 +406,12 @@ private fun RuleEditDialog(
                         onClick = { matchMenuOpen = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Match: ${matchType.label()}")
+                        Text(
+                            stringResource(
+                                R.string.netrules_match_button,
+                                matchType.label(context),
+                            ),
+                        )
                     }
                     DropdownMenu(
                         expanded = matchMenuOpen,
@@ -426,7 +419,7 @@ private fun RuleEditDialog(
                     ) {
                         RuleMatchType.values().forEach { t ->
                             DropdownMenuItem(
-                                text = { Text(t.label()) },
+                                text = { Text(t.label(context)) },
                                 onClick = { matchType = t; matchMenuOpen = false },
                             )
                         }
@@ -436,8 +429,8 @@ private fun RuleEditDialog(
                     OutlinedTextField(
                         value = matchValue,
                         onValueChange = { matchValue = it },
-                        label = { Text(matchType.fieldLabel()) },
-                        placeholder = { Text(matchType.fieldHint()) },
+                        label = { Text(matchType.fieldLabel(context)) },
+                        placeholder = { Text(matchType.fieldHint(context)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -447,7 +440,12 @@ private fun RuleEditDialog(
                         onClick = { actionMenuOpen = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Action: ${action.label()}")
+                        Text(
+                            stringResource(
+                                R.string.netrules_action_button,
+                                action.label(context),
+                            ),
+                        )
                     }
                     DropdownMenu(
                         expanded = actionMenuOpen,
@@ -455,13 +453,13 @@ private fun RuleEditDialog(
                     ) {
                         RuleAction.values().forEach { a ->
                             DropdownMenuItem(
-                                text = { Text(a.label()) },
+                                text = { Text(a.label(context)) },
                                 onClick = { action = a; targetId = ""; actionMenuOpen = false },
                             )
                         }
                     }
                 }
-                if (action != RuleAction.NO_VPN) {
+                if (action == RuleAction.POOL || action == RuleAction.CONNECTION) {
                     Box {
                         OutlinedButton(
                             onClick = { targetMenuOpen = true },
@@ -469,9 +467,9 @@ private fun RuleEditDialog(
                         ) {
                             val label = when (action) {
                                 RuleAction.POOL -> pools.firstOrNull { it.id == targetId }?.name
-                                    ?: "Pick a pool…"
+                                    ?: stringResource(R.string.netrules_pick_pool)
                                 RuleAction.CONNECTION -> connections.firstOrNull { it.id == targetId }?.name
-                                    ?: "Pick a connection…"
+                                    ?: stringResource(R.string.netrules_pick_connection)
                                 else -> ""
                             }
                             Text(label)
@@ -503,7 +501,8 @@ private fun RuleEditDialog(
         confirmButton = {
             TextButton(
                 enabled = (matchType == RuleMatchType.ANY || matchValue.isNotBlank()) &&
-                    (action == RuleAction.NO_VPN || targetId.isNotBlank()),
+                    (action == RuleAction.NO_VPN || action == RuleAction.CONNECT_ACTIVE ||
+                        targetId.isNotBlank()),
                 onClick = {
                     onSave(
                         NetworkRule(
@@ -518,38 +517,43 @@ private fun RuleEditDialog(
                         ),
                     )
                 },
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.netrules_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.netrules_cancel))
+            }
+        },
     )
 }
 
-private fun RuleMatchType.label(): String = when (this) {
-    RuleMatchType.SSID_EXACT -> "Wi-Fi SSID (exact)"
-    RuleMatchType.SSID_PATTERN -> "Wi-Fi SSID (pattern)"
-    RuleMatchType.NETWORK_TYPE -> "Network type"
-    RuleMatchType.BSSID -> "Wi-Fi BSSID (MAC)"
-    RuleMatchType.ANY -> "Any network"
+private fun RuleMatchType.label(context: Context): String = when (this) {
+    RuleMatchType.SSID_EXACT -> context.getString(R.string.netrules_match_ssid_exact)
+    RuleMatchType.SSID_PATTERN -> context.getString(R.string.netrules_match_ssid_pattern)
+    RuleMatchType.NETWORK_TYPE -> context.getString(R.string.netrules_match_network_type)
+    RuleMatchType.BSSID -> context.getString(R.string.netrules_match_bssid)
+    RuleMatchType.ANY -> context.getString(R.string.netrules_match_any)
 }
 
-private fun RuleMatchType.fieldLabel(): String = when (this) {
-    RuleMatchType.SSID_EXACT -> "SSID"
-    RuleMatchType.SSID_PATTERN -> "SSID pattern (use *, ?)"
-    RuleMatchType.NETWORK_TYPE -> "wifi / mobile / ethernet / wifi_mobile / any"
-    RuleMatchType.BSSID -> "BSSID (e.g. aa:bb:cc:dd:ee:ff)"
+private fun RuleMatchType.fieldLabel(context: Context): String = when (this) {
+    RuleMatchType.SSID_EXACT -> context.getString(R.string.netrules_field_label_ssid_exact)
+    RuleMatchType.SSID_PATTERN -> context.getString(R.string.netrules_field_label_ssid_pattern)
+    RuleMatchType.NETWORK_TYPE -> context.getString(R.string.netrules_field_label_network_type)
+    RuleMatchType.BSSID -> context.getString(R.string.netrules_field_label_bssid)
     RuleMatchType.ANY -> ""
 }
 
-private fun RuleMatchType.fieldHint(): String = when (this) {
-    RuleMatchType.SSID_EXACT -> "HomeWifi"
-    RuleMatchType.SSID_PATTERN -> "Cafe-*"
-    RuleMatchType.NETWORK_TYPE -> "wifi"
-    RuleMatchType.BSSID -> "aa:bb:cc:dd:ee:ff"
+private fun RuleMatchType.fieldHint(context: Context): String = when (this) {
+    RuleMatchType.SSID_EXACT -> context.getString(R.string.netrules_field_hint_ssid_exact)
+    RuleMatchType.SSID_PATTERN -> context.getString(R.string.netrules_field_hint_ssid_pattern)
+    RuleMatchType.NETWORK_TYPE -> context.getString(R.string.netrules_field_hint_network_type)
+    RuleMatchType.BSSID -> context.getString(R.string.netrules_field_hint_bssid)
     RuleMatchType.ANY -> ""
 }
 
-private fun RuleAction.label(): String = when (this) {
-    RuleAction.NO_VPN -> "No VPN (trusted)"
-    RuleAction.POOL -> "Use Pool"
-    RuleAction.CONNECTION -> "Use Connection"
+private fun RuleAction.label(context: Context): String = when (this) {
+    RuleAction.NO_VPN -> context.getString(R.string.netrules_action_no_vpn)
+    RuleAction.CONNECT_ACTIVE -> context.getString(R.string.netrules_action_connect_active)
+    RuleAction.POOL -> context.getString(R.string.netrules_action_pool)
+    RuleAction.CONNECTION -> context.getString(R.string.netrules_action_connection)
 }

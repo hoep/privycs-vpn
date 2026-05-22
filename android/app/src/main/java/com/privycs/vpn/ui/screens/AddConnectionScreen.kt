@@ -56,10 +56,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.R
 import com.privycs.vpn.api.GatewayApiClient
 import com.privycs.vpn.config.ConfigParser
 import com.privycs.vpn.data.models.RemoteConfigEntry
@@ -135,14 +137,14 @@ fun AddConnectionScreen(
             inputStream?.close()
 
             if (fileContent.isBlank()) {
-                importError = "File is empty"
+                importError = context.getString(R.string.addconn_error_file_empty)
                 return@rememberLauncherForActivityResult
             }
 
             // Auto-detect protocol
             detectedProtocol = ConfigParser.detectProtocol(fileContent, selectedFilename)
             if (detectedProtocol == null) {
-                importError = "Unable to detect VPN protocol. Supported: .conf (WireGuard), .ovpn (OpenVPN), .sswan/.mobileconfig (IPSec)"
+                importError = context.getString(R.string.addconn_error_protocol_undetected)
                 return@rememberLauncherForActivityResult
             }
 
@@ -151,7 +153,7 @@ fun AddConnectionScreen(
                 connectionName = ConfigParser.deriveConnectionName(selectedFilename)
             }
         } catch (e: Exception) {
-            importError = "Failed to read file: ${e.message}"
+            importError = context.getString(R.string.addconn_error_read_file, e.message ?: "")
         }
     }
 
@@ -161,15 +163,18 @@ fun AddConnectionScreen(
                 title = {
                     Text(
                         text = if (targetConnection != null)
-                            "Add Protocol to ${targetConnection.name}"
-                        else "Add Connection",
+                            stringResource(R.string.addconn_title_add_protocol, targetConnection.name)
+                        else stringResource(R.string.addconn_title_add_connection),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.addconn_cd_back)
+                        )
                     }
                 },
                 actions = {
@@ -211,7 +216,7 @@ fun AddConnectionScreen(
                                             payload.content, selectedFilename
                                         )
                                         if (detectedProtocol == null) {
-                                            importError = "Scanned config did not validate as WireGuard"
+                                            importError = context.getString(R.string.addconn_error_scan_not_wireguard)
                                         } else if (connectionName.isBlank()) {
                                             connectionName = ConfigParser.deriveConnectionName(selectedFilename)
                                         }
@@ -243,17 +248,17 @@ fun AddConnectionScreen(
                                         }
                                     }
                                     is QrCodePayload.Unknown -> {
-                                        importError = "QR code content not recognised as a VPN config or Privycs enrollment URL"
+                                        importError = context.getString(R.string.addconn_error_qr_unrecognised)
                                     }
                                 }
                             } catch (e: Exception) {
-                                importError = "QR scan failed: ${e.message}"
+                                importError = context.getString(R.string.addconn_error_qr_failed, e.message ?: "")
                             }
                         }
                     }) {
                         Icon(
                             Icons.Filled.QrCodeScanner,
-                            contentDescription = "Scan QR code",
+                            contentDescription = stringResource(R.string.addconn_cd_scan_qr),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -281,7 +286,7 @@ fun AddConnectionScreen(
                         }) {
                             Icon(
                                 Icons.Filled.Cloud,
-                                contentDescription = "Gateway",
+                                contentDescription = stringResource(R.string.addconn_cd_gateway),
                                 tint = if (showGateway) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -331,14 +336,17 @@ fun AddConnectionScreen(
                         Spacer(modifier = Modifier.size(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Adding to existing connection",
+                                text = stringResource(R.string.addconn_adding_to_existing),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "${targetConnection.name} — currently has " +
-                                    targetConnection.availableProtocols().joinToString(", ") { it.shortLabel },
+                                text = stringResource(
+                                    R.string.addconn_existing_currently_has,
+                                    targetConnection.name,
+                                    targetConnection.availableProtocols().joinToString(", ") { it.shortLabel }
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -373,7 +381,7 @@ fun AddConnectionScreen(
                     isLoading = gatewayLoading,
                     error = gatewayError,
                     downloadingKey = downloadingKey,
-                    emptyMessage = "No configs available",
+                    emptyMessage = stringResource(R.string.addconn_gateway_empty),
                     onDownload = { entry ->
                         val key = "${entry.protocol}-${entry.id}"
                         scope.launch {
@@ -407,10 +415,10 @@ fun AddConnectionScreen(
                                     importSuccess = true
                                     onConnectionAdded()
                                 } else {
-                                    gatewayError = "Failed to parse config from gateway"
+                                    gatewayError = context.getString(R.string.addconn_error_gateway_parse)
                                 }
                             } catch (e: Exception) {
-                                gatewayError = "Download failed: ${e.message}"
+                                gatewayError = context.getString(R.string.addconn_error_download_failed, e.message ?: "")
                             } finally {
                                 downloadingKey = null
                             }
@@ -455,7 +463,7 @@ fun AddConnectionScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Detected: ${detectedProtocol!!.label}",
+                            text = stringResource(R.string.addconn_detected_protocol, detectedProtocol!!.label),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -468,12 +476,12 @@ fun AddConnectionScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Tap to select config file",
+                            text = stringResource(R.string.addconn_tap_to_select),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "or drop file here",
+                            text = stringResource(R.string.addconn_or_drop_file),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -489,8 +497,8 @@ fun AddConnectionScreen(
                 OutlinedTextField(
                     value = connectionName,
                     onValueChange = { connectionName = it },
-                    label = { Text("Connection Name") },
-                    placeholder = { Text("e.g. Office VPN") },
+                    label = { Text(stringResource(R.string.addconn_label_connection_name)) },
+                    placeholder = { Text(stringResource(R.string.addconn_placeholder_connection_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = detectedProtocol != null
@@ -517,7 +525,7 @@ fun AddConnectionScreen(
                             importError = null
                             onConnectionAdded()
                         } else {
-                            importError = "Failed to parse config file"
+                            importError = context.getString(R.string.addconn_error_parse_file)
                         }
                     }
                 },
@@ -535,9 +543,9 @@ fun AddConnectionScreen(
                 Spacer(modifier = Modifier.size(8.dp))
                 Text(
                     text = when {
-                        importSuccess -> "Imported"
-                        targetConnection != null -> "Add Protocol Config"
-                        else -> "Import Config"
+                        importSuccess -> stringResource(R.string.addconn_btn_imported)
+                        targetConnection != null -> stringResource(R.string.addconn_btn_add_protocol_config)
+                        else -> stringResource(R.string.addconn_btn_import_config)
                     }
                 )
             }
@@ -566,17 +574,29 @@ fun AddConnectionScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Supported Formats",
+                        text = stringResource(R.string.addconn_supported_formats),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    FormatInfo("WireGuard", ".conf", "WireGuard configuration files")
+                    FormatInfo(
+                        "WireGuard",
+                        ".conf",
+                        stringResource(R.string.addconn_format_desc_wireguard)
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
-                    FormatInfo("OpenVPN", ".ovpn", "OpenVPN configuration files")
+                    FormatInfo(
+                        "OpenVPN",
+                        ".ovpn",
+                        stringResource(R.string.addconn_format_desc_openvpn)
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
-                    FormatInfo("IPSec", ".sswan / .mobileconfig", "strongSwan or Apple profile")
+                    FormatInfo(
+                        "IPSec",
+                        ".sswan / .mobileconfig",
+                        stringResource(R.string.addconn_format_desc_ipsec)
+                    )
                 }
             }
         }
@@ -619,7 +639,7 @@ private fun GatewayPanel(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "From Gateway",
+                    text = stringResource(R.string.addconn_from_gateway),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -747,7 +767,10 @@ private fun GatewayPanel(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.size(4.dp))
-                                    Text("Import", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        stringResource(R.string.addconn_import),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
                                 }
                             }
                         }

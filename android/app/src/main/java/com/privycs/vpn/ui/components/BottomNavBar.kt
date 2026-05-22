@@ -19,21 +19,24 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.annotation.StringRes
+import com.privycs.vpn.R
 import com.privycs.vpn.navigation.Routes
 
 data class NavItem(
     val route: String,
-    val label: String,
+    @StringRes val labelRes: Int,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 )
 
 private val navItems = listOf(
-    NavItem(Routes.CONNECT, "Connect", Icons.Filled.Shield, Icons.Outlined.Shield),
-    NavItem(Routes.CONNECTIONS, "Configs", Icons.Filled.Dns, Icons.Outlined.Dns),
-    NavItem(Routes.ADD, "Add", Icons.Filled.Add, Icons.Outlined.Add),
-    NavItem(Routes.SETTINGS, "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
-    NavItem(Routes.HELP, "Help", Icons.Filled.HelpOutline, Icons.Outlined.HelpOutline),
+    NavItem(Routes.CONNECT, R.string.nav_label_connect, Icons.Filled.Shield, Icons.Outlined.Shield),
+    NavItem(Routes.CONNECTIONS, R.string.nav_label_configs, Icons.Filled.Dns, Icons.Outlined.Dns),
+    NavItem(Routes.ADD, R.string.nav_label_add, Icons.Filled.Add, Icons.Outlined.Add),
+    NavItem(Routes.SETTINGS, R.string.nav_label_settings, Icons.Filled.Settings, Icons.Outlined.Settings),
+    NavItem(Routes.HELP, R.string.nav_label_help, Icons.Filled.HelpOutline, Icons.Outlined.HelpOutline),
 )
 
 @Composable
@@ -47,18 +50,19 @@ fun BottomNavBar(
     ) {
         navItems.forEach { item ->
             val selected = currentRoute == item.route
+            val itemLabel = stringResource(item.labelRes)
             NavigationBarItem(
                 selected = selected,
                 onClick = { onNavigate(item.route) },
                 icon = {
                     Icon(
                         imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
-                        contentDescription = item.label
+                        contentDescription = itemLabel
                     )
                 },
                 label = {
                     Text(
-                        text = item.label,
+                        text = itemLabel,
                         style = MaterialTheme.typography.labelSmall
                     )
                 },

@@ -29,7 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.PoolListItem
 import kotlinx.coroutines.delay
 import kotlin.math.max
@@ -113,9 +115,10 @@ fun PoolIndicatorCard(
             // Active member
             if (pool.activeMemberName.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
+                val activeMemberDisplay = pool.activeMemberName +
+                        (if (pool.activeMemberCountry.isNotEmpty()) " (${pool.activeMemberCountry})" else "")
                 Text(
-                    "Currently: ${pool.activeMemberName}" +
-                            (if (pool.activeMemberCountry.isNotEmpty()) " (${pool.activeMemberCountry})" else ""),
+                    stringResource(R.string.poolind_currently, activeMemberDisplay),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -132,9 +135,10 @@ fun PoolIndicatorCard(
                     shape = RoundedCornerShape(4.dp),
                     contentColor = MaterialTheme.colorScheme.tertiary
                 ) {
+                    val pendingMemberDisplay = pendingMemberName +
+                            (if (!pendingMemberCountry.isNullOrEmpty()) " ($pendingMemberCountry)" else "")
                     Text(
-                        "Next: $pendingMemberName" +
-                                (if (!pendingMemberCountry.isNullOrEmpty()) " ($pendingMemberCountry)" else ""),
+                        stringResource(R.string.poolind_next, pendingMemberDisplay),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
@@ -156,7 +160,7 @@ fun PoolIndicatorCard(
                             modifier = Modifier.height(14.dp)
                         )
                         Spacer(Modifier.padding(horizontal = 4.dp))
-                        Text("Next rotation",
+                        Text(stringResource(R.string.poolind_next_rotation),
                             style = MaterialTheme.typography.labelMedium)
                     }
                     Text(

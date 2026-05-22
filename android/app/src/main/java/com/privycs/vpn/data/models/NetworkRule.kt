@@ -10,12 +10,15 @@ import kotlinx.serialization.Serializable
  * the active VPN target (or "no VPN" if the rule says so).
  *
  * Rule semantics:
- *   - If at least ONE rule exists in the user's list, the rules
- *     engine becomes authoritative for the connect lifecycle.
- *     The legacy COD trigger / SSID-mode logic is bypassed.
- *   - If the user has zero rules, the legacy COD logic runs as
- *     before. This is the default for upgrade users so behaviour
- *     stays identical until they create a rule.
+ *   - The rule list is the SINGLE source of truth for the auto-
+ *     tunnel lifecycle. The engine walks it in priority order on
+ *     every network change; the first matching rule wins.
+ *   - Zero rules / no match = the engine takes no action (the VPN
+ *     stays in whatever state the user left it).
+ *   - The legacy "simple Connect-on-Demand" (trigger + only/except
+ *     SSID list) was converted into equivalent rules by a one-time
+ *     migration (see NetworkRulesRepository.migrateLegacyCod); it
+ *     no longer exists as a separate mechanism.
  *
  * Match types:
  *   - SSID_EXACT: matches a Wi-Fi network by its exact SSID.
@@ -35,6 +38,9 @@ import kotlinx.serialization.Serializable
  *     Implements the "trusted network" pattern.
  *   - POOL: switch to the pool with id = targetId.
  *   - CONNECTION: switch to the single connection with id = targetId.
+ *   - CONNECT_ACTIVE: connect the user's currently-active connection
+ *     or pool (whatever is selected as active) — not a pinned
+ *     target. This is the semantics the legacy "simple COD" had.
  */
 @Serializable
 enum class RuleMatchType {
@@ -50,6 +56,12 @@ enum class RuleAction {
     @SerialName("no_vpn") NO_VPN,
     @SerialName("pool") POOL,
     @SerialName("connection") CONNECTION,
+
+    // Connect whatever the user currently has selected as the active
+    // connection/pool — not a pinned target. The semantics the legacy
+    // "simple Connect-on-Demand" had; the COD→rules conversion makes
+    // it a first-class rule action.
+    @SerialName("connect_active") CONNECT_ACTIVE,
 }
 
 @Serializable
@@ -128,6 +140,7 @@ data class NetworkRule(
 sealed class RuleResolution {
     object NoMatch : RuleResolution()
     object NoVpn : RuleResolution()
+    object ConnectActive : RuleResolution()
     data class Pool(val poolId: String) : RuleResolution()
     data class Connection(val connectionId: String) : RuleResolution()
 }

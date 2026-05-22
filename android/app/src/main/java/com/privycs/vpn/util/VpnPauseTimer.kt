@@ -109,9 +109,9 @@ object VpnPauseTimer {
                 // COD reconnect check.
                 _pauseUntilEpochMs.value = 0L
 
-                val settings = com.privycs.vpn.PrivycsApp.instance
-                    .settingsRepository.getSettingsBlocking()
-                if (!settings.connectOnDemand.enabled) return@launch
+                if (!com.privycs.vpn.PrivycsApp.instance.networkRulesRepository.hasRules) {
+                    return@launch
+                }
 
                 val nm = NetworkMonitor.getInstance(appContext)
                 nm.reevaluate()

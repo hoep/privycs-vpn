@@ -52,13 +52,20 @@ class BootReceiver : BroadcastReceiver() {
                 val app = context.applicationContext as PrivycsApp
                 val settings = app.settingsRepository.getSettingsBlocking()
 
-                // Always start the NetworkMonitor when COD is on so
+                // Convert any legacy "simple COD" into network rules
+                // (idempotent), then gate on whether ANY rule exists —
+                // the engine is rule-driven post-conversion.
+                app.networkRulesRepository.migrateLegacyCod(app.settingsRepository)
+                app.networkRulesRepository.awaitLoaded()
+                val codConfigured = app.networkRulesRepository.rules.value.isNotEmpty()
+
+                // Always start the NetworkMonitor when rules exist so
                 // ongoing rule-based connects/disconnects work after
                 // boot. Independent of autoConnectOnStart - the
                 // monitor's job is the long-lived lifecycle, the
                 // boot intent below is a one-shot kick.
-                if (settings.connectOnDemand.enabled) {
-                    Log.d(TAG, "Connect on demand enabled, starting NetworkMonitor")
+                if (codConfigured) {
+                    Log.d(TAG, "Network rules configured, starting NetworkMonitor")
                     NetworkMonitor.getInstance(context).start()
                     // v0.9.14.97: also register the process-death-surviving
                     // PendingIntent NetworkCallback so OEM battery-killer
@@ -92,14 +99,14 @@ class BootReceiver : BroadcastReceiver() {
                 // firing, pure read of detectNetworkType() +
                 // detectCurrentSsid(). Returns true if a connect
                 // SHOULD fire right now.
-                if (settings.connectOnDemand.enabled) {
+                if (codConfigured) {
                     val shouldConnect = NetworkMonitor.getInstance(context)
-                        .evaluateRulesNow(settings.connectOnDemand)
+                        .evaluateRulesNow()
                     if (!shouldConnect) {
-                        Log.d(TAG, "Boot auto-connect suppressed: COD rules do not match current network")
+                        Log.d(TAG, "Boot auto-connect suppressed: network rules do not match current network")
                         return@launch
                     }
-                    Log.d(TAG, "Boot auto-connect: COD rules match, proceeding")
+                    Log.d(TAG, "Boot auto-connect: network rules match, proceeding")
                 }
 
                 // Pool-active wins. Without this branch boot-time

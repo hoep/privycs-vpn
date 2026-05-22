@@ -29,8 +29,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.privycs.vpn.R
 
 /**
  * Bottom sheet shown when the user taps Disconnect while Android's
@@ -69,7 +71,7 @@ fun AlwaysOnDisconnectSheet(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
             Text(
-                text = "Disconnect VPN",
+                text = stringResource(R.string.alwayson_sheet_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -79,9 +81,7 @@ fun AlwaysOnDisconnectSheet(
             // who don't know about Always-On will otherwise think the
             // app is broken. One concise paragraph, not a treatise.
             Text(
-                text = "Android's system setting 'Always-on VPN' is enabled for Privycs. "
-                    + "Android will automatically reconnect the tunnel every time it's stopped. "
-                    + "Choose how you'd like to disconnect:",
+                text = stringResource(R.string.alwayson_sheet_body),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -94,8 +94,8 @@ fun AlwaysOnDisconnectSheet(
             // local-network work where VPN is in the way.
             SheetAction(
                 icon = Icons.Outlined.Pause,
-                title = "Pause for 5 minutes",
-                subtitle = "Tunnel stays down until the timer expires",
+                title = stringResource(R.string.alwayson_pause_5),
+                subtitle = stringResource(R.string.alwayson_pause_5_subtitle),
                 onClick = {
                     onPauseSelected(5)
                     onDismiss()
@@ -104,7 +104,7 @@ fun AlwaysOnDisconnectSheet(
             Spacer(modifier = Modifier.height(8.dp))
             SheetAction(
                 icon = Icons.Outlined.Pause,
-                title = "Pause for 15 minutes",
+                title = stringResource(R.string.alwayson_pause_15),
                 subtitle = null,
                 onClick = {
                     onPauseSelected(15)
@@ -114,7 +114,7 @@ fun AlwaysOnDisconnectSheet(
             Spacer(modifier = Modifier.height(8.dp))
             SheetAction(
                 icon = Icons.Outlined.Pause,
-                title = "Pause for 60 minutes",
+                title = stringResource(R.string.alwayson_pause_60),
                 subtitle = null,
                 onClick = {
                     onPauseSelected(60)
@@ -135,8 +135,8 @@ fun AlwaysOnDisconnectSheet(
 
             SheetAction(
                 icon = Icons.AutoMirrored.Outlined.OpenInNew,
-                title = "Open Always-On settings",
-                subtitle = "Disable Always-On VPN in Android system settings",
+                title = stringResource(R.string.alwayson_open_settings),
+                subtitle = stringResource(R.string.alwayson_open_settings_subtitle),
                 onClick = {
                     val intent = Intent(Settings.ACTION_VPN_SETTINGS).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK

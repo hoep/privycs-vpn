@@ -69,8 +69,12 @@ class AutoTunnelWorker(
             //    already running. reevaluate() is the public
             //    re-trigger surface used by Settings, Boot, and
             //    now also by us as the periodic backstop.
-            val codEnabled = app.settingsRepository
-                .getSettingsBlocking().connectOnDemand.enabled
+            // Convert any legacy "simple COD" into rules (idempotent),
+            // then gate on whether ANY rule exists — the engine is
+            // rule-driven post-conversion.
+            app.networkRulesRepository.migrateLegacyCod(app.settingsRepository)
+            app.networkRulesRepository.awaitLoaded()
+            val codEnabled = app.networkRulesRepository.rules.value.isNotEmpty()
             if (codEnabled) {
                 val nm = NetworkMonitor.getInstance(applicationContext)
                 nm.start()

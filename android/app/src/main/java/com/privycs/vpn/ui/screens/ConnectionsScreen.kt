@@ -63,9 +63,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.R
 import com.privycs.vpn.api.GatewayApiClient
 import com.privycs.vpn.config.ConfigParser
 import com.privycs.vpn.data.models.ProtocolConfig
@@ -135,13 +138,13 @@ fun ConnectionsScreen(
         }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("Edit Connection") },
+            title = { Text(stringResource(R.string.connections_edit_dialog_title)) },
             text = {
                 Column {
                     OutlinedTextField(
                         value = renameDraft,
                         onValueChange = { renameDraft = it },
-                        label = { Text("Name") },
+                        label = { Text(stringResource(R.string.connections_name_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -149,22 +152,22 @@ fun ConnectionsScreen(
                     OutlinedTextField(
                         value = renameDnsDraft,
                         onValueChange = { renameDnsDraft = it },
-                        label = { Text("DNS Override (optional)") },
-                        placeholder = { Text("e.g. 1.1.1.1, 2606:4700:4700::1111") },
+                        label = { Text(stringResource(R.string.connections_dns_override_label)) },
+                        placeholder = { Text(stringResource(R.string.connections_dns_override_placeholder)) },
                         singleLine = true,
                         isError = dnsInvalid.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth(),
                         supportingText = {
                             when {
                                 dnsInvalid.isNotEmpty() -> Text(
-                                    "Invalid: ${dnsInvalid.joinToString(", ")}",
+                                    stringResource(R.string.connections_dns_invalid, dnsInvalid.joinToString(", ")),
                                     color = MaterialTheme.colorScheme.error
                                 )
                                 renameDnsDraft.isBlank() -> Text(
-                                    "Empty = inherit global Settings DNS"
+                                    stringResource(R.string.connections_dns_empty_hint)
                                 )
                                 else -> Text(
-                                    "Overrides Settings DNS for this connection only"
+                                    stringResource(R.string.connections_dns_override_hint)
                                 )
                             }
                         }
@@ -189,12 +192,12 @@ fun ConnectionsScreen(
                         renameTarget = null
                     }
                 ) {
-                    Text("Save")
+                    Text(stringResource(R.string.connections_save))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { renameTarget = null }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.connections_cancel))
                 }
             }
         )
@@ -208,7 +211,7 @@ fun ConnectionsScreen(
         val (editConn, editPc) = editProtocolTarget!!
         AlertDialog(
             onDismissRequest = { editProtocolTarget = null },
-            title = { Text("Edit ${editPc.protocol.label} config") },
+            title = { Text(stringResource(R.string.connections_edit_protocol_title, editPc.protocol.label)) },
             text = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
@@ -245,7 +248,10 @@ fun ConnectionsScreen(
                             editPc.filename
                         )
                         if (rebuilt == null || rebuilt.protocol != editPc.protocol) {
-                            editProtocolError = "Could not parse as ${editPc.protocol.label} config"
+                            editProtocolError = context.getString(
+                                R.string.connections_edit_protocol_parse_error,
+                                editPc.protocol.label
+                            )
                             return@TextButton
                         }
                         connectionRepo.addOrUpdate(editConn.id, editConn.name, rebuilt)
@@ -254,7 +260,7 @@ fun ConnectionsScreen(
                         editProtocolError = null
                     }
                 ) {
-                    Text("Save")
+                    Text(stringResource(R.string.connections_save))
                 }
             },
             dismissButton = {
@@ -263,7 +269,7 @@ fun ConnectionsScreen(
                     editProtocolDraft = ""
                     editProtocolError = null
                 }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.connections_cancel))
                 }
             }
         )
@@ -273,19 +279,19 @@ fun ConnectionsScreen(
     if (deleteTarget != null) {
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("Delete Connection") },
-            text = { Text("Delete \"${deleteTarget!!.name}\" and all its configs?") },
+            title = { Text(stringResource(R.string.connections_delete_dialog_title)) },
+            text = { Text(stringResource(R.string.connections_delete_dialog_message, deleteTarget!!.name)) },
             confirmButton = {
                 TextButton(onClick = {
                     connectionRepo.delete(deleteTarget!!.id)
                     deleteTarget = null
                 }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.connections_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { deleteTarget = null }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.connections_cancel))
                 }
             }
         )
@@ -296,7 +302,7 @@ fun ConnectionsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "Connections",
+                        stringResource(R.string.connections_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -345,7 +351,7 @@ fun ConnectionsScreen(
                                             val targetId = connectionRepo.getActive()?.id
                                             connectionRepo.addOrUpdate(targetId, name, pc)
                                         } else {
-                                            gatewayError = "Scanned QR did not validate as WireGuard"
+                                            gatewayError = context.getString(R.string.connections_qr_wireguard_invalid)
                                         }
                                     }
                                     is QrCodePayload.PrivycsEnrollment -> {
@@ -377,17 +383,17 @@ fun ConnectionsScreen(
                                         }
                                     }
                                     is QrCodePayload.Unknown -> {
-                                        gatewayError = "QR content not recognised"
+                                        gatewayError = context.getString(R.string.connections_qr_unrecognised)
                                     }
                                 }
                             } catch (e: Exception) {
-                                gatewayError = "QR scan failed: ${e.message}"
+                                gatewayError = context.getString(R.string.connections_qr_scan_failed, e.message ?: "")
                             }
                         }
                     }) {
                         Icon(
                             Icons.Filled.QrCodeScanner,
-                            contentDescription = "Scan QR code",
+                            contentDescription = stringResource(R.string.connections_scan_qr_cd),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -414,7 +420,7 @@ fun ConnectionsScreen(
                         }) {
                             Icon(
                                 Icons.Filled.Cloud,
-                                contentDescription = "Gateway",
+                                contentDescription = stringResource(R.string.connections_gateway_cd),
                                 tint = if (showGateway) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -431,7 +437,7 @@ fun ConnectionsScreen(
                 onClick = { onNavigateToAdd(null) },
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
-                Icon(Icons.Filled.Add, contentDescription = "Add connection")
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.connections_add_connection_cd))
             }
         }
     ) { padding ->
@@ -470,7 +476,7 @@ fun ConnectionsScreen(
                                     connectionRepo.addOrUpdate(null, entry.peerName, protocolConfig)
                                 }
                             } catch (e: Exception) {
-                                gatewayError = "Download failed: ${e.message}"
+                                gatewayError = context.getString(R.string.connections_download_failed, e.message ?: "")
                             } finally {
                                 downloadingId = null
                             }
@@ -488,7 +494,7 @@ fun ConnectionsScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "No connections yet.",
+                            text = stringResource(R.string.connections_empty),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -497,10 +503,10 @@ fun ConnectionsScreen(
                         TextButton(onClick = onNavigateToPoolAdd) {
                             Icon(Icons.Filled.Add, contentDescription = null)
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Add Pool")
+                            Text(stringResource(R.string.connections_add_pool))
                         }
                         Text(
-                            "or tap + to add a single connection",
+                            stringResource(R.string.connections_empty_add_single_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -552,7 +558,7 @@ fun ConnectionsScreen(
                             // Visual separator between pools and singles.
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "Connections",
+                                stringResource(R.string.connections_section_header),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
@@ -577,7 +583,7 @@ fun ConnectionsScreen(
                                     ) {
                                         android.widget.Toast.makeText(
                                             context,
-                                            "Kill Switch active. This will block your reconnect!",
+                                            context.getString(R.string.connections_kill_switch_warning),
                                             android.widget.Toast.LENGTH_LONG,
                                         ).show()
                                     }
@@ -623,7 +629,8 @@ private fun PoolsSectionHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            if (poolCount == 0) "Pools" else "Pools ($poolCount)",
+            if (poolCount == 0) stringResource(R.string.connections_pools_header)
+            else stringResource(R.string.connections_pools_header_count, poolCount),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f)
@@ -632,7 +639,7 @@ private fun PoolsSectionHeader(
             Icon(Icons.Filled.Add, contentDescription = null,
                 modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(4.dp))
-            Text("Add Pool")
+            Text(stringResource(R.string.connections_add_pool))
         }
     }
 }
@@ -672,7 +679,15 @@ private fun PoolListCard(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "${pool.policy.displayName} · ${pool.members.size} servers",
+                    stringResource(
+                        R.string.connections_pool_summary,
+                        pool.policy.displayName,
+                        pluralStringResource(
+                            R.plurals.connections_pool_server_count,
+                            pool.members.size,
+                            pool.members.size
+                        )
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -682,7 +697,7 @@ private fun PoolListCard(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 ) {
-                    Text("ACTIVE",
+                    Text(stringResource(R.string.connections_active_badge),
                         style = MaterialTheme.typography.labelSmall)
                 }
                 Spacer(modifier = Modifier.width(6.dp))
@@ -696,7 +711,7 @@ private fun PoolListCard(
             ) {
                 Icon(
                     Icons.Filled.Edit,
-                    contentDescription = "Edit pool",
+                    contentDescription = stringResource(R.string.connections_edit_pool_cd),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
                 )
@@ -741,7 +756,7 @@ private fun ConnectionCard(
             ) {
                 Icon(
                     Icons.Filled.Delete,
-                    contentDescription = "Delete",
+                    contentDescription = stringResource(R.string.connections_delete_cd),
                     tint = Color.White
                 )
             }
@@ -814,7 +829,7 @@ private fun ConnectionCard(
                         ) {
                             Icon(
                                 Icons.Filled.Add,
-                                contentDescription = "Add config",
+                                contentDescription = stringResource(R.string.connections_add_config_cd),
                                 modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -837,7 +852,10 @@ private fun ConnectionCard(
                     if (vpnIps.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "VPN IP — ${vpnIps.joinToString(" · ")}",
+                            text = stringResource(
+                                R.string.connections_vpn_ip,
+                                vpnIps.joinToString(" · ")
+                            ),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -851,7 +869,7 @@ private fun ConnectionCard(
                 ) {
                     Icon(
                         Icons.Filled.Edit,
-                        contentDescription = "Rename",
+                        contentDescription = stringResource(R.string.connections_rename_cd),
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -864,7 +882,7 @@ private fun ConnectionCard(
                 ) {
                     Icon(
                         Icons.Filled.Delete,
-                        contentDescription = "Delete",
+                        contentDescription = stringResource(R.string.connections_delete_cd),
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -921,7 +939,7 @@ private fun ProtocolBadge(
             ) {
                 Icon(
                     Icons.Filled.Edit,
-                    contentDescription = "Edit ${protocol.shortLabel} config",
+                    contentDescription = stringResource(R.string.connections_edit_config_cd, protocol.shortLabel),
                     modifier = Modifier.size(12.dp),
                     tint = color
                 )
@@ -935,7 +953,7 @@ private fun ProtocolBadge(
             ) {
                 Icon(
                     Icons.Filled.Close,
-                    contentDescription = "Remove ${protocol.shortLabel}",
+                    contentDescription = stringResource(R.string.connections_remove_config_cd, protocol.shortLabel),
                     modifier = Modifier.size(10.dp),
                     tint = color
                 )
@@ -964,7 +982,7 @@ private fun GatewayPanel(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "Gateway Configs",
+                text = stringResource(R.string.connections_gateway_configs_header),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -997,7 +1015,7 @@ private fun GatewayPanel(
 
                 configs.isEmpty() -> {
                     Text(
-                        text = "No configs available",
+                        text = stringResource(R.string.connections_gateway_no_configs),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1072,7 +1090,7 @@ private fun GatewayPanel(
                                     ) {
                                         Icon(
                                             Icons.Filled.CloudDownload,
-                                            contentDescription = "Download",
+                                            contentDescription = stringResource(R.string.connections_download_cd),
                                             modifier = Modifier.size(18.dp),
                                             tint = MaterialTheme.colorScheme.primary
                                         )

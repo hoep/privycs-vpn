@@ -26,8 +26,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.privycs.vpn.R
 
 /**
  * Bottom sheet shown when the user long-presses the Connect screen
@@ -62,14 +65,14 @@ fun ManualPauseSheet(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
             Text(
-                text = "Disconnect VPN",
+                text = stringResource(R.string.manualpause_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Choose how you'd like to disconnect. Pauses automatically reconnect if your Connect-on-Demand rules still match when the timer expires.",
+                text = stringResource(R.string.manualpause_body),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -77,8 +80,8 @@ fun ManualPauseSheet(
 
             PauseSheetAction(
                 icon = Icons.Outlined.PowerSettingsNew,
-                title = "Disconnect now",
-                subtitle = "Stays disconnected until you reconnect manually",
+                title = stringResource(R.string.manualpause_disconnect_now_title),
+                subtitle = stringResource(R.string.manualpause_disconnect_now_subtitle),
                 onClick = {
                     onDisconnect()
                     onDismiss()
@@ -87,7 +90,7 @@ fun ManualPauseSheet(
             Spacer(modifier = Modifier.height(8.dp))
             PauseSheetAction(
                 icon = Icons.Outlined.Pause,
-                title = "Pause for 1 minute",
+                title = pluralStringResource(R.plurals.manualpause_pause_for_minutes, 1, 1),
                 subtitle = null,
                 onClick = {
                     onPauseSelected(1)
@@ -97,7 +100,7 @@ fun ManualPauseSheet(
             Spacer(modifier = Modifier.height(8.dp))
             PauseSheetAction(
                 icon = Icons.Outlined.Pause,
-                title = "Pause for 3 minutes",
+                title = pluralStringResource(R.plurals.manualpause_pause_for_minutes, 3, 3),
                 subtitle = null,
                 onClick = {
                     onPauseSelected(3)
@@ -107,7 +110,7 @@ fun ManualPauseSheet(
             Spacer(modifier = Modifier.height(8.dp))
             PauseSheetAction(
                 icon = Icons.Outlined.Pause,
-                title = "Pause for 5 minutes",
+                title = pluralStringResource(R.plurals.manualpause_pause_for_minutes, 5, 5),
                 subtitle = null,
                 onClick = {
                     onPauseSelected(5)

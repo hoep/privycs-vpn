@@ -2,6 +2,8 @@ package com.privycs.vpn.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.annotation.StringRes
+import com.privycs.vpn.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -33,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -54,59 +57,59 @@ private const val SOURCE_URL = "https://github.com/hoep/privycs-vpn"
 
 private data class OssComponent(
     val name: String,
-    val purpose: String,
+    @StringRes val purposeRes: Int,
     val license: String,
 )
 
 private val bundledComponents = listOf(
     OssComponent(
         "OpenVPN for Android (ics-openvpn)",
-        "OpenVPN protocol support",
+        R.string.oss_component_openvpn,
         "GNU GPL v2",
     ),
     OssComponent(
         "strongSwan",
-        "IPSec / IKEv2 protocol support",
+        R.string.oss_component_strongswan,
         "GNU GPL v2",
     ),
     OssComponent(
         "AmneziaWG (amneziawg-android)",
-        "WireGuard & AmneziaWG protocol support; embeds WireGuard-go (MIT)",
+        R.string.oss_component_amneziawg,
         "Apache License 2.0",
     ),
     OssComponent(
         "Jetpack Compose & AndroidX",
-        "UI toolkit and platform libraries",
+        R.string.oss_component_compose,
         "Apache License 2.0",
     ),
     OssComponent(
         "Kotlin, Coroutines & Serialization",
-        "Language and core libraries",
+        R.string.oss_component_kotlin,
         "Apache License 2.0",
     ),
     OssComponent(
         "Ktor",
-        "HTTP client for the gateway API",
+        R.string.oss_component_ktor,
         "Apache License 2.0",
     ),
     OssComponent(
         "Markwon",
-        "In-app Markdown rendering (Help screen)",
+        R.string.oss_component_markwon,
         "Apache License 2.0",
     ),
     OssComponent(
         "MaxMind DB Reader",
-        "Reads the bundled offline country database",
+        R.string.oss_component_maxmind,
         "Apache License 2.0",
     ),
     OssComponent(
         "DB-IP IP-to-Country Lite",
-        "Bundled offline country database",
+        R.string.oss_component_dbip,
         "CC BY 4.0",
     ),
     OssComponent(
         "Google Play Services (Code Scanner)",
-        "QR-code scanning for one-tap setup",
+        R.string.oss_component_play_scanner,
         "Google APIs Terms of Service",
     ),
 )
@@ -119,11 +122,17 @@ fun OssLicensesScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = {
-                    Text("Open-Source Licenses", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        stringResource(R.string.oss_screen_title),
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.oss_back),
+                        )
                     }
                 },
             )
@@ -138,17 +147,15 @@ fun OssLicensesScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // The app's own license + the GPL corresponding-source offer.
-            SettingsSection(title = "THIS APP") {
+            SettingsSection(title = stringResource(R.string.oss_section_this_app)) {
                 Text(
-                    "Privycs VPN is free software, licensed under the GNU " +
-                        "General Public License, version 3.",
+                    stringResource(R.string.oss_this_app_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "In accordance with the GPL, the complete corresponding " +
-                        "source code is publicly available at:",
+                    stringResource(R.string.oss_source_offer),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -170,7 +177,7 @@ fun OssLicensesScreen(onBack: () -> Unit) {
             }
 
             // Bundled third-party components and their licenses.
-            SettingsSection(title = "BUNDLED COMPONENTS") {
+            SettingsSection(title = stringResource(R.string.oss_section_bundled_components)) {
                 bundledComponents.forEachIndexed { index, component ->
                     if (index > 0) Spacer(Modifier.height(12.dp))
                     Text(
@@ -180,7 +187,7 @@ fun OssLicensesScreen(onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        component.purpose,
+                        stringResource(component.purposeRes),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -193,7 +200,7 @@ fun OssLicensesScreen(onBack: () -> Unit) {
             }
 
             // Full license texts — tap to expand.
-            SettingsSection(title = "LICENSE TEXTS") {
+            SettingsSection(title = stringResource(R.string.oss_section_license_texts)) {
                 LicenseText("GNU General Public License v3", asset = "licenses/gpl-3.0.txt")
                 Spacer(Modifier.height(4.dp))
                 LicenseText("GNU General Public License v2", asset = "licenses/gpl-2.0.txt")
@@ -229,7 +236,11 @@ private fun LicenseText(
             )
             Icon(
                 if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                contentDescription = if (expanded) "Collapse" else "Expand",
+                contentDescription = if (expanded) {
+                    stringResource(R.string.oss_collapse)
+                } else {
+                    stringResource(R.string.oss_expand)
+                },
             )
         }
         if (expanded) {
@@ -251,11 +262,13 @@ private fun LicenseText(
 @Composable
 private fun rememberAssetText(assetPath: String): String {
     val context = LocalContext.current
-    val text by produceState("Loading…", assetPath) {
+    val loadingText = stringResource(R.string.oss_loading)
+    val failedText = stringResource(R.string.oss_load_failed)
+    val text by produceState(loadingText, assetPath) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 context.assets.open(assetPath).bufferedReader().use { it.readText() }
-            }.getOrElse { "Failed to load license text." }
+            }.getOrElse { failedText }
         }
     }
     return text

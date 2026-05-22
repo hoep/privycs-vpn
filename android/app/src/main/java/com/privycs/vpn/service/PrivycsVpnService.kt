@@ -541,8 +541,8 @@ class PrivycsVpnService : VpnService() {
         // coordinator's strict rule for non-USER disconnect.
         try {
             val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
-            if (!settings.connectOnDemand.enabled) {
-                PrivycsLogger.d(TAG, "Post-sinkhole: COD disabled, not auto-reconnecting")
+            if (!PrivycsApp.instance.networkRulesRepository.hasRules) {
+                PrivycsLogger.d(TAG, "Post-sinkhole: no network rules, not auto-reconnecting")
                 return
             }
             // Brief settle delay so the plugin teardown above has
@@ -1279,7 +1279,8 @@ class PrivycsVpnService : VpnService() {
             } catch (_: Throwable) {
                 null
             }
-            val keepAlive = s?.keepMonitorAlive == true && s.connectOnDemand.enabled
+            val keepAlive = s?.keepMonitorAlive == true &&
+                PrivycsApp.instance.networkRulesRepository.hasRules
             val haveTunnel = currentProtocol != null
             if (!keepAlive && !haveTunnel) {
                 PrivycsLogger.d(TAG, "onTaskRemoved: no keep-alive + no tunnel — letting service die naturally")
@@ -2448,7 +2449,7 @@ class PrivycsVpnService : VpnService() {
             // check we'd stopSelf and fall back to the 15-min
             // WorkManager backstop.
             val s = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
-            if (s.connectOnDemand.enabled && s.keepMonitorAlive) {
+            if (PrivycsApp.instance.networkRulesRepository.hasRules && s.keepMonitorAlive) {
                 PrivycsLogger.i(TAG, "handleDisconnect: keep-monitor-alive enabled - staying foreground in monitor mode")
                 currentProtocol = null
                 currentConnectionId = ""

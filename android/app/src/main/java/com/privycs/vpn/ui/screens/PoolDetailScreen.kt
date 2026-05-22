@@ -36,8 +36,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.Pool
 import com.privycs.vpn.data.models.PoolMember
 import com.privycs.vpn.data.models.RegionCoverage
@@ -72,12 +74,18 @@ fun PoolDetailScreen(
                 title = { Text(pool.name) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.pooldetail_back)
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = onEdit) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Edit pool")
+                        Icon(
+                            Icons.Filled.Settings,
+                            contentDescription = stringResource(R.string.pooldetail_edit_pool)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -126,13 +134,20 @@ fun PoolDetailScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            "${pool.policy.displayName} · ${pool.members.size} servers",
+                            stringResource(
+                                R.string.pooldetail_header_summary,
+                                pool.policy.displayName,
+                                pool.members.size
+                            ),
                             style = MaterialTheme.typography.titleMedium
                         )
                         if (pool.restrictRegions.isNotEmpty()) {
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                "Restricted to: ${pool.restrictRegions.joinToString(", ")}",
+                                stringResource(
+                                    R.string.pooldetail_restricted_to,
+                                    pool.restrictRegions.joinToString(", ")
+                                ),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -151,7 +166,10 @@ fun PoolDetailScreen(
                         )
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Coverage", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                stringResource(R.string.pooldetail_coverage),
+                                style = MaterialTheme.typography.titleSmall
+                            )
                             Spacer(Modifier.height(8.dp))
                             for (c in coverage) {
                                 Row(
@@ -165,7 +183,11 @@ fun PoolDetailScreen(
                                         modifier = Modifier.weight(1f)
                                     )
                                     Text(
-                                        "${c.servers} servers · ${c.countries} countries",
+                                        stringResource(
+                                            R.string.pooldetail_coverage_servers_countries,
+                                            c.servers,
+                                            c.countries
+                                        ),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -183,7 +205,10 @@ fun PoolDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TextButton(onClick = onActivate, modifier = Modifier.weight(1f)) {
-                        Text("Use this pool", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            stringResource(R.string.pooldetail_use_this_pool),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                     }
                     if (unreachableIds.isNotEmpty()) {
                         TextButton(
@@ -201,7 +226,16 @@ fun PoolDetailScreen(
                                 Icons.Filled.Refresh, contentDescription = null,
                                 modifier = Modifier.padding(end = 4.dp)
                             )
-                            Text(if (resetting) "Resetting..." else "Reset (${unreachableIds.size})")
+                            Text(
+                                if (resetting) {
+                                    stringResource(R.string.pooldetail_resetting)
+                                } else {
+                                    stringResource(
+                                        R.string.pooldetail_reset_count,
+                                        unreachableIds.size
+                                    )
+                                }
+                            )
                         }
                     }
                 }
@@ -210,7 +244,10 @@ fun PoolDetailScreen(
             // Members header row
             item {
                 Text(
-                    "Servers (${visibleMembers.size})",
+                    stringResource(
+                        R.string.pooldetail_servers_count,
+                        visibleMembers.size
+                    ),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
@@ -235,7 +272,7 @@ fun PoolDetailScreen(
                         .padding(8.dp)
                 ) {
                     Text(
-                        "Delete pool",
+                        stringResource(R.string.pooldetail_delete_pool),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -245,24 +282,24 @@ fun PoolDetailScreen(
         if (showConfirmDelete) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showConfirmDelete = false },
-                title = { Text("Delete pool?") },
+                title = { Text(stringResource(R.string.pooldetail_delete_dialog_title)) },
                 text = {
-                    Text(
-                        "This removes the pool and all its imported configs. " +
-                                "Cannot be undone."
-                    )
+                    Text(stringResource(R.string.pooldetail_delete_dialog_text))
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         showConfirmDelete = false
                         onDelete()
                     }) {
-                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                        Text(
+                            stringResource(R.string.pooldetail_delete),
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showConfirmDelete = false }) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.pooldetail_cancel))
                     }
                 }
             )
@@ -283,16 +320,18 @@ private fun MemberRow(member: PoolMember, isActive: Boolean, isUnreachable: Bool
     val flag = com.privycs.vpn.data.PoolHostnameLabels.flagEmojiFromCode(member.country)
     val city = com.privycs.vpn.data.PoolHostnameLabels.cityFromHostname(member.name)
     val countryName = com.privycs.vpn.data.PoolHostnameLabels.countryNameFromCode(member.country)
-    val regionLabel = member.region.ifEmpty { "Other" }
+    val regionLabel = member.region.ifEmpty { stringResource(R.string.pooldetail_region_other) }
+    val cityCountry = stringResource(R.string.pooldetail_city_country, city, countryName)
+    val unknownLocation = stringResource(R.string.pooldetail_location_unknown)
     val locationLine = buildString {
         if (flag.isNotEmpty()) append(flag).append("  ")
         when {
             city.isNotEmpty() && countryName.isNotEmpty() ->
-                append("$city, $countryName")
+                append(cityCountry)
             city.isNotEmpty() -> append(city)
             countryName.isNotEmpty() -> append(countryName)
             member.country.isNotEmpty() -> append(member.country)
-            else -> append("—")
+            else -> append(unknownLocation)
         }
         append(" · ").append(regionLabel)
     }
@@ -316,7 +355,7 @@ private fun MemberRow(member: PoolMember, isActive: Boolean, isUnreachable: Bool
                     if (isUnreachable) {
                         Icon(
                             Icons.Filled.Warning,
-                            contentDescription = "Unreachable",
+                            contentDescription = stringResource(R.string.pooldetail_unreachable),
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier
                                 .padding(end = 8.dp)
@@ -344,7 +383,7 @@ private fun MemberRow(member: PoolMember, isActive: Boolean, isUnreachable: Bool
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.padding(start = 8.dp)
                 ) {
-                    Text("ACTIVE",
+                    Text(stringResource(R.string.pooldetail_active),
                         style = MaterialTheme.typography.labelSmall)
                 }
             }

@@ -37,11 +37,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.privycs.vpn.R
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -106,7 +108,7 @@ fun LogsScreen(
 
                     if (newLines.isEmpty()) {
                         newLines.add(
-                            "No log entries yet. Events will appear here after connect / disconnect."
+                            context.getString(R.string.logs_empty_state)
                         )
                     }
 
@@ -135,14 +137,14 @@ fun LogsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "Logs",
+                        stringResource(R.string.logs_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.logs_back))
                     }
                 },
                 actions = {
@@ -151,7 +153,7 @@ fun LogsScreen(
                     }) {
                         Icon(
                             Icons.Filled.ContentCopy,
-                            contentDescription = "Copy logs",
+                            contentDescription = stringResource(R.string.logs_copy_logs),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -161,11 +163,11 @@ fun LogsScreen(
                             if (f.exists()) f.writeText("")
                         }
                         logLines.clear()
-                        logLines.add("Logs cleared.")
+                        logLines.add(context.getString(R.string.logs_cleared))
                     }) {
                         Icon(
                             Icons.Filled.Delete,
-                            contentDescription = "Clear logs",
+                            contentDescription = stringResource(R.string.logs_clear_logs),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

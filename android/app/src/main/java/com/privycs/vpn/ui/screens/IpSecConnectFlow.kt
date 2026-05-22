@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.service.IpSecTunnel
@@ -63,18 +64,18 @@ fun rememberIpSecConnectPrep(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode != Activity.RESULT_OK) {
-            onError("PKCS#12 install cancelled")
+            onError(context.getString(R.string.ipsecflow_error_install_cancelled))
             return@rememberLauncherForActivityResult
         }
         val activity = context as? Activity
         if (activity == null) {
-            onError("Cannot access Activity to pick KeyChain alias")
+            onError(context.getString(R.string.ipsecflow_error_no_activity))
             return@rememberLauncherForActivityResult
         }
         val conn = connectionRepo.getActive()
         val config = conn?.getActiveConfig()
         if (conn == null || config == null) {
-            onError("Active connection disappeared during install")
+            onError(context.getString(R.string.ipsecflow_error_connection_disappeared))
             return@rememberLauncherForActivityResult
         }
         pickAliasAndConnect(activity, context, conn, config.configContent, onReady, onError)
@@ -84,14 +85,14 @@ fun rememberIpSecConnectPrep(
         prep@ { connection ->
             val config = connection.getActiveConfig()
             if (config == null) {
-                onError("No active config for ${connection.name}")
+                onError(context.getString(R.string.ipsecflow_error_no_active_config, connection.name))
                 return@prep
             }
             val tunnel = IpSecTunnel(context)
             try {
                 tunnel.parseConfig(config.configContent)
             } catch (e: Exception) {
-                onError("Failed to parse .sswan profile: ${e.message}")
+                onError(context.getString(R.string.ipsecflow_error_parse_failed, e.message ?: ""))
                 return@prep
             }
 
@@ -103,7 +104,7 @@ fun rememberIpSecConnectPrep(
 
             val installIntent = tunnel.createKeyChainInstallIntent(connection.name)
             if (installIntent == null) {
-                onError("Profile does not contain a PKCS#12 bundle")
+                onError(context.getString(R.string.ipsecflow_error_no_pkcs12_bundle))
                 return@prep
             }
             // Android's KeyChain install dialog has no API to pre-fill the
@@ -119,7 +120,7 @@ fun rememberIpSecConnectPrep(
                 )
                 Toast.makeText(
                     context,
-                    "PKCS#12 password: $p12Password (copied to clipboard - paste into dialog)",
+                    context.getString(R.string.ipsecflow_toast_pkcs12_password, p12Password),
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -146,7 +147,7 @@ private fun pickAliasAndConnect(
         { alias ->
             activity.runOnUiThread {
                 if (alias == null) {
-                    onError("No certificate selected")
+                    onError(context.getString(R.string.ipsecflow_error_no_certificate_selected))
                     return@runOnUiThread
                 }
                 try {
@@ -156,7 +157,7 @@ private fun pickAliasAndConnect(
                     Log.d("IpSecConnectFlow", "Remembered alias='$alias' for ${connection.name}")
                     onReady()
                 } catch (e: Exception) {
-                    onError("Failed to record alias: ${e.message}")
+                    onError(context.getString(R.string.ipsecflow_error_record_alias_failed, e.message ?: ""))
                 }
             }
         },

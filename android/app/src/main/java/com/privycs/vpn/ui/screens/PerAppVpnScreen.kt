@@ -45,11 +45,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -151,7 +154,7 @@ fun PerAppVpnScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "Per-App VPN",
+                        stringResource(R.string.perapp_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -160,7 +163,7 @@ fun PerAppVpnScreen(
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.perapp_back)
                         )
                     }
                 },
@@ -186,7 +189,7 @@ fun PerAppVpnScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "MODE",
+                        text = stringResource(R.string.perapp_mode_label),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -202,7 +205,7 @@ fun PerAppVpnScreen(
                             },
                             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                         ) {
-                            Text("Exclude Selected", style = MaterialTheme.typography.labelSmall)
+                            Text(stringResource(R.string.perapp_exclude_selected), style = MaterialTheme.typography.labelSmall)
                         }
                         SegmentedButton(
                             selected = mode == PerAppVpnMode.INCLUDE,
@@ -212,7 +215,7 @@ fun PerAppVpnScreen(
                             },
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                         ) {
-                            Text("Include Only", style = MaterialTheme.typography.labelSmall)
+                            Text(stringResource(R.string.perapp_include_only), style = MaterialTheme.typography.labelSmall)
                         }
                     }
 
@@ -220,8 +223,8 @@ fun PerAppVpnScreen(
 
                     Text(
                         text = when (mode) {
-                            PerAppVpnMode.EXCLUDE -> "Selected apps will bypass the VPN and use the normal network."
-                            PerAppVpnMode.INCLUDE -> "Only selected apps will use the VPN. All other traffic bypasses it."
+                            PerAppVpnMode.EXCLUDE -> stringResource(R.string.perapp_mode_exclude_desc)
+                            PerAppVpnMode.INCLUDE -> stringResource(R.string.perapp_mode_include_desc)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -234,7 +237,12 @@ fun PerAppVpnScreen(
             // App count
             val selectedCount = apps.count { it.selected }
             Text(
-                text = "$selectedCount of ${apps.size} apps selected",
+                text = pluralStringResource(
+                    R.plurals.perapp_apps_selected,
+                    apps.size,
+                    selectedCount,
+                    apps.size
+                ),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp)
@@ -242,7 +250,7 @@ fun PerAppVpnScreen(
 
             if (loading) {
                 Text(
-                    text = "Loading installed apps...",
+                    text = stringResource(R.string.perapp_loading),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 24.dp)
