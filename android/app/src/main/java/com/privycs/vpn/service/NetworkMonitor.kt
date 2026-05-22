@@ -18,7 +18,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -201,8 +200,10 @@ class NetworkMonitor private constructor(private val context: Context) {
         // runs. Without this a rule edit only takes effect on the next
         // spontaneous network event.
         scope.launch {
+            // rules is a StateFlow — already conflated + distinct, so
+            // no distinctUntilChanged() (which the coroutines lib flags
+            // as an error on a StateFlow).
             PrivycsApp.instance.networkRulesRepository.rules
-                .distinctUntilChanged()
                 .collect {
                     PrivycsLogger.d(TAG, "Network rules changed, re-evaluating")
                     // Force a transition so an edited rule is applied
