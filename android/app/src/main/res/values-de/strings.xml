@@ -1,0 +1,572 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Privycs VPN</string>
+    <string name="vpn_notification_channel">VPN-Status</string>
+    <string name="vpn_notification_title">Privycs VPN</string>
+    <string name="vpn_notification_connected">Verbunden mit %s</string>
+    <string name="vpn_notification_disconnected">Getrennt</string>
+    <string name="action_disconnect">Trennen</string>
+    <string name="widget_description">Zeigt den VPN-Verbindungsstatus und ermöglicht schnelles Umschalten</string>
+    <string name="widget_status_connected">Verbunden</string>
+    <string name="widget_status_disconnected">Getrennt</string>
+    <string name="widget_status_connecting">Verbinden…</string>
+    <string name="widget_connect">Verbinden</string>
+    <string name="widget_disconnect">Trennen</string>
+    <string name="widget_arrow_download">↓</string>
+    <string name="widget_arrow_upload">↑</string>
+    <string name="widget_protocol_wireguard">WireGuard</string>
+    <string name="widget_protocol_amneziawg">AmneziaWG</string>
+    <string name="widget_protocol_openvpn">OpenVPN</string>
+    <string name="widget_protocol_ipsec">IPSec</string>
+    <string name="widget_sparkline_rx_description">Diagramm der Download-Geschwindigkeit</string>
+    <string name="widget_sparkline_tx_description">Diagramm der Upload-Geschwindigkeit</string>
+    <string name="widget_endpoint_not_connected">Nicht verbunden</string>
+    <string name="widget_toast_no_active_connection">Keine aktive Verbindung</string>
+    <string name="widget_pool_label_disconnected">Pool: %1$s</string>
+    <string name="widget_toast_toggle_failed">Umschalten fehlgeschlagen</string>
+    <string name="widget_toast_unknown_protocol">Unbekanntes Protokoll</string>
+    <string name="widget_toast_protocol_missing">%1$s ist in dieser Verbindung nicht konfiguriert</string>
+    <string name="widget_toast_protocol_already_active">%1$s ist bereits aktiv</string>
+    <string name="widget_toast_protocol_switching">Wechsel zu %1$s…</string>
+    <string name="widget_toast_protocol_switch_failed">Protokollwechsel fehlgeschlagen</string>
+    <string name="widget_label_download">Download</string>
+    <string name="widget_label_upload">Upload</string>
+    <string name="widget_label_vpn_ip">VPN-IP</string>
+    <string name="widget_label_endpoint">Endpunkt</string>
+    <string name="widget_status_kill_switch_active">Kill Switch aktiv</string>
+    <string name="vpn_tile_label">Privycs VPN</string>
+
+    <!-- ════ UI screen strings (i18n extraction) ════ -->
+
+    <!-- LogsScreen -->
+    <string name="logs_title">Protokolle</string>
+    <string name="logs_back">Zurück</string>
+    <string name="logs_copy_logs">Protokolle kopieren</string>
+    <string name="logs_clear_logs">Protokolle löschen</string>
+
+    <!-- HelpScreen -->
+    <string name="help_load_error_title">Hilfe konnte nicht geladen werden</string>
+    <string name="help_retry">Wiederholen</string>
+
+    <!-- OssLicensesScreen -->
+    <string name="oss_screen_title">Open-Source-Lizenzen</string>
+    <string name="oss_back">Zurück</string>
+    <string name="oss_section_this_app">DIESE APP</string>
+    <string name="oss_this_app_description">Privycs VPN ist freie Software, lizenziert unter der GNU General Public License, Version 3.</string>
+    <string name="oss_source_offer">Gemäß der GPL ist der vollständige zugehörige Quellcode öffentlich verfügbar unter:</string>
+    <string name="oss_section_bundled_components">MITGELIEFERTE KOMPONENTEN</string>
+    <string name="oss_section_license_texts">LIZENZTEXTE</string>
+    <string name="oss_collapse">Einklappen</string>
+    <string name="oss_expand">Ausklappen</string>
+    <string name="oss_loading">Wird geladen…</string>
+    <string name="oss_load_failed">Lizenztext konnte nicht geladen werden.</string>
+
+    <!-- PerAppVpnScreen -->
+    <string name="perapp_title">App-spezifisches VPN</string>
+    <string name="perapp_back">Zurück</string>
+    <string name="perapp_mode_label">MODUS</string>
+    <string name="perapp_exclude_selected">Ausgewählte ausschließen</string>
+    <string name="perapp_include_only">Nur ausgewählte</string>
+    <string name="perapp_mode_exclude_desc">Ausgewählte Apps umgehen das VPN und nutzen das normale Netzwerk.</string>
+    <string name="perapp_mode_include_desc">Nur ausgewählte Apps nutzen das VPN. Der gesamte übrige Datenverkehr umgeht es.</string>
+    <string name="perapp_loading">Installierte Apps werden geladen…</string>
+
+    <!-- IpSecConnectFlow -->
+    <string name="ipsecflow_error_install_cancelled">PKCS#12-Installation abgebrochen</string>
+    <string name="ipsecflow_error_no_activity">Kein Zugriff auf Activity zur Auswahl des KeyChain-Alias</string>
+    <string name="ipsecflow_error_connection_disappeared">Aktive Verbindung ist während der Installation verschwunden</string>
+    <string name="ipsecflow_error_no_active_config">Keine aktive Konfiguration für %1$s</string>
+    <string name="ipsecflow_error_parse_failed">.sswan-Profil konnte nicht verarbeitet werden: %1$s</string>
+    <string name="ipsecflow_error_no_pkcs12_bundle">Profil enthält kein PKCS#12-Bundle</string>
+    <string name="ipsecflow_toast_pkcs12_password">PKCS#12-Passwort: %1$s (in die Zwischenablage kopiert – in den Dialog einfügen)</string>
+    <string name="ipsecflow_error_no_certificate_selected">Kein Zertifikat ausgewählt</string>
+    <string name="ipsecflow_error_record_alias_failed">Alias konnte nicht gespeichert werden: %1$s</string>
+
+    <!-- AddPoolScreen -->
+    <string name="addpool_title">Pool hinzufügen</string>
+    <string name="addpool_cancel">Abbrechen</string>
+    <string name="addpool_step1_title">1. Konfigurationen auswählen</string>
+    <string name="addpool_step1_hint">Wähle eine .zip mit mehreren Konfigurationen oder einzelne .conf-/.ovpn-/.sswan-Dateien aus.</string>
+    <string name="addpool_files_selected">%1$d Datei(en) ausgewählt</string>
+    <string name="addpool_choose_files">Dateien auswählen</string>
+    <string name="addpool_replace_selection">Auswahl ersetzen</string>
+    <string name="addpool_step2_title">2. Pool-Einstellungen</string>
+    <string name="addpool_pool_name_label">Pool-Name</string>
+    <string name="addpool_policy_label">Richtlinie</string>
+    <string name="addpool_interval_label">Rotationsintervall (Minuten)</string>
+    <string name="addpool_interval_placeholder">z. B. 30</string>
+    <string name="addpool_interval_supporting">Standard 30 Min. Niedrigere Werte rotieren häufiger, verbrauchen aber mehr Akku.</string>
+    <string name="addpool_warning_short_interval">Intervalle unter 5 Minuten verbrauchen merklich mehr Akku (~3-5%% extra/Tag).</string>
+    <string name="addpool_warning_large_pool">Pools mit mehr als %1$d Mitgliedern werden auf älteren Geräten möglicherweise langsam importiert.</string>
+    <string name="addpool_hint_files_and_name">Wähle Konfigurationen aus und gib einen Pool-Namen ein, um fortzufahren.</string>
+    <string name="addpool_hint_files">Wähle Konfigurationen aus, um fortzufahren.</string>
+    <string name="addpool_hint_name">Gib einen Pool-Namen ein, um fortzufahren.</string>
+    <string name="addpool_create_button">Pool erstellen</string>
+    <string name="addpool_default_name">Pool aus %1$s</string>
+    <string name="addpool_default_name_fallback">Import</string>
+    <string name="addpool_progress_extracting">Archiv wird entpackt…</string>
+    <string name="addpool_progress_parsing">Konfigurationen werden verarbeitet %1$d/%2$d</string>
+    <string name="addpool_progress_resolving">Standorte werden ermittelt %1$d/%2$d</string>
+    <string name="addpool_progress_done">Fertig — %1$d importiert, %2$d übersprungen</string>
+
+    <!-- PoolDetailScreen -->
+    <string name="pooldetail_back">Zurück</string>
+    <string name="pooldetail_edit_pool">Pool bearbeiten</string>
+    <string name="pooldetail_header_summary">%1$s · %2$d Server</string>
+    <string name="pooldetail_restricted_to">Beschränkt auf: %1$s</string>
+    <string name="pooldetail_coverage">Abdeckung</string>
+    <string name="pooldetail_coverage_servers_countries">%1$d Server · %2$d Länder</string>
+    <string name="pooldetail_use_this_pool">Diesen Pool verwenden</string>
+    <string name="pooldetail_resetting">Wird zurückgesetzt…</string>
+    <string name="pooldetail_reset_count">Zurücksetzen (%1$d)</string>
+    <string name="pooldetail_servers_count">Server (%1$d)</string>
+    <string name="pooldetail_delete_pool">Pool löschen</string>
+    <string name="pooldetail_delete_dialog_title">Pool löschen?</string>
+    <string name="pooldetail_delete_dialog_text">Damit werden der Pool und alle importierten Konfigurationen entfernt. Kann nicht rückgängig gemacht werden.</string>
+    <string name="pooldetail_delete">Löschen</string>
+    <string name="pooldetail_cancel">Abbrechen</string>
+    <string name="pooldetail_unreachable">Nicht erreichbar</string>
+    <string name="pooldetail_active">AKTIV</string>
+    <string name="pooldetail_region_other">Sonstige</string>
+    <string name="pooldetail_city_country">%1$s, %2$s</string>
+    <string name="pooldetail_location_unknown">—</string>
+
+    <!-- PoolDetailHost / EditPoolSheet -->
+    <string name="pooldetailhost_edit_pool_title">Pool bearbeiten</string>
+    <string name="pooldetailhost_pool_name_label">Pool-Name</string>
+    <string name="pooldetailhost_policy_label">Richtlinie</string>
+    <string name="pooldetailhost_rotation_interval_label">Rotationsintervall (Minuten)</string>
+    <string name="pooldetailhost_split_tunnel_title">Split-Tunnel (Umgehung)</string>
+    <string name="pooldetailhost_split_tunnel_desc">Datenverkehr zu diesen IP-Bereichen umgeht das VPN. WireGuard + OpenVPN; IPSec-Mitglieder werden übersprungen (serverseitige Aushandlung der Traffic-Selektoren).</string>
+    <string name="pooldetailhost_exclude_private_label">Private Netzwerke ausschließen</string>
+    <string name="pooldetailhost_exclude_private_desc">RFC1918 (10/8, 172.16/12, 192.168/16) + IPv6-ULA fc00::/7 + Link-Local</string>
+    <string name="pooldetailhost_bypass_cidrs_label">Eigene Umgehungs-CIDRs (eine pro Zeile)</string>
+    <string name="pooldetailhost_bypass_cidrs_placeholder">203.0.113.0/24\n2001:db8::/32\n198.51.100.42</string>
+    <string name="pooldetailhost_bypass_cidrs_empty">Leer = keine eigenen CIDRs (Schalter für private Netzwerke gilt weiterhin)</string>
+    <string name="pooldetailhost_bypass_cidrs_invalid">%1$d von %2$d ungültig: %3$s</string>
+    <string name="pooldetailhost_dns_override_label">DNS-Überschreibung (pro Pool)</string>
+    <string name="pooldetailhost_dns_override_placeholder">z. B. 1.1.1.1, 2606:4700:4700::1111</string>
+    <string name="pooldetailhost_dns_override_empty">Leer = globale DNS-Überschreibung aus den Einstellungen übernehmen</string>
+    <string name="pooldetailhost_dns_override_valid">Gültig</string>
+    <string name="pooldetailhost_dns_override_invalid">Ungültig: %1$s</string>
+    <string name="pooldetailhost_cancel">Abbrechen</string>
+    <string name="pooldetailhost_save">Speichern</string>
+    <plurals name="pooldetailhost_bypass_cidrs_valid">
+        <item quantity="one">%1$d CIDR gültig</item>
+        <item quantity="other">%1$d CIDRs gültig</item>
+    </plurals>
+
+    <!-- NetworkRulesScreen -->
+    <string name="netrules_screen_title">On-Demand &amp; Netzwerkregeln</string>
+    <string name="netrules_back">Zurück</string>
+    <string name="netrules_add_rule">Regel hinzufügen</string>
+    <string name="netrules_rules_header">REGELN — VON OBEN NACH UNTEN GEPRÜFT</string>
+    <string name="netrules_precedence_title">So entscheidet dieser Bildschirm</string>
+    <string name="netrules_precedence_body">Bei jedem Netzwerkwechsel werden die untenstehenden Regeln von oben nach unten geprüft — die erste Regel, die auf das aktuelle Wi-Fi- oder Mobilfunknetz passt, gewinnt. Passt keine Regel, gilt das unten verankerte Standardverhalten. Regeln werden nur ausgewertet, solange Connect-on-Demand aktiviert ist.</string>
+    <string name="netrules_empty_title">Noch keine Regeln</string>
+    <string name="netrules_empty_body">Jedes Netzwerk fällt auf das untenstehende Standardverhalten zurück. Füge mit der Schaltfläche + eine Regel hinzu, um es für eine bestimmte Wi-Fi-SSID, BSSID oder einen Netzwerktyp zu überschreiben — und dieses Netzwerk an einen Pool, eine Verbindung oder kein VPN weiterzuleiten.</string>
+    <string name="netrules_fallback_header">RÜCKFALL — WENN KEINE REGEL PASST</string>
+    <string name="netrules_default_behaviour_title">Standardverhalten</string>
+    <string name="netrules_default_behaviour_subtitle">Connect-on-Demand — gilt für jedes Netzwerk, auf das keine Regel oben passt</string>
+    <string name="netrules_edit">Bearbeiten</string>
+    <string name="netrules_move_up">Nach oben</string>
+    <string name="netrules_move_down">Nach unten</string>
+    <string name="netrules_delete">Löschen</string>
+    <string name="netrules_cod_summary_off">Connect-on-Demand ist aus — das VPN bleibt auf Netzwerken, auf die keine Regel passt, unter manueller Kontrolle.</string>
+    <string name="netrules_cod_trigger_wifi">Bei Wi-Fi verbinden</string>
+    <string name="netrules_cod_trigger_mobile">Bei mobilen Daten verbinden</string>
+    <string name="netrules_cod_trigger_wifi_mobile">Bei Wi-Fi &amp; mobilen Daten verbinden</string>
+    <string name="netrules_cod_summary_every">%1$s — in jedem Wi-Fi-Netzwerk</string>
+    <plurals name="netrules_cod_summary_only">
+        <item quantity="one">%1$s — aber nur in %2$d gespeicherten Wi-Fi-Netzwerk</item>
+        <item quantity="other">%1$s — aber nur in %2$d gespeicherten Wi-Fi-Netzwerken</item>
+    </plurals>
+    <plurals name="netrules_cod_summary_except">
+        <item quantity="one">%1$s — außer in %2$d gespeicherten Wi-Fi-Netzwerk</item>
+        <item quantity="other">%1$s — außer in %2$d gespeicherten Wi-Fi-Netzwerken</item>
+    </plurals>
+    <string name="netrules_summary_ssid_exact">SSID = \"%1$s\"</string>
+    <string name="netrules_summary_ssid_pattern">SSID passt auf \"%1$s\"</string>
+    <string name="netrules_summary_network_type">Netzwerk = %1$s</string>
+    <string name="netrules_summary_bssid">BSSID = %1$s</string>
+    <string name="netrules_summary_any">Beliebiges Netzwerk</string>
+    <string name="netrules_summary_missing_target">(fehlt)</string>
+    <string name="netrules_summary_target_no_vpn">→ Kein VPN</string>
+    <string name="netrules_summary_target_pool">→ Pool: %1$s</string>
+    <string name="netrules_summary_target_connection">→ Verbindung: %1$s</string>
+    <string name="netrules_summary_combined">%1$s  %2$s</string>
+    <string name="netrules_dialog_add_title">Regel hinzufügen</string>
+    <string name="netrules_dialog_edit_title">Regel bearbeiten</string>
+    <string name="netrules_field_name">Name (optional)</string>
+    <string name="netrules_match_button">Übereinstimmung: %1$s</string>
+    <string name="netrules_action_button">Aktion: %1$s</string>
+    <string name="netrules_pick_pool">Pool auswählen…</string>
+    <string name="netrules_pick_connection">Verbindung auswählen…</string>
+    <string name="netrules_save">Speichern</string>
+    <string name="netrules_cancel">Abbrechen</string>
+    <string name="netrules_match_ssid_exact">Wi-Fi-SSID (exakt)</string>
+    <string name="netrules_match_ssid_pattern">Wi-Fi-SSID (Muster)</string>
+    <string name="netrules_match_network_type">Netzwerktyp</string>
+    <string name="netrules_match_bssid">Wi-Fi-BSSID (MAC)</string>
+    <string name="netrules_match_any">Beliebiges Netzwerk</string>
+    <string name="netrules_field_label_ssid_exact">SSID</string>
+    <string name="netrules_field_label_ssid_pattern">SSID-Muster (verwende *, ?)</string>
+    <string name="netrules_field_label_network_type">wifi / mobile / ethernet / wifi_mobile / any</string>
+    <string name="netrules_field_label_bssid">BSSID (z. B. aa:bb:cc:dd:ee:ff)</string>
+    <string name="netrules_field_hint_ssid_exact">HeimWLAN</string>
+    <string name="netrules_field_hint_ssid_pattern">Cafe-*</string>
+    <string name="netrules_field_hint_network_type">wifi</string>
+    <string name="netrules_field_hint_bssid">aa:bb:cc:dd:ee:ff</string>
+    <string name="netrules_action_no_vpn">Kein VPN (vertrauenswürdig)</string>
+    <string name="netrules_action_pool">Pool verwenden</string>
+    <string name="netrules_action_connection">Verbindung verwenden</string>
+    <string name="netrules_action_connect_active">Verbinden (aktive Verbindung oder Pool)</string>
+    <string name="netrules_summary_target_connect_active">→ Verbinden</string>
+    <string name="netrules_default_behaviour_body">Wenn keine Regel oben auf das aktuelle Netzwerk passt, unternimmt Privycs nichts — das VPN bleibt in dem Zustand, den du zuletzt festgelegt hast.</string>
+
+    <!-- ConnectOnDemandScreen -->
+    <string name="cod_title">Connect-on-Demand</string>
+    <string name="cod_back">Zurück</string>
+    <string name="cod_section_header">CONNECT-ON-DEMAND</string>
+    <string name="cod_toggle_title">Connect-on-Demand</string>
+    <string name="cod_toggle_description">VPN automatisch anhand von Netzwerkregeln verbinden</string>
+    <string name="cod_when_connected_to">Wenn verbunden mit:</string>
+    <string name="cod_trigger_wifi">WLAN</string>
+    <string name="cod_trigger_mobile">Mobil</string>
+    <string name="cod_trigger_wifi_mobile">WLAN &amp; Mobil</string>
+    <string name="cod_wifi_networks">WLAN-Netzwerke:</string>
+    <string name="cod_ssid_mode_all">Alle SSIDs</string>
+    <string name="cod_ssid_mode_only">Nur diese</string>
+    <string name="cod_ssid_mode_except">Außer diese</string>
+    <string name="cod_add_ssid_label">SSID hinzufügen</string>
+    <string name="cod_add_ssid_placeholder">Netzwerkname</string>
+    <string name="cod_add_button">Hinzufügen</string>
+    <string name="cod_remove_ssid">%1$s entfernen</string>
+    <string name="cod_status_connected_wifi">Verbunden mit (WLAN)</string>
+    <string name="cod_status_connected_wifi_named">Verbunden mit \"%1$s\" (WLAN)</string>
+    <string name="cod_status_connected_mobile">Verbunden über Mobilfunk</string>
+    <string name="cod_status_connected_ethernet">Verbunden über Ethernet</string>
+    <string name="cod_status_no_network">Kein Netzwerk</string>
+    <string name="cod_status_vpn_will_connect">VPN wird verbinden</string>
+    <string name="cod_status_vpn_will_not_connect">VPN wird nicht verbinden</string>
+    <string name="cod_status_line">Status: %1$s</string>
+    <string name="cod_status_line_with_verdict">Status: %1$s -- %2$s</string>
+    <string name="cod_ssid_detection_header">SSID-Erkennung</string>
+    <string name="cod_always_monitor_title">Immer überwachen (schnellere Reaktion im Standby)</string>
+    <string name="cod_always_monitor_description">Behält eine Benachrichtigung mit niedriger Priorität bei, sodass On-Demand-Regeln auch bei ausgeschaltetem Bildschirm innerhalb von 1-2 Sekunden greifen. Aus = bis zu 15 Min. im tiefen Ruhezustand.</string>
+    <string name="cod_perm_action_app_settings">App-Einstellungen</string>
+    <string name="cod_perm_action_grant">Erteilen</string>
+    <string name="cod_perm_action_location_settings">Standorteinstellungen</string>
+    <string name="cod_perm_app_settings_open_failed">App-Einstellungen konnten nicht geöffnet werden</string>
+    <string name="cod_perm_location_settings_open_failed">Standorteinstellungen konnten nicht geöffnet werden</string>
+    <string name="cod_perm_location_title">Standortberechtigung</string>
+    <string name="cod_perm_location_description">Von Android erforderlich, um die SSID des verbundenen Wi-Fi-Netzwerks zu lesen. Vor Android 13 ist sie die einzige Voraussetzung; ab Android 13 ist sie mit „Geräte in der Nähe (Wi-Fi)“ kombiniert.</string>
+    <string name="cod_perm_location_services_title">Standortdienste (Betriebssystem-Schalter)</string>
+    <string name="cod_perm_location_services_description">System → Standort muss EIN sein, damit die Wi-Fi-APIs die SSID zurückgeben — selbst bei erteilter Berechtigung. Der häufigste Grund für \"SSID kann nicht ermittelt werden\".</string>
+    <string name="cod_perm_nearby_wifi_title">Geräte in der Nähe (Wi-Fi)</string>
+    <string name="cod_perm_nearby_wifi_description">Android 13+: zusammen mit der Standortberechtigung erteilt, sodass der SSID-Regelabgleich auch dann funktioniert, wenn der Standortschalter des Betriebssystems auf manchen ROMs aus ist.</string>
+    <string name="cod_perm_status_granted">Erteilt</string>
+    <string name="cod_perm_status_denied">Verweigert</string>
+
+    <!-- AddConnectionScreen -->
+    <string name="addconn_title_add_connection">Verbindung hinzufügen</string>
+    <string name="addconn_title_add_protocol">Protokoll zu %1$s hinzufügen</string>
+    <string name="addconn_cd_back">Zurück</string>
+    <string name="addconn_cd_scan_qr">QR-Code scannen</string>
+    <string name="addconn_cd_gateway">Gateway</string>
+    <string name="addconn_adding_to_existing">Zu bestehender Verbindung hinzufügen</string>
+    <string name="addconn_existing_currently_has">%1$s — enthält derzeit %2$s</string>
+    <string name="addconn_gateway_empty">Keine Konfigurationen verfügbar</string>
+    <string name="addconn_from_gateway">Vom Gateway</string>
+    <string name="addconn_import">Importieren</string>
+    <string name="addconn_detected_protocol">Erkannt: %1$s</string>
+    <string name="addconn_tap_to_select">Tippen, um Konfigurationsdatei auszuwählen</string>
+    <string name="addconn_or_drop_file">oder Datei hier ablegen</string>
+    <string name="addconn_label_connection_name">Verbindungsname</string>
+    <string name="addconn_placeholder_connection_name">z. B. Büro-VPN</string>
+    <string name="addconn_btn_imported">Importiert</string>
+    <string name="addconn_btn_add_protocol_config">Protokoll-Konfiguration hinzufügen</string>
+    <string name="addconn_btn_import_config">Konfiguration importieren</string>
+    <string name="addconn_supported_formats">Unterstützte Formate</string>
+    <string name="addconn_format_desc_wireguard">WireGuard-Konfigurationsdateien</string>
+    <string name="addconn_format_desc_openvpn">OpenVPN-Konfigurationsdateien</string>
+    <string name="addconn_format_desc_ipsec">strongSwan- oder Apple-Profil</string>
+    <string name="addconn_error_file_empty">Datei ist leer</string>
+    <string name="addconn_error_protocol_undetected">VPN-Protokoll konnte nicht erkannt werden. Unterstützt: .conf (WireGuard), .ovpn (OpenVPN), .sswan/.mobileconfig (IPSec)</string>
+    <string name="addconn_error_read_file">Datei konnte nicht gelesen werden: %1$s</string>
+    <string name="addconn_error_scan_not_wireguard">Gescannte Konfiguration wurde nicht als WireGuard validiert</string>
+    <string name="addconn_error_qr_unrecognised">QR-Code-Inhalt nicht als VPN-Konfiguration oder Privycs-Registrierungs-URL erkannt</string>
+    <string name="addconn_error_qr_failed">QR-Scan fehlgeschlagen: %1$s</string>
+    <string name="addconn_error_gateway_parse">Konfiguration vom Gateway konnte nicht verarbeitet werden</string>
+    <string name="addconn_error_download_failed">Download fehlgeschlagen: %1$s</string>
+    <string name="addconn_error_parse_file">Konfigurationsdatei konnte nicht verarbeitet werden</string>
+
+    <!-- AlwaysOnDisconnectSheet -->
+    <string name="alwayson_sheet_title">VPN trennen</string>
+    <string name="alwayson_sheet_body">Die Android-Systemeinstellung „Immer aktives VPN“ ist für Privycs aktiviert. Android stellt den Tunnel automatisch wieder her, sobald er gestoppt wird. Wähle, wie du trennen möchtest:</string>
+    <string name="alwayson_pause_5">5 Minuten pausieren</string>
+    <string name="alwayson_pause_5_subtitle">Tunnel bleibt getrennt, bis der Timer abläuft</string>
+    <string name="alwayson_pause_15">15 Minuten pausieren</string>
+    <string name="alwayson_pause_60">60 Minuten pausieren</string>
+    <string name="alwayson_open_settings">Always-On-Einstellungen öffnen</string>
+    <string name="alwayson_open_settings_subtitle">Always-On-VPN in den Android-Systemeinstellungen deaktivieren</string>
+
+    <!-- ManualPauseSheet -->
+    <string name="manualpause_title">VPN trennen</string>
+    <string name="manualpause_body">Wähle, wie du trennen möchtest. Pausen verbinden sich automatisch wieder, wenn deine Connect-on-Demand-Regeln beim Ablauf des Timers noch passen.</string>
+    <string name="manualpause_disconnect_now_title">Jetzt trennen</string>
+    <string name="manualpause_disconnect_now_subtitle">Bleibt getrennt, bis du dich manuell wieder verbindest</string>
+    <plurals name="manualpause_pause_for_minutes">
+        <item quantity="one">%1$d Minute pausieren</item>
+        <item quantity="other">%1$d Minuten pausieren</item>
+    </plurals>
+
+    <!-- BottomNavBar -->
+    <string name="nav_label_connect">Verbinden</string>
+    <string name="nav_label_configs">Konfigurationen</string>
+    <string name="nav_label_add">Hinzufügen</string>
+    <string name="nav_label_settings">Einstellungen</string>
+    <string name="nav_label_help">Hilfe</string>
+
+    <!-- ConnectScreen -->
+    <string name="connect_kill_switch_active_toast">Kill Switch ist aktiv. Schalte den Kill Switch in den Einstellungen aus, um ihn freizugeben.</string>
+    <string name="connect_kill_switch_block_reconnect_toast">Kill Switch aktiv. Dies blockiert deine erneute Verbindung!</string>
+    <string name="connect_paused_remaining">Pausiert — %1$s verbleibend</string>
+    <string name="connect_resume_now">Jetzt fortsetzen</string>
+    <string name="connect_switch_connection">Verbindung wechseln</string>
+    <string name="connect_section_connections">Verbindungen</string>
+    <string name="connect_section_pools">Pools</string>
+    <string name="connect_transfer_download">Download</string>
+    <string name="connect_transfer_upload">Upload</string>
+    <string name="connect_welcome_title">Willkommen bei Privycs VPN</string>
+    <string name="connect_welcome_subtitle">Importiere eine VPN-Konfiguration, um loszulegen</string>
+    <string name="connect_add_connection">Verbindung hinzufügen</string>
+    <string name="connect_kill_switch_active_desc">Kill Switch aktiv</string>
+    <string name="connect_app_name_desc">Privycs</string>
+    <string name="connect_status_disconnecting">Trennen…</string>
+    <string name="connect_status_connecting">Verbinden…</string>
+    <string name="connect_status_connected">Verbunden</string>
+    <string name="connect_status_connect">Verbinden</string>
+    <string name="connect_pick_config">Konfiguration auswählen</string>
+    <string name="connect_choose_config">%1$s-Konfiguration auswählen</string>
+    <string name="connect_config_active">aktiv</string>
+    <string name="connect_detail_vpn_ip">VPN-IP</string>
+    <string name="connect_detail_endpoint">Endpunkt</string>
+    <string name="connect_detail_handshake">Handshake</string>
+    <string name="connect_health_ok">Tunnel OK</string>
+    <string name="connect_health_degraded">Tunnel-Prüfungen schlagen fehl</string>
+    <string name="connect_health_recovering">Wiederherstellung läuft</string>
+
+    <!-- ConnectionsScreen -->
+    <string name="connections_title">Verbindungen</string>
+    <string name="connections_section_header">Verbindungen</string>
+    <string name="connections_empty">Noch keine Verbindungen.</string>
+    <string name="connections_empty_add_single_hint">oder tippe auf +, um eine einzelne Verbindung hinzuzufügen</string>
+    <string name="connections_add_pool">Pool hinzufügen</string>
+    <string name="connections_pools_header">Pools</string>
+    <string name="connections_pools_header_count">Pools (%1$d)</string>
+    <string name="connections_pool_summary">%1$s · %2$s</string>
+    <string name="connections_active_badge">AKTIV</string>
+    <string name="connections_save">Speichern</string>
+    <string name="connections_cancel">Abbrechen</string>
+    <string name="connections_delete">Löschen</string>
+    <string name="connections_name_label">Name</string>
+    <string name="connections_edit_dialog_title">Verbindung bearbeiten</string>
+    <string name="connections_dns_override_label">DNS-Überschreibung (optional)</string>
+    <string name="connections_dns_override_placeholder">z. B. 1.1.1.1, 2606:4700:4700::1111</string>
+    <string name="connections_dns_invalid">Ungültig: %1$s</string>
+    <string name="connections_dns_empty_hint">Leer = globales DNS aus den Einstellungen übernehmen</string>
+    <string name="connections_dns_override_hint">Überschreibt das DNS der Einstellungen nur für diese Verbindung</string>
+    <string name="connections_edit_protocol_title">%1$s-Konfiguration bearbeiten</string>
+    <string name="connections_edit_protocol_parse_error">Konnte nicht als %1$s-Konfiguration verarbeitet werden</string>
+    <string name="connections_delete_dialog_title">Verbindung löschen</string>
+    <string name="connections_delete_dialog_message">\"%1$s\" und alle zugehörigen Konfigurationen löschen?</string>
+    <string name="connections_qr_wireguard_invalid">Gescannter QR-Code wurde nicht als WireGuard validiert</string>
+    <string name="connections_qr_unrecognised">QR-Inhalt nicht erkannt</string>
+    <string name="connections_qr_scan_failed">QR-Scan fehlgeschlagen: %1$s</string>
+    <string name="connections_download_failed">Download fehlgeschlagen: %1$s</string>
+    <string name="connections_kill_switch_warning">Kill Switch aktiv. Dies blockiert deine erneute Verbindung!</string>
+    <string name="connections_gateway_configs_header">Gateway-Konfigurationen</string>
+    <string name="connections_gateway_no_configs">Keine Konfigurationen verfügbar</string>
+    <string name="connections_vpn_ip">VPN-IP — %1$s</string>
+    <string name="connections_scan_qr_cd">QR-Code scannen</string>
+    <string name="connections_gateway_cd">Gateway</string>
+    <string name="connections_add_connection_cd">Verbindung hinzufügen</string>
+    <string name="connections_add_config_cd">Konfiguration hinzufügen</string>
+    <string name="connections_edit_pool_cd">Pool bearbeiten</string>
+    <string name="connections_rename_cd">Umbenennen</string>
+    <string name="connections_delete_cd">Löschen</string>
+    <string name="connections_download_cd">Download</string>
+    <string name="connections_edit_config_cd">%1$s-Konfiguration bearbeiten</string>
+    <string name="connections_remove_config_cd">%1$s entfernen</string>
+    <plurals name="connections_pool_server_count">
+        <item quantity="one">%1$d Server</item>
+        <item quantity="other">%1$d Server</item>
+    </plurals>
+
+    <!-- SettingsScreen -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_cancel">Abbrechen</string>
+    <string name="settings_section_gateway">PRIVYCS-GATEWAY</string>
+    <string name="settings_section_connection">VERBINDUNG</string>
+    <string name="settings_section_network">NETZWERK</string>
+    <string name="settings_section_tunnel_health">TUNNEL-ZUSTAND</string>
+    <string name="settings_section_on_demand">ON-DEMAND &amp; NETZWERKREGELN</string>
+    <string name="settings_section_protocol_failover">PROTOKOLL-FAILOVER-REIHENFOLGE</string>
+    <string name="settings_section_per_app">APP-SPEZIFISCHES VPN</string>
+    <string name="settings_section_cloud_backup">CLOUD-BACKUP</string>
+    <string name="settings_section_diagnostics">DIAGNOSE</string>
+    <string name="settings_section_appearance">DARSTELLUNG</string>
+    <string name="settings_section_about">ÜBER</string>
+    <string name="settings_backup_export_dialog_title">Backup exportieren</string>
+    <string name="settings_backup_import_dialog_title">Backup importieren</string>
+    <string name="settings_backup_export_dialog_text">Gib ein Passwort ein, um das Backup zu verschlüsseln.</string>
+    <string name="settings_backup_import_dialog_text">Gib das Passwort ein, das beim Erstellen dieses Backups verwendet wurde.</string>
+    <string name="settings_backup_password_label">Passwort</string>
+    <string name="settings_backup_export_button">Exportieren</string>
+    <string name="settings_backup_import_button">Importieren</string>
+    <string name="settings_backup_export_success">Backup exportiert</string>
+    <string name="settings_backup_import_success">Backup importiert</string>
+    <string name="settings_backup_operation_failed">Vorgang fehlgeschlagen</string>
+    <string name="settings_gateway_url_label">Gateway-URL</string>
+    <string name="settings_gateway_api_key_label">API-Schlüssel</string>
+    <string name="settings_gateway_verify_button">Prüfen &amp; Synchronisieren</string>
+    <string name="settings_gateway_verify_result">%1$s (%2$d Konfigurationen)</string>
+    <string name="settings_gateway_connection_failed">Verbindung fehlgeschlagen</string>
+    <string name="settings_kill_switch_title">Kill Switch</string>
+    <string name="settings_kill_switch_desc_always_on">Android Always-On-VPN ist aktiv — der System-Kill-Switch greift</string>
+    <string name="settings_kill_switch_desc_default">Blockiert den Datenverkehr, wenn der VPN-Tunnel unerwartet abbricht. Aktiviert sich nach der ersten Verbindung; muss in der App entschärft werden.</string>
+    <string name="settings_system_always_on_title">System-Always-On-VPN</string>
+    <string name="settings_system_always_on_desc">Optional: erzwingt den Tunnel auf Betriebssystemebene (blockiert Datenverkehr ohne VPN, selbst wenn die App beendet wird). Muss in den Android-Einstellungen aktiviert werden — Android erlaubt Apps nicht, dies programmatisch zu setzen.</string>
+    <string name="settings_open_vpn_settings_cd">Android-VPN-Einstellungen öffnen</string>
+    <string name="settings_vpn_settings_open_failed">Android-VPN-Einstellungen konnten nicht geöffnet werden</string>
+    <string name="settings_dns_override_label">DNS-Überschreibung</string>
+    <string name="settings_dns_override_placeholder">z. B. 1.1.1.1, 2606:4700:4700::1111</string>
+    <string name="settings_dns_invalid">Ungültig: %1$s</string>
+    <string name="settings_dns_detected">Erkannt: %1$s · DoT-Host: %2$s</string>
+    <string name="settings_dns_override_hint">IPv4 + IPv6, kommagetrennt. Leer = vom Server bereitgestelltes DNS verwenden.</string>
+    <string name="settings_dns_test_button">DNS testen</string>
+    <string name="settings_dns_test_in_progress">Wird getestet…</string>
+    <string name="settings_dns_test_error">Fehler: %1$s</string>
+    <string name="settings_dns_test_success">%1$s → %2$s (%3$dms)</string>
+    <string name="settings_dns_tip_title">Tipp: verschlüsseltes DNS aktivieren</string>
+    <string name="settings_dns_tip_body">%1$s bietet auch DNS-over-TLS an. Für Ende-zu-Ende-Verschlüsselung: Android-Einstellungen → Netzwerk → Privates DNS → \"%2$s\" eingeben.</string>
+    <string name="settings_tunnel_health_desc">Regelmäßiger ICMP-Ping, um zu prüfen, ob der Tunnel tatsächlich Datenverkehr überträgt (nicht nur \"verbunden\" ist). Drei aufeinanderfolgende Fehlschläge lösen die Wiederherstellung aus: Rotation des Pool-Mitglieds oder Trennen/Wiederverbinden einer Einzelverbindung.</string>
+    <string name="settings_tunnel_health_mode_auto">Auto (Wiederherstellung für Pool &amp; Einzelverbindung)</string>
+    <string name="settings_tunnel_health_mode_always">Immer an</string>
+    <string name="settings_tunnel_health_mode_off">Aus</string>
+    <string name="settings_ping_target_label">Ping-Ziel (optional)</string>
+    <string name="settings_ping_target_placeholder">Standard: 1.1.1.1</string>
+    <string name="settings_ping_target_invalid">Keine gültige IP</string>
+    <string name="settings_ping_target_empty_hint">Leer = Standard 1.1.1.1 verwenden</string>
+    <string name="settings_ping_target_custom">Eigenes Prüfziel</string>
+    <string name="settings_tunnel_health_interval_label">Intervall (s)</string>
+    <string name="settings_tunnel_health_dead_fails_label">Fehlschläge bis „tot“</string>
+    <string name="settings_tunnel_health_cadence_hint">Max. Erkennung = Intervall × Schwellenwert. Standard 5 × 2 = max. 10 s.</string>
+    <string name="settings_on_demand_desc">Automatisch verbinden — oder aus bleiben — abhängig vom Netzwerk, in dem du dich befindest. Netzwerkregeln werden zuerst geprüft, von oben nach unten; die erste Regel, die auf das aktuelle Netzwerk passt, gewinnt. Jedes Netzwerk, auf das keine Regel passt, fällt auf den Connect-on-Demand-Standard zurück.</string>
+    <string name="settings_on_demand_open_button">On-Demand &amp; Netzwerkregeln öffnen</string>
+    <string name="settings_protocol_failover_desc">Wenn eine Verbindung mehrere Protokolle enthält, verwenden Failover und die Protokoll-Pills diese Reihenfolge. Verschiebe ein Protokoll nach oben, um es zuerst zu versuchen.</string>
+    <string name="settings_protocol_move_up">Nach oben</string>
+    <string name="settings_protocol_move_down">Nach unten</string>
+    <string name="settings_per_app_desc">Wähle, welche Apps den VPN-Tunnel nutzen.</string>
+    <string name="settings_per_app_configure_button">App-spezifisches VPN konfigurieren</string>
+    <string name="settings_cloud_backup_desc">VPN-Verbindungen mit AES-256-Verschlüsselung exportieren oder importieren.</string>
+    <string name="settings_view_logs_button">Protokolle anzeigen</string>
+    <string name="settings_notification_settings_button">Benachrichtigungseinstellungen</string>
+    <string name="settings_theme_label">Design</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_dark">Dunkel</string>
+    <string name="settings_theme_light">Hell</string>
+    <string name="settings_about_app_label">App</string>
+    <string name="settings_about_version_label">Version</string>
+    <string name="settings_about_protocols_label">Protokolle</string>
+    <string name="settings_about_license_label">Lizenz</string>
+    <string name="settings_about_license_value">GNU GPL v3 (freie Software)</string>
+    <string name="settings_open_source_licenses_button">Open-Source-Lizenzen</string>
+    <string name="settings_privacy_policy_button">Datenschutzerklärung</string>
+
+    <!-- MainActivity first-run dialogs -->
+    <string name="mainact_perm_dialog_title">Berechtigungen, die Privycs nutzt</string>
+    <string name="mainact_perm_dialog_body">Damit Privycs vollständig funktioniert, bittet es jetzt um einige Berechtigungen:\n\n• Benachrichtigungen — um den VPN-Status und On-Demand-Ereignisse anzuzeigen.\n• Standort / Geräte in der Nähe (Wi-Fi) — nur von Android erforderlich, damit die App den NAMEN deines aktuellen Wi-Fi-Netzwerks für Connect-on-Demand-Regeln lesen kann (z. B. \"VPN aus in meinem Heim-Wi-Fi\"). Er wird niemals verwendet, um deinen geografischen Standort zu ermitteln, und es wird nichts von deinem Gerät übertragen.\n\n</string>
+    <string name="mainact_perm_dialog_body_bg">Danach wirst du gebeten, \"Immer zulassen\" zu wählen — Android benötigt das, damit On-Demand-Regeln weiterhin funktionieren, während die App geschlossen oder der Bildschirm aus ist. Du kannst all dies später in den Einstellungen ändern.</string>
+    <string name="mainact_perm_dialog_body_nobg">Connect-on-Demand anhand des Wi-Fi-Namens funktioniert, solange Privycs auf dem Bildschirm geöffnet ist. Du kannst all dies später in den Einstellungen ändern.</string>
+    <string name="mainact_bg_dialog_title">Wi-Fi-Regeln im Hintergrund zulassen?</string>
+    <string name="mainact_bg_dialog_body">Wähle auf dem nächsten Bildschirm \"Immer zulassen\". Android gibt deinen Wi-Fi-Netzwerknamen nur mit dieser Einstellung an eine im Hintergrund laufende App weiter — ohne sie funktionieren Connect-on-Demand-Regeln auf Basis des Wi-Fi-Namens nur, solange Privycs auf dem Bildschirm geöffnet ist.\n\nPrivycs nutzt dies ausschließlich, um den Wi-Fi-Namen lokal für deine Regeln zu lesen. Es leitet deinen Standort niemals ab und überträgt ihn nicht.</string>
+    <string name="mainact_button_continue">Weiter</string>
+    <string name="mainact_button_not_now">Nicht jetzt</string>
+    <string name="mainact_button_skip">Überspringen</string>
+
+    <!-- DnsPresetPicker -->
+    <string name="dnspreset_pick_preset_label">Oder eine Voreinstellung wählen…</string>
+
+    <!-- PoolIndicatorCard -->
+    <string name="poolind_currently">Aktuell: %1$s</string>
+    <string name="poolind_next">Nächster: %1$s</string>
+    <string name="poolind_next_rotation">Nächste Rotation</string>
+
+    <!-- Privycs Pro -->
+    <string name="pro_title">Privycs Pro</string>
+    <string name="pro_back">Zurück</string>
+    <string name="pro_headline">Privycs Pro freischalten</string>
+    <string name="pro_subhead">Erweiterte VPN-Verwaltung — einmaliger Kauf, für immer deins.</string>
+    <string name="pro_feature_multiprotocol">Mehrere Protokolle pro Verbindung</string>
+    <string name="pro_feature_multiconnection">Unbegrenzte gespeicherte Verbindungen</string>
+    <string name="pro_feature_rules">Connect-on-Demand-Netzwerkregeln</string>
+    <string name="pro_feature_gateway">Konfigurationen vom Privycs-Gateway laden</string>
+    <string name="pro_feature_pools">Verbindungs-Pools mit Rotation</string>
+    <string name="pro_feature_splittunnel">Split-Tunneling pro Pool</string>
+    <string name="pro_active">Du hast Privycs Pro — danke!</string>
+    <string name="pro_unlock">Pro freischalten</string>
+    <string name="pro_unlock_priced">Pro freischalten — %1$s</string>
+    <string name="pro_restore">Kauf wiederherstellen</string>
+    <string name="pro_restoring">Suche nach früheren Käufen…</string>
+    <string name="pro_bundle_note">Ein plattformübergreifendes Bundle (Android, Desktop und iOS) ist auf privycs.com erhältlich.</string>
+    <string name="pro_billing_unavailable">Google Play Billing ist auf diesem Gerät nicht verfügbar.</string>
+    <string name="pro_purchase_failed">Kauf konnte nicht gestartet werden. Bitte erneut versuchen.</string>
+    <string name="pro_settings_entry">Privycs Pro</string>
+    <string name="pro_settings_entry_free">Erweiterte VPN-Verwaltung freischalten</string>
+    <string name="pro_settings_entry_pro">Pro freigeschaltet</string>
+    <string name="pro_view">Privycs Pro öffnen</string>
+    <string name="pro_gate_toast">Das ist eine Privycs-Pro-Funktion. Schalte sie unter Einstellungen → Privycs Pro frei.</string>
+    <string name="pro_dialog_title">Privycs-Pro-Funktion</string>
+    <string name="pro_dialog_body">%1$s gehört zu Privycs Pro. Schalte Pro frei, um es zu nutzen.</string>
+    <string name="pro_dialog_see_pro">Privycs Pro ansehen</string>
+    <string name="pro_dialog_not_now">Jetzt nicht</string>
+
+    <!-- LogsScreen (non-composable) -->
+    <string name="logs_empty_state">Noch keine Protokolleinträge. Ereignisse erscheinen hier nach dem Verbinden / Trennen.</string>
+    <string name="logs_cleared">Protokolle gelöscht.</string>
+
+    <!-- OssLicensesScreen — bundled-component purposes -->
+    <string name="oss_component_openvpn">Unterstützung des OpenVPN-Protokolls</string>
+    <string name="oss_component_strongswan">Unterstützung des IPSec-/IKEv2-Protokolls</string>
+    <string name="oss_component_amneziawg">Unterstützung der Protokolle WireGuard &amp; AmneziaWG; bindet WireGuard-go (MIT) ein</string>
+    <string name="oss_component_compose">UI-Toolkit und Plattformbibliotheken</string>
+    <string name="oss_component_kotlin">Sprache und Kernbibliotheken</string>
+    <string name="oss_component_ktor">HTTP-Client für die Gateway-API</string>
+    <string name="oss_component_markwon">In-App-Markdown-Darstellung (Hilfe-Bildschirm)</string>
+    <string name="oss_component_maxmind">Liest die mitgelieferte Offline-Länderdatenbank</string>
+    <string name="oss_component_dbip">Mitgelieferte Offline-Länderdatenbank</string>
+    <string name="oss_component_play_scanner">QR-Code-Scannen für die Einrichtung mit einem Tipp</string>
+
+    <!-- PerAppVpnScreen -->
+    <plurals name="perapp_apps_selected">
+        <item quantity="one">%1$d von %2$d App ausgewählt</item>
+        <item quantity="other">%1$d von %2$d Apps ausgewählt</item>
+    </plurals>
+
+    <!--
+        Overrides for strings defined in :openvpn-lib (vendor ics-openvpn).
+        App module resources win over library resources at merge time, so
+        declaring the same string name here replaces the upstream value
+        without touching the vendor submodule.
+
+        `notifcation_title` typo is intentional - it's spelled that way in
+        upstream strings.xml and OpenVPNService.java references
+        R.string.notifcation_title, so our override MUST use the same typo
+        or the resource won't resolve.
+    -->
+    <string name="app">Privycs VPN</string>
+    <string name="notifcation_title">Privycs VPN - %s</string>
+    <string name="notifcation_title_notconnect">Privycs VPN - Nicht verbunden</string>
+</resources>

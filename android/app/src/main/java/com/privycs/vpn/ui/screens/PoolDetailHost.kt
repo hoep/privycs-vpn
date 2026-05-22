@@ -265,6 +265,10 @@ private fun EditPoolSheet(
             // from the tunnel (traffic to those ranges goes via the
             // local default gateway). WireGuard + OpenVPN supported;
             // IPSec pool members ignore this and log a warning.
+            // Pro gate 6 — hidden for Free users. excludePrivate /
+            // bypassCidrsText keep their loaded values, so Save
+            // re-persists any existing CIDRs untouched.
+            if (PrivycsApp.instance.entitlementRepository.isUnlocked()) {
             Spacer(Modifier.height(20.dp))
             androidx.compose.material3.HorizontalDivider()
             Spacer(Modifier.height(12.dp))
@@ -336,6 +340,7 @@ private fun EditPoolSheet(
                     }
                 }
             )
+            }
 
             Spacer(Modifier.height(12.dp))
             // Per-pool DNS override. Empty = inherit Settings global.

@@ -82,7 +82,8 @@ fun SettingsScreen(
     onNavigateToLogs: () -> Unit,
     onNavigateToPerAppVpn: () -> Unit = {},
     onNavigateToNetworkRules: () -> Unit = {},
-    onNavigateToLicenses: () -> Unit = {}
+    onNavigateToLicenses: () -> Unit = {},
+    onNavigateToPro: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val settingsRepo = remember { PrivycsApp.instance.settingsRepository }
@@ -255,6 +256,27 @@ fun SettingsScreen(
                 .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // -- Privycs Pro upsell (top of the list) --
+            val isPro by PrivycsApp.instance.entitlementRepository.isPro
+                .collectAsState()
+            SettingsSection(title = stringResource(R.string.pro_settings_entry)) {
+                Text(
+                    stringResource(
+                        if (isPro) R.string.pro_settings_entry_pro
+                        else R.string.pro_settings_entry_free,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onNavigateToPro,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.pro_view))
+                }
+            }
+
             // -- Privycs Gateway --
             SettingsSection(title = stringResource(R.string.settings_section_gateway)) {
                 OutlinedTextField(

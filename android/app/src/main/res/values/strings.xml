@@ -526,6 +526,35 @@
         <item quantity="other">%1$d of %2$d apps selected</item>
     </plurals>
 
+    <!-- Privycs Pro (upgrade screen + gate dialog) -->
+    <string name="pro_title">Privycs Pro</string>
+    <string name="pro_back">Back</string>
+    <string name="pro_headline">Unlock Privycs Pro</string>
+    <string name="pro_subhead">Advanced VPN management — a one-time purchase, yours for good.</string>
+    <string name="pro_feature_multiprotocol">Multiple protocols per connection</string>
+    <string name="pro_feature_multiconnection">Unlimited saved connections</string>
+    <string name="pro_feature_rules">Connect-on-Demand network rules</string>
+    <string name="pro_feature_gateway">Pull configs from your Privycs gateway</string>
+    <string name="pro_feature_pools">Connection pools with rotation</string>
+    <string name="pro_feature_splittunnel">Per-pool split tunnelling</string>
+    <string name="pro_active">You have Privycs Pro — thank you!</string>
+    <string name="pro_unlock">Unlock Pro</string>
+    <string name="pro_unlock_priced">Unlock Pro — %1$s</string>
+    <string name="pro_restore">Restore purchase</string>
+    <string name="pro_restoring">Checking for previous purchases…</string>
+    <string name="pro_bundle_note">A cross-platform bundle (Android, Desktop and iOS) is available at privycs.com.</string>
+    <string name="pro_billing_unavailable">Google Play Billing is unavailable on this device.</string>
+    <string name="pro_purchase_failed">Could not start the purchase. Please try again.</string>
+    <string name="pro_settings_entry">Privycs Pro</string>
+    <string name="pro_settings_entry_free">Unlock advanced VPN management</string>
+    <string name="pro_settings_entry_pro">Pro unlocked</string>
+    <string name="pro_view">Open Privycs Pro</string>
+    <string name="pro_gate_toast">This is a Privycs Pro feature. Unlock it in Settings → Privycs Pro.</string>
+    <string name="pro_dialog_title">Privycs Pro feature</string>
+    <string name="pro_dialog_body">%1$s is part of Privycs Pro. Unlock Pro to use it.</string>
+    <string name="pro_dialog_see_pro">See Privycs Pro</string>
+    <string name="pro_dialog_not_now">Not now</string>
+
     <!--
         Overrides for strings defined in :openvpn-lib (vendor ics-openvpn).
         App module resources win over library resources at merge time, so

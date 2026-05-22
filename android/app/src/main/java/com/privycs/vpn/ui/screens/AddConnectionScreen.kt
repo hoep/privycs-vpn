@@ -69,6 +69,7 @@ import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.util.QrCodePayload
 import com.privycs.vpn.util.QrCodeScanner
 import com.privycs.vpn.util.parseQrPayload
+import com.privycs.vpn.util.proGateAllowed
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -510,7 +511,13 @@ fun AddConnectionScreen(
             // Import button
             Button(
                 onClick = {
-                    if (detectedProtocol != null && fileContent.isNotBlank()) {
+                    // Pro gates 1 & 2 — adding a 2nd+ protocol (add-protocol
+                    // mode) or a 2nd+ connection (one already exists).
+                    val gatedSecond = targetConnection != null ||
+                        connectionRepo.connections.isNotEmpty()
+                    if (gatedSecond && !proGateAllowed(context)) {
+                        // blocked — proGateAllowed showed the toast
+                    } else if (detectedProtocol != null && fileContent.isNotBlank()) {
                         val protocolConfig = ConfigParser.buildProtocolConfig(fileContent, selectedFilename)
                         if (protocolConfig != null) {
                             val name = if (targetConnection != null) {
@@ -622,6 +629,7 @@ private fun GatewayPanel(
     emptyMessage: String,
     onDownload: (RemoteConfigEntry) -> Unit
 ) {
+    val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -758,7 +766,8 @@ private fun GatewayPanel(
                                 )
                             } else {
                                 TextButton(
-                                    onClick = { onDownload(entry) },
+                                    // Pro gate 4 — gateway config download.
+                                    onClick = { if (proGateAllowed(context)) onDownload(entry) },
                                     enabled = downloadingKey == null
                                 ) {
                                     Icon(

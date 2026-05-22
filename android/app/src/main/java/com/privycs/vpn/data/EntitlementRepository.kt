@@ -110,6 +110,14 @@ class EntitlementRepository(context: Context) {
         return false
     }
 
+    /**
+     * True when Pro features are available — either the user has Pro,
+     * or gating is globally disabled (GATING_ENABLED = false, the
+     * test-track default). The single entitlement check the Pro gates
+     * (see util/ProGate.kt) consult.
+     */
+    fun isUnlocked(): Boolean = !GATING_ENABLED || _isPro.value
+
     companion object {
         private const val TAG = "EntitlementRepo"
 

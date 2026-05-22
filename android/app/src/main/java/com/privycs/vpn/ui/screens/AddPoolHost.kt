@@ -3,7 +3,9 @@ package com.privycs.vpn.ui.screens
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.util.proGateAllowed
 import com.privycs.vpn.data.models.PoolImportProgress
 import com.privycs.vpn.data.models.PoolPolicy
 import com.privycs.vpn.data.models.PoolRotation
@@ -29,6 +31,7 @@ fun AddPoolHost(
     val app = PrivycsApp.instance
     val importer = app.poolImporter
     val pools = app.poolRepository
+    val context = LocalContext.current
 
     // Local progress state — Composable observes a StateFlow
     // (single current value) rather than the importer's
@@ -49,6 +52,8 @@ fun AddPoolHost(
                 policy: PoolPolicy,
                 intervalMin: Int
             ) {
+                // Pro gate 5 — creating a connection pool.
+                if (!proGateAllowed(context)) return
                 val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
                 // Forward importer's SharedFlow to our local
                 // StateFlow so the Compose UI updates live.

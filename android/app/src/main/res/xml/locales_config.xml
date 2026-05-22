@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Per-app language list (Android 13+). Lets the user pick the app's
+    language in System Settings → Apps → Privycs VPN → Language,
+    independently of the device language. Without this the app still
+    localises by device language automatically; this only adds the
+    per-app picker. Keep in sync with the res/values-XX/ folders.
+-->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="de" />
+    <locale android:name="es" />
+    <locale android:name="fr" />
+</locale-config>

@@ -24,6 +24,7 @@ import com.privycs.vpn.R
 import com.privycs.vpn.data.models.NetworkRule
 import com.privycs.vpn.data.models.RuleAction
 import com.privycs.vpn.data.models.RuleMatchType
+import com.privycs.vpn.util.proGateAllowed
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -42,6 +43,7 @@ fun NetworkRulesScreen(onBack: () -> Unit) {
     val repo = remember { app.networkRulesRepository }
     val rules by repo.rules.collectAsState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var editing by remember { mutableStateOf<NetworkRule?>(null) }
     var showCreate by remember { mutableStateOf(false) }
 
@@ -65,7 +67,8 @@ fun NetworkRulesScreen(onBack: () -> Unit) {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showCreate = true }) {
+            // Pro gate 3 — adding a network rule (Connect-on-Demand).
+            FloatingActionButton(onClick = { if (proGateAllowed(context)) showCreate = true }) {
                 Icon(
                     Icons.Filled.Add,
                     contentDescription = stringResource(R.string.netrules_add_rule),

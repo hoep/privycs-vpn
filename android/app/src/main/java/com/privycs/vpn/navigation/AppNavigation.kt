@@ -34,6 +34,7 @@ object Routes {
     const val PER_APP_VPN = "per_app_vpn"
     const val NETWORK_RULES = "network_rules"
     const val LICENSES = "licenses"
+    const val PRO = "pro"
     const val HELP = "help"
 
     // Pool routes. POOL_ADD reuses the "Add" tab via a flag so the
@@ -147,6 +148,15 @@ fun AppNavigation(
                     onNavigateToLicenses = {
                         navController.navigate(Routes.LICENSES)
                     },
+                    onNavigateToPro = {
+                        navController.navigate(Routes.PRO)
+                    },
+                )
+            }
+
+            composable(Routes.PRO) {
+                com.privycs.vpn.ui.screens.ProUpgradeScreen(
+                    onBack = { navController.popBackStack() },
                 )
             }
 
