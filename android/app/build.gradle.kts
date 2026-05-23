@@ -49,6 +49,15 @@ android {
         versionCode = privycsVersion.first
         versionName = privycsVersion.second
 
+        // v1.0.1 Pro tier — ed25519 public key used by License.verify to
+        // accept cross-platform bundle keys. The matching private key
+        // lives in the gateway env (LemonSqueezy webhook signer).
+        // Sourced from the LICENSE_PUBLIC_KEY_HEX env var at build time;
+        // when unset (local debug builds), License.verify rejects every
+        // key with NO_PUBLIC_KEY — fail-closed, identical to Desktop.
+        val licensePubKeyHex = System.getenv("LICENSE_PUBLIC_KEY_HEX") ?: ""
+        buildConfigField("String", "LICENSE_PUBLIC_KEY_HEX", "\"${licensePubKeyHex}\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -232,6 +241,13 @@ dependencies {
     implementation("io.ktor:ktor-client-okhttp:2.3.8")
     implementation("io.ktor:ktor-client-content-negotiation:2.3.8")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.8")
+
+    // BouncyCastle — Ed25519 signature verification for Pro-tier
+    // cross-platform bundle license keys. Android's built-in
+    // java.security.Signature("Ed25519") is API 33+ only, and we target
+    // minSdk=26. BC's low-level Ed25519Signer doesn't require Provider
+    // registration. R8 strips unused algorithms; net APK growth ~300 KB.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
     // Kotlin serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")

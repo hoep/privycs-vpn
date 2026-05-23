@@ -32,7 +32,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -42,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.R
 import com.privycs.vpn.billing.BillingManager
+import com.privycs.vpn.ui.components.LicenseKeyEntryDialog
 
 /**
  * "Privycs Pro" upgrade screen — the one-time purchase that unlocks the
@@ -60,7 +63,25 @@ import com.privycs.vpn.billing.BillingManager
 @Composable
 fun ProUpgradeScreen(onBack: () -> Unit) {
     val billing = remember { PrivycsApp.instance.billingManager }
-    val isPro by PrivycsApp.instance.entitlementRepository.isPro.collectAsState()
+    val entitlementRepo = remember { PrivycsApp.instance.entitlementRepository }
+    val isPro by entitlementRepo.isPro.collectAsState()
+    var showLicenseDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    if (showLicenseDialog) {
+        LicenseKeyEntryDialog(
+            repo = entitlementRepo,
+            onActivated = { sku ->
+                showLicenseDialog = false
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.pro_activated_toast, sku),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
+            onDismiss = { showLicenseDialog = false },
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -136,6 +157,17 @@ fun ProUpgradeScreen(onBack: () -> Unit) {
                 ProPurchaseSection(billing)
             }
 
+            Spacer(Modifier.height(20.dp))
+            // Cross-platform bundle redemption — present regardless of
+            // the Play-purchase state so a user who bought the bundle
+            // on Desktop can also activate it here. The dialog is a
+            // pure addition; the Play path stays primary.
+            OutlinedButton(
+                onClick = { showLicenseDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.pro_activate_with_key))
+            }
             Spacer(Modifier.height(20.dp))
             Text(
                 stringResource(R.string.pro_bundle_note),

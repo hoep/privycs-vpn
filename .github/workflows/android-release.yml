@@ -190,6 +190,13 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Pro-tier license verifier — embed the ed25519 public key
+          # whose private half lives in the gateway env (LemonSqueezy
+          # webhook signer). Read by app/build.gradle.kts as a
+          # buildConfigField. Empty when the secret isn't set, in which
+          # case License.verify rejects every key with NO_PUBLIC_KEY —
+          # fail-closed, identical to Desktop.
+          LICENSE_PUBLIC_KEY_HEX: ${{ secrets.LICENSE_PUBLIC_KEY_HEX }}
         run: |
           if [ "${{ needs.check-changes.outputs.build_apks }}" = "true" ]; then
             ./gradlew assembleRelease bundleRelease

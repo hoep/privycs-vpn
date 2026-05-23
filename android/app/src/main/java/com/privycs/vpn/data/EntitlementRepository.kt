@@ -1,6 +1,8 @@
 package com.privycs.vpn.data
 
 import android.content.Context
+import com.privycs.vpn.BuildConfig
+import com.privycs.vpn.license.License
 import com.privycs.vpn.util.PrivycsLogger
 import com.privycs.vpn.util.SecretCrypto
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,17 +99,61 @@ class EntitlementRepository(context: Context) {
     }
 
     /**
-     * Cross-platform bundle licence key (privycs.com). Structurally
-     * present so storage + UI already understand the BUNDLE source;
-     * full verification (LemonSqueezy licence validation) is deferred —
-     * single-platform Play Billing ships first.
+     * Cross-platform bundle licence key (privycs.com). The same
+     * .privycs-license file activates on Android, Desktop and (later)
+     * iOS — verifier is byte-compatible across all three platforms.
      *
-     * @return true if the key was accepted. Always false until the
-     *         bundle path is wired.
+     * Verification is OFFLINE — the embedded public key
+     * ([BuildConfig.LICENSE_PUBLIC_KEY_HEX]) is the trust anchor. A
+     * passing key sets [Source.BUNDLE] and unlocks Pro; the cached
+     * state survives offline launches like the Play path.
+     *
+     * @return a [LicenseActivationResult] the UI can render directly —
+     *         distinguished error kinds so wrong-platform / bad-sig
+     *         get tailored messages rather than a generic "failed".
      */
-    fun activateLicenseKey(rawKey: String): Boolean {
-        PrivycsLogger.i(TAG, "licence-key entry not yet supported (len=${rawKey.length})")
-        return false
+    fun activateLicenseKey(rawKey: String): LicenseActivationResult {
+        val result = License.verify(
+            rawKey,
+            BuildConfig.LICENSE_PUBLIC_KEY_HEX,
+            License.PLATFORM_ANDROID,
+        )
+        return when (result) {
+            is License.Result.Ok -> {
+                source = Source.BUNDLE
+                _isPro.value = true
+                persist()
+                PrivycsLogger.i(TAG, "Pro granted (bundle): sku=${result.payload.sku}")
+                LicenseActivationResult.Ok(result.payload.sku)
+            }
+
+            is License.Result.Err -> {
+                PrivycsLogger.w(TAG, "licence activation failed: ${result.kind} ${result.detail}")
+                LicenseActivationResult.Err(result.kind)
+            }
+        }
+    }
+
+    /**
+     * Result of [activateLicenseKey] — a sealed pair so the UI can
+     * pattern-match instead of inspecting exception text.
+     */
+    sealed class LicenseActivationResult {
+        data class Ok(val sku: String) : LicenseActivationResult()
+        data class Err(val kind: License.ErrorKind) : LicenseActivationResult()
+    }
+
+    /**
+     * Sign out of a bundle licence. Symmetric to [revokeIfPlayOnly] for
+     * the Play path. Only clears a BUNDLE entitlement.
+     */
+    fun deactivateBundleLicense() {
+        if (source == Source.BUNDLE) {
+            source = Source.NONE
+            _isPro.value = false
+            persist()
+            PrivycsLogger.i(TAG, "Pro deactivated (bundle)")
+        }
     }
 
     /**
