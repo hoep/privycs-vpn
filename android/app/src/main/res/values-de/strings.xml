@@ -522,7 +522,7 @@
     <string name="pro_unlock_priced">Pro freischalten — %1$s</string>
     <string name="pro_restore">Kauf wiederherstellen</string>
     <string name="pro_restoring">Suche nach früheren Käufen…</string>
-    <string name="pro_bundle_note">Ein plattformübergreifendes Bundle (Android, Desktop und iOS) ist auf privycs.com erhältlich.</string>
+    <string name="pro_bundle_note">Ein plattformübergreifendes Bundle (Android + Desktop + iOS) ist verfügbar. Falls du einen Bundle-Lizenzschlüssel hast, aktiviere ihn unten.</string>
     <string name="pro_activate_with_key">Ich habe bereits einen Lizenzschlüssel</string>
     <string name="pro_activate_title">Lizenzschlüssel aktivieren</string>
     <string name="pro_activate_subtitle">Füge deinen PRVC-…-Schlüssel aus der Kauf-E-Mail ein oder lade eine .privycs-license-Datei.</string>

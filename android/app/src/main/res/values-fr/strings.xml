@@ -522,7 +522,7 @@
     <string name="pro_unlock_priced">Débloquer Pro — %1$s</string>
     <string name="pro_restore">Restaurer l\'achat</string>
     <string name="pro_restoring">Recherche d\'achats précédents…</string>
-    <string name="pro_bundle_note">Un pack multiplateforme (Android, Desktop et iOS) est disponible sur privycs.com.</string>
+    <string name="pro_bundle_note">Un pack multiplateforme (Android + Desktop + iOS) est disponible. Si vous avez une clé de licence du pack, activez-la ci-dessous.</string>
     <string name="pro_activate_with_key">J\'ai déjà une clé de licence</string>
     <string name="pro_activate_title">Activer une clé de licence</string>
     <string name="pro_activate_subtitle">Collez votre clé PRVC-… reçue dans l\'e-mail d\'achat ou chargez un fichier .privycs-license.</string>

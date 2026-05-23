@@ -544,7 +544,7 @@
     <string name="pro_unlock_priced">Sblocca Pro — %1$s</string>
     <string name="pro_restore">Ripristina acquisto</string>
     <string name="pro_restoring">Verifica acquisti precedenti…</string>
-    <string name="pro_bundle_note">Un bundle multipiattaforma (Android, Desktop e iOS) è disponibile su privycs.com.</string>
+    <string name="pro_bundle_note">Un bundle multipiattaforma (Android + Desktop + iOS) è disponibile. Se hai una chiave di licenza del bundle, attivala qui sotto.</string>
     <string name="pro_activate_with_key">Ho già una chiave di licenza</string>
     <string name="pro_activate_title">Attiva una chiave di licenza</string>
     <string name="pro_activate_subtitle">Incolla la tua chiave PRVC-… dall\'email di acquisto oppure carica un file .privycs-license.</string>

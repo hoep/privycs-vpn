@@ -1741,13 +1741,17 @@ func (h *PrivilegedHelper) cmdIPSecConfigureWindows(cmd HelperCommand) HelperRes
 	// gateway rejects the IKE_AUTH, and Windows surfaces error 13801
 	// ("IKE authentication credentials are not acceptable").
 	//
-	// Fix: sweep every cert with FriendlyName "Privycs IPSec - *" out
-	// of LocalMachine\My BEFORE importing the new one, then tag the new
-	// cert with FriendlyName "Privycs IPSec - <connName>". After the
-	// sweep, only the active profile's cert is in the store, so
-	// Windows' auto-pick can't choose the wrong one. Re-import on every
-	// profile switch is acceptable — the helper IPSec-configure path is
-	// only entered at connection time.
+	// Fix (v1.0.3 hardening): import the new cert FIRST so its Issuer
+	// DN is known, then sweep every OTHER cert in LocalMachine\My that
+	// matches either condition:
+	//   (1) FriendlyName starts with "Privycs IPSec - "  (catches
+	//       sibling profile certs tagged by v1.0.2+ helper runs)
+	//   (2) Same Issuer DN as the new cert  (catches pre-v1.0.2 certs
+	//       from v1.0.0/v1.0.1 builds that never got our Privycs
+	//       FriendlyName tag)
+	// Both conditions EXCLUDE the just-imported cert (by thumbprint).
+	// Tag the new cert so future v1.0.2+ sweeps see it. Re-import on
+	// every profile switch is acceptable.
 	//
 	// Note: user-scope VPN entries are stored under HKCU of the user that
 	// created them. SYSTEM's HKCU is not the end-user's HKCU, so the client
@@ -1757,11 +1761,12 @@ func (h *PrivilegedHelper) cmdIPSecConfigureWindows(cmd HelperCommand) HelperRes
 $ErrorActionPreference = 'Stop'
 $p12Password = ConvertTo-SecureString -String '%s' -AsPlainText -Force
 $friendly = 'Privycs IPSec - %s'
-# Sweep all prior Privycs IPSec certs (other profiles' + a stale copy of
-# this one) so Windows' MachineCertificate auto-pick can only see one
-# matching cert at dial time. See v1.0.2 13801 fix comment in source.
-Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.FriendlyName -like 'Privycs IPSec - *' } | Remove-Item -Force -ErrorAction SilentlyContinue
 $imported = Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop
+$myThumb = $imported.Thumbprint
+$myIssuer = $imported.Issuer
+Get-ChildItem Cert:\LocalMachine\My | Where-Object {
+    $_.Thumbprint -ne $myThumb -and ( $_.FriendlyName -like 'Privycs IPSec - *' -or $_.Issuer -eq $myIssuer )
+} | Remove-Item -Force -ErrorAction SilentlyContinue
 $imported.FriendlyName = $friendly
 Remove-VpnConnection -Name '%s' -Force -AllUserConnection -ErrorAction SilentlyContinue
 Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -AuthenticationMethod MachineCertificate -EncryptionLevel Required -RememberCredential -AllUserConnection -Force

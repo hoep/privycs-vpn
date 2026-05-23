@@ -452,22 +452,30 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 }
 
 func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile, oldConnName, oldServerAddr string, oldConfigured bool) error {
-	// Cache skip — only when the EXACT same profile was previously
-	// configured and Windows still has its phonebook entry intact.
-	// The pre-fix logic compared i.serverAddr against profile.Remote.Addr,
-	// but configureFromSSwan updates i.serverAddr BEFORE this function
-	// runs, which made the comparison tautological (always true) and
-	// caused the second IPSec profile of any pair to be wrongly
-	// cache-skipped — leaving Windows pointed at the first profile's
-	// cert. We compare against the captured pre-update state instead.
-	if oldConfigured && oldConnName == i.connName && oldServerAddr == profile.Remote.Addr {
-		if isWindowsVPNHealthy(i.connName, profile.Remote.Addr) {
-			log.Printf("IPSec: '%s' already configured (cached), skipping", i.connName)
-			return nil
-		}
-		log.Printf("IPSec: cache hit but Windows VPN state is stale — reconfiguring")
-		i.configured = false
-	}
+	// No cache-skip on Windows.
+	//
+	// Background: prior builds skipped this function when the same
+	// profile was already configured AND its phonebook entry still
+	// existed — a roughly-2-second saving on a same-profile Connect.
+	// The skip was unsafe though: Windows' LocalMachine\My cert store
+	// is GLOBAL state that any sibling IPSec profile mutates between
+	// our sessions. After configuring profile A, the singleton's
+	// cache flag for profile B is still "fresh-from-last-session" —
+	// the user clicks Connect on B, we skip the helper, the cert
+	// sweep (v1.0.2) never runs, Windows picks A's cert and the
+	// gateway rejects the IKE_AUTH with 13801. Confirmed in the user
+	// log on 2026-05-23 21:15:08 ("already configured (cached),
+	// skipping" → rasdial 13801).
+	//
+	// The helper IPC is fast enough (~1-2 s including Import-Pfx and
+	// Add-VpnConnection), and rerunning is idempotent
+	// (Remove-VpnConnection before Add). Correctness over micro-perf:
+	// always run the helper.
+	//
+	// oldConnName / oldServerAddr / oldConfigured are kept on the
+	// function signature in case a future per-profile cert-store
+	// inspection wants to bring the cache back smarter.
+	_, _, _ = oldConnName, oldServerAddr, oldConfigured
 
 	// One-time legacy cleanup — pre-fix builds always used the shared
 	// name "privycs-vpn" for every IPSec profile and left a single
@@ -574,12 +582,20 @@ $ErrorActionPreference = 'Stop'
 $p12Password = ConvertTo-SecureString -String '%s' -AsPlainText -Force
 $friendly = 'Privycs IPSec - %s'
 try {
-    Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.FriendlyName -like 'Privycs IPSec - *' } | Remove-Item -Force -ErrorAction SilentlyContinue
     $imported = Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop
+    $myThumb = $imported.Thumbprint
+    $myIssuer = $imported.Issuer
+    Get-ChildItem Cert:\LocalMachine\My | Where-Object {
+        $_.Thumbprint -ne $myThumb -and ( $_.FriendlyName -like 'Privycs IPSec - *' -or $_.Issuer -eq $myIssuer )
+    } | Remove-Item -Force -ErrorAction SilentlyContinue
     $imported.FriendlyName = $friendly
 } catch {
-    Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -like 'Privycs IPSec - *' } | Remove-Item -Force -ErrorAction SilentlyContinue
     $imported = Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\CurrentUser\My -Password $p12Password
+    $myThumb = $imported.Thumbprint
+    $myIssuer = $imported.Issuer
+    Get-ChildItem Cert:\CurrentUser\My | Where-Object {
+        $_.Thumbprint -ne $myThumb -and ( $_.FriendlyName -like 'Privycs IPSec - *' -or $_.Issuer -eq $myIssuer )
+    } | Remove-Item -Force -ErrorAction SilentlyContinue
     $imported.FriendlyName = $friendly
 }
 Remove-VpnConnection -Name '%s' -Force -ErrorAction SilentlyContinue
