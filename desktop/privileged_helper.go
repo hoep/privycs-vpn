@@ -1697,6 +1697,14 @@ func (h *PrivilegedHelper) cmdIPSecConfigureWindows(cmd HelperCommand) HelperRes
 	serverAddr := cmd.Args["server_address"]
 	p12B64 := cmd.Args["p12_base64"]
 	p12Pass := cmd.Args["p12_password"]
+	// Optional FriendlyName label for the imported cert. Forward-compat
+	// hook so a future client could override; today the client passes
+	// the slot-stable connName here. Helper falls back to connName when
+	// the arg is missing (older clients).
+	friendlyLabel := cmd.Args["friendly_label"]
+	if friendlyLabel == "" {
+		friendlyLabel = connName
+	}
 	if connName == "" || serverAddr == "" || p12B64 == "" {
 		return HelperResponse{Success: false, Error: "conn_name, server_address and p12_base64 required"}
 	}
@@ -1723,6 +1731,24 @@ func (h *PrivilegedHelper) cmdIPSecConfigureWindows(cmd HelperCommand) HelperRes
 	// PowerShell script: import cert to LocalMachine\My and (re)create VPN
 	// connection in the AllUser scope. Running as SYSTEM — no UAC.
 	//
+	// Multi-profile cert-pick fix (v1.0.2): Add-VpnConnection's
+	// `-AuthenticationMethod MachineCertificate` does NOT tell Windows
+	// which cert to use. At dial time Windows scans LocalMachine\My and
+	// picks the first cert matching the EKU/issuer criteria. When two
+	// Privycs IPSec profiles share the same issuing CA — which is the
+	// common case for a single Privycs gateway — the 2nd profile's
+	// rasdial ends up sending the 1st profile's cert + identity, the
+	// gateway rejects the IKE_AUTH, and Windows surfaces error 13801
+	// ("IKE authentication credentials are not acceptable").
+	//
+	// Fix: sweep every cert with FriendlyName "Privycs IPSec - *" out
+	// of LocalMachine\My BEFORE importing the new one, then tag the new
+	// cert with FriendlyName "Privycs IPSec - <connName>". After the
+	// sweep, only the active profile's cert is in the store, so
+	// Windows' auto-pick can't choose the wrong one. Re-import on every
+	// profile switch is acceptable — the helper IPSec-configure path is
+	// only entered at connection time.
+	//
 	// Note: user-scope VPN entries are stored under HKCU of the user that
 	// created them. SYSTEM's HKCU is not the end-user's HKCU, so the client
 	// side (running as the user) is responsible for cleaning up any stale
@@ -1730,10 +1756,17 @@ func (h *PrivilegedHelper) cmdIPSecConfigureWindows(cmd HelperCommand) HelperRes
 	psScript := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 $p12Password = ConvertTo-SecureString -String '%s' -AsPlainText -Force
-Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop | Out-Null
+$friendly = 'Privycs IPSec - %s'
+# Sweep all prior Privycs IPSec certs (other profiles' + a stale copy of
+# this one) so Windows' MachineCertificate auto-pick can only see one
+# matching cert at dial time. See v1.0.2 13801 fix comment in source.
+Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.FriendlyName -like 'Privycs IPSec - *' } | Remove-Item -Force -ErrorAction SilentlyContinue
+$imported = Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop
+$imported.FriendlyName = $friendly
 Remove-VpnConnection -Name '%s' -Force -AllUserConnection -ErrorAction SilentlyContinue
 Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -AuthenticationMethod MachineCertificate -EncryptionLevel Required -RememberCredential -AllUserConnection -Force
-`, escapePowerShellString(p12Pass), escapePowerShellString(p12Path),
+`, escapePowerShellString(p12Pass), escapePowerShellString(friendlyLabel),
+		escapePowerShellString(p12Path),
 		escapePowerShellString(connName),
 		escapePowerShellString(connName), escapePowerShellString(serverAddr))
 

@@ -499,6 +499,14 @@ func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile, oldConn
 
 	log.Printf("IPSec: creating Windows VPN connection '%s' -> %s", i.connName, profile.Remote.Addr)
 
+	// Cert FriendlyName uses the slot-stable connName (e.g.
+	// "gw-ipsec-51") so the entry is identifiable in Windows
+	// Certificate Manager AND correlates 1-to-1 with the slot identifier
+	// the Privycs log emits. Re-using the user-facing profile.Name
+	// would be ambiguous when two profiles happen to share a display
+	// label or when the .sswan was generated without a name field.
+	friendlyLabel := i.connName
+
 	client := NewHelperClient()
 	if client.IsHelperReachable() {
 		// Helper-based path: no UAC prompt, cert goes to LocalMachine\My.
@@ -507,6 +515,7 @@ func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile, oldConn
 			"server_address": profile.Remote.Addr,
 			"p12_base64":     profile.Local.P12,
 			"p12_password":   p12Password,
+			"friendly_label": friendlyLabel,
 		})
 		if err != nil {
 			return fmt.Errorf("helper ipsec_configure failed: %w", err)
@@ -551,17 +560,32 @@ func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile, oldConn
 		p12Path = filepath.Join(appDataDir(), i.connName+".p12")
 	}
 
+	// See privileged_helper.go cmdIPSecConfigureWindows for the multi-
+	// profile cert-pick fix rationale: Windows MachineCertificate auth
+	// picks the first matching cert in the store, so when two Privycs
+	// IPSec profiles share an issuing CA the 2nd dial sends the 1st
+	// profile's cert + IDi → 13801. Sweep the store for prior Privycs
+	// IPSec certs, tag the new one by FriendlyName, then re-create the
+	// phonebook entry. The FriendlyName uses the slot-stable connName
+	// so the cert entry correlates 1-to-1 with the slot ID in the
+	// Privycs log.
 	psScript := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 $p12Password = ConvertTo-SecureString -String '%s' -AsPlainText -Force
+$friendly = 'Privycs IPSec - %s'
 try {
-    Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop | Out-Null
+    Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.FriendlyName -like 'Privycs IPSec - *' } | Remove-Item -Force -ErrorAction SilentlyContinue
+    $imported = Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop
+    $imported.FriendlyName = $friendly
 } catch {
-    Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\CurrentUser\My -Password $p12Password | Out-Null
+    Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -like 'Privycs IPSec - *' } | Remove-Item -Force -ErrorAction SilentlyContinue
+    $imported = Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\CurrentUser\My -Password $p12Password
+    $imported.FriendlyName = $friendly
 }
 Remove-VpnConnection -Name '%s' -Force -ErrorAction SilentlyContinue
 Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -AuthenticationMethod MachineCertificate -EncryptionLevel Required -RememberCredential -Force
-`, escapePowerShellString(p12Password), escapePowerShellString(p12Path), escapePowerShellString(p12Path),
+`, escapePowerShellString(p12Password), escapePowerShellString(friendlyLabel),
+		escapePowerShellString(p12Path), escapePowerShellString(p12Path),
 		escapePowerShellString(i.connName),
 		escapePowerShellString(i.connName), escapePowerShellString(profile.Remote.Addr))
 
