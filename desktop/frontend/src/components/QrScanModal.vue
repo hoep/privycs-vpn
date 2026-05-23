@@ -7,7 +7,7 @@
   <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" @click.self="close">
     <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md flex flex-col">
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Scan QR code</h3>
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('components.qr-scan-modal.title') }}</h3>
         <button @click="close" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
           <XMarkIcon class="w-4 h-4" />
         </button>
@@ -18,19 +18,19 @@
           <!-- Fallback for unsupported platforms: paste-raw escape hatch.
                Still useful because the user can copy the QR content from
                another device (phone, other laptop) and paste it here. -->
-          <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Or paste content:</label>
+          <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">{{ $t('components.qr-scan-modal.paste-label') }}</label>
           <textarea
             v-model="pasted"
             rows="4"
             class="w-full bg-gray-50 dark:bg-gray-800 text-xs font-mono p-2 rounded border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-            placeholder="Paste WireGuard config or privycs://enroll URL"
+            :placeholder="$t('components.qr-scan-modal.paste-placeholder')"
           />
           <button
             @click="submitPasted"
             :disabled="!pasted.trim()"
             class="btn-primary mt-2 w-full py-2 text-xs disabled:opacity-40"
           >
-            Use pasted content
+            {{ $t('components.qr-scan-modal.button.use-pasted') }}
           </button>
         </div>
         <div v-else>
@@ -47,7 +47,7 @@
             <div class="absolute inset-8 border-2 border-white/40 rounded-lg pointer-events-none"></div>
           </div>
           <p class="text-[10px] text-gray-500 dark:text-gray-400 text-center mt-2">
-            Point the camera at a WireGuard QR code or Privycs enrollment QR.
+            {{ $t('components.qr-scan-modal.hint') }}
           </p>
         </div>
       </div>
@@ -57,7 +57,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
+
+const { t } = useI18n()
 
 const emit = defineEmits<{
   (e: 'scanned', raw: string): void
@@ -103,19 +106,19 @@ async function startCamera() {
   // to scan and never finding anything.
   const hasDetector = typeof (globalThis as any).BarcodeDetector !== 'undefined'
   if (!hasDetector) {
-    error.value = 'This system does not support in-browser QR scanning. Paste the QR content below instead.'
+    error.value = t('components.qr-scan-modal.error.no-detector')
     return
   }
   try {
     // Query supported formats. If qr_code isn't in the list, bail early.
     const formats: string[] = await (globalThis as any).BarcodeDetector.getSupportedFormats()
     if (!formats.includes('qr_code')) {
-      error.value = 'QR codes are not supported by this system\'s barcode detector. Paste the QR content below.'
+      error.value = t('components.qr-scan-modal.error.qr-not-supported')
       return
     }
     detector = new (globalThis as any).BarcodeDetector({ formats: ['qr_code'] })
   } catch (e: any) {
-    error.value = `Could not initialise QR detector: ${e?.message || e}`
+    error.value = t('components.qr-scan-modal.error.init-failed', { error: String(e?.message || e) })
     return
   }
 
@@ -130,8 +133,8 @@ async function startCamera() {
     }
   } catch (e: any) {
     error.value = e?.name === 'NotAllowedError'
-      ? 'Camera access was denied. Grant camera permission for this app or paste the QR content below.'
-      : `Could not open camera: ${e?.message || e}`
+      ? t('components.qr-scan-modal.error.camera-denied')
+      : t('components.qr-scan-modal.error.camera-failed', { error: String(e?.message || e) })
     stopCamera()
     return
   }

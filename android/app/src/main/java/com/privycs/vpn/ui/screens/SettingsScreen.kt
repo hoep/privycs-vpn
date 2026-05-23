@@ -994,6 +994,8 @@ fun SettingsScreen(
                         "de" -> "Deutsch"
                         "es" -> "Español"
                         "fr" -> "Français"
+                        "it" -> "Italiano"
+                        "pt" -> "Português"
                         else -> tag
                     }
                     Row(

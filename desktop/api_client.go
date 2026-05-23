@@ -86,6 +86,9 @@ func (a *App) apiRequest(method, path string) ([]byte, error) {
 
 // FetchMyProfile verifies the API key and returns the user's email and config count
 func (a *App) FetchMyProfile() (*RemoteProfile, error) {
+	if err := a.gateGatewayDownload(); err != nil {
+		return nil, err
+	}
 	body, err := a.apiRequest("GET", "/api/v1/connect/my-configs")
 	if err != nil {
 		return nil, err
@@ -225,6 +228,9 @@ func (a *App) buildWireGuardConf(body []byte) (string, error) {
 // is added as an additional protocol to the existing connection.
 func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName string, connectionID string) error {
 	log.Printf("DownloadAndImportConfig: protocol=%s configID=%d peerName=%q connID=%q", protocol, configID, peerName, connectionID)
+	if err := a.gateGatewayDownload(); err != nil {
+		return err
+	}
 	configContent, err := a.FetchMyConfig(protocol, configID)
 	if err != nil {
 		log.Printf("DownloadAndImportConfig: FetchMyConfig FAILED: %v", err)

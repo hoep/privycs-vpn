@@ -33,7 +33,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
+
+const { t } = useI18n()
 
 interface Progress {
   stage: string
@@ -54,23 +57,23 @@ const hasNumeric = computed(() => progress.value.total > 0)
 
 const headline = computed(() => {
   switch (progress.value.stage) {
-    case 'extracting': return 'Extracting archive'
-    case 'parsing':    return 'Parsing configs'
-    case 'resolving':  return 'Resolving endpoints'
-    case 'done':       return 'Import complete'
-    default:           return 'Pool import'
+    case 'extracting': return t('components.pool-import-toast.headline.extracting')
+    case 'parsing':    return t('components.pool-import-toast.headline.parsing')
+    case 'resolving':  return t('components.pool-import-toast.headline.resolving')
+    case 'done':       return t('components.pool-import-toast.headline.done')
+    default:           return t('components.pool-import-toast.headline.default')
   }
 })
 
 const activityLine = computed(() => {
   if (progress.value.stage === 'done') {
-    return `${progress.value.imported} imported, ${progress.value.skipped} skipped`
+    return t('components.pool-import-toast.activity.done-summary', { imported: progress.value.imported, skipped: progress.value.skipped })
   }
   if (progress.value.message) {
     return progress.value.message
   }
   if (progress.value.skipped > 0) {
-    return `${progress.value.skipped} skipped so far`
+    return t('components.pool-import-toast.activity.skipped-so-far', { skipped: progress.value.skipped })
   }
   return ''
 })

@@ -85,6 +85,8 @@ type App struct {
 	pauseManager       *PauseManager       // user-initiated VPN pause (B4)
 	autoConnect        *AutoConnectManager
 	settings           *AppSettings
+	// v1.0.0 Pro tier — license-key state, gated by ProGatingEnabled.
+	entitlement *EntitlementRepo
 
 	// State
 	connected     bool
@@ -140,6 +142,19 @@ type App struct {
 
 // NewApp creates a new App instance
 func NewApp() *App {
+	// Encryption-at-rest bootstrap. Runs BEFORE any sensitive file
+	// load so LoadSettings() / LoadConnections() etc. can read via
+	// the EncryptedReadFile transparent path. Failure is non-fatal —
+	// the app degrades to plaintext and logs a warning. See
+	// migration.go for the SecretStore selection logic.
+	if store, ok := initEncryptionAtRest(); ok {
+		if n, err := MigrateAppDataToEncrypted(); err != nil {
+			log.Printf("encryption-at-rest: migration FAILED on %s backend: %v", store.Backend(), err)
+		} else if n > 0 {
+			log.Printf("encryption-at-rest: %s backend migrated %d file(s)", store.Backend(), n)
+		}
+	}
+
 	ks := NewKillSwitchManager()
 
 	// Resolve the GeoIP reader once and share it between the Pool
@@ -173,6 +188,7 @@ func NewApp() *App {
 		pauseManager:       NewPauseManager(),
 		autoConnect:        NewAutoConnectManager(),
 		settings:           LoadSettings(),
+		entitlement:        NewEntitlementRepo(),
 		stopStats:          make(chan struct{}),
 		tunnelHealth:       NewTunnelHealthMonitor(),
 		networkRules:       NewNetworkRulesRegistry(),
@@ -190,6 +206,16 @@ func (a *App) startup(ctx context.Context) {
 		a.tunnelHealth.SetOnStateChange(func(s TunnelHealthState) {
 			if a.ctx != nil {
 				wailsRuntime.EventsEmit(a.ctx, "tunnelHealth:state", string(s))
+			}
+		})
+	}
+
+	// Wire entitlement state-change events so the frontend can
+	// react reactively to Activate/Deactivate without polling.
+	if a.entitlement != nil {
+		a.entitlement.SetOnChange(func(s EntitlementState) {
+			if a.ctx != nil {
+				wailsRuntime.EventsEmit(a.ctx, "entitlement:changed", s)
 			}
 		})
 	}
@@ -1712,6 +1738,15 @@ type ProtocolInfo struct {
 // to an existing connection. Otherwise a new connection is created.
 func (a *App) ImportConfig(protocol string, content string, filename string, connectionName string, connectionID string) error {
 	log.Printf("ImportConfig: protocol=%q len=%d filename=%q connName=%q connID=%q (waiting for mu)", protocol, len(content), filename, connectionName, connectionID)
+	// v1.0.0 Pro tier — dormant gates (ProGatingEnabled=false). Either
+	// "second protocol on an existing connection" or "second connection
+	// overall" triggers the upgrade flow once gating is flipped on.
+	if err := a.gateMultiProtocol(connectionID); err != nil {
+		return err
+	}
+	if err := a.gateMultiConfig(connectionID); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	log.Printf("ImportConfig: acquired mu (validation phase)")
 

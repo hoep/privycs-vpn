@@ -22,7 +22,14 @@ const (
 
 // OpenVPNProtocol implements VPNProtocol for OpenVPN connections
 type OpenVPNProtocol struct {
-	configPath  string
+	configPath string
+	// Per-profile log + PID paths, mirror configPath. Pre-fix builds
+	// wrote every OpenVPN profile to a single shared "openvpn.log" /
+	// "openvpn.pid", which made Status() read the wrong profile's
+	// logs after a profile switch and Down() risk killing the wrong
+	// process — fix from the multi-profile audit.
+	logPath     string
+	pidPath     string
 	cmd         *exec.Cmd
 	connectedAt time.Time
 	serverAddr  string
@@ -57,21 +64,72 @@ type OpenVPNProtocol struct {
 	// so a fresh connect re-applies. Guards the once-only apply
 	// against the 2 s Status() poll loop.
 	windowsDNSApplied bool
+
+	// v1.0.0 encryption-at-rest: the persistent configPath is
+	// encrypted (PVCE magic), but the openvpn binary + privileged
+	// helper read .ovpn files DIRECTLY from disk. So at Up() time we
+	// decrypt into a sibling plaintext file at configPath+".runtime"
+	// and hand THAT path to openvpn/helper; at Down() we remove it
+	// again. Pre-v1.0 plaintext configs stay in-place (no runtime
+	// copy needed) — prepareRuntimeConfig short-circuits in that case.
+	runtimeConfigPath string
 }
 
 // NewOpenVPNProtocol creates a new OpenVPN protocol handler
 func NewOpenVPNProtocol() *OpenVPNProtocol {
 	return &OpenVPNProtocol{
 		configPath: filepath.Join(appDataDir(), "privycs0.ovpn"),
+		logPath:    filepath.Join(appDataDir(), "privycs0.log"),
+		pidPath:    filepath.Join(appDataDir(), "privycs0.pid"),
 	}
 }
 
-// SetTunnelName updates the config file path to match the connection name.
+// prepareRuntimeConfig returns the .ovpn path the openvpn binary +
+// privileged helper should consume. When the persistent configPath is
+// encrypted-at-rest (PVCE magic, v1.0.0+), decrypt to a sibling
+// "<name>.ovpn.runtime" plaintext file and return that path. The
+// runtime file is removed by cleanupRuntimeConfig() at Down() time.
+// Pre-v1.0 plaintext .ovpn files are passed through unchanged.
+func (o *OpenVPNProtocol) prepareRuntimeConfig() (string, error) {
+	if !IsEncryptedFile(o.configPath) {
+		return o.configPath, nil
+	}
+	plain, err := EncryptedReadFile(o.configPath)
+	if err != nil {
+		return "", fmt.Errorf("decrypt .ovpn: %w", err)
+	}
+	runtimePath := o.configPath + ".runtime"
+	if err := os.WriteFile(runtimePath, plain, 0600); err != nil {
+		return "", fmt.Errorf("write runtime .ovpn: %w", err)
+	}
+	o.runtimeConfigPath = runtimePath
+	return runtimePath, nil
+}
+
+// cleanupRuntimeConfig removes the plain-text runtime .ovpn produced
+// by prepareRuntimeConfig. Idempotent and best-effort — a leftover
+// file from a crashed run is overwritten on the next prepare.
+func (o *OpenVPNProtocol) cleanupRuntimeConfig() {
+	if o.runtimeConfigPath == "" {
+		return
+	}
+	if err := os.Remove(o.runtimeConfigPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("cleanupRuntimeConfig: remove %s: %v", o.runtimeConfigPath, err)
+	}
+	o.runtimeConfigPath = ""
+}
+
+// SetTunnelName updates the per-profile paths to match the connection
+// slot name (see setTunnelName + tunnelNameForSlot in app.go). Both the
+// .ovpn config file and the .log file are kept distinct per profile so
+// switching profiles doesn't overwrite or mis-read each other's state.
 func (o *OpenVPNProtocol) SetTunnelName(name string) {
 	if name == "" {
 		return
 	}
 	o.configPath = filepath.Join(appDataDir(), name+".ovpn")
+	o.logPath = filepath.Join(appDataDir(), name+".log")
+	o.pidPath = filepath.Join(appDataDir(), name+".pid")
 }
 
 func (o *OpenVPNProtocol) Name() string { return "openvpn" }
@@ -145,8 +203,17 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 		return fmt.Errorf("no OpenVPN config file found — import a .ovpn file first")
 	}
 
-	logPath := filepath.Join(appDataDir(), "openvpn.log")
-	pidPath := filepath.Join(appDataDir(), "openvpn.pid")
+	// v1.0.0 encryption-at-rest: when configPath is encrypted (PVCE),
+	// decrypt to a plain sibling so openvpn + the privileged helper
+	// can read it directly. The runtime copy lives for the duration
+	// of the tunnel and is removed in Down().
+	cfgPath, err := o.prepareRuntimeConfig()
+	if err != nil {
+		return fmt.Errorf("prepare runtime config: %w", err)
+	}
+
+	logPath := o.logPath
+	pidPath := o.pidPath
 
 	// Reset any cached state from a previous run. Stale
 	// "Initialization Sequence Completed" lines from earlier sessions
@@ -167,7 +234,7 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 			log.Printf("Using privileged helper for OpenVPN connect")
 			resp, err := client.SendCommand("connect", map[string]string{
 				"protocol":    "openvpn",
-				"config_path": o.configPath,
+				"config_path": cfgPath,
 				"log_path":    logPath,
 				"pid_path":    pidPath,
 				"mgmt_host":   ovpnMgmtHost,
@@ -189,7 +256,7 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 		// NRPT on Windows instead of netsh (avoids DNS bugs).
 		psCmd := fmt.Sprintf(
 			"Start-Process -FilePath '%s' -ArgumentList '--config','%s','--log','%s','--management','%s','%s' -Verb RunAs -WindowStyle Hidden",
-			escapePowerShellString(ovpnExe), escapePowerShellString(o.configPath), escapePowerShellString(logPath), ovpnMgmtHost, ovpnMgmtPort)
+			escapePowerShellString(ovpnExe), escapePowerShellString(cfgPath), escapePowerShellString(logPath), ovpnMgmtHost, ovpnMgmtPort)
 		o.cmd = execHiddenContext(ctx, "powershell", "-NoProfile", "-Command", psCmd)
 	} else {
 		// Linux/macOS: try privileged helper first (no sudo/password prompts)
@@ -198,7 +265,7 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 			log.Printf("Using privileged helper for OpenVPN connect")
 			resp, err := client.SendCommand("connect", map[string]string{
 				"protocol":    "openvpn",
-				"config_path": o.configPath,
+				"config_path": cfgPath,
 				"log_path":    logPath,
 				"pid_path":    pidPath,
 				"mgmt_host":   ovpnMgmtHost,
@@ -217,7 +284,7 @@ func (o *OpenVPNProtocol) Up(ctx context.Context) error {
 
 		// Fallback: direct sudo execution
 		o.cmd = execHiddenContext(ctx, "sudo", ovpnExe,
-			"--config", o.configPath,
+			"--config", cfgPath,
 			"--daemon",
 			"--log", logPath,
 			"--writepid", pidPath,
@@ -241,12 +308,17 @@ func (o *OpenVPNProtocol) Down(ctx context.Context) error {
 	// "still connected" even when the process is gone. Must be cleared
 	// before SIGTERM so the status emitter doesn't flip back to connected.
 	o.connectedAt = time.Time{}
+	// v1.0.0: remove the decrypted runtime config (no-op if Up never
+	// ran or configPath was already plaintext). Deferred-style via
+	// defer would be neater but Down has multiple return paths and
+	// we want the cleanup unconditional + early.
+	defer o.cleanupRuntimeConfig()
 
 	if runtime.GOOS == "windows" {
 		// Helper-first: kill by PID file (no UAC).
 		client := NewHelperClient()
 		if client.IsHelperReachable() {
-			pidPath := filepath.Join(appDataDir(), "openvpn.pid")
+			pidPath := o.pidPath
 			resp, err := client.SendCommand("disconnect", map[string]string{
 				"protocol": "openvpn",
 				"pid_path": pidPath,
@@ -274,7 +346,7 @@ func (o *OpenVPNProtocol) Down(ctx context.Context) error {
 
 // downUnixOpenVPN stops OpenVPN on Linux/macOS, using the helper if available.
 func (o *OpenVPNProtocol) downUnixOpenVPN(ctx context.Context) {
-	pidPath := filepath.Join(appDataDir(), "openvpn.pid")
+	pidPath := o.pidPath
 
 	// Try privileged helper first (no sudo/password prompts)
 	client := NewHelperClient()
@@ -353,7 +425,7 @@ func (o *OpenVPNProtocol) downUnixOpenVPN(ctx context.Context) {
 //
 //	PUSH: Received control message: 'PUSH_REPLY,...,dhcp-option DNS 10.100.10.150,...'
 func (o *OpenVPNProtocol) parsePushedDNSFromLog() string {
-	logPath := filepath.Join(appDataDir(), "openvpn.log")
+	logPath := o.logPath
 	buf, err := os.ReadFile(logPath)
 	if err != nil {
 		return ""
@@ -386,7 +458,7 @@ func (o *OpenVPNProtocol) parsePushedDNSFromLog() string {
 }
 
 func (o *OpenVPNProtocol) readOpenVPNStateFromLog() string {
-	logPath := filepath.Join(appDataDir(), "openvpn.log")
+	logPath := o.logPath
 	buf, err := os.ReadFile(logPath)
 	if err != nil {
 		// v0.9.15.46 diagnostic — fire at most every 5s so polling
@@ -457,7 +529,7 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 		out, err := execHidden("tasklist", "/FI", "IMAGENAME eq openvpn.exe", "/NH").CombinedOutput()
 		processRunning = err == nil && strings.Contains(string(out), "openvpn.exe")
 	} else {
-		pidPath := filepath.Join(appDataDir(), "openvpn.pid")
+		pidPath := o.pidPath
 		if pidData, err := os.ReadFile(pidPath); err == nil {
 			var pid int
 			if _, err := fmt.Sscan(strings.TrimSpace(string(pidData)), &pid); err == nil && pid > 0 {
@@ -635,7 +707,7 @@ func (o *OpenVPNProtocol) findUtunInterface() string {
 	if o.tunIface != "" {
 		return o.tunIface
 	}
-	logPath := filepath.Join(appDataDir(), "openvpn.log")
+	logPath := o.logPath
 	buf, err := os.ReadFile(logPath)
 	if err != nil {
 		return ""
@@ -723,7 +795,7 @@ func parseBypassNetworksFromOvpn(content string) []string {
 func (o *OpenVPNProtocol) Configure(cfg []byte) error {
 	os.MkdirAll(filepath.Dir(o.configPath), 0700)
 
-	if err := os.WriteFile(o.configPath, cfg, 0600); err != nil {
+	if err := EncryptedWriteFile(o.configPath, cfg, 0600); err != nil {
 		return fmt.Errorf("failed to write OpenVPN config: %w", err)
 	}
 

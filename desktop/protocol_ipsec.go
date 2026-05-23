@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	encoding_base64 "encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -18,6 +20,12 @@ import (
 
 // IPSecProtocol implements VPNProtocol for IKEv2/IPSec connections
 type IPSecProtocol struct {
+	// tunnelName is the per-profile slot name set by the app layer
+	// via SetTunnelName before each Configure (see setTunnelName +
+	// tunnelNameForSlot in app.go). Drives the OS-level connName so
+	// two IPSec profiles never collide on the Windows phonebook key.
+	// Mirrors the pattern WireGuard and OpenVPN already use.
+	tunnelName  string
 	connName    string
 	connectedAt time.Time
 	serverAddr  string
@@ -53,6 +61,20 @@ type IPSecProtocol struct {
 // Pure setter, no side effects.
 func (i *IPSecProtocol) SetDnsOverride(servers []string) {
 	i.dnsOverride = servers
+}
+
+// SetTunnelName implements the tunnelNamer interface (see setTunnelName
+// in app.go). Called by every Configure call-site with the per-profile
+// slot name (tunnelNameForSlot(cfg.ID, conn.Name)). The name drives
+// the OS-level connection identifier — Windows phonebook key, Linux
+// swanctl conn ID, and the on-disk .sswan/.p12 file basenames — so
+// two IPSec profiles can coexist without colliding. Empty name is a
+// no-op; Configure falls back to a content hash in that case.
+func (i *IPSecProtocol) SetTunnelName(name string) {
+	if name == "" {
+		return
+	}
+	i.tunnelName = name
 }
 
 // IPSecConfig holds IPSec-specific configuration
@@ -337,26 +359,37 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 		return fmt.Errorf("invalid .sswan profile: missing remote address")
 	}
 
-	if profile.Name != "" {
-		i.connName = profile.Name
-	}
+	// Capture the previously-configured state BEFORE updating the
+	// singleton — the OS-specific configure paths need it for a
+	// correct cache check (only skip if we were already configured
+	// for THIS exact profile, not just any IPSec profile).
+	oldConnName, oldServerAddr, oldConfigured := i.connName, i.serverAddr, i.configured
+
+	// Derive a unique-per-profile name. See deriveIPSecConnName for
+	// the lookup order. profile.Name is intentionally NOT used: the
+	// gateway emits the same name for every profile of a given user,
+	// and on Windows that collides at the phonebook key — the bug
+	// behind the v0.9.14-and-earlier "second profile doesn't connect"
+	// report.
+	i.connName = deriveIPSecConnName(i.tunnelName, &profile)
 	i.serverAddr = profile.Remote.Addr
 	i.splitTunneling = profile.SplitTunneling
 
-	log.Printf("Parsed .sswan profile: %s -> %s", i.connName, i.serverAddr)
+	log.Printf("Parsed .sswan profile: %s -> %s (tunnelName=%q, sswan name=%q)",
+		i.connName, i.serverAddr, i.tunnelName, profile.Name)
 
-	// Save the raw .sswan for reference
+	// Save the raw .sswan for reference (encrypted-at-rest v1.0.0)
 	sswanPath := filepath.Join(appDataDir(), i.connName+".sswan")
-	os.WriteFile(sswanPath, cfg, 0600)
+	EncryptedWriteFile(sswanPath, cfg, 0600)
 
-	// Extract and save PKCS#12 bundle if present
+	// Extract and save PKCS#12 bundle if present (encrypted-at-rest v1.0.0)
 	if profile.Local.P12 != "" {
 		p12Path := filepath.Join(appDataDir(), i.connName+".p12")
 		p12Data, err := base64Decode(profile.Local.P12)
 		if err != nil {
 			return fmt.Errorf("failed to decode PKCS#12 from .sswan: %w", err)
 		}
-		if err := os.WriteFile(p12Path, p12Data, 0600); err != nil {
+		if err := EncryptedWriteFile(p12Path, p12Data, 0600); err != nil {
 			return fmt.Errorf("failed to write PKCS#12: %w", err)
 		}
 		log.Printf("PKCS#12 bundle saved to %s (%d bytes)", p12Path, len(p12Data))
@@ -364,7 +397,7 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 
 	switch runtime.GOOS {
 	case "windows":
-		return i.configureWindowsFromSSwan(&profile)
+		return i.configureWindowsFromSSwan(&profile, oldConnName, oldServerAddr, oldConfigured)
 	case "linux":
 		return i.configureLinuxFromSSwan(&profile)
 	case "darwin":
@@ -418,19 +451,33 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 	}
 }
 
-func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile) error {
-	// Cache skip — only when Windows-side state still matches our in-memory
-	// belief. Without the isWindowsVPNHealthy check the cache could swallow
-	// a stale configuration (e.g. previous fallback-path created a user-scope
-	// entry that got wiped or has the wrong server) and prevent a proper
-	// reconfigure, leaving rasphone/rasdial pointed at a broken entry.
-	if i.configured && i.serverAddr == profile.Remote.Addr {
+func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile, oldConnName, oldServerAddr string, oldConfigured bool) error {
+	// Cache skip — only when the EXACT same profile was previously
+	// configured and Windows still has its phonebook entry intact.
+	// The pre-fix logic compared i.serverAddr against profile.Remote.Addr,
+	// but configureFromSSwan updates i.serverAddr BEFORE this function
+	// runs, which made the comparison tautological (always true) and
+	// caused the second IPSec profile of any pair to be wrongly
+	// cache-skipped — leaving Windows pointed at the first profile's
+	// cert. We compare against the captured pre-update state instead.
+	if oldConfigured && oldConnName == i.connName && oldServerAddr == profile.Remote.Addr {
 		if isWindowsVPNHealthy(i.connName, profile.Remote.Addr) {
 			log.Printf("IPSec: '%s' already configured (cached), skipping", i.connName)
 			return nil
 		}
 		log.Printf("IPSec: cache hit but Windows VPN state is stale — reconfiguring")
 		i.configured = false
+	}
+
+	// One-time legacy cleanup — pre-fix builds always used the shared
+	// name "privycs-vpn" for every IPSec profile and left a single
+	// phonebook entry behind. With per-profile names that legacy
+	// entry is dead weight; silently drop it on each reconfigure so
+	// it doesn't shadow the new entries. Best-effort, silent fail.
+	if i.connName != "privycs-vpn" {
+		execHidden("powershell", "-NoProfile", "-Command",
+			"Remove-VpnConnection -Name 'privycs-vpn' -Force -AllUserConnection -ErrorAction SilentlyContinue; "+
+				"Remove-VpnConnection -Name 'privycs-vpn' -Force -ErrorAction SilentlyContinue").Run()
 	}
 
 	// Proactively remove any stale user-scope VPN entry with the same name.
@@ -473,13 +520,35 @@ func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile) error {
 	}
 
 	// Fallback: UAC-elevated setup (one-time admin prompt).
-	p12Path := filepath.Join(appDataDir(), i.connName+".p12")
-	// Write PKCS#12 locally (client writes in configureFromSSwan already, but
-	// be defensive in case fallback is invoked from a different code path).
+	// PowerShell's Import-PfxCertificate reads the file via -FilePath
+	// directly from disk — it cannot decrypt our encrypted-at-rest
+	// blob. So write a PLAIN temp file just for this PS invocation,
+	// delete it immediately after. The persistent encrypted copy in
+	// appDataDir() stays untouched.
+	var p12Path string
 	if profile.Local.P12 != "" {
-		if data, err := base64Decode(profile.Local.P12); err == nil {
-			os.WriteFile(p12Path, data, 0600)
+		data, derr := base64Decode(profile.Local.P12)
+		if derr != nil {
+			return fmt.Errorf("decode p12 for UAC fallback: %w", derr)
 		}
+		tmp, terr := os.CreateTemp("", "privycs-ipsec-*.p12")
+		if terr != nil {
+			return fmt.Errorf("create temp p12: %w", terr)
+		}
+		tmp.Chmod(0600)
+		if _, err := tmp.Write(data); err != nil {
+			tmp.Close()
+			os.Remove(tmp.Name())
+			return fmt.Errorf("write temp p12: %w", err)
+		}
+		tmp.Close()
+		p12Path = tmp.Name()
+		defer os.Remove(p12Path) // best-effort cleanup
+	} else {
+		// caller relies on the previously-stored .p12 — fall back to
+		// the persistent path (won't help if encrypted, but matches
+		// pre-v1.0 behaviour for users without P12 inline data).
+		p12Path = filepath.Join(appDataDir(), i.connName+".p12")
 	}
 
 	psScript := fmt.Sprintf(`
@@ -626,6 +695,32 @@ func parseSwanctlBytes(output string) (rx, tx int64) {
 }
 
 // escapePowerShellString escapes single quotes for nested PowerShell execution
+// deriveIPSecConnName picks a unique-per-profile OS connection name.
+// Used cross-platform: on Windows it's the phonebook key, on Linux
+// the swanctl conn ID, everywhere the on-disk file basename.
+//
+// Priority of disambiguators:
+//  1. tunnelName — set by the app layer (SetTunnelName) from the
+//     stable per-connection slot ID (e.g. "gw-ipsec-7"). The right
+//     answer when present.
+//  2. profile.UUID — per-profile UUID from the .sswan, gateway-emitted.
+//  3. SHA256 of remote+cert — last-resort content hash.
+//
+// We deliberately do NOT use profile.Name: gateways often emit the same
+// human-readable name for every profile of a given user, and on
+// Windows that would collide at the phonebook key (the bug fix for
+// v0.9.14-and-earlier desktop builds).
+func deriveIPSecConnName(tunnelName string, profile *sswanProfile) string {
+	if tunnelName != "" {
+		return tunnelName
+	}
+	if u := strings.ReplaceAll(profile.UUID, "-", ""); len(u) >= 8 {
+		return "privycs-ipsec-" + u[:8]
+	}
+	h := sha256.Sum256([]byte(profile.Remote.Addr + ":" + profile.Local.P12))
+	return "privycs-ipsec-" + hex.EncodeToString(h[:])[:8]
+}
+
 func escapePowerShellString(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }

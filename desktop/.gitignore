@@ -15,5 +15,18 @@ assets/geoip/Country.mmdb
 desktop
 desktop.exe
 
+# Local dev binary from `go build ./cmd/license-gen` — the CLI tool
+# source lives under cmd/license-gen/ (tracked); only the compiled
+# binary in desktop/ is excluded. Anchor with leading slash so the
+# rule doesn't match the source dir.
+/license-gen
+/license-gen.exe
+
 # npm build-cache fingerprint.
 frontend/package.json.md5
+
+# license-gen CLI source lives in the private docs repo
+# (privycs-vpn-private-docs/license-gen-tool/). Dropping the source back
+# into desktop/cmd/license-gen/ for `go run` is fine for local dev, but
+# never commit it — exposes the signing wrapper publicly.
+cmd/license-gen/

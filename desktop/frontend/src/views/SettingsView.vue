@@ -1,17 +1,17 @@
 <template>
   <div class="p-4 overflow-y-auto max-h-[calc(100vh-7rem)]">
-    <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4">Settings</h2>
+    <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4">{{ $t('settings.title') }}</h2>
 
     <div class="space-y-3">
       <!-- Connection Settings -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Connection</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.connection.section-title') }}</h3>
         <div class="space-y-3">
           <div class="flex items-center justify-between">
             <div>
-              <span class="text-sm text-gray-700 dark:text-gray-300">Kill Switch</span>
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.connection.kill-switch') }}</span>
               <p class="text-[10px] text-gray-400 mt-0.5">
-                Block traffic if VPN disconnects
+                {{ $t('settings.connection.kill-switch-desc') }}
               </p>
             </div>
             <button
@@ -27,7 +27,7 @@
             </button>
           </div>
           <div class="flex items-center justify-between">
-            <span class="text-sm text-gray-700 dark:text-gray-300">Minimize to tray</span>
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.connection.minimize-to-tray') }}</span>
             <button
               @click="toggleSetting('minimize_to_tray')"
               class="toggle"
@@ -38,8 +38,8 @@
           </div>
           <div class="flex items-center justify-between">
             <div>
-              <span class="text-sm text-gray-700 dark:text-gray-300">Start at login</span>
-              <p class="text-[10px] text-gray-400 mt-0.5">Launch app when you log in</p>
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.connection.start-at-login') }}</span>
+              <p class="text-[10px] text-gray-400 mt-0.5">{{ $t('settings.connection.start-at-login-desc') }}</p>
             </div>
             <button
               @click="toggleSetting('autostart_enabled')"
@@ -58,10 +58,10 @@
 
       <!-- Privycs Gateway -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Privycs Gateway</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.gateway.section-title') }}</h3>
         <div class="space-y-3">
           <div>
-            <label class="text-sm text-gray-700 dark:text-gray-300 block mb-1">Gateway URL</label>
+            <label class="text-sm text-gray-700 dark:text-gray-300 block mb-1">{{ $t('settings.gateway.url-label') }}</label>
             <input
               v-model="settings.gateway_url"
               @blur="saveSettings"
@@ -72,7 +72,7 @@
             />
           </div>
           <div>
-            <label class="text-sm text-gray-700 dark:text-gray-300 block mb-1">API Key</label>
+            <label class="text-sm text-gray-700 dark:text-gray-300 block mb-1">{{ $t('settings.gateway.api-key-label') }}</label>
             <input
               v-model="settings.api_key"
               @blur="saveSettings"
@@ -93,7 +93,7 @@
               :disabled="verifying || !settings.gateway_url || !settings.api_key"
               class="btn-primary px-4 py-1.5 text-xs disabled:opacity-50"
             >
-              {{ verifying ? 'Verifying...' : 'Verify & Sync' }}
+              {{ verifying ? $t('settings.gateway.verifying') : $t('settings.gateway.verify-and-sync') }}
             </button>
             <span v-if="apiStatus" class="text-[10px]" :class="apiStatus.ok ? 'text-green-400' : 'text-red-400'">
               {{ apiStatus.message }}
@@ -104,13 +104,13 @@
 
       <!-- Privileged Helper -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Privileged Helper</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.helper.section-title') }}</h3>
         <div class="space-y-3">
           <div class="flex items-center justify-between">
             <div>
-              <span class="text-sm text-gray-700 dark:text-gray-300">Status</span>
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.helper.status-label') }}</span>
               <p class="text-[10px] text-gray-400 mt-0.5">
-                Eliminates password prompts when connecting VPN
+                {{ $t('settings.helper.status-desc') }}
               </p>
             </div>
             <div class="flex items-center gap-1.5">
@@ -118,7 +118,7 @@
                 :class="helperStatus.running ? 'bg-green-400' : (helperStatus.installed ? 'bg-yellow-400' : 'bg-gray-400')"
               />
               <span class="text-xs text-gray-500 dark:text-gray-400">
-                {{ helperStatus.running ? 'Running' : (helperStatus.installed ? 'Installed (not running)' : 'Not installed') }}
+                {{ helperStatus.running ? $t('settings.helper.status-running') : (helperStatus.installed ? $t('settings.helper.status-installed-not-running') : $t('settings.helper.status-not-installed')) }}
               </span>
             </div>
           </div>
@@ -129,7 +129,7 @@
               :disabled="helperInstalling"
               class="btn-primary px-4 py-1.5 text-xs disabled:opacity-50"
             >
-              {{ helperInstalling ? 'Installing...' : 'Install Helper' }}
+              {{ helperInstalling ? $t('settings.helper.installing') : $t('settings.helper.install-button') }}
             </button>
             <button
               v-if="helperStatus.installed"
@@ -137,12 +137,12 @@
               :disabled="helperInstalling"
               class="btn-secondary px-4 py-1.5 text-xs disabled:opacity-50"
             >
-              Uninstall
+              {{ $t('settings.helper.uninstall-button') }}
             </button>
           </div>
           <p v-if="helperError" class="text-[10px] text-red-400 bg-red-500/10 rounded-lg py-1.5 px-2">{{ helperError }}</p>
           <p class="text-[10px] text-gray-500 dark:text-gray-400">
-            The helper runs as a system service and handles VPN operations without repeated admin prompts. Requires a one-time authorization to install.
+            {{ $t('settings.helper.explanation') }}
           </p>
           <!-- macOS manual cleanup hint. The osascript-based install/uninstall
                UI is fragile on unsigned builds because Sequoia's TCC can
@@ -153,13 +153,13 @@
                to expand. Linux/Windows users don't need this. -->
           <details v-if="isMacOS" class="text-[10px]">
             <summary class="text-gray-500 dark:text-gray-400 cursor-pointer hover:text-primary-400">
-              Helper button stuck or failing? Show manual cleanup commands
+              {{ $t('settings.helper.manual-cleanup-summary') }}
             </summary>
             <pre class="mt-2 p-2 rounded bg-gray-900/50 text-gray-300 overflow-x-auto whitespace-pre">sudo launchctl bootout system /Library/LaunchDaemons/com.privycs.vpn-helper.plist 2&gt;/dev/null
 sudo rm -f /Library/LaunchDaemons/com.privycs.vpn-helper.plist
 sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
             <p class="mt-1 text-gray-500 dark:text-gray-400">
-              Run these in Terminal, then reopen this window — Helper status will refresh and "Install Helper" becomes clickable again.
+              {{ $t('settings.helper.manual-cleanup-hint') }}
             </p>
           </details>
         </div>
@@ -167,13 +167,13 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
 
       <!-- Network -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Network</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.network.section-title') }}</h3>
         <div class="space-y-3">
           <div>
-            <label class="text-sm text-gray-700 dark:text-gray-300 block mb-1">DNS Override</label>
+            <label class="text-sm text-gray-700 dark:text-gray-300 block mb-1">{{ $t('settings.network.dns-override-label') }}</label>
             <DnsOverrideField
               v-model="settings.dns_override"
-              placeholder="e.g. 1.1.1.1, 2606:4700:4700::1111 — comma-separated, IPv4 + IPv6"
+              :placeholder="$t('settings.network.dns-override-placeholder')"
               @update:model-value="onDnsInput"
               @blur="validateAndSave"
             />
@@ -181,21 +181,21 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
               <p class="text-[10px] flex-1" :class="dnsError ? 'text-red-400' : 'text-gray-500'">
                 <template v-if="dnsError">{{ dnsError }}</template>
                 <template v-else-if="dnsProviderHint">{{ dnsProviderHint }}</template>
-                <template v-else>Multiple servers separated by comma. Empty = use server-pushed DNS.</template>
+                <template v-else>{{ $t('settings.network.dns-override-help') }}</template>
               </p>
               <button
                 @click="testDns"
                 :disabled="dnsTesting"
                 class="text-[10px] text-primary-400 hover:text-primary-300 ml-2 disabled:opacity-50"
               >
-                {{ dnsTesting ? 'Testing…' : 'Test DNS' }}
+                {{ dnsTesting ? $t('settings.network.dns-testing') : $t('settings.network.test-dns-button') }}
               </button>
             </div>
             <p v-if="dnsTestResult" class="text-[10px] text-gray-500 mt-0.5">
-              <span v-if="dnsTestResult.error" class="text-red-400">Error: {{ dnsTestResult.error }}</span>
+              <span v-if="dnsTestResult.error" class="text-red-400">{{ $t('settings.network.dns-test-error-prefix') }} {{ dnsTestResult.error }}</span>
               <span v-else>
-                Resolved {{ dnsTestResult.host }} → {{ dnsTestResult.addresses.join(', ') }} ({{ dnsTestResult.duration_ms }}ms)
-                <span v-if="dnsTestResult.resolver_hint" class="text-primary-400 ml-1">via {{ dnsTestResult.resolver_hint }}</span>
+                {{ $t('settings.network.dns-test-resolved-prefix') }} {{ dnsTestResult.host }} → {{ dnsTestResult.addresses.join(', ') }} ({{ dnsTestResult.duration_ms }}ms)
+                <span v-if="dnsTestResult.resolver_hint" class="text-primary-400 ml-1">{{ $t('settings.network.dns-test-via') }} {{ dnsTestResult.resolver_hint }}</span>
               </span>
             </p>
           </div>
@@ -204,16 +204,15 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
 
       <!-- Tunnel Health (Phase 1 visible UX) -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Tunnel Health</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.tunnel-health.section-title') }}</h3>
         <p class="text-[10px] text-gray-400 mb-3">
-          Periodic ICMP ping to verify the tunnel is actually carrying traffic.
-          Three failures fire recovery: pool member rotation or single-connection disconnect/reconnect.
+          {{ $t('settings.tunnel-health.description') }}
         </p>
         <div class="space-y-2 mb-3">
           <label v-for="opt in [
-            { value: 'auto', label: 'Auto (recovery for pool & single)' },
-            { value: 'always', label: 'Always on' },
-            { value: 'off', label: 'Off' },
+            { value: 'auto', label: $t('settings.tunnel-health.mode-auto') },
+            { value: 'always', label: $t('settings.tunnel-health.mode-always') },
+            { value: 'off', label: $t('settings.tunnel-health.mode-off') },
           ]" :key="opt.value" class="flex items-center gap-2 text-sm cursor-pointer">
             <input
               type="radio"
@@ -225,22 +224,22 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
             <span class="text-gray-700 dark:text-gray-300">{{ opt.label }}</span>
           </label>
         </div>
-        <label class="text-[11px] text-gray-500 block mb-1">Ping target (optional)</label>
+        <label class="text-[11px] text-gray-500 block mb-1">{{ $t('settings.tunnel-health.ping-target-label') }}</label>
         <input
           v-model="settings.tunnel_health_target"
           @blur="saveSettings()"
           type="text"
-          placeholder="default: 1.1.1.1"
+          :placeholder="$t('settings.tunnel-health.ping-target-placeholder')"
           class="input"
         />
         <p class="text-[10px] text-gray-500 mt-1">
-          Empty = use default 1.1.1.1. Useful if 1.1.1.1 is blocked or you prefer pinging an internal target.
+          {{ $t('settings.tunnel-health.ping-target-help') }}
         </p>
 
         <!-- v0.9.15.30: probe cadence overrides -->
         <div class="grid grid-cols-2 gap-3 mt-4">
           <div>
-            <label class="text-[11px] text-gray-500 block mb-1">Ping interval (seconds)</label>
+            <label class="text-[11px] text-gray-500 block mb-1">{{ $t('settings.tunnel-health.ping-interval-label') }}</label>
             <input
               v-model.number="settings.tunnel_health_ping_interval_sec"
               @blur="saveSettings()"
@@ -252,7 +251,7 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
             />
           </div>
           <div>
-            <label class="text-[11px] text-gray-500 block mb-1">Fails before recovery</label>
+            <label class="text-[11px] text-gray-500 block mb-1">{{ $t('settings.tunnel-health.fails-threshold-label') }}</label>
             <input
               v-model.number="settings.tunnel_health_dead_threshold"
               @blur="saveSettings()"
@@ -265,20 +264,20 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
           </div>
         </div>
         <p class="text-[10px] text-gray-500 mt-1">
-          Max detection time = interval × threshold. Default 5 s × 2 = max 10 s. Larger values lower battery / data cost; smaller values catch dead tunnels faster but may false-trigger on flaky networks.
+          {{ $t('settings.tunnel-health.detection-time-help') }}
         </p>
       </div>
 
       <!-- Sleep / Wake Recovery (macOS) -->
       <div v-if="isMacOS" class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Sleep / Wake Recovery</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.sleep-wake.section-title') }}</h3>
         <p class="text-[10px] text-gray-400 mb-3">
-          When macOS wakes from sleep, the upstream NAT mapping for the VPN has typically expired and the tunnel is silently dead — packets black-hole through stuck routes until manually disconnected. These options auto-recover.
+          {{ $t('settings.sleep-wake.description') }}
         </p>
         <div class="flex items-center justify-between mb-3">
           <div class="flex-1 pr-3">
-            <span class="text-sm text-gray-700 dark:text-gray-300">Reconnect on system wake</span>
-            <p class="text-[10px] text-gray-500">Force-reconnect within ~1 s after wake instead of waiting for the tunnel-health probe (~60 s).</p>
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.sleep-wake.reconnect-on-wake') }}</span>
+            <p class="text-[10px] text-gray-500">{{ $t('settings.sleep-wake.reconnect-on-wake-desc') }}</p>
           </div>
           <Switch
             :model-value="settings.reconnect_on_system_wake !== false"
@@ -291,8 +290,8 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
         </div>
         <div class="flex items-center justify-between">
           <div class="flex-1 pr-3">
-            <span class="text-sm text-gray-700 dark:text-gray-300">Prevent display sleep while tunnel is up</span>
-            <p class="text-[10px] text-gray-500">Uses macOS <code>caffeinate -di</code>. Trades battery for zero sleep-related VPN drops. Default off.</p>
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.sleep-wake.prevent-display-sleep') }}</span>
+            <p class="text-[10px] text-gray-500">{{ $t('settings.sleep-wake.prevent-display-sleep-desc') }}</p>
           </div>
           <Switch
             :model-value="!!settings.prevent_display_sleep"
@@ -307,24 +306,21 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
 
       <!-- On-Demand & Network Rules (unified — v0.9.15.73) -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">On-Demand &amp; Network Rules</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.on-demand.section-title') }}</h3>
         <p class="text-[10px] text-gray-400 mb-3">
-          Automatically connect — or stay off — based on the network you're on. Network
-          Rules are checked first, top to bottom; the first rule that matches the current
-          network wins. Any network no rule matches falls back to the Connect-on-Demand
-          default. The engine toggle and the default behaviour both live there.
+          {{ $t('settings.on-demand.description') }}
         </p>
         <router-link to="/network-rules"
           class="btn-secondary block w-full py-2 text-center text-xs">
-          Open On-Demand &amp; Network Rules
+          {{ $t('settings.on-demand.open-button') }}
         </router-link>
       </div>
 
       <!-- Protocol Failover Order (v0.9.15.70) -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Protocol Failover Order</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.failover.section-title') }}</h3>
         <p class="text-[10px] text-gray-400 mb-3">
-          When a connection holds multiple protocols, failover walks them in this order. Move a protocol up to try it first.
+          {{ $t('settings.failover.description') }}
         </p>
         <div class="space-y-1.5">
           <div v-for="(p, idx) in failoverOrder" :key="p" class="flex items-center gap-2 px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700">
@@ -335,7 +331,7 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
               class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
               :disabled="idx === 0"
               @click="moveFailover(idx, idx - 1)"
-              title="Move up"
+              :title="$t('settings.failover.move-up')"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
             </button>
@@ -343,7 +339,7 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
               class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
               :disabled="idx === failoverOrder.length - 1"
               @click="moveFailover(idx, idx + 1)"
-              title="Move down"
+              :title="$t('settings.failover.move-down')"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
@@ -353,31 +349,31 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
 
       <!-- Logs -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Diagnostics</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.diagnostics.section-title') }}</h3>
         <router-link to="/logs"
           class="btn-secondary block w-full py-2 text-center text-xs">
-          View Logs
+          {{ $t('settings.diagnostics.view-logs') }}
         </router-link>
       </div>
 
       <!-- Backup & Restore -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Backup &amp; Restore</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.backup.section-title') }}</h3>
         <p class="text-[10px] text-gray-400 mb-3">
-          Export all connections and settings as an encrypted file. Use the same passphrase to restore on another device.
+          {{ $t('settings.backup.description') }}
         </p>
         <div class="grid grid-cols-2 gap-2">
           <button
             @click="showExport = true"
             class="btn-secondary py-2 text-xs"
           >
-            Export...
+            {{ $t('settings.backup.export-button') }}
           </button>
           <button
             @click="showImport = true"
             class="btn-secondary py-2 text-xs"
           >
-            Import...
+            {{ $t('settings.backup.import-button') }}
           </button>
         </div>
         <p v-if="backupMessage" class="text-xs mt-2" :class="backupError ? 'text-red-400' : 'text-green-400'">
@@ -388,22 +384,22 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
       <!-- Export modal -->
       <div v-if="showExport" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" @click.self="showExport = false">
         <div class="card p-4 w-full max-w-sm">
-          <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Export backup</h3>
-          <label class="text-xs text-gray-600 dark:text-gray-300 block mb-1">Passphrase (min 8 chars)</label>
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">{{ $t('settings.backup.export-modal-title') }}</h3>
+          <label class="text-xs text-gray-600 dark:text-gray-300 block mb-1">{{ $t('settings.backup.passphrase-min-label') }}</label>
           <input v-model="exportPassphrase" type="password" autocomplete="new-password"
-            class="input-sm w-full mb-2" placeholder="Passphrase" />
-          <label class="text-xs text-gray-600 dark:text-gray-300 block mb-1">Confirm passphrase</label>
+            class="input-sm w-full mb-2" :placeholder="$t('settings.backup.passphrase-placeholder')" />
+          <label class="text-xs text-gray-600 dark:text-gray-300 block mb-1">{{ $t('settings.backup.confirm-passphrase-label') }}</label>
           <input v-model="exportPassphraseConfirm" type="password" autocomplete="new-password"
-            class="input-sm w-full mb-3" placeholder="Repeat" />
+            class="input-sm w-full mb-3" :placeholder="$t('settings.backup.repeat-placeholder')" />
           <p v-if="exportError" class="text-xs text-red-400 mb-2">{{ exportError }}</p>
           <div class="flex justify-end gap-2">
-            <button @click="showExport = false" class="btn-secondary px-3 py-1.5 text-xs">Cancel</button>
+            <button @click="showExport = false" class="btn-secondary px-3 py-1.5 text-xs">{{ $t('settings.backup.cancel-button') }}</button>
             <button
               @click="doExport"
               :disabled="!exportReady || exporting"
               class="btn-primary px-3 py-1.5 text-xs disabled:opacity-40"
             >
-              {{ exporting ? 'Exporting...' : 'Export' }}
+              {{ exporting ? $t('settings.backup.exporting') : $t('settings.backup.export-confirm') }}
             </button>
           </div>
         </div>
@@ -412,22 +408,22 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
       <!-- Import modal -->
       <div v-if="showImport" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" @click.self="showImport = false">
         <div class="card p-4 w-full max-w-sm">
-          <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Import backup</h3>
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">{{ $t('settings.backup.import-modal-title') }}</h3>
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            Importing replaces your current connections and settings.
+            {{ $t('settings.backup.import-warning') }}
           </p>
-          <label class="text-xs text-gray-600 dark:text-gray-300 block mb-1">Passphrase</label>
+          <label class="text-xs text-gray-600 dark:text-gray-300 block mb-1">{{ $t('settings.backup.passphrase-label') }}</label>
           <input v-model="importPassphrase" type="password" autocomplete="current-password"
-            class="input-sm w-full mb-3" placeholder="Passphrase" />
+            class="input-sm w-full mb-3" :placeholder="$t('settings.backup.passphrase-placeholder')" />
           <p v-if="importError" class="text-xs text-red-400 mb-2">{{ importError }}</p>
           <div class="flex justify-end gap-2">
-            <button @click="showImport = false" class="btn-secondary px-3 py-1.5 text-xs">Cancel</button>
+            <button @click="showImport = false" class="btn-secondary px-3 py-1.5 text-xs">{{ $t('settings.backup.cancel-button') }}</button>
             <button
               @click="doImport"
               :disabled="importPassphrase.length === 0 || importing"
               class="btn-primary px-3 py-1.5 text-xs disabled:opacity-40"
             >
-              {{ importing ? 'Importing...' : 'Import' }}
+              {{ importing ? $t('settings.backup.importing') : $t('settings.backup.import-confirm') }}
             </button>
           </div>
         </div>
@@ -435,21 +431,37 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
 
       <!-- Appearance -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Appearance</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.appearance.section-title') }}</h3>
         <div class="flex items-center justify-between">
           <div>
-            <span class="text-sm text-gray-700 dark:text-gray-300">Theme</span>
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.appearance.theme-label') }}</span>
             <p class="text-[10px] text-gray-500 mt-0.5">
-              {{ settings.theme === 'system' ? (systemIsDark ? 'System: Dark' : 'System: Light') : '' }}
+              {{ settings.theme === 'system' ? (systemIsDark ? $t('settings.appearance.system-dark') : $t('settings.appearance.system-light')) : '' }}
             </p>
           </div>
           <AppSelect
             :model-value="settings.theme"
             @update:model-value="settings.theme = $event; applyTheme(); saveSettings()"
             :options="[
-              { value: 'system', label: 'System Default' },
-              { value: 'dark', label: 'Dark' },
-              { value: 'light', label: 'Light' },
+              { value: 'system', label: $t('settings.theme.system') },
+              { value: 'dark', label: $t('settings.theme.dark') },
+              { value: 'light', label: $t('settings.theme.light') },
+            ]"
+          />
+        </div>
+        <div class="flex items-center justify-between mt-3">
+          <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.language.label') }}</span>
+          <AppSelect
+            :model-value="(settings as any).app_language || ''"
+            @update:model-value="onLanguageChange($event)"
+            :options="[
+              { value: '', label: $t('settings.language.system') },
+              { value: 'en', label: 'English' },
+              { value: 'de', label: 'Deutsch' },
+              { value: 'es', label: 'Español' },
+              { value: 'fr', label: 'Français' },
+              { value: 'it', label: 'Italiano' },
+              { value: 'pt', label: 'Português' },
             ]"
           />
         </div>
@@ -457,18 +469,34 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
 
       <!-- About -->
       <div class="card p-4">
-        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">About</h3>
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.pro.section-title') }}</h3>
+        <button
+          class="w-full flex justify-between items-center py-2 px-1 -mx-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+          @click="$router.push({ name: 'Pro' })"
+        >
+          <span class="text-sm text-gray-700 dark:text-gray-300">
+            {{ entitlement.is_pro ? $t('settings.pro.manage') : $t('settings.pro.upgrade') }}
+          </span>
+          <span class="text-xs px-2 py-0.5 rounded font-semibold"
+            :class="entitlement.is_pro ? 'bg-violet-600 text-white' : 'text-gray-500 dark:text-gray-400'">
+            {{ entitlement.is_pro ? $t('pro.badge') : '→' }}
+          </span>
+        </button>
+      </div>
+
+      <div class="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.about.section-title') }}</h3>
         <div class="space-y-1">
           <div class="flex justify-between">
-            <span class="text-xs text-gray-500">App</span>
-            <span class="text-xs text-gray-600 dark:text-gray-300">Privycs VPN Client</span>
+            <span class="text-xs text-gray-500">{{ $t('settings.about.app-label') }}</span>
+            <span class="text-xs text-gray-600 dark:text-gray-300">{{ $t('settings.about.app-name') }}</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-xs text-gray-500">Version</span>
+            <span class="text-xs text-gray-500">{{ $t('settings.about.version-label') }}</span>
             <span class="text-xs text-gray-600 dark:text-gray-300">{{ vpn.version || '...' }}</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-xs text-gray-500">Protocol</span>
+            <span class="text-xs text-gray-500">{{ $t('settings.about.protocol-label') }}</span>
             <span class="text-xs text-gray-600 dark:text-gray-300">{{ vpn.status?.active_protocol || '-' }}</span>
           </div>
         </div>
@@ -479,12 +507,20 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useVpnStore } from '@/stores/vpn'
 import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath, ValidateDnsOverride, TestDnsResolution, GetDnsProviders } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
+import { setLocale } from '@/i18n'
 import DnsOverrideField from '@/components/DnsOverrideField.vue'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import { Switch } from '@headlessui/vue'
+import { useEntitlement } from '@/composables/useEntitlement'
+
+// v1.0.0 Pro tier — entitlement state for the Pro section.
+const { entitlement } = useEntitlement()
+
+const { t } = useI18n()
 
 // v0.9.15.70 — Protocol failover order. Default mirrors the
 // pre-v0.9.15.70 hard-coded enum order (AmneziaWG first → safer on
@@ -541,6 +577,14 @@ function applyTheme() {
   }
 }
 
+// Language picker: write through to AppSettings, switch vue-i18n live,
+// persist via the standard saveSettings flow. Empty tag = OS default.
+function onLanguageChange(tag: string) {
+  (settings.value as any).app_language = tag
+  setLocale(tag)
+  saveSettings()
+}
+
 function onSystemThemeChange(e: MediaQueryListEvent) {
   systemIsDark.value = e.matches
   if (settings.value.theme === 'system') {
@@ -557,11 +601,11 @@ async function verifyApiKey() {
   try {
     await saveSettingsImmediate()
     const profile = await FetchMyProfile()
-    apiStatus.value = { ok: true, message: `${profile.user} (${profile.count} configs)` }
+    apiStatus.value = { ok: true, message: t('settings.gateway.verify-success', { user: profile.user, count: profile.count }) }
     // Store username for display
     localStorage.setItem('privycs-api-user', profile.user)
   } catch (e: any) {
-    const msg = e?.toString() || 'Connection failed'
+    const msg = e?.toString() || t('settings.gateway.connection-failed')
     apiStatus.value = { ok: false, message: msg.replace('Error: ', '') }
   } finally {
     verifying.value = false
@@ -599,11 +643,11 @@ const exportReady = computed(() =>
 async function doExport() {
   exportError.value = ''
   if (exportPassphrase.value.length < 8) {
-    exportError.value = 'Passphrase must be at least 8 characters'
+    exportError.value = t('settings.backup.error-passphrase-too-short')
     return
   }
   if (exportPassphrase.value !== exportPassphraseConfirm.value) {
-    exportError.value = 'Passphrases do not match'
+    exportError.value = t('settings.backup.error-passphrases-mismatch')
     return
   }
   exporting.value = true
@@ -616,14 +660,14 @@ async function doExport() {
       return
     }
     await ExportBackup(path, exportPassphrase.value)
-    backupMessage.value = `Backup saved to ${path}`
+    backupMessage.value = t('settings.backup.saved-to', { path })
     backupError.value = false
     showExport.value = false
     // Wipe passphrases from memory so a later screenshot/log doesn't leak
     exportPassphrase.value = ''
     exportPassphraseConfirm.value = ''
   } catch (e: any) {
-    exportError.value = e?.toString() || 'Export failed'
+    exportError.value = e?.toString() || t('settings.backup.error-export-failed')
   } finally {
     exporting.value = false
   }
@@ -640,14 +684,14 @@ async function doImport() {
       return
     }
     await ImportBackup(path, importPassphrase.value)
-    backupMessage.value = 'Backup restored. Please reopen the app to apply changes.'
+    backupMessage.value = t('settings.backup.restored-message')
     backupError.value = false
     showImport.value = false
     importPassphrase.value = ''
     // Reload settings in-place so at least the currently-visible screen reflects the change
     await loadSettings()
   } catch (e: any) {
-    importError.value = e?.toString().replace('Error: ', '') || 'Import failed'
+    importError.value = e?.toString().replace('Error: ', '') || t('settings.backup.error-import-failed')
     backupError.value = true
   } finally {
     importing.value = false
@@ -779,7 +823,7 @@ async function refreshDnsValidationAndHint() {
   try {
     const bad = (await ValidateDnsOverride(raw)) as string[]
     if (bad && bad.length) {
-      dnsError.value = `Invalid: ${bad.join(', ')}`
+      dnsError.value = t('settings.network.dns-invalid', { entries: bad.join(', ') })
       dnsProviderHint.value = ''
       return
     }
@@ -791,7 +835,7 @@ async function refreshDnsValidationAndHint() {
         && p.servers.length <= raw.split(/[,\s]+/).filter(Boolean).length
     })
     if (match) {
-      dnsProviderHint.value = `Detected: ${match.label}` + (match.dot_host ? ` · DoT host: ${match.dot_host}` : '')
+      dnsProviderHint.value = t('settings.network.dns-detected', { label: match.label }) + (match.dot_host ? t('settings.network.dns-dot-host-suffix', { host: match.dot_host }) : '')
     } else {
       dnsProviderHint.value = ''
     }
@@ -843,8 +887,8 @@ async function installHelper() {
     await InstallPrivilegedHelper()
     await loadHelperStatus()
   } catch (e: any) {
-    const msg = e?.toString()?.replace('Error: ', '') || 'Unknown error'
-    helperError.value = 'Install failed: ' + msg
+    const msg = e?.toString()?.replace('Error: ', '') || t('settings.helper.unknown-error')
+    helperError.value = t('settings.helper.install-failed-prefix') + msg
     console.error('Failed to install helper:', e)
   } finally {
     helperInstalling.value = false
@@ -863,8 +907,8 @@ async function uninstallHelper() {
     // wird das frontend nicht aktualisiert" — likely the osascript
     // admin-prompt was dismissed, uninstall threw, status stayed
     // unchanged, no UI feedback. Now surfaces as inline error.
-    const msg = e?.toString()?.replace('Error: ', '') || 'Unknown error'
-    helperError.value = 'Uninstall failed: ' + msg
+    const msg = e?.toString()?.replace('Error: ', '') || t('settings.helper.unknown-error')
+    helperError.value = t('settings.helper.uninstall-failed-prefix') + msg
     console.error('Failed to uninstall helper:', e)
   } finally {
     helperInstalling.value = false

@@ -30,7 +30,7 @@ object AppLocale {
     private const val KEY = "language_tag"
 
     /** BCP-47 tags the app is translated into; "" = system default. */
-    val SUPPORTED = listOf("", "en", "de", "es", "fr")
+    val SUPPORTED = listOf("", "en", "de", "es", "fr", "it", "pt")
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

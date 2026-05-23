@@ -20,6 +20,9 @@ func (a *App) ListNetworkRules() []*NetworkRule {
 // AddNetworkRule appends a new rule to the end of the list. Caller
 // can reorder via SetNetworkRulesOrder afterwards.
 func (a *App) AddNetworkRule(rule *NetworkRule) error {
+	if err := a.gateNetworkRules(); err != nil {
+		return err
+	}
 	if a.networkRules == nil {
 		return fmt.Errorf("rules registry not ready")
 	}

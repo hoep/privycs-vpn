@@ -4,7 +4,7 @@
       <button @click="$router.back()" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
         <ArrowLeftIcon class="w-5 h-5" />
       </button>
-      <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">Select Protocol</h2>
+      <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">{{ $t('protocol-selector.title') }}</h2>
     </div>
 
     <div class="space-y-3">
@@ -39,7 +39,7 @@
         <div class="mt-2 flex items-center gap-2 ml-[52px]">
           <span class="text-[10px] font-medium px-1.5 py-0.5 rounded"
             :class="proto.available ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'">
-            {{ proto.available ? 'Available' : 'Not Installed' }}
+            {{ proto.available ? $t('protocol-selector.status.available') : $t('protocol-selector.status.not-installed') }}
           </span>
           <span class="text-[10px] text-gray-500">{{ proto.transport }}</span>
         </div>
@@ -47,13 +47,14 @@
     </div>
 
     <p v-if="vpn.status?.connected" class="mt-4 text-xs text-gray-500 text-center">
-      Switching protocol will disconnect the current session
+      {{ $t('protocol-selector.disconnect-warning') }}
     </p>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
 import { SelectProtocol } from '../../wailsjs/go/main/App'
@@ -63,6 +64,7 @@ import {
   CheckCircleIcon,
 } from '@heroicons/vue/24/outline'
 
+const { t } = useI18n()
 const router = useRouter()
 const vpn = useVpnStore()
 
@@ -74,32 +76,32 @@ const protocols = computed(() => {
     {
       name: 'amneziawg',
       displayName: 'AmneziaWG',
-      description: 'WireGuard with DPI-evasion obfuscation — for restrictive networks',
-      transport: 'UDP (obfuscated)',
+      description: t('protocol-selector.amneziawg.description'),
+      transport: t('protocol-selector.amneziawg.transport'),
       available: availableMap.get('amneziawg') ?? false,
       iconBg: 'bg-indigo-500/20',
     },
     {
       name: 'wireguard',
       displayName: 'WireGuard',
-      description: 'Fast, modern VPN with state-of-the-art cryptography',
-      transport: 'UDP 51820',
+      description: t('protocol-selector.wireguard.description'),
+      transport: t('protocol-selector.wireguard.transport'),
       available: availableMap.get('wireguard') ?? false,
       iconBg: 'bg-red-900/20',
     },
     {
       name: 'openvpn',
       displayName: 'OpenVPN',
-      description: 'Flexible protocol with TCP/UDP, works behind firewalls',
-      transport: 'UDP/TCP 1194',
+      description: t('protocol-selector.openvpn.description'),
+      transport: t('protocol-selector.openvpn.transport'),
       available: availableMap.get('openvpn') ?? false,
       iconBg: 'bg-orange-500/20',
     },
     {
       name: 'ipsec',
       displayName: 'IPSec / IKEv2',
-      description: 'Native OS support, enterprise standard protocol',
-      transport: 'UDP 500/4500',
+      description: t('protocol-selector.ipsec.description'),
+      transport: t('protocol-selector.ipsec.transport'),
       available: availableMap.get('ipsec') ?? false,
       iconBg: 'bg-blue-500/20',
     },
@@ -115,7 +117,7 @@ async function selectProtocol(name: string) {
     }
     router.push('/connection')
   } catch (e: any) {
-    vpn.error = 'Failed to switch protocol'
+    vpn.error = t('protocol-selector.error.switch-failed')
   }
 }
 </script>

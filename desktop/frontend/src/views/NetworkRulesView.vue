@@ -6,35 +6,30 @@
         <button @click="$router.back()" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
           <ArrowLeftIcon class="w-5 h-5" />
         </button>
-        <h2 class="text-sm font-semibold text-gray-900 dark:text-white">On-Demand &amp; Network Rules</h2>
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('network-rules.title') }}</h2>
       </div>
       <button
         @click="openCreate"
         class="flex items-center gap-1 text-xs text-primary-400 hover:text-primary-300"
       >
-        <PlusIcon class="w-4 h-4" /> Add Rule
+        <PlusIcon class="w-4 h-4" /> {{ $t('network-rules.button.add-rule') }}
       </button>
     </div>
 
     <!-- Precedence explainer — the visible-precedence half of the
          COD + Network-Rules unification (Option A1). -->
     <div class="card p-3 mb-3 bg-primary-500/5 border border-primary-500/20">
-      <h3 class="text-xs font-semibold text-primary-500 mb-1">How this screen decides</h3>
-      <p class="text-[11px] text-gray-500 leading-relaxed">
-        On every network change the rules below are checked top to bottom — the first
-        rule that matches the current Wi-Fi or wired network wins. If no rule matches,
-        the <strong>Default behaviour</strong> pinned at the bottom applies. Rules are
-        only evaluated while the engine and Connect-on-Demand are both enabled.
-      </p>
+      <h3 class="text-xs font-semibold text-primary-500 mb-1">{{ $t('network-rules.precedence.heading') }}</h3>
+      <p class="text-[11px] text-gray-500 leading-relaxed" v-html="$t('network-rules.precedence.body')"></p>
     </div>
 
     <!-- Rules engine enable gate (moved here from Settings in A1) -->
     <div class="card p-3 mb-3">
       <div class="flex items-center justify-between">
         <div>
-          <span class="text-sm text-gray-700 dark:text-gray-300">Rules engine enabled</span>
+          <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('network-rules.engine.label') }}</span>
           <p class="text-[10px] text-gray-400 mt-0.5">
-            When off, every rule below is skipped and only the Default behaviour applies.
+            {{ $t('network-rules.engine.help') }}
           </p>
         </div>
         <Switch
@@ -47,24 +42,20 @@
         </Switch>
       </div>
       <p v-if="!settings.network_rules_enabled" class="text-[10px] text-amber-500 mt-2">
-        Disabled by default in v0.9.13.4 after stability reports. Toggle on to activate. Existing rules persist.
+        {{ $t('network-rules.engine.disabled-notice') }}
       </p>
     </div>
 
     <!-- Empty-state explainer -->
     <div v-if="rules.length === 0" class="card p-4 mb-3 bg-gray-50 dark:bg-gray-800/30">
-      <h3 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">No rules yet</h3>
-      <p class="text-[11px] text-gray-500 leading-relaxed">
-        Every network falls through to the <strong>Default behaviour</strong> below.
-        Add a rule to override it for a specific Wi-Fi SSID, BSSID, or network type —
-        routing that network to a Pool, a Connection, or No VPN.
-      </p>
+      <h3 class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">{{ $t('network-rules.empty.heading') }}</h3>
+      <p class="text-[11px] text-gray-500 leading-relaxed" v-html="$t('network-rules.empty.body')"></p>
     </div>
 
     <!-- Rule list -->
     <div v-else class="space-y-2 mb-3">
       <p class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-0.5">
-        Rules — checked top to bottom
+        {{ $t('network-rules.list.heading') }}
       </p>
       <div
         v-for="(rule, i) in rules"
@@ -102,7 +93,7 @@
                   class="p-1 text-gray-500 hover:text-primary-400 disabled:opacity-30">
             <ArrowDownIcon class="w-3.5 h-3.5" />
           </button>
-          <span class="ml-2 text-[10px] text-gray-500">priority {{ i + 1 }}</span>
+          <span class="ml-2 text-[10px] text-gray-500">{{ $t('network-rules.list.priority', { n: i + 1 }) }}</span>
           <div class="flex-1"></div>
           <button @click="openEdit(rule)" class="p-1 text-gray-500 hover:text-primary-400">
             <PencilIcon class="w-3.5 h-3.5" />
@@ -119,13 +110,13 @@
          precedence lives on one screen. Engine behaviour unchanged. -->
     <div class="card p-4">
       <p class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
-        Fallback — when no rule matches
+        {{ $t('network-rules.fallback.heading') }}
       </p>
       <div class="flex items-center justify-between">
         <div>
-          <span class="text-sm text-gray-700 dark:text-gray-300">Connect on Demand</span>
+          <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('network-rules.fallback.cod-label') }}</span>
           <p class="text-[10px] text-gray-400 mt-0.5">
-            Default behaviour for any network no rule above matched
+            {{ $t('network-rules.fallback.cod-help') }}
           </p>
         </div>
         <button
@@ -144,41 +135,31 @@
       <!-- On-demand options (visible when enabled) -->
       <div v-if="connectOnDemand.enabled && platform.auto_connect_supported" class="mt-3 ml-1 space-y-2.5 border-l-2 border-gray-200 dark:border-gray-600 pl-3">
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-600 dark:text-gray-400">When connected to</span>
+          <span class="text-xs text-gray-600 dark:text-gray-400">{{ $t('network-rules.cod.when-connected-to') }}</span>
           <AppSelect
             :model-value="connectOnDemand.trigger || 'any'"
             @update:model-value="connectOnDemand.trigger = $event; saveOnDemandSettings()"
-            :options="[
-              { value: 'any', label: 'Any network' },
-              { value: 'wifi', label: 'WiFi only' },
-              { value: 'ethernet', label: 'Ethernet only' },
-              { value: 'mobile', label: 'Mobile only' },
-              { value: 'wifi_mobile', label: 'WiFi & Mobile' },
-            ]"
+            :options="triggerOptions"
           />
         </div>
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-600 dark:text-gray-400">WiFi networks</span>
+          <span class="text-xs text-gray-600 dark:text-gray-400">{{ $t('network-rules.cod.wifi-networks') }}</span>
           <AppSelect
             :model-value="connectOnDemand.ssid_mode || 'all'"
             @update:model-value="connectOnDemand.ssid_mode = $event; saveOnDemandSettings()"
-            :options="[
-              { value: 'all', label: 'All SSIDs' },
-              { value: 'only', label: 'Only these SSIDs' },
-              { value: 'except', label: 'Except these SSIDs' },
-            ]"
+            :options="ssidModeOptions"
           />
         </div>
         <div v-if="connectOnDemand.ssid_mode === 'only' || connectOnDemand.ssid_mode === 'except'">
           <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">
-            {{ connectOnDemand.ssid_mode === 'only' ? 'Connect only on' : 'Do not connect on' }}
+            {{ connectOnDemand.ssid_mode === 'only' ? $t('network-rules.cod.connect-only-on') : $t('network-rules.cod.do-not-connect-on') }}
           </label>
           <div class="flex gap-1.5">
             <input
               v-model="newSSID"
               @keyup.enter="addSSID"
               type="text"
-              placeholder="Type SSID and press Enter (or Add)"
+              :placeholder="$t('network-rules.cod.ssid-input-placeholder')"
               class="input text-xs flex-1"
             />
             <button
@@ -187,7 +168,7 @@
               class="btn-secondary px-2 py-1 text-xs whitespace-nowrap"
               :disabled="!newSSID.trim()"
             >
-              Add
+              {{ $t('network-rules.button.add') }}
             </button>
           </div>
           <div
@@ -204,7 +185,7 @@
                 @click="removeSSID(ssid)"
                 type="button"
                 class="hover:text-red-500 ml-0.5 text-base leading-none"
-                :title="`Remove ${ssid}`"
+                :title="$t('network-rules.cod.remove-ssid', { ssid })"
               >&times;</button>
             </span>
           </div>
@@ -212,7 +193,7 @@
             v-else
             class="text-[10px] text-gray-400 mt-1"
           >
-            No SSIDs added yet. {{ connectOnDemand.ssid_mode === 'only' ? 'Connect-on-Demand will not trigger until you add at least one.' : 'Connect-on-Demand will trigger on every WiFi.' }}
+            {{ $t('network-rules.cod.no-ssids-yet') }} {{ connectOnDemand.ssid_mode === 'only' ? $t('network-rules.cod.no-ssids-only-hint') : $t('network-rules.cod.no-ssids-except-hint') }}
           </p>
         </div>
         <!-- Live status indicator -->
@@ -223,9 +204,9 @@
           <span class="text-[10px] text-gray-500 dark:text-gray-400">
             <template v-if="codStatus.ssid">{{ codStatus.ssid }} ({{ codStatus.network_type }})</template>
             <template v-else-if="codStatus.network_type !== 'none'">{{ codStatus.network_type }}</template>
-            <template v-else>No network</template>
-            <template v-if="codStatus.vpn_connected"> -- VPN: Active</template>
-            <template v-else-if="codStatus.rule_match"> -- Connecting...</template>
+            <template v-else>{{ $t('network-rules.status.no-network') }}</template>
+            <template v-if="codStatus.vpn_connected"> {{ $t('network-rules.status.vpn-active') }}</template>
+            <template v-else-if="codStatus.rule_match"> {{ $t('network-rules.status.connecting') }}</template>
           </span>
         </div>
       </div>
@@ -269,19 +250,19 @@
               <DialogPanel class="w-full max-w-md transform overflow-visible rounded-xl bg-white dark:bg-gray-900 shadow-2xl ring-1 ring-black/5 dark:ring-white/10">
                 <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-800">
                   <DialogTitle class="text-sm font-semibold text-gray-900 dark:text-white">
-                    {{ editing?.id ? 'Edit Rule' : 'New Rule' }}
+                    {{ editing?.id ? $t('network-rules.modal.edit-title') : $t('network-rules.modal.new-title') }}
                   </DialogTitle>
                 </div>
                 <div class="p-4 space-y-3">
                   <div>
-                    <label class="text-[11px] text-gray-500 block mb-1">Name (optional)</label>
-                    <input v-model="draft.name" type="text" placeholder="Home / Office / Public"
+                    <label class="text-[11px] text-gray-500 block mb-1">{{ $t('network-rules.field.name') }}</label>
+                    <input v-model="draft.name" type="text" :placeholder="$t('network-rules.field.name-placeholder')"
                            class="input" />
                   </div>
 
                   <!-- HeadlessUI Listbox for match-type instead of native select -->
                   <div>
-                    <label class="text-[11px] text-gray-500 block mb-1">Match by</label>
+                    <label class="text-[11px] text-gray-500 block mb-1">{{ $t('network-rules.field.match-by') }}</label>
                     <Listbox v-model="draft.match_type">
                       <div class="relative">
                         <ListboxButton class="input flex justify-between items-center cursor-pointer text-left">
@@ -312,7 +293,7 @@
                   </div>
 
                   <div>
-                    <label class="text-[11px] text-gray-500 block mb-1">Action</label>
+                    <label class="text-[11px] text-gray-500 block mb-1">{{ $t('network-rules.field.action') }}</label>
                     <Listbox :model-value="draft.action" @update:model-value="onActionChange">
                       <div class="relative">
                         <ListboxButton class="input flex justify-between items-center cursor-pointer text-left">
@@ -337,7 +318,7 @@
                   </div>
 
                   <div v-if="draft.action === 'pool'">
-                    <label class="text-[11px] text-gray-500 block mb-1">Pool</label>
+                    <label class="text-[11px] text-gray-500 block mb-1">{{ $t('network-rules.field.pool') }}</label>
                     <Listbox v-model="draft.target_id">
                       <div class="relative">
                         <ListboxButton class="input flex justify-between items-center cursor-pointer text-left">
@@ -362,7 +343,7 @@
                   </div>
 
                   <div v-else-if="draft.action === 'connection'">
-                    <label class="text-[11px] text-gray-500 block mb-1">Connection</label>
+                    <label class="text-[11px] text-gray-500 block mb-1">{{ $t('network-rules.field.connection') }}</label>
                     <Listbox v-model="draft.target_id">
                       <div class="relative">
                         <ListboxButton class="input flex justify-between items-center cursor-pointer text-left">
@@ -388,14 +369,14 @@
                 </div>
                 <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/30">
                   <button @click="cancel" class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
-                    Cancel
+                    {{ $t('network-rules.button.cancel') }}
                   </button>
                   <button
                     @click="save"
                     :disabled="!canSave"
                     class="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md disabled:opacity-50"
                   >
-                    Save
+                    {{ $t('network-rules.button.save') }}
                   </button>
                 </div>
               </DialogPanel>
@@ -415,15 +396,15 @@
         <div class="fixed inset-0 flex items-center justify-center p-4">
           <DialogPanel class="card p-4 max-w-sm w-full">
             <DialogTitle class="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-              Delete this rule?
+              {{ $t('network-rules.delete-confirm.title') }}
             </DialogTitle>
             <p class="text-[11px] text-gray-500 mb-4">{{ deleting ? ruleSummary(deleting) : '' }}</p>
             <div class="flex justify-end gap-2">
               <button @click="deleting = null" class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
-                Cancel
+                {{ $t('network-rules.button.cancel') }}
               </button>
               <button @click="doDelete" class="px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-md">
-                Delete
+                {{ $t('network-rules.button.delete') }}
               </button>
             </div>
           </DialogPanel>
@@ -435,6 +416,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   ListNetworkRules, AddNetworkRule, UpdateNetworkRule, DeleteNetworkRule,
   SetNetworkRulesOrder, ListPools, ListConnections,
@@ -462,6 +444,8 @@ interface NetworkRule {
   name: string
 }
 
+const { t } = useI18n()
+
 const rules = ref<NetworkRule[]>([])
 const pools = ref<any[]>([])
 const connections = ref<any[]>([])
@@ -484,19 +468,33 @@ const newSSID = ref('')
 const codStatus = ref<any>(null)
 let codStatusInterval: ReturnType<typeof setInterval> | null = null
 
-const matchTypeOptions = [
-  { value: 'ssid_exact', label: 'Wi-Fi SSID (exact)' },
-  { value: 'ssid_pattern', label: 'Wi-Fi SSID (pattern *, ?)' },
-  { value: 'network_type', label: 'Network type' },
-  { value: 'bssid', label: 'Wi-Fi BSSID (MAC)' },
-  { value: 'any', label: 'Any network' },
-]
+const matchTypeOptions = computed(() => [
+  { value: 'ssid_exact', label: t('network-rules.match-type.ssid-exact') },
+  { value: 'ssid_pattern', label: t('network-rules.match-type.ssid-pattern') },
+  { value: 'network_type', label: t('network-rules.match-type.network-type') },
+  { value: 'bssid', label: t('network-rules.match-type.bssid') },
+  { value: 'any', label: t('network-rules.match-type.any') },
+])
 
-const actionOptions = [
-  { value: 'no_vpn', label: 'No VPN (trusted)' },
-  { value: 'pool', label: 'Use Pool' },
-  { value: 'connection', label: 'Use Connection' },
-]
+const actionOptions = computed(() => [
+  { value: 'no_vpn', label: t('network-rules.action.no-vpn') },
+  { value: 'pool', label: t('network-rules.action.pool') },
+  { value: 'connection', label: t('network-rules.action.connection') },
+])
+
+const triggerOptions = computed(() => [
+  { value: 'any', label: t('network-rules.trigger.any') },
+  { value: 'wifi', label: t('network-rules.trigger.wifi') },
+  { value: 'ethernet', label: t('network-rules.trigger.ethernet') },
+  { value: 'mobile', label: t('network-rules.trigger.mobile') },
+  { value: 'wifi_mobile', label: t('network-rules.trigger.wifi-mobile') },
+])
+
+const ssidModeOptions = computed(() => [
+  { value: 'all', label: t('network-rules.ssid-mode.all') },
+  { value: 'only', label: t('network-rules.ssid-mode.only') },
+  { value: 'except', label: t('network-rules.ssid-mode.except') },
+])
 
 function emptyRule(): NetworkRule {
   return {
@@ -508,37 +506,37 @@ function emptyRule(): NetworkRule {
 }
 
 function matchTypeLabel(v: string): string {
-  return matchTypeOptions.find(o => o.value === v)?.label ?? v
+  return matchTypeOptions.value.find(o => o.value === v)?.label ?? v
 }
 function actionLabel(v: string): string {
-  return actionOptions.find(o => o.value === v)?.label ?? v
+  return actionOptions.value.find(o => o.value === v)?.label ?? v
 }
 function targetLabel(kind: 'pool' | 'connection', id: string): string {
-  if (!id) return kind === 'pool' ? 'Pick a pool…' : 'Pick a connection…'
+  if (!id) return kind === 'pool' ? t('network-rules.target.pick-pool') : t('network-rules.target.pick-connection')
   if (kind === 'pool') {
     const p = pools.value.find((x: any) => x.id === id)
-    return p?.name ?? '(missing)'
+    return p?.name ?? t('network-rules.target.missing')
   }
   const c = connections.value.find((x: any) => x.id === id)
-  return c?.name ?? '(missing)'
+  return c?.name ?? t('network-rules.target.missing')
 }
 
 const matchValueLabel = computed(() => {
   switch (draft.value.match_type) {
-    case 'ssid_exact': return 'SSID'
-    case 'ssid_pattern': return 'SSID pattern (use * and ?)'
-    case 'network_type': return 'wifi / mobile / ethernet / wifi_mobile / any'
-    case 'bssid': return 'BSSID (e.g. aa:bb:cc:dd:ee:ff)'
+    case 'ssid_exact': return t('network-rules.match-value-label.ssid-exact')
+    case 'ssid_pattern': return t('network-rules.match-value-label.ssid-pattern')
+    case 'network_type': return t('network-rules.match-value-label.network-type')
+    case 'bssid': return t('network-rules.match-value-label.bssid')
     default: return ''
   }
 })
 
 const matchValueHint = computed(() => {
   switch (draft.value.match_type) {
-    case 'ssid_exact': return 'HomeWifi'
-    case 'ssid_pattern': return 'Cafe-*'
-    case 'network_type': return 'wifi'
-    case 'bssid': return 'aa:bb:cc:dd:ee:ff'
+    case 'ssid_exact': return t('network-rules.match-value-hint.ssid-exact')
+    case 'ssid_pattern': return t('network-rules.match-value-hint.ssid-pattern')
+    case 'network_type': return t('network-rules.match-value-hint.network-type')
+    case 'bssid': return t('network-rules.match-value-hint.bssid')
     default: return ''
   }
 })
@@ -552,25 +550,25 @@ const canSave = computed(() => {
 function ruleSummary(rule: NetworkRule): string {
   let m = ''
   switch (rule.match_type) {
-    case 'ssid_exact': m = `SSID = "${rule.match_value}"`; break
-    case 'ssid_pattern': m = `SSID matches "${rule.match_value}"`; break
-    case 'network_type': m = `Network = ${rule.match_value}`; break
-    case 'bssid': m = `BSSID = ${rule.match_value}`; break
-    case 'any': m = 'Any network'; break
+    case 'ssid_exact': m = t('network-rules.summary.ssid-exact', { value: rule.match_value }); break
+    case 'ssid_pattern': m = t('network-rules.summary.ssid-pattern', { value: rule.match_value }); break
+    case 'network_type': m = t('network-rules.summary.network-type', { value: rule.match_value }); break
+    case 'bssid': m = t('network-rules.summary.bssid', { value: rule.match_value }); break
+    case 'any': m = t('network-rules.summary.any'); break
   }
-  let t = ''
+  let action = ''
   switch (rule.action) {
-    case 'no_vpn': t = '→ No VPN'; break
+    case 'no_vpn': action = t('network-rules.summary.action-no-vpn'); break
     case 'pool': {
       const p = pools.value.find((x: any) => x.id === rule.target_id)
-      t = `→ Pool: ${p?.name ?? '(missing)'}`; break
+      action = t('network-rules.summary.action-pool', { name: p?.name ?? t('network-rules.target.missing') }); break
     }
     case 'connection': {
       const c = connections.value.find((x: any) => x.id === rule.target_id)
-      t = `→ Connection: ${c?.name ?? '(missing)'}`; break
+      action = t('network-rules.summary.action-connection', { name: c?.name ?? t('network-rules.target.missing') }); break
     }
   }
-  return `${m}  ${t}`
+  return `${m}  ${action}`
 }
 
 async function load() {

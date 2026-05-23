@@ -18,17 +18,17 @@
   <div class="text-sm leading-relaxed overflow-y-auto overflow-x-hidden max-h-[calc(100vh-7rem)]">
     <div v-if="state === 'loading'" class="flex flex-col items-center justify-center py-16 gap-2">
       <div class="w-8 h-8 border-2 border-primary-400 border-t-transparent rounded-full animate-spin"></div>
-      <span class="text-xs text-gray-500 dark:text-gray-400">Loading help…</span>
+      <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('help.loading') }}</span>
     </div>
 
     <div v-else-if="state === 'error'" class="flex flex-col items-center justify-center py-16 px-6 text-center">
-      <p class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">Could not load help</p>
+      <p class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">{{ $t('help.error.title') }}</p>
       <p class="text-xs text-gray-500 dark:text-gray-400 mb-4 max-w-sm">{{ errorMessage }}</p>
       <button
         @click="load"
         class="px-3 py-1.5 text-xs rounded-md bg-primary-500 hover:bg-primary-600 text-white transition-colors"
       >
-        Retry
+        {{ $t('help.button.retry') }}
       </button>
     </div>
 

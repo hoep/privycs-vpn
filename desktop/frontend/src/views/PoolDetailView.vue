@@ -7,14 +7,14 @@
           <ArrowLeftIcon class="w-5 h-5" />
         </button>
         <h2 class="text-sm font-semibold text-gray-900 dark:text-white truncate">
-          {{ pool?.name || 'Loading...' }}
+          {{ pool?.name || $t('pool-detail.loading') }}
         </h2>
       </div>
       <div class="flex items-center gap-2">
         <button
           @click="showSettingsModal = true"
           class="text-gray-500 hover:text-primary-400"
-          title="Edit pool"
+          :title="$t('pool-detail.button.edit-pool-title')"
         >
           <Cog6ToothIcon class="w-5 h-5" />
         </button>
@@ -22,32 +22,32 @@
     </div>
 
     <p class="text-[10px] text-gray-500 mb-4">
-      Pool · {{ pool?.members?.length || 0 }} servers · {{ uniqueProtocols }}
+      {{ $t('pool-detail.header.subtitle', { count: pool?.members?.length || 0, protocols: uniqueProtocols }) }}
     </p>
 
     <div v-if="loading" class="text-center text-xs text-gray-500 py-6">
-      Loading...
+      {{ $t('pool-detail.loading') }}
     </div>
 
     <div v-else-if="!pool" class="text-center text-xs text-red-400 py-6">
-      Pool not found.
+      {{ $t('pool-detail.not-found') }}
     </div>
 
     <template v-else>
       <!-- Coverage section -->
       <div class="card p-3 mb-4">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Coverage</h3>
+          <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ $t('pool-detail.coverage.heading') }}</h3>
           <button
             v-if="coverage.length > 1"
             @click="showRegionFilter = !showRegionFilter"
             class="text-[10px] text-primary-400 hover:text-primary-300"
           >
-            {{ showRegionFilter ? 'Hide' : 'Restrict to region' }}
+            {{ showRegionFilter ? $t('pool-detail.coverage.hide') : $t('pool-detail.coverage.restrict-to-region') }}
           </button>
         </div>
         <div v-if="coverage.length === 0" class="text-[10px] text-gray-500 italic">
-          No country data — geo policies will fall back to Random.
+          {{ $t('pool-detail.coverage.no-country-data') }}
         </div>
         <div v-else>
           <!-- Read-only summary, hidden when the filter is open. -->
@@ -62,16 +62,16 @@
                 <span
                   v-if="restrictedRegions.length > 0 && !restrictedRegions.includes(row.region)"
                   class="text-[9px] text-gray-500 italic"
-                >excluded</span>
+                >{{ $t('pool-detail.coverage.excluded') }}</span>
               </span>
-              <span class="text-gray-500">{{ row.servers }} server<span v-if="row.servers !== 1">s</span> · {{ row.countries }} {{ row.countries === 1 ? 'country' : 'countries' }}</span>
+              <span class="text-gray-500">{{ row.servers === 1 ? $t('pool-detail.coverage.servers-one', { servers: row.servers }) : $t('pool-detail.coverage.servers-other', { servers: row.servers }) }} · {{ row.countries === 1 ? $t('pool-detail.coverage.countries-one', { countries: row.countries }) : $t('pool-detail.coverage.countries-other', { countries: row.countries }) }}</span>
             </div>
           </div>
 
           <!-- Region restriction toggle list. Empty = no restriction. -->
           <div v-else class="space-y-1.5">
             <p class="text-[10px] text-gray-500 mb-1">
-              Toggle off any region to exclude it from policy picks. Leave all on for no restriction.
+              {{ $t('pool-detail.coverage.toggle-help') }}
             </p>
             <label
               v-for="row in coverage"
@@ -94,14 +94,14 @@
                 @click="restrictedRegions = []"
                 class="text-[10px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
               >
-                Reset
+                {{ $t('pool-detail.button.reset') }}
               </button>
               <button
                 @click="saveRegionRestriction"
                 :disabled="regionRestrictSaving"
                 class="text-[10px] px-2 py-1 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
               >
-                {{ regionRestrictSaving ? 'Saving...' : 'Apply' }}
+                {{ regionRestrictSaving ? $t('pool-detail.button.saving') : $t('pool-detail.button.apply') }}
               </button>
             </div>
           </div>
@@ -110,15 +110,15 @@
 
       <!-- Policy summary -->
       <div class="card p-3 mb-4">
-        <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-2">Policy</h3>
+        <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-2">{{ $t('pool-detail.policy.heading') }}</h3>
         <div class="flex justify-between items-center text-xs">
           <span class="text-gray-700 dark:text-gray-300">{{ policyLabel }}</span>
           <button @click="showSettingsModal = true" class="text-[10px] text-primary-400 hover:text-primary-300">
-            Change
+            {{ $t('pool-detail.button.change') }}
           </button>
         </div>
         <div v-if="pool.policy === 'geo-nearest'" class="text-[10px] text-gray-500 mt-1">
-          Country override: <span class="text-gray-700 dark:text-gray-300">{{ countryOverrideDisplay }}</span>
+          {{ $t('pool-detail.policy.country-override-label') }} <span class="text-gray-700 dark:text-gray-300">{{ countryOverrideDisplay }}</span>
         </div>
       </div>
 
@@ -126,14 +126,14 @@
       <div class="card p-3 mb-4">
         <div class="flex justify-between items-center mb-2">
           <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-2">
-            Members
+            {{ $t('pool-detail.members.heading') }}
             <span
               v-if="unreachableCount > 0"
               class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 ring-1 ring-amber-500/30 text-amber-600 dark:text-amber-400 text-[9px] font-medium"
-              :title="`${unreachableCount} member(s) flagged unreachable. Auto-clear after 30 minutes.`"
+              :title="$t('pool-detail.members.unreachable-badge-title', { count: unreachableCount })"
             >
               <ExclamationTriangleIcon class="w-3 h-3" />
-              {{ unreachableCount }} unreachable
+              {{ $t('pool-detail.members.unreachable-badge', { count: unreachableCount }) }}
             </span>
           </h3>
           <div class="flex items-center gap-2">
@@ -142,14 +142,14 @@
               @click="onResetUnreachable"
               :disabled="resetting"
               class="text-[10px] text-primary-400 hover:text-primary-300 disabled:opacity-50"
-              title="Clear the unreachable flag on all members. Use after a network change so the rotator can pick them again immediately."
+              :title="$t('pool-detail.members.reset-all-title')"
             >
-              {{ resetting ? 'Resetting...' : 'Reset all' }}
+              {{ resetting ? $t('pool-detail.members.resetting') : $t('pool-detail.members.reset-all') }}
             </button>
             <input
               v-model="memberFilter"
               type="text"
-              placeholder="Search..."
+              :placeholder="$t('pool-detail.members.search-placeholder')"
               class="text-[10px] bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 w-32 focus:outline-none focus:ring-1 focus:ring-primary-500"
             />
           </div>
@@ -188,11 +188,11 @@
                     class="inline-flex items-center px-1 py-px rounded bg-amber-500/15 ring-1 ring-amber-500/30 text-amber-600 dark:text-amber-400 text-[8px] font-medium uppercase tracking-wide flex-shrink-0"
                     :title="memberUnreachableTooltip(m)"
                   >
-                    Unreachable
+                    {{ $t('pool-detail.members.unreachable') }}
                   </span>
                 </div>
                 <span class="text-[9px] text-gray-500">
-                  {{ m.country || 'unknown' }} · {{ m.region || 'Other' }}
+                  {{ m.country || $t('pool-detail.members.country-unknown') }} · {{ m.region || $t('pool-detail.members.region-other') }}
                   <span v-if="m.unreachable && m.last_error" class="ml-1 text-amber-500/80 truncate">
                     · {{ m.last_error }}
                   </span>
@@ -203,21 +203,21 @@
               <button
                 @click.stop="renameMember(m)"
                 class="p-1 text-gray-400 hover:text-primary-400"
-                title="Rename"
+                :title="$t('pool-detail.button.rename')"
               >
                 <PencilSquareIcon class="w-3.5 h-3.5" />
               </button>
               <button
                 @click.stop="deleteMember(m)"
                 class="p-1 text-gray-400 hover:text-red-400"
-                title="Delete"
+                :title="$t('pool-detail.button.delete')"
               >
                 <TrashIcon class="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
           <div v-if="filteredMembers.length === 0" class="text-center text-[10px] text-gray-500 italic py-3">
-            No matches.
+            {{ $t('pool-detail.members.no-matches') }}
           </div>
         </div>
       </div>
@@ -228,14 +228,14 @@
           @click="confirmDeletePool"
           class="text-xs text-red-400 hover:text-red-300"
         >
-          Delete Pool
+          {{ $t('pool-detail.button.delete-pool') }}
         </button>
         <button
           @click="usePool"
           :disabled="pool.members.length === 0"
           class="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md disabled:opacity-50"
         >
-          {{ poolStore.activePoolId === pool.id ? 'Active' : 'Use this Pool' }}
+          {{ poolStore.activePoolId === pool.id ? $t('pool-detail.button.active') : $t('pool-detail.button.use-pool') }}
         </button>
       </div>
     </template>
@@ -269,7 +269,7 @@
               <DialogPanel class="w-full max-w-md transform overflow-hidden rounded-xl bg-white dark:bg-gray-900 shadow-2xl ring-1 ring-black/5 dark:ring-white/10 max-h-[85vh] flex flex-col">
                 <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-gray-700">
                   <DialogTitle class="text-sm font-semibold text-gray-900 dark:text-white">
-                    Edit Pool
+                    {{ $t('pool-detail.modal.edit-pool-title') }}
                   </DialogTitle>
                   <button
                     @click="showSettingsModal = false"
@@ -283,7 +283,7 @@
                   <!-- Name -->
                   <div>
                     <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      Name
+                      {{ $t('pool-detail.field.name') }}
                     </label>
                     <input
                       v-model="editName"
@@ -297,7 +297,7 @@
                   <!-- Policy: HeadlessUI Listbox via AppSelect -->
                   <div>
                     <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      Selection policy
+                      {{ $t('pool-detail.field.selection-policy') }}
                     </label>
                     <AppSelect
                       v-model="editPolicy"
@@ -311,18 +311,18 @@
                   <!-- Country override -->
                   <div>
                     <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      Country override
+                      {{ $t('pool-detail.field.country-override') }}
                     </label>
                     <input
                       v-model="editCountryOverride"
-                      :placeholder="`Auto (currently ${poolStore.userCountry || 'unknown'})`"
+                      :placeholder="$t('pool-detail.field.country-override-placeholder', { country: poolStore.userCountry || $t('pool-detail.members.country-unknown') })"
                       class="block w-full rounded-md border border-gray-300 dark:border-gray-600
                              bg-white dark:bg-gray-800 px-3 py-1.5 text-sm
                              text-gray-900 dark:text-gray-200 placeholder:text-gray-400
                              focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                     />
                     <p class="text-[10px] text-gray-500 mt-1.5">
-                      Leave blank for auto-detect via DoH probe.
+                      {{ $t('pool-detail.field.country-override-help') }}
                     </p>
                   </div>
 
@@ -333,7 +333,7 @@
                   >
                     <div>
                       <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                        Rotation interval
+                        {{ $t('pool-detail.field.rotation-interval') }}
                       </label>
                       <AppSelect
                         v-model="editIntervalChoice"
@@ -353,7 +353,7 @@
                                  text-gray-900 dark:text-gray-200
                                  focus:outline-none focus:ring-1 focus:ring-primary-500"
                         />
-                        <span class="text-[11px] text-gray-500">minutes (1 - 1440)</span>
+                        <span class="text-[11px] text-gray-500">{{ $t('pool-detail.field.minutes-range') }}</span>
                       </div>
                     </div>
 
@@ -361,10 +361,10 @@
                     <SwitchGroup as="div" class="flex items-start justify-between gap-3">
                       <div class="flex-1">
                         <SwitchLabel as="span" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                          Idle-aware
+                          {{ $t('pool-detail.field.idle-aware') }}
                         </SwitchLabel>
                         <p class="text-[10px] text-gray-500 mt-0.5">
-                          Defer rotation while traffic flows, force-rotate after the cap below.
+                          {{ $t('pool-detail.field.idle-aware-help') }}
                         </p>
                       </div>
                       <Switch
@@ -384,7 +384,7 @@
 
                     <div v-if="editIdleAware">
                       <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                        Force-rotate after (min idle-blocked)
+                        {{ $t('pool-detail.field.force-rotate-after') }}
                       </label>
                       <AppSelect
                         v-model="editForceAfterMinStr"
@@ -404,20 +404,18 @@
                 -->
                 <div class="px-5 py-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
                   <div>
-                    <h3 class="text-xs font-semibold text-gray-700 dark:text-gray-300">Split tunnel (bypass)</h3>
+                    <h3 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('pool-detail.split-tunnel.heading') }}</h3>
                     <p class="text-[11px] text-gray-500 mt-0.5">
-                      Traffic to these IP ranges goes around the VPN.
-                      WireGuard + OpenVPN; IPSec members skipped
-                      (server-side traffic-selector negotiation).
+                      {{ $t('pool-detail.split-tunnel.description') }}
                     </p>
                   </div>
                   <SwitchGroup as="div" class="flex items-start justify-between gap-3">
                     <div class="flex-1">
                       <SwitchLabel as="span" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                        Exclude private networks
+                        {{ $t('pool-detail.split-tunnel.exclude-private-networks') }}
                       </SwitchLabel>
                       <p class="text-[10px] text-gray-500 mt-0.5">
-                        RFC1918 (10/8, 172.16/12, 192.168/16) + IPv6 ULA fc00::/7 + link-local
+                        {{ $t('pool-detail.split-tunnel.exclude-private-networks-help') }}
                       </p>
                     </div>
                     <Switch
@@ -436,7 +434,7 @@
                   </SwitchGroup>
                   <div>
                     <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      Custom bypass CIDRs (one per line)
+                      {{ $t('pool-detail.split-tunnel.bypass-cidrs-label') }}
                     </label>
                     <textarea
                       v-model="editBypassCidrsText"
@@ -454,20 +452,19 @@
                       v-if="bypassValidation.total === 0"
                       class="text-[10px] text-gray-500 mt-1"
                     >
-                      Empty = no custom CIDRs (private-networks toggle still applies)
+                      {{ $t('pool-detail.split-tunnel.bypass-cidrs-empty') }}
                     </p>
                     <p
                       v-else-if="bypassValidation.invalidCount === 0"
                       class="text-[10px] text-green-400 mt-1"
                     >
-                      {{ bypassValidation.total }} CIDR{{ bypassValidation.total === 1 ? '' : 's' }} valid
+                      {{ bypassValidation.total === 1 ? $t('pool-detail.split-tunnel.bypass-cidrs-valid-one', { count: bypassValidation.total }) : $t('pool-detail.split-tunnel.bypass-cidrs-valid-other', { count: bypassValidation.total }) }}
                     </p>
                     <p
                       v-else
                       class="text-[10px] text-red-400 mt-1"
                     >
-                      {{ bypassValidation.invalidCount }} of {{ bypassValidation.total }} invalid:
-                      {{ bypassValidation.invalidSample.join(', ') }}
+                      {{ $t('pool-detail.split-tunnel.bypass-cidrs-invalid', { invalid: bypassValidation.invalidCount, total: bypassValidation.total, samples: bypassValidation.invalidSample.join(', ') }) }}
                     </p>
                   </div>
 
@@ -480,16 +477,14 @@
                        every switch. Empty = inherit global. -->
                   <div>
                     <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      DNS Override <span class="text-gray-400">(per-pool, IPv4 + IPv6)</span>
+                      {{ $t('pool-detail.dns-override.label') }} <span class="text-gray-400">{{ $t('pool-detail.dns-override.label-suffix') }}</span>
                     </label>
                     <DnsOverrideField
                       v-model="editDnsOverride"
-                      placeholder="e.g. 1.1.1.1, 2606:4700:4700::1111"
+                      :placeholder="$t('pool-detail.dns-override.placeholder')"
                     />
                     <p class="text-[10px] text-gray-500 mt-1">
-                      Empty = use the global DNS Override from Settings.
-                      Overrides only apply while this pool is the
-                      active selection.
+                      {{ $t('pool-detail.dns-override.help') }}
                     </p>
                   </div>
                 </div>
@@ -499,13 +494,13 @@
                     @click="showSettingsModal = false"
                     class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
                   >
-                    Cancel
+                    {{ $t('pool-detail.button.cancel') }}
                   </button>
                   <button
                     @click="saveSettings"
                     class="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md transition-colors"
                   >
-                    Save
+                    {{ $t('pool-detail.button.save') }}
                   </button>
                 </div>
               </DialogPanel>
@@ -519,6 +514,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { usePoolStore, type PoolPolicy } from '@/stores/pool'
 import {
@@ -542,37 +538,39 @@ import {
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
+const { t } = useI18n()
+
 // AppSelect carries string values via Listbox, so the numeric
 // rotation params get a string-typed proxy that converts in/out.
-const policyOptions = [
-  { value: 'geo-nearest', label: 'Geo-Nearest' },
-  { value: 'random', label: 'Random' },
-  { value: 'round-robin-region', label: 'Round-Robin (Region)' },
-]
+const policyOptions = computed(() => [
+  { value: 'geo-nearest', label: t('pool-detail.policy.geo-nearest') },
+  { value: 'random', label: t('pool-detail.policy.random') },
+  { value: 'round-robin-region', label: t('pool-detail.policy.round-robin-region') },
+])
 
-const intervalOptions = [
-  { value: '5',  label: '5 minutes'  },
-  { value: '10', label: '10 minutes' },
-  { value: '15', label: '15 minutes' },
-  { value: '30', label: '30 minutes' },
-  { value: '60', label: '1 hour'     },
-  { value: '120', label: '2 hours'   },
-  { value: 'custom', label: 'Custom...' },
-]
+const intervalOptions = computed(() => [
+  { value: '5',  label: t('pool-detail.interval.5-minutes')  },
+  { value: '10', label: t('pool-detail.interval.10-minutes') },
+  { value: '15', label: t('pool-detail.interval.15-minutes') },
+  { value: '30', label: t('pool-detail.interval.30-minutes') },
+  { value: '60', label: t('pool-detail.interval.1-hour')     },
+  { value: '120', label: t('pool-detail.interval.2-hours')   },
+  { value: 'custom', label: t('pool-detail.interval.custom') },
+])
 
-const forceAfterOptions = [
-  { value: '15', label: '15 minutes' },
-  { value: '30', label: '30 minutes' },
-  { value: '60', label: '1 hour'     },
-  { value: '120', label: '2 hours'   },
-  { value: '240', label: '4 hours'   },
-]
+const forceAfterOptions = computed(() => [
+  { value: '15', label: t('pool-detail.interval.15-minutes') },
+  { value: '30', label: t('pool-detail.interval.30-minutes') },
+  { value: '60', label: t('pool-detail.interval.1-hour')     },
+  { value: '120', label: t('pool-detail.interval.2-hours')   },
+  { value: '240', label: t('pool-detail.interval.4-hours')   },
+])
 
 function policyDescriptionFor(p: string): string {
   switch (p) {
-    case 'geo-nearest': return 'Closest country to you. Falls back to same-region or random.'
-    case 'random':      return 'Picks a random server on every connect.'
-    case 'round-robin-region': return 'Rotates through different regions on a timer.'
+    case 'geo-nearest': return t('pool-detail.policy.geo-nearest-description')
+    case 'random':      return t('pool-detail.policy.random-description')
+    case 'round-robin-region': return t('pool-detail.policy.round-robin-region-description')
   }
   return ''
 }
@@ -691,16 +689,16 @@ const editForceAfterMinStr = computed<string>({
 
 const policyLabel = computed(() => {
   switch (pool.value?.policy) {
-    case 'geo-nearest': return 'Geo-Nearest'
-    case 'random':      return 'Random'
-    case 'round-robin-region': return `Round-Robin (every ${pool.value.rotation?.interval_min || 30} min)`
+    case 'geo-nearest': return t('pool-detail.policy.geo-nearest')
+    case 'random':      return t('pool-detail.policy.random')
+    case 'round-robin-region': return t('pool-detail.policy.round-robin-region-every', { minutes: pool.value.rotation?.interval_min || 30 })
   }
   return pool.value?.policy || ''
 })
 
 const countryOverrideDisplay = computed(() => {
   if (pool.value?.country_override) return pool.value.country_override
-  return `Auto (currently ${poolStore.userCountry || 'unknown'})`
+  return t('pool-detail.field.country-override-placeholder', { country: poolStore.userCountry || t('pool-detail.members.country-unknown') })
 })
 
 const uniqueProtocols = computed(() => {
@@ -735,15 +733,15 @@ function memberUnreachableTooltip(m: any): string {
   if (!m.unreachable) return ''
   const parts: string[] = []
   if (m.last_unreachable) {
-    const t = new Date(m.last_unreachable)
-    if (!isNaN(t.getTime())) {
-      parts.push('Last failure: ' + t.toLocaleString())
+    const ts = new Date(m.last_unreachable)
+    if (!isNaN(ts.getTime())) {
+      parts.push(t('pool-detail.members.tooltip-last-failure', { time: ts.toLocaleString() }))
     }
   }
   if (m.last_error) {
-    parts.push('Reason: ' + m.last_error)
+    parts.push(t('pool-detail.members.tooltip-reason', { reason: m.last_error }))
   }
-  parts.push('Auto-clears 30 min after the last failure.')
+  parts.push(t('pool-detail.members.tooltip-auto-clears'))
   return parts.join('\n')
 }
 
@@ -845,14 +843,14 @@ async function saveSettings() {
 
 async function deleteMember(m: any) {
   if (!pool.value) return
-  if (!confirm(`Delete ${m.name} from this pool?`)) return
+  if (!confirm(t('pool-detail.confirm.delete-member', { name: m.name }))) return
   await poolStore.removeMember(pool.value.id, m.id)
   await load()
 }
 
 async function renameMember(m: any) {
   if (!pool.value) return
-  const newName = prompt('New name:', m.name)
+  const newName = prompt(t('pool-detail.prompt.new-name'), m.name)
   if (!newName || newName.trim() === '' || newName === m.name) return
   await poolStore.renameMember(pool.value.id, m.id, newName.trim())
   await load()
@@ -860,7 +858,7 @@ async function renameMember(m: any) {
 
 async function confirmDeletePool() {
   if (!pool.value) return
-  if (!confirm(`Delete pool "${pool.value.name}"? This cannot be undone.`)) return
+  if (!confirm(t('pool-detail.confirm.delete-pool', { name: pool.value.name }))) return
   await poolStore.remove(pool.value.id)
   router.push('/connections')
 }

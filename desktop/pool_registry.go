@@ -798,8 +798,10 @@ func (r *PoolRegistry) SetActiveMemberValidated(poolID, memberID string) error {
 
 // load reads pools.json. Missing-file is not an error - it just means
 // the user has no pools yet. Re-builds the byID index post-parse.
+// EncryptedReadFile transparently handles v1.0.0+ encrypted-at-rest
+// blobs and pre-migration plaintext.
 func (r *PoolRegistry) load() {
-	data, err := os.ReadFile(r.filePath)
+	data, err := EncryptedReadFile(r.filePath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("pool: load %s: %v", r.filePath, err)
@@ -814,6 +816,8 @@ func (r *PoolRegistry) load() {
 }
 
 // saveLocked persists the current state to disk. Caller must hold r.mu.
+// EncryptedWriteFile handles atomic tmp+rename internally so the
+// outer tmp+rename dance is no longer needed.
 func (r *PoolRegistry) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(r.filePath), 0o755); err != nil {
 		return fmt.Errorf("pool: mkdir: %w", err)
@@ -822,12 +826,8 @@ func (r *PoolRegistry) saveLocked() error {
 	if err != nil {
 		return fmt.Errorf("pool: marshal: %w", err)
 	}
-	tmp := r.filePath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := EncryptedWriteFile(r.filePath, data, 0o600); err != nil {
 		return fmt.Errorf("pool: write: %w", err)
-	}
-	if err := os.Rename(tmp, r.filePath); err != nil {
-		return fmt.Errorf("pool: rename: %w", err)
 	}
 	return nil
 }

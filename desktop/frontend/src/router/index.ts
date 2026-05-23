@@ -55,6 +55,11 @@ const routes = [
     name: 'Help',
     component: () => import('@/views/HelpView.vue'),
   },
+  {
+    path: '/pro',
+    name: 'Pro',
+    component: () => import('@/views/ProUpgradeView.vue'),
+  },
 ]
 
 const router = createRouter({

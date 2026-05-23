@@ -6,11 +6,11 @@
       @blur="$emit('blur')"
       type="text"
       spellcheck="false"
-      :placeholder="placeholder || 'e.g. 1.1.1.1, 2606:4700:4700::1111'"
+      :placeholder="placeholder || $t('components.dns-override.placeholder')"
       class="input"
     />
     <div class="mt-2 flex items-center gap-2">
-      <span class="text-[10px] text-gray-500 whitespace-nowrap">Or use preset:</span>
+      <span class="text-[10px] text-gray-500 whitespace-nowrap">{{ $t('components.dns-override.preset-label') }}</span>
       <div class="flex-1 min-w-0">
         <Listbox :model-value="''" @update:model-value="applyPreset">
           <div class="relative">
@@ -21,7 +21,7 @@
                      focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500
                      min-w-[8rem]"
             >
-              <span class="block truncate text-gray-400 dark:text-gray-500">— pick a provider —</span>
+              <span class="block truncate text-gray-400 dark:text-gray-500">{{ $t('components.dns-override.pick-provider') }}</span>
               <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
                 <ChevronUpDownIcon class="h-4 w-4 text-gray-400" />
               </span>

@@ -247,7 +247,7 @@ func (w *WireGuardProtocol) Configure(cfg []byte) error {
 	}
 	log.Printf("WireGuard.Configure: MkdirAll ok")
 
-	if err := os.WriteFile(w.confPath, cfg, 0600); err != nil {
+	if err := EncryptedWriteFile(w.confPath, cfg, 0600); err != nil {
 		log.Printf("WireGuard.Configure: WriteFile FAILED: %v", err)
 		return fmt.Errorf("failed to write WireGuard config: %w", err)
 	}
@@ -280,7 +280,7 @@ func (w *WireGuardProtocol) AdoptExistingConfig() error {
 	if w.confPath == "" {
 		return fmt.Errorf("AdoptExistingConfig: confPath not set (call setTunnelName first)")
 	}
-	content, err := os.ReadFile(w.confPath)
+	content, err := EncryptedReadFile(w.confPath)
 	if err != nil {
 		return fmt.Errorf("AdoptExistingConfig: read %s: %w", w.confPath, err)
 	}
@@ -399,7 +399,7 @@ func (w *WireGuardProtocol) downUnix(ctx context.Context) error {
 // This function does NOT write to /etc/wireguard or %PROGRAMDATA% — the
 // privileged helper handles that via the wg_install_config action.
 func buildWGConfigWithBypass(src string) (string, error) {
-	data, err := os.ReadFile(src)
+	data, err := EncryptedReadFile(src)
 	if err != nil {
 		return "", err
 	}

@@ -171,6 +171,9 @@ func (a *App) GetPoolDetail(id string) (*PoolDetail, error) {
 // Each upload's filename drives the protocol detection; .zip uploads
 // are unpacked in-memory.
 func (a *App) CreatePoolFromUploads(name string, policy string, uploads []PoolUpload) (*Pool, error) {
+	if err := a.gatePoolCreate(); err != nil {
+		return nil, err
+	}
 	if len(uploads) == 0 {
 		return nil, fmt.Errorf("no files provided")
 	}
@@ -216,6 +219,9 @@ func (a *App) CreatePoolFromUploads(name string, policy string, uploads []PoolUp
 // pass real filesystem paths so production goes through
 // CreatePoolFromUploads.
 func (a *App) CreatePoolFromPaths(name string, policy string, paths []string) (*Pool, error) {
+	if err := a.gatePoolCreate(); err != nil {
+		return nil, err
+	}
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no files provided")
 	}
@@ -1479,7 +1485,7 @@ func (a *App) preWriteWGConfig(tunnelName, content string) error {
 	if err := os.MkdirAll(filepath.Dir(confPath), 0o700); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	return os.WriteFile(confPath, []byte(content), 0o600)
+	return EncryptedWriteFile(confPath, []byte(content), 0o600)
 }
 
 // PoolRotatorStatus exposes the rotator's view to the frontend's

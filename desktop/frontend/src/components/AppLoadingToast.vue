@@ -39,7 +39,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
+
+const { t } = useI18n()
 
 interface AppLoadingPayload {
   stage: string
@@ -61,22 +64,22 @@ const hasNumeric = computed(() => progress.value.total > 0)
 
 const headline = computed(() => {
   switch (progress.value.stage) {
-    case 'geo-detect':       return 'Detecting your location'
+    case 'geo-detect':       return t('components.app-loading-toast.headline.geo-detect')
     case 'geo-detect-done':  return progress.value.extra
-      ? `Location: ${progress.value.extra}`
-      : 'Location unknown'
-    case 'backfill':         return 'Loading exit-point countries'
-    case 'backfill-done':    return 'Exit points ready'
-    default:                 return 'Working...'
+      ? t('components.app-loading-toast.headline.geo-detect-done', { location: progress.value.extra })
+      : t('components.app-loading-toast.headline.location-unknown')
+    case 'backfill':         return t('components.app-loading-toast.headline.backfill')
+    case 'backfill-done':    return t('components.app-loading-toast.headline.backfill-done')
+    default:                 return t('components.app-loading-toast.headline.default')
   }
 })
 
 const activityLine = computed(() => {
   switch (progress.value.stage) {
-    case 'geo-detect':       return 'Probing public IP via DoH...'
-    case 'geo-detect-done':  return 'Used by Geo-Nearest pool selection'
-    case 'backfill':         return `Resolving ${progress.value.current} of ${progress.value.total}...`
-    case 'backfill-done':    return 'Country flags now visible'
+    case 'geo-detect':       return t('components.app-loading-toast.activity.geo-detect')
+    case 'geo-detect-done':  return t('components.app-loading-toast.activity.geo-detect-done')
+    case 'backfill':         return t('components.app-loading-toast.activity.backfill', { current: progress.value.current, total: progress.value.total })
+    case 'backfill-done':    return t('components.app-loading-toast.activity.backfill-done')
     default:                 return ''
   }
 })

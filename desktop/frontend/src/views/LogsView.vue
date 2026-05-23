@@ -5,7 +5,7 @@
         <button @click="$router.back()" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
           <ArrowLeftIcon class="w-5 h-5" />
         </button>
-        <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">Logs</h2>
+        <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">{{ $t('logs.title') }}</h2>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -21,10 +21,10 @@
           @click="confirmClear"
           :disabled="logs.length === 0 || clearing"
           class="flex items-center gap-1 text-xs text-gray-500 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
-          title="Delete the contents of all log files owned by Privycs"
+          :title="$t('logs.clear-title')"
         >
           <TrashIcon class="w-3.5 h-3.5" />
-          Clear
+          {{ $t('logs.button.clear') }}
         </button>
         <button @click="loadLogs" :disabled="loadingLogs" class="text-xs text-primary-400 hover:text-primary-300 disabled:opacity-50">
           <ArrowPathIcon class="w-3.5 h-3.5" :class="loadingLogs ? 'animate-spin' : ''" />
@@ -34,7 +34,7 @@
 
     <div ref="logContainer" @scroll="onScroll" class="flex-1 overflow-y-auto card p-3 font-mono text-[11px] leading-relaxed">
       <div v-if="logs.length === 0" class="text-gray-500 text-center mt-8">
-        No logs available
+        {{ $t('logs.empty-state') }}
       </div>
       <div
         v-for="(line, i) in logs"
@@ -51,17 +51,16 @@
          logs before asking support "what went wrong" defeats the point. -->
     <div v-if="showConfirm" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" @click.self="showConfirm = false">
       <div class="card p-4 max-w-sm w-full">
-        <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">Clear all logs?</h3>
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">{{ $t('logs.confirm.title') }}</h3>
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          This deletes every log entry from the app log and the OpenVPN log.
-          Cannot be undone.
+          {{ $t('logs.confirm.body') }}
         </p>
         <div class="flex justify-end gap-2">
           <button @click="showConfirm = false" class="px-3 py-1.5 text-xs rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600">
-            Cancel
+            {{ $t('logs.button.cancel') }}
           </button>
           <button @click="doClear" class="px-3 py-1.5 text-xs rounded-lg bg-red-500 text-white hover:bg-red-600">
-            Clear logs
+            {{ $t('logs.button.clear-logs') }}
           </button>
         </div>
       </div>
@@ -71,8 +70,11 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { GetLogs, ClearLogs } from '../../wailsjs/go/main/App'
 import { ArrowLeftIcon, ArrowPathIcon, ClipboardIcon, TrashIcon } from '@heroicons/vue/24/outline'
+
+const { t } = useI18n()
 
 const logs = ref<string[]>([])
 const logContainer = ref<HTMLElement | null>(null)
@@ -81,7 +83,7 @@ const clearing = ref(false)
 const showConfirm = ref(false)
 const copied = ref(false)
 
-const copyLabel = computed(() => copied.value ? 'Copied!' : 'Copy')
+const copyLabel = computed(() => copied.value ? t('logs.button.copied') : t('logs.button.copy'))
 
 // Tracks whether the user has scrolled away from the bottom. If they
 // have, the auto-scroll-to-bottom on each refresh would tear them
@@ -127,7 +129,7 @@ async function loadLogs(silent = false) {
       logContainer.value.scrollTop = logContainer.value.scrollHeight
     }
   } catch (e) {
-    if (!silent) logs.value = ['--- Log file could not be loaded ---']
+    if (!silent) logs.value = [t('logs.error.load-failed')]
   } finally {
     if (!silent) loadingLogs.value = false
   }
@@ -167,7 +169,7 @@ async function doClear() {
     await loadLogs()
   } catch (e) {
     // Show error inline — mirrors other destructive actions in the app
-    logs.value = [`--- Clear failed: ${e} ---`]
+    logs.value = [t('logs.error.clear-failed', { error: String(e) })]
   } finally {
     clearing.value = false
   }

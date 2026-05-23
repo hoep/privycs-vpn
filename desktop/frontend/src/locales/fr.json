@@ -1,0 +1,819 @@
+{
+  "settings": {
+    "title": "Paramètres",
+    "connection": {
+      "section-title": "Connexion",
+      "kill-switch": "Kill Switch",
+      "kill-switch-desc": "Bloquer le trafic si le VPN se déconnecte",
+      "minimize-to-tray": "Réduire dans la barre d'état",
+      "start-at-login": "Démarrer à l'ouverture de session",
+      "start-at-login-desc": "Lancer l'app quand vous vous connectez"
+    },
+    "gateway": {
+      "section-title": "Privycs Gateway",
+      "url-label": "URL du Gateway",
+      "api-key-label": "Clé API",
+      "verifying": "Vérification...",
+      "verify-and-sync": "Vérifier et synchroniser",
+      "connection-failed": "Échec de la connexion",
+      "verify-success": "{user} ({count} configurations)"
+    },
+    "helper": {
+      "section-title": "Assistant privilégié",
+      "status-label": "État",
+      "status-desc": "Élimine les demandes de mot de passe lors de la connexion VPN",
+      "status-running": "En cours d'exécution",
+      "status-installed-not-running": "Installé (non actif)",
+      "status-not-installed": "Non installé",
+      "installing": "Installation...",
+      "install-button": "Installer l'assistant",
+      "uninstall-button": "Désinstaller",
+      "explanation": "L'assistant s'exécute comme un service système et gère les opérations VPN sans demandes répétées de droits administrateur. Nécessite une autorisation unique à l'installation.",
+      "manual-cleanup-summary": "Bouton bloqué ou en échec ? Afficher les commandes de nettoyage manuel",
+      "manual-cleanup-hint": "Exécutez-les dans le Terminal, puis rouvrez cette fenêtre — l'état de l'assistant sera actualisé et « Installer l'assistant » redeviendra cliquable.",
+      "unknown-error": "Erreur inconnue",
+      "install-failed-prefix": "Échec de l'installation : ",
+      "uninstall-failed-prefix": "Échec de la désinstallation : "
+    },
+    "network": {
+      "section-title": "Réseau",
+      "dns-override-label": "Remplacement DNS",
+      "dns-override-placeholder": "ex. 1.1.1.1, 2606:4700:4700::1111 — séparés par virgule, IPv4 + IPv6",
+      "dns-override-help": "Plusieurs serveurs séparés par une virgule. Vide = utiliser le DNS poussé par le serveur.",
+      "test-dns-button": "Tester le DNS",
+      "dns-testing": "Test en cours…",
+      "dns-test-error-prefix": "Erreur :",
+      "dns-test-resolved-prefix": "Résolu",
+      "dns-test-via": "via",
+      "dns-invalid": "Invalide : {entries}",
+      "dns-detected": "Détecté : {label}",
+      "dns-dot-host-suffix": " · hôte DoT : {host}"
+    },
+    "tunnel-health": {
+      "section-title": "Santé du tunnel",
+      "description": "Ping ICMP périodique pour vérifier que le tunnel transporte réellement du trafic. Trois échecs déclenchent la récupération : rotation d'un membre du pool ou déconnexion/reconnexion d'une connexion simple.",
+      "mode-auto": "Auto (récupération pour pool et simple)",
+      "mode-always": "Toujours actif",
+      "mode-off": "Désactivé",
+      "ping-target-label": "Cible du ping (optionnel)",
+      "ping-target-placeholder": "défaut : 1.1.1.1",
+      "ping-target-help": "Vide = utiliser 1.1.1.1 par défaut. Utile si 1.1.1.1 est bloqué ou si vous préférez pinger une cible interne.",
+      "ping-interval-label": "Intervalle de ping (secondes)",
+      "fails-threshold-label": "Échecs avant récupération",
+      "detection-time-help": "Temps de détection max = intervalle × seuil. Par défaut 5 s × 2 = max 10 s. Des valeurs plus grandes réduisent le coût en batterie / données ; plus petites détectent les tunnels morts plus vite mais peuvent se déclencher à tort sur des réseaux instables."
+    },
+    "sleep-wake": {
+      "section-title": "Récupération veille / réveil",
+      "description": "Quand macOS sort de la veille, la correspondance NAT amont du VPN a généralement expiré et le tunnel est silencieusement mort — les paquets disparaissent dans des routes bloquées jusqu'à une déconnexion manuelle. Ces options récupèrent automatiquement.",
+      "reconnect-on-wake": "Reconnecter au réveil du système",
+      "reconnect-on-wake-desc": "Force la reconnexion sous ~1 s après le réveil au lieu d'attendre la sonde de santé du tunnel (~60 s).",
+      "prevent-display-sleep": "Empêcher la mise en veille de l'écran quand le tunnel est actif",
+      "prevent-display-sleep-desc": "Utilise caffeinate -di sur macOS. Sacrifie la batterie contre zéro coupure VPN liée à la veille. Désactivé par défaut."
+    },
+    "on-demand": {
+      "section-title": "À la demande et règles réseau",
+      "description": "Connectez-vous automatiquement — ou restez déconnecté — selon le réseau. Les règles réseau sont évaluées en premier, de haut en bas ; la première qui correspond au réseau actuel l'emporte. Tout réseau qui ne correspond à aucune règle retombe sur le comportement par défaut Connect-on-Demand. Le bouton du moteur et le comportement par défaut s'y trouvent.",
+      "open-button": "Ouvrir À la demande et règles réseau"
+    },
+    "failover": {
+      "section-title": "Ordre de bascule des protocoles",
+      "description": "Quand une connexion regroupe plusieurs protocoles, la bascule les parcourt dans cet ordre. Déplacez un protocole vers le haut pour l'essayer en premier.",
+      "move-up": "Monter",
+      "move-down": "Descendre"
+    },
+    "diagnostics": {
+      "section-title": "Diagnostics",
+      "view-logs": "Voir les journaux"
+    },
+    "backup": {
+      "section-title": "Sauvegarde et restauration",
+      "description": "Exportez toutes les connexions et tous les paramètres dans un fichier chiffré. Utilisez la même phrase secrète pour restaurer sur un autre appareil.",
+      "export-button": "Exporter...",
+      "import-button": "Importer...",
+      "export-modal-title": "Exporter la sauvegarde",
+      "import-modal-title": "Importer la sauvegarde",
+      "import-warning": "L'importation remplace vos connexions et paramètres actuels.",
+      "passphrase-min-label": "Phrase secrète (min 8 caractères)",
+      "passphrase-label": "Phrase secrète",
+      "confirm-passphrase-label": "Confirmer la phrase secrète",
+      "passphrase-placeholder": "Phrase secrète",
+      "repeat-placeholder": "Répéter",
+      "cancel-button": "Annuler",
+      "export-confirm": "Exporter",
+      "exporting": "Exportation...",
+      "import-confirm": "Importer",
+      "importing": "Importation...",
+      "error-passphrase-too-short": "La phrase secrète doit faire au moins 8 caractères",
+      "error-passphrases-mismatch": "Les phrases secrètes ne correspondent pas",
+      "error-export-failed": "Échec de l'exportation",
+      "error-import-failed": "Échec de l'importation",
+      "saved-to": "Sauvegarde enregistrée dans {path}",
+      "restored-message": "Sauvegarde restaurée. Veuillez rouvrir l'app pour appliquer les modifications."
+    },
+    "appearance": {
+      "section-title": "Apparence",
+      "theme-label": "Thème",
+      "system-dark": "Système : sombre",
+      "system-light": "Système : clair"
+    },
+    "theme": {
+      "system": "Système par défaut",
+      "dark": "Sombre",
+      "light": "Clair"
+    },
+    "about": {
+      "section-title": "À propos",
+      "app-label": "App",
+      "app-name": "Privycs VPN Client",
+      "version-label": "Version",
+      "protocol-label": "Protocole"
+    },
+    "language": {
+      "label": "Langue",
+      "system": "Système par défaut"
+    },
+    "pro": {
+      "section-title": "Privycs Pro",
+      "upgrade": "Débloquer Privycs Pro",
+      "manage": "Gérer votre licence Pro"
+    }
+  },
+  "common": {
+    "back": "Retour"
+  },
+  "pro": {
+    "title": "Privycs Pro",
+    "badge": "PRO",
+    "features": {
+      "multiProtocol": "Plusieurs protocoles par connexion (bascule)",
+      "multiConfig": "Plusieurs configurations par emplacement de connexion",
+      "networkRules": "Règles d'automatisation par réseau",
+      "gatewayDownload": "Téléchargement de configuration en un clic depuis votre gateway",
+      "pools": "Pools de connexions avec rotation",
+      "splitTunnel": "Contrôle du tunnel divisé par pool"
+    },
+    "buy": {
+      "desktop": "Obtenir Privycs Pro pour Desktop — {price}",
+      "bundle": "Pack multiplateforme — {price}",
+      "bundleHint": "Le pack débloque Pro sur Desktop + Android + iOS avec une seule clé de licence."
+    },
+    "activate": {
+      "title": "Activer une clé de licence",
+      "subtitle": "Collez votre clé PRVC-… reçue par e-mail d'achat ou chargez un fichier .privycs-license.",
+      "placeholder": "PRVC-…-…",
+      "activate": "Activer",
+      "activating": "Activation…",
+      "chooseFile": "Choisir un fichier…"
+    },
+    "active": {
+      "title": "Pro est actif",
+      "subtitle": "Licence : {sku}",
+      "activatedOn": "Première activation : {date}",
+      "deactivate": "Se déconnecter de Pro sur cet appareil"
+    },
+    "errors": {
+      "badSignature": "La signature de la licence est invalide — veuillez contacter support@privycs.com.",
+      "wrongPlatform": "Cette licence n'est pas valide sur Desktop. Utilisez l'app de la plateforme correspondante ou achetez le pack multiplateforme.",
+      "malformed": "La clé de licence semble mal formée. Assurez-vous d'avoir copié la chaîne PRVC-… complète.",
+      "unsupportedVersion": "Cette licence utilise un format plus récent que celui pris en charge par cette app — veuillez mettre à jour Privycs VPN.",
+      "noPublicKey": "Cette version ne peut pas valider les clés de licence. Veuillez réinstaller Privycs VPN depuis la source officielle.",
+      "generic": "Échec de l'activation : {msg}"
+    }
+  },
+  "upgradeDialog": {
+    "title": "Privycs Pro requis",
+    "body": "{feature} fait partie de Privycs Pro.",
+    "thisFeature": "Cette fonctionnalité",
+    "subtitle": "Débloquez les six fonctionnalités Pro avec un seul achat unique.",
+    "notNow": "Pas maintenant",
+    "viewPro": "Voir Pro"
+  },
+  "connect": {
+    "welcome": {
+      "title": "Bienvenue sur Privycs VPN",
+      "subtitle": "Importez une configuration VPN pour commencer",
+      "add-connection": "Ajouter une connexion"
+    },
+    "pause": {
+      "remaining": "En pause — {time} restant",
+      "resume-now": "Reprendre maintenant",
+      "title": "Mettre le VPN en pause pour une durée fixe",
+      "button": "Pause",
+      "1-minute": "1 minute",
+      "3-minutes": "3 minutes",
+      "5-minutes": "5 minutes",
+      "15-minutes": "15 minutes",
+      "1-hour": "1 heure",
+      "4-hours": "4 heures"
+    },
+    "pool": {
+      "edit": "Modifier",
+      "currently": "Actuellement :",
+      "next": "Suivant :",
+      "switch-member-title": "Basculer vers un autre membre du pool",
+      "switch-member": "Changer de membre"
+    },
+    "cod": {
+      "title": "À la demande",
+      "edit": "Modifier",
+      "vpn-active-for": "VPN actif pour {network}",
+      "rule-matched-connecting": "Règle déclenchée — connexion à {network}...",
+      "watching-ssid": "Surveillance {ssid} ({type})",
+      "watching-type": "Surveillance {type}",
+      "no-network-idle": "Aucun réseau — inactif",
+      "current-network": "réseau actuel",
+      "network": "réseau",
+      "unknown": "inconnu",
+      "no-network": "aucun réseau"
+    },
+    "rotator": {
+      "force-rotate-in": "Rotation forcée dans",
+      "next-server-in": "Prochain serveur dans",
+      "at": "à {time}",
+      "min-cycle": "cycle de {minutes} min"
+    },
+    "protocol": {
+      "active": "actif",
+      "add-another": "Ajouter une autre configuration de protocole"
+    },
+    "stats": {
+      "download": "Téléchargement",
+      "upload": "Envoi"
+    },
+    "details": {
+      "vpn-ip": "IP VPN",
+      "endpoint": "Point d'accès",
+      "handshake": "Poignée de main",
+      "kill-switch": "Kill Switch",
+      "kill-switch-active": "Actif"
+    },
+    "button": {
+      "edit-config": "Modifier la configuration"
+    },
+    "cod-mismatch": {
+      "title": "Connect on Demand va déconnecter",
+      "body": "Connect on Demand est activé mais aucune règle ne correspond au réseau actuel ({network}). Si vous vous connectez maintenant, Connect on Demand fermera le tunnel à nouveau en quelques secondes.",
+      "hint": "Pour conserver cette connexion, désactivez Connect on Demand dans les paramètres ou ajoutez une règle pour ce réseau.",
+      "cancel": "Annuler",
+      "connect-anyway": "Se connecter quand même"
+    },
+    "member-picker": {
+      "title": "Changer de membre du pool",
+      "search-placeholder": "Rechercher par nom, pays ou région...",
+      "unknown": "inconnu",
+      "other-region": "Autre",
+      "unreachable": "• injoignable",
+      "current": "Actuel",
+      "no-matches": "Aucun résultat."
+    },
+    "config-editor": {
+      "title": "Modifier la configuration {protocol}",
+      "saved-and-applied": "Enregistré et appliqué",
+      "bytes": "{count} octets",
+      "cancel": "Annuler",
+      "save": "Enregistrer",
+      "saving": "Enregistrement..."
+    },
+    "status": {
+      "kill-switch-active": "Kill Switch actif",
+      "connecting": "Connexion...",
+      "disconnecting": "Déconnexion...",
+      "connected": "Connecté",
+      "connect": "Connecter"
+    },
+    "health": {
+      "healthy": "Tunnel OK",
+      "degraded": "Échecs des vérifications du tunnel",
+      "recovering": "Récupération en cours"
+    },
+    "policy": {
+      "geo-nearest": "Geo-Nearest",
+      "random": "Aléatoire",
+      "round-robin": "Round-Robin"
+    },
+    "toast": {
+      "pause-failed": "Échec de la pause : {error}",
+      "resume-failed": "Échec de la reprise : {error}",
+      "kill-switch-block-reconnect": "Kill Switch actif. Cela bloquera votre reconnexion !",
+      "kill-switch-engaged": "Kill Switch actif. Désactivez-le dans les paramètres pour libérer."
+    },
+    "error": {
+      "load-config-failed": "Échec du chargement de la configuration : {error}",
+      "save-failed": "Échec de l'enregistrement",
+      "switch-connection-failed": "Échec du changement de connexion",
+      "switch-failed": "échec du changement",
+      "switch-config-failed": "Échec du changement de configuration",
+      "load-members-failed": "échec du chargement des membres",
+      "pool-connect-failed": "échec de la connexion au pool",
+      "switch-protocol-failed": "Échec du changement de protocole"
+    }
+  },
+  "connections": {
+    "title": "Connexions",
+    "button": {
+      "scan-qr-title": "Scanner un code QR",
+      "scan-qr": "Scanner QR",
+      "gateway": "Gateway",
+      "add-pool-title": "Pool de connexions depuis un ZIP ou plusieurs fichiers de configuration",
+      "add-pool": "Ajouter un pool",
+      "add": "Ajouter"
+    },
+    "pools": {
+      "heading": "Pools de connexions",
+      "summary": "Pool · {count} serveur(s) · {policy}",
+      "edit-title": "Modifier le pool",
+      "delete-title": "Supprimer le pool"
+    },
+    "gateway": {
+      "heading": "Configurations Gateway",
+      "loading": "Chargement...",
+      "refresh": "Actualiser",
+      "no-configs": "Aucune configuration disponible. Cliquez sur Actualiser.",
+      "import": "Importer"
+    },
+    "list": {
+      "loading": "Chargement des connexions...",
+      "empty": "Aucune connexion enregistrée",
+      "import-config": "Importer une configuration"
+    },
+    "card": {
+      "double-click-rename": "Double-cliquez pour renommer",
+      "rename": "Renommer",
+      "dns-override-current": "Remplacement DNS : {dns} (cliquez pour modifier)",
+      "dns-override-set": "Définir un remplacement DNS par connexion",
+      "add-protocol": "Ajouter un protocole",
+      "delete": "Supprimer",
+      "remove-protocol": "Retirer {protocol} de cette connexion",
+      "vpn-ip": "IP VPN :",
+      "connected-via": "Connecté via {protocol}"
+    },
+    "dns": {
+      "title": "Remplacement DNS",
+      "subtitle": "DNS par connexion pour « {name} ». Vide = hériter du global dans les paramètres.",
+      "placeholder": "ex. 1.1.1.1, 2606:4700:4700::1111",
+      "hint": "IPv4/IPv6 séparés par virgule. Remplace le DNS des paramètres uniquement pour cette connexion.",
+      "cancel": "Annuler",
+      "save": "Enregistrer",
+      "invalid": "Invalide : {entries}"
+    },
+    "dialog": {
+      "delete-pool-confirm": "Supprimer le pool « {name} » ? Cette action est irréversible."
+    },
+    "policy": {
+      "geo-nearest": "Geo-Nearest",
+      "random": "Aléatoire",
+      "round-robin": "Round-Robin"
+    },
+    "error": {
+      "activate-pool-failed": "Échec de l'activation du pool",
+      "delete-pool-failed": "Échec de la suppression du pool",
+      "qr-not-recognised": "Contenu QR non reconnu comme configuration VPN ou URL d'enrôlement Privycs",
+      "qr-import-failed": "Échec de l'import QR : {error}",
+      "connect-failed": "Échec de la connexion",
+      "import-failed": "Échec de l'importation : {error}",
+      "unknown": "Erreur inconnue",
+      "select-connection-failed": "Échec de la sélection de la connexion",
+      "switch-protocol-failed": "Échec du changement de protocole",
+      "delete-connection-failed": "Échec de la suppression de la connexion",
+      "remove-protocol-failed": "Échec de la suppression du protocole",
+      "save-dns-failed": "Échec de l'enregistrement du remplacement DNS",
+      "rename-connection-failed": "Échec du renommage de la connexion"
+    }
+  },
+  "add-connection": {
+    "title": "Ajouter une connexion",
+    "title-add-protocol": "Ajouter un protocole à {name}",
+    "default-scanned-name": "scanné",
+    "button": {
+      "scan-qr": "Scanner QR",
+      "scan-qr-title": "Scanner un code QR",
+      "gateway": "Gateway",
+      "importing": "Importation...",
+      "add-protocol-config": "Ajouter une configuration de protocole",
+      "import-config": "Importer une configuration"
+    },
+    "gateway": {
+      "configs": "Configurations Gateway",
+      "missing-protocols": "Protocoles manquants depuis le Gateway",
+      "loading": "Chargement...",
+      "refresh": "Actualiser",
+      "no-configs": "Aucune configuration disponible. Cliquez sur Actualiser.",
+      "import": "Importer"
+    },
+    "intro": {
+      "import": "Importer un fichier de configuration VPN",
+      "add-another": "Ajouter une autre configuration de protocole"
+    },
+    "dropzone": {
+      "drop-here": "Déposez le fichier ici",
+      "click-to-select": "Cliquez pour sélectionner un fichier de configuration",
+      "formats-hint": ".conf (WireGuard) / .ovpn (OpenVPN) / .sswan (IPSec)"
+    },
+    "protocol": {
+      "unknown": "Inconnu"
+    },
+    "form": {
+      "connection-name": "Nom de la connexion",
+      "connection-name-placeholder": "ex. VPN du bureau",
+      "add-to-existing": "Ou ajouter à une connexion existante"
+    },
+    "option": {
+      "create-new": "Créer une nouvelle connexion"
+    },
+    "formats": {
+      "title": "Formats pris en charge",
+      "wireguard": ".conf — WireGuard",
+      "openvpn": ".ovpn — OpenVPN",
+      "ipsec": ".sswan — IPSec/IKEv2"
+    },
+    "success": {
+      "protocol-added": "Configuration {protocol} ajoutée",
+      "imported": "Connexion importée avec succès",
+      "protocol-added-from-gateway": "Configuration {protocol} ajoutée depuis le gateway",
+      "imported-from-gateway": "Connexion importée depuis le gateway"
+    },
+    "error": {
+      "failed-to-connect": "Échec de la connexion",
+      "unknown": "Erreur inconnue",
+      "gateway-import-failed": "Échec de l'import gateway : {msg}",
+      "store-credentials": "Impossible d'enregistrer les identifiants gateway : {error}",
+      "qr-not-recognised": "Contenu du code QR non reconnu comme configuration VPN ou URL d'enrôlement Privycs",
+      "cannot-detect-protocol": "Impossible de détecter le protocole depuis le fichier",
+      "invalid-config": "Format de fichier de configuration invalide",
+      "unsupported": "Protocole ou format de fichier non pris en charge",
+      "import-failed": "Échec de l'importation — vérifiez votre fichier de configuration"
+    }
+  },
+  "add-pool": {
+    "title": "Ajouter un pool de connexions",
+    "field": {
+      "name": "Nom du pool",
+      "name-placeholder": "ex. Mullvad WG",
+      "config-files": "Fichiers de configuration",
+      "policy": "Politique de sélection"
+    },
+    "dropzone": {
+      "instructions": "Déposez un ZIP, ou plusieurs fichiers {conf} / {ovpn} / {sswan}",
+      "or-browse": "ou cliquez pour parcourir"
+    },
+    "selected": {
+      "count": "Sélectionné : {n} fichier | Sélectionnés : {n} fichiers"
+    },
+    "policy": {
+      "geo-nearest": "Geo-Nearest (pays le plus proche)",
+      "random": "Aléatoire",
+      "round-robin-region": "Round-Robin par région",
+      "geo-nearest-description": "Choisit le serveur le plus proche de votre pays (détecté automatiquement). Replie sur la même région ou aléatoire.",
+      "random-description": "Choisit un serveur aléatoire du pool à chaque connexion.",
+      "round-robin-region-description": "Alterne entre différentes régions selon un minuteur. Configurez l'intervalle après l'import."
+    },
+    "progress": {
+      "extracting": "Extraction de l'archive...",
+      "parsing": "Analyse des configurations... {current}/{total}",
+      "resolving": "Résolution des points d'accès... {current}/{total}",
+      "finishing": "Finalisation...",
+      "working": "Traitement...",
+      "imported-skipped": "{imported} importés, {skipped} ignorés"
+    },
+    "button": {
+      "cancel": "Annuler",
+      "import": "Importer le pool",
+      "importing": "Importation..."
+    },
+    "error": {
+      "failed-to-read": "Échec de la lecture de {name} : {error}",
+      "import-failed": "échec de l'importation"
+    }
+  },
+  "pool-detail": {
+    "loading": "Chargement...",
+    "not-found": "Pool introuvable.",
+    "header": {
+      "subtitle": "Pool · {count} serveurs · {protocols}"
+    },
+    "button": {
+      "edit-pool-title": "Modifier le pool",
+      "change": "Modifier",
+      "rename": "Renommer",
+      "delete": "Supprimer",
+      "delete-pool": "Supprimer le pool",
+      "use-pool": "Utiliser ce pool",
+      "active": "Actif",
+      "reset": "Réinitialiser",
+      "apply": "Appliquer",
+      "saving": "Enregistrement...",
+      "cancel": "Annuler",
+      "save": "Enregistrer"
+    },
+    "coverage": {
+      "heading": "Couverture",
+      "hide": "Masquer",
+      "restrict-to-region": "Restreindre à la région",
+      "no-country-data": "Aucune donnée de pays — les politiques géo retomberont sur Aléatoire.",
+      "excluded": "exclu",
+      "servers-one": "{servers} serveur",
+      "servers-other": "{servers} serveurs",
+      "countries-one": "{countries} pays",
+      "countries-other": "{countries} pays",
+      "toggle-help": "Désactivez une région pour l'exclure des choix de politique. Laissez tout activé pour aucune restriction."
+    },
+    "policy": {
+      "heading": "Politique",
+      "country-override-label": "Pays imposé :",
+      "geo-nearest": "Geo-Nearest",
+      "random": "Aléatoire",
+      "round-robin-region": "Round-Robin (région)",
+      "round-robin-region-every": "Round-Robin (toutes les {minutes} min)",
+      "geo-nearest-description": "Pays le plus proche de vous. Replie sur la même région ou aléatoire.",
+      "random-description": "Choisit un serveur aléatoire à chaque connexion.",
+      "round-robin-region-description": "Alterne entre différentes régions selon un minuteur."
+    },
+    "members": {
+      "heading": "Membres",
+      "unreachable-badge": "{count} injoignable(s)",
+      "unreachable-badge-title": "{count} membre(s) marqué(s) injoignable(s). Effacement auto après 30 minutes.",
+      "reset-all": "Tout réinitialiser",
+      "resetting": "Réinitialisation...",
+      "reset-all-title": "Efface le drapeau injoignable de tous les membres. À utiliser après un changement de réseau pour que le rotateur puisse les reprendre immédiatement.",
+      "search-placeholder": "Rechercher...",
+      "unreachable": "Injoignable",
+      "country-unknown": "inconnu",
+      "region-other": "Autre",
+      "no-matches": "Aucun résultat.",
+      "tooltip-last-failure": "Dernier échec : {time}",
+      "tooltip-reason": "Raison : {reason}",
+      "tooltip-auto-clears": "Effacement auto 30 min après le dernier échec."
+    },
+    "modal": {
+      "edit-pool-title": "Modifier le pool"
+    },
+    "field": {
+      "name": "Nom",
+      "selection-policy": "Politique de sélection",
+      "country-override": "Pays imposé",
+      "country-override-placeholder": "Auto (actuellement {country})",
+      "country-override-help": "Laissez vide pour détection auto via sonde DoH.",
+      "rotation-interval": "Intervalle de rotation",
+      "minutes-range": "minutes (1 - 1440)",
+      "idle-aware": "Sensible à l'inactivité",
+      "idle-aware-help": "Reporte la rotation tant que du trafic circule, force la rotation après le plafond ci-dessous.",
+      "force-rotate-after": "Rotation forcée après (min bloqués par inactivité)"
+    },
+    "interval": {
+      "5-minutes": "5 minutes",
+      "10-minutes": "10 minutes",
+      "15-minutes": "15 minutes",
+      "30-minutes": "30 minutes",
+      "1-hour": "1 heure",
+      "2-hours": "2 heures",
+      "4-hours": "4 heures",
+      "custom": "Personnalisé..."
+    },
+    "split-tunnel": {
+      "heading": "Tunnel divisé (contournement)",
+      "description": "Le trafic vers ces plages IP contourne le VPN. WireGuard + OpenVPN ; membres IPSec ignorés (négociation de sélecteur de trafic côté serveur).",
+      "exclude-private-networks": "Exclure les réseaux privés",
+      "exclude-private-networks-help": "RFC1918 (10/8, 172.16/12, 192.168/16) + ULA IPv6 fc00::/7 + link-local",
+      "bypass-cidrs-label": "CIDRs de contournement personnalisés (un par ligne)",
+      "bypass-cidrs-empty": "Vide = aucun CIDR personnalisé (le bouton réseaux privés s'applique toujours)",
+      "bypass-cidrs-valid-one": "{count} CIDR valide",
+      "bypass-cidrs-valid-other": "{count} CIDRs valides",
+      "bypass-cidrs-invalid": "{invalid} sur {total} invalides : {samples}"
+    },
+    "dns-override": {
+      "label": "Remplacement DNS",
+      "label-suffix": "(par pool, IPv4 + IPv6)",
+      "placeholder": "ex. 1.1.1.1, 2606:4700:4700::1111",
+      "help": "Vide = utiliser le remplacement DNS global des paramètres. Les remplacements s'appliquent uniquement quand ce pool est la sélection active."
+    },
+    "confirm": {
+      "delete-member": "Supprimer {name} de ce pool ?",
+      "delete-pool": "Supprimer le pool « {name} » ? Cette action est irréversible."
+    },
+    "prompt": {
+      "new-name": "Nouveau nom :"
+    }
+  },
+  "network-rules": {
+    "title": "À la demande et règles réseau",
+    "button": {
+      "add-rule": "Ajouter une règle",
+      "add": "Ajouter",
+      "cancel": "Annuler",
+      "save": "Enregistrer",
+      "delete": "Supprimer"
+    },
+    "precedence": {
+      "heading": "Comment cet écran décide",
+      "body": "À chaque changement de réseau, les règles ci-dessous sont évaluées de haut en bas — la première règle qui correspond au réseau Wi-Fi ou filaire actuel l'emporte. Si aucune ne correspond, le <strong>comportement par défaut</strong> épinglé en bas s'applique. Les règles ne sont évaluées que lorsque le moteur et Connect-on-Demand sont tous deux activés."
+    },
+    "engine": {
+      "label": "Moteur de règles activé",
+      "help": "Quand désactivé, chaque règle ci-dessous est ignorée et seul le comportement par défaut s'applique.",
+      "disabled-notice": "Désactivé par défaut en v0.9.13.4 suite à des rapports de stabilité. Activez pour mettre en route. Les règles existantes sont conservées."
+    },
+    "empty": {
+      "heading": "Aucune règle pour le moment",
+      "body": "Chaque réseau retombe sur le <strong>comportement par défaut</strong> ci-dessous. Ajoutez une règle pour le remplacer pour un SSID Wi-Fi, BSSID ou type de réseau spécifique — en routant ce réseau vers un pool, une connexion ou Pas de VPN."
+    },
+    "list": {
+      "heading": "Règles — évaluées de haut en bas",
+      "priority": "priorité {n}"
+    },
+    "fallback": {
+      "heading": "Repli — quand aucune règle ne correspond",
+      "cod-label": "Connect on Demand",
+      "cod-help": "Comportement par défaut pour tout réseau qu'aucune règle ci-dessus n'a fait correspondre"
+    },
+    "cod": {
+      "when-connected-to": "Lorsque connecté à",
+      "wifi-networks": "Réseaux WiFi",
+      "connect-only-on": "Se connecter uniquement sur",
+      "do-not-connect-on": "Ne pas se connecter sur",
+      "ssid-input-placeholder": "Tapez un SSID et appuyez sur Entrée (ou Ajouter)",
+      "remove-ssid": "Retirer {ssid}",
+      "no-ssids-yet": "Aucun SSID ajouté pour l'instant.",
+      "no-ssids-only-hint": "Connect-on-Demand ne se déclenchera pas tant que vous n'en ajoutez pas au moins un.",
+      "no-ssids-except-hint": "Connect-on-Demand se déclenchera sur chaque WiFi."
+    },
+    "trigger": {
+      "any": "Tout réseau",
+      "wifi": "WiFi uniquement",
+      "ethernet": "Ethernet uniquement",
+      "mobile": "Mobile uniquement",
+      "wifi-mobile": "WiFi et mobile"
+    },
+    "ssid-mode": {
+      "all": "Tous les SSIDs",
+      "only": "Seulement ces SSIDs",
+      "except": "Sauf ces SSIDs"
+    },
+    "status": {
+      "no-network": "Aucun réseau",
+      "vpn-active": "-- VPN : actif",
+      "connecting": "-- Connexion..."
+    },
+    "modal": {
+      "edit-title": "Modifier la règle",
+      "new-title": "Nouvelle règle"
+    },
+    "field": {
+      "name": "Nom (optionnel)",
+      "name-placeholder": "Maison / Bureau / Public",
+      "match-by": "Correspondre par",
+      "action": "Action",
+      "pool": "Pool",
+      "connection": "Connexion"
+    },
+    "match-type": {
+      "ssid-exact": "SSID Wi-Fi (exact)",
+      "ssid-pattern": "SSID Wi-Fi (motif *, ?)",
+      "network-type": "Type de réseau",
+      "bssid": "BSSID Wi-Fi (MAC)",
+      "any": "Tout réseau"
+    },
+    "match-value-label": {
+      "ssid-exact": "SSID",
+      "ssid-pattern": "Motif SSID (utilisez * et ?)",
+      "network-type": "wifi / mobile / ethernet / wifi_mobile / any",
+      "bssid": "BSSID (ex. aa:bb:cc:dd:ee:ff)"
+    },
+    "match-value-hint": {
+      "ssid-exact": "HomeWifi",
+      "ssid-pattern": "Cafe-*",
+      "network-type": "wifi",
+      "bssid": "aa:bb:cc:dd:ee:ff"
+    },
+    "action": {
+      "no-vpn": "Pas de VPN (fiable)",
+      "pool": "Utiliser un pool",
+      "connection": "Utiliser une connexion"
+    },
+    "target": {
+      "pick-pool": "Choisir un pool…",
+      "pick-connection": "Choisir une connexion…",
+      "missing": "(manquant)"
+    },
+    "summary": {
+      "ssid-exact": "SSID = « {value} »",
+      "ssid-pattern": "SSID correspond à « {value} »",
+      "network-type": "Réseau = {value}",
+      "bssid": "BSSID = {value}",
+      "any": "Tout réseau",
+      "action-no-vpn": "→ Pas de VPN",
+      "action-pool": "→ Pool : {name}",
+      "action-connection": "→ Connexion : {name}"
+    },
+    "delete-confirm": {
+      "title": "Supprimer cette règle ?"
+    }
+  },
+  "logs": {
+    "title": "Journaux",
+    "empty-state": "Aucun journal disponible",
+    "clear-title": "Supprimer le contenu de tous les fichiers de journal détenus par Privycs",
+    "button": {
+      "clear": "Effacer",
+      "cancel": "Annuler",
+      "clear-logs": "Effacer les journaux",
+      "copy": "Copier",
+      "copied": "Copié !"
+    },
+    "confirm": {
+      "title": "Effacer tous les journaux ?",
+      "body": "Ceci supprime chaque entrée du journal de l'app et du journal OpenVPN. Action irréversible."
+    },
+    "error": {
+      "load-failed": "--- Impossible de charger le fichier journal ---",
+      "clear-failed": "--- Échec de l'effacement : {error} ---"
+    }
+  },
+  "help": {
+    "loading": "Chargement de l'aide…",
+    "error": {
+      "title": "Impossible de charger l'aide"
+    },
+    "button": {
+      "retry": "Réessayer"
+    }
+  },
+  "protocol-selector": {
+    "title": "Sélectionner un protocole",
+    "disconnect-warning": "Changer de protocole déconnectera la session actuelle",
+    "status": {
+      "available": "Disponible",
+      "not-installed": "Non installé"
+    },
+    "amneziawg": {
+      "description": "WireGuard avec obfuscation anti-DPI — pour les réseaux restrictifs",
+      "transport": "UDP (obfusqué)"
+    },
+    "wireguard": {
+      "description": "VPN rapide et moderne avec une cryptographie de pointe",
+      "transport": "UDP 51820"
+    },
+    "openvpn": {
+      "description": "Protocole flexible avec TCP/UDP, fonctionne derrière les pare-feux",
+      "transport": "UDP/TCP 1194"
+    },
+    "ipsec": {
+      "description": "Prise en charge native par l'OS, protocole standard entreprise",
+      "transport": "UDP 500/4500"
+    },
+    "error": {
+      "switch-failed": "Échec du changement de protocole"
+    }
+  },
+  "components": {
+    "app-loading-toast": {
+      "headline": {
+        "geo-detect": "Détection de votre position",
+        "geo-detect-done": "Position : {location}",
+        "location-unknown": "Position inconnue",
+        "backfill": "Chargement des pays des points de sortie",
+        "backfill-done": "Points de sortie prêts",
+        "default": "Traitement..."
+      },
+      "activity": {
+        "geo-detect": "Sondage de l'IP publique via DoH...",
+        "geo-detect-done": "Utilisé par la sélection de pool Geo-Nearest",
+        "backfill": "Résolution {current} sur {total}...",
+        "backfill-done": "Drapeaux des pays maintenant visibles"
+      }
+    },
+    "dns-override": {
+      "placeholder": "ex. 1.1.1.1, 2606:4700:4700::1111",
+      "preset-label": "Ou utiliser un préréglage :",
+      "pick-provider": "— choisir un fournisseur —"
+    },
+    "pool-import-toast": {
+      "headline": {
+        "extracting": "Extraction de l'archive",
+        "parsing": "Analyse des configurations",
+        "resolving": "Résolution des points d'accès",
+        "done": "Import terminé",
+        "default": "Import du pool"
+      },
+      "activity": {
+        "done-summary": "{imported} importés, {skipped} ignorés",
+        "skipped-so-far": "{skipped} ignorés jusqu'ici"
+      }
+    },
+    "qr-scan-modal": {
+      "title": "Scanner un code QR",
+      "paste-label": "Ou coller le contenu :",
+      "paste-placeholder": "Coller une configuration WireGuard ou une URL privycs://enroll",
+      "hint": "Pointez l'appareil photo vers un code QR WireGuard ou un QR d'enrôlement Privycs.",
+      "button": {
+        "use-pasted": "Utiliser le contenu collé"
+      },
+      "error": {
+        "no-detector": "Ce système ne prend pas en charge la lecture QR dans le navigateur. Collez le contenu QR ci-dessous à la place.",
+        "qr-not-supported": "Les codes QR ne sont pas pris en charge par le détecteur de codes-barres de ce système. Collez le contenu QR ci-dessous.",
+        "init-failed": "Impossible d'initialiser le détecteur QR : {error}",
+        "camera-denied": "L'accès à la caméra a été refusé. Accordez l'autorisation à l'app ou collez le contenu QR ci-dessous.",
+        "camera-failed": "Impossible d'ouvrir la caméra : {error}"
+      }
+    }
+  }
+}

@@ -494,14 +494,15 @@ func (r *ConnectionRegistry) Save() {
 		log.Printf("Failed to marshal connections: %v", err)
 		return
 	}
-	if err := os.WriteFile(r.filePath, data, 0600); err != nil {
+	if err := EncryptedWriteFile(r.filePath, data, 0600); err != nil {
 		log.Printf("Failed to save connections: %v", err)
 	}
 }
 
-// load reads the registry from disk
+// load reads the registry from disk. EncryptedReadFile transparently
+// handles pre-migration plaintext and v1.0.0+ encrypted blobs.
 func (r *ConnectionRegistry) load() {
-	data, err := os.ReadFile(r.filePath)
+	data, err := EncryptedReadFile(r.filePath)
 	if err != nil {
 		return
 	}
@@ -621,7 +622,7 @@ func (r *ConnectionRegistry) load() {
 	}
 	if healed {
 		if d, err := json.MarshalIndent(r, "", "  "); err == nil {
-			_ = os.WriteFile(r.filePath, d, 0600)
+			_ = EncryptedWriteFile(r.filePath, d, 0600)
 		}
 	}
 }

@@ -34,7 +34,8 @@ type AppSettings struct {
 	ConnectOnDemand    ConnectOnDemandSettings `json:"connect_on_demand"`
 	AutostartEnabled   bool                    `json:"autostart_enabled"`
 	MinimizeToTray     bool                    `json:"minimize_to_tray"`
-	Theme              string                  `json:"theme"` // dark, light, system
+	Theme              string                  `json:"theme"`                  // dark, light, system
+	AppLanguage        string                  `json:"app_language,omitempty"` // "" = system default; en/de/es/fr otherwise
 	DNSOverride        string                  `json:"dns_override,omitempty"`
 	LogLevel           string                  `json:"log_level"` // debug, info, warn, error
 	GatewayURL         string                  `json:"gateway_url,omitempty"`
@@ -85,6 +86,12 @@ type AppSettings struct {
 	// an older / partial list still produces a total order. Mirrors
 	// the Android AppSettings.protocolFailoverOrder field.
 	ProtocolFailoverOrder []string `json:"protocol_failover_order,omitempty"`
+	// v1.0.0: encryption-at-rest. Set to true once
+	// MigrateAppDataToEncrypted completes successfully on this
+	// machine. Purely informational — the actual on-disk encryption
+	// state is detected via the PVCE magic header (see
+	// encrypted_file.go). UI surfaces this for the privacy banner.
+	EncryptedAtRest bool `json:"encrypted_at_rest,omitempty"`
 }
 
 // ReconnectOnSystemWakeEnabled is the canonical accessor — falls back
@@ -99,10 +106,12 @@ func (s *AppSettings) ReconnectOnSystemWakeEnabled() bool {
 	return *s.ReconnectOnSystemWake
 }
 
-// LoadSettings reads settings from disk or returns defaults
+// LoadSettings reads settings from disk or returns defaults.
+// Transparently handles pre-migration plaintext and v1.0.0+ encrypted
+// settings.json via the EncryptedReadFile wrapper.
 func LoadSettings() *AppSettings {
 	path := filepath.Join(appDataDir(), "settings.json")
-	data, err := os.ReadFile(path)
+	data, err := EncryptedReadFile(path)
 	if err != nil {
 		return defaultSettings()
 	}
@@ -143,7 +152,10 @@ func LoadSettings() *AppSettings {
 	return &settings
 }
 
-// SaveSettings persists settings to disk
+// SaveSettings persists settings to disk. Uses EncryptedWriteFile so
+// post-init writes land encrypted; pre-init writes (before
+// initEncryptionAtRest wires the key provider) stay plaintext and get
+// auto-encrypted by the next migration pass.
 func SaveSettings(s *AppSettings) {
 	path := filepath.Join(appDataDir(), "settings.json")
 	os.MkdirAll(filepath.Dir(path), 0700)
@@ -153,7 +165,7 @@ func SaveSettings(s *AppSettings) {
 		log.Printf("Failed to marshal settings: %v", err)
 		return
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := EncryptedWriteFile(path, data, 0600); err != nil {
 		log.Printf("Failed to save settings: %v", err)
 	}
 }

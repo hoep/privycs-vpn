@@ -5,10 +5,10 @@
       <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-primary-600/20 flex items-center justify-center">
         <ShieldCheckIcon class="w-10 h-10 text-primary-400" />
       </div>
-      <h2 class="text-lg font-bold text-gray-900 dark:text-white mb-2">Welcome to Privycs VPN</h2>
-      <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">Import a VPN config to get started</p>
+      <h2 class="text-lg font-bold text-gray-900 dark:text-white mb-2">{{ $t('connect.welcome.title') }}</h2>
+      <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">{{ $t('connect.welcome.subtitle') }}</p>
       <router-link to="/add" class="btn-primary px-6 py-2.5 rounded-md text-sm">
-        Add Connection
+        {{ $t('connect.welcome.add-connection') }}
       </router-link>
     </div>
 
@@ -32,10 +32,10 @@
         <div class="card px-3 py-2 flex items-center justify-between gap-2 text-xs bg-blue-500/10 border border-blue-500/30">
           <div class="flex items-center gap-2 text-blue-700 dark:text-blue-300">
             <PauseIcon class="w-4 h-4" />
-            <span>Paused — {{ pauseLabel }} remaining</span>
+            <span>{{ $t('connect.pause.remaining', { time: pauseLabel }) }}</span>
           </div>
           <button @click="resumeNow" class="text-blue-700 dark:text-blue-300 hover:underline font-medium">
-            Resume now
+            {{ $t('connect.pause.resume-now') }}
           </button>
         </div>
       </div>
@@ -61,15 +61,15 @@
             <router-link
               :to="`/pool/${poolStore.activePoolId}`"
               class="text-[10px] text-primary-400 hover:text-primary-300 flex-shrink-0"
-            >Edit</router-link>
+            >{{ $t('connect.pool.edit') }}</router-link>
           </div>
 
           <div v-if="activeMemberDisplay" class="text-[10px] text-gray-600 dark:text-gray-300 truncate">
-            <span class="text-gray-400">Currently:</span> {{ activeMemberDisplay }}
+            <span class="text-gray-400">{{ $t('connect.pool.currently') }}</span> {{ activeMemberDisplay }}
           </div>
           <div v-if="pendingMemberDisplay" class="text-[10px] text-amber-500 dark:text-amber-400 truncate mt-0.5">
             <ArrowRightIcon class="inline w-3 h-3 -mt-0.5" />
-            <span class="text-gray-400">Next:</span> {{ pendingMemberDisplay }}
+            <span class="text-gray-400">{{ $t('connect.pool.next') }}</span> {{ pendingMemberDisplay }}
           </div>
 
           <!-- Round-Robin countdown: prominent dedicated row.
@@ -120,13 +120,13 @@
                 : 'bg-gray-400'"
           />
           <div class="flex-1 min-w-0">
-            <div class="text-[11px] font-semibold text-gray-700 dark:text-gray-200">On-demand</div>
+            <div class="text-[11px] font-semibold text-gray-700 dark:text-gray-200">{{ $t('connect.cod.title') }}</div>
             <div class="text-[10px] text-gray-500 dark:text-gray-400 truncate">
               {{ codDescription }}
             </div>
           </div>
           <router-link to="/settings" class="text-[10px] text-primary-400 hover:text-primary-300 flex-shrink-0">
-            Edit
+            {{ $t('connect.cod.edit') }}
           </router-link>
         </div>
       </div>
@@ -198,19 +198,19 @@
           <button @click.stop="showPauseMenu = !showPauseMenu"
             class="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-blue-500/15 text-blue-600 dark:text-blue-300 ring-1 ring-blue-500/30 hover:bg-blue-500/25 hover:ring-blue-500/50 transition-colors"
             :class="showPauseMenu ? 'bg-blue-500/25 ring-blue-500/50' : ''"
-            title="Pause VPN for a fixed duration">
+            :title="$t('connect.pause.title')">
             <PauseIcon class="w-3.5 h-3.5" />
-            <span>Pause</span>
+            <span>{{ $t('connect.pause.button') }}</span>
           </button>
           <div v-if="showPauseMenu"
                @click.stop
                class="absolute right-0 top-full mt-1 w-36 card p-1 shadow-lg z-10 text-xs">
-            <button @click="applyPause(60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">1 minute</button>
-            <button @click="applyPause(3*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">3 minutes</button>
-            <button @click="applyPause(5*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">5 minutes</button>
-            <button @click="applyPause(15*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">15 minutes</button>
-            <button @click="applyPause(60*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">1 hour</button>
-            <button @click="applyPause(4*60*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">4 hours</button>
+            <button @click="applyPause(60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">{{ $t('connect.pause.1-minute') }}</button>
+            <button @click="applyPause(3*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">{{ $t('connect.pause.3-minutes') }}</button>
+            <button @click="applyPause(5*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">{{ $t('connect.pause.5-minutes') }}</button>
+            <button @click="applyPause(15*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">{{ $t('connect.pause.15-minutes') }}</button>
+            <button @click="applyPause(60*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">{{ $t('connect.pause.1-hour') }}</button>
+            <button @click="applyPause(4*60*60)" class="w-full text-left px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700/50">{{ $t('connect.pause.4-hours') }}</button>
           </div>
         </div>
       </div>
@@ -349,7 +349,7 @@
                   </div>
                 </div>
                 <span v-if="(vpn.status?.connection_active_config_id || '') === cfg.id"
-                  class="text-[9px] text-primary-400 mt-1 flex-shrink-0">active</span>
+                  class="text-[9px] text-primary-400 mt-1 flex-shrink-0">{{ $t('connect.protocol.active') }}</span>
               </button>
             </div>
           </div>
@@ -369,7 +369,7 @@
           v-if="!poolStore.activePoolId"
           :to="{ path: '/add', query: { connectionId: vpn.status?.connection_id } }"
           class="px-2 py-1 rounded-full text-[11px] text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 bg-gray-100 dark:bg-gray-800/30 hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-all"
-          title="Add another protocol config"
+          :title="$t('connect.protocol.add-another')"
         >
           +
         </router-link>
@@ -382,10 +382,10 @@
           v-if="poolStore.activePoolId && isConnected"
           @click="showMemberPicker = true"
           class="ml-auto px-2 py-1 rounded-full text-[11px] text-primary-400 hover:text-primary-300 bg-primary-500/10 hover:bg-primary-500/20 transition-all flex items-center gap-1"
-          title="Switch to a different pool member"
+          :title="$t('connect.pool.switch-member-title')"
         >
           <ArrowPathIcon class="w-3 h-3" />
-          Switch member
+          {{ $t('connect.pool.switch-member') }}
         </button>
       </div>
 
@@ -420,7 +420,7 @@
         <div class="card p-3 text-center">
           <div class="flex items-center justify-center gap-1 mb-1">
             <ArrowDownTrayIcon class="w-3 h-3 text-primary-400" />
-            <span class="text-[10px] text-gray-500">Download</span>
+            <span class="text-[10px] text-gray-500">{{ $t('connect.stats.download') }}</span>
           </div>
           <span class="text-base font-semibold text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_rx) }}</span>
           <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestRxSpeed) }}</div>
@@ -432,7 +432,7 @@
         <div class="card p-3 text-center">
           <div class="flex items-center justify-center gap-1 mb-1">
             <ArrowUpTrayIcon class="w-3 h-3 text-secondary-500" />
-            <span class="text-[10px] text-gray-500">Upload</span>
+            <span class="text-[10px] text-gray-500">{{ $t('connect.stats.upload') }}</span>
           </div>
           <span class="text-base font-semibold text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_tx) }}</span>
           <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestTxSpeed) }}</div>
@@ -444,7 +444,7 @@
       <!-- Connection Details -->
       <div class="w-full max-w-sm space-y-1.5">
         <div v-if="vpn.status?.local_address" class="flex justify-between items-start py-1.5 px-3 bg-white dark:bg-gray-800 rounded-lg">
-          <span class="text-[11px] text-gray-500 pt-0.5">VPN IP</span>
+          <span class="text-[11px] text-gray-500 pt-0.5">{{ $t('connect.details.vpn-ip') }}</span>
           <!-- Comma-separated WireGuard addresses split into stacked
                right-aligned lines (IPv4 above IPv6 by insertion order)
                so a 30+ char "10.66.x.x/32, fd00:...::y/128" does not
@@ -459,7 +459,7 @@
           </div>
         </div>
         <div v-if="vpn.status?.server_address" class="flex justify-between items-start py-1.5 px-3 bg-white dark:bg-gray-800 rounded-lg">
-          <span class="text-[11px] text-gray-500 pt-0.5">Endpoint</span>
+          <span class="text-[11px] text-gray-500 pt-0.5">{{ $t('connect.details.endpoint') }}</span>
           <div class="flex flex-col items-end">
             <span
               v-for="(addr, i) in splitAddresses(vpn.status.server_address)"
@@ -469,12 +469,12 @@
           </div>
         </div>
         <div v-if="vpn.status?.last_handshake" class="flex justify-between items-center py-1.5 px-3 bg-white dark:bg-gray-800 rounded-lg">
-          <span class="text-[11px] text-gray-500">Handshake</span>
+          <span class="text-[11px] text-gray-500">{{ $t('connect.details.handshake') }}</span>
           <span class="text-[11px] text-gray-600 dark:text-gray-300">{{ vpn.status.last_handshake }}</span>
         </div>
         <div v-if="vpn.status?.kill_switch_enabled" class="flex justify-between items-center py-1.5 px-3 bg-white dark:bg-gray-800 rounded-lg">
-          <span class="text-[11px] text-gray-500">Kill Switch</span>
-          <span class="text-[11px] text-green-400">Active</span>
+          <span class="text-[11px] text-gray-500">{{ $t('connect.details.kill-switch') }}</span>
+          <span class="text-[11px] text-green-400">{{ $t('connect.details.kill-switch-active') }}</span>
         </div>
       </div>
 
@@ -486,7 +486,7 @@
           class="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[11px] font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 hover:text-primary-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <PencilSquareIcon class="w-3.5 h-3.5" />
-          Edit Config
+          {{ $t('connect.button.edit-config') }}
         </button>
       </div>
 
@@ -528,13 +528,13 @@
           </div>
           <div class="flex-1">
             <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-              Connect on Demand will disconnect
+              {{ $t('connect.cod-mismatch.title') }}
             </h3>
             <p class="mt-1.5 text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-              Connect on Demand is enabled but no rule matches the current network ({{ codCurrentNetworkLabel }}). If you connect now, Connect on Demand will tear the tunnel down again within seconds.
+              {{ $t('connect.cod-mismatch.body', { network: codCurrentNetworkLabel }) }}
             </p>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-500 leading-relaxed">
-              To keep this connection, either disable Connect on Demand in Settings or add a rule for this network.
+              {{ $t('connect.cod-mismatch.hint') }}
             </p>
           </div>
         </div>
@@ -543,13 +543,13 @@
             @click="cancelCodMismatchConnect"
             class="px-3 py-1.5 text-[11px] font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md"
           >
-            Cancel
+            {{ $t('connect.cod-mismatch.cancel') }}
           </button>
           <button
             @click="confirmCodMismatchConnect"
             class="px-3 py-1.5 text-[11px] font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md"
           >
-            Connect anyway
+            {{ $t('connect.cod-mismatch.connect-anyway') }}
           </button>
         </div>
       </div>
@@ -564,7 +564,7 @@
       <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-            Switch pool member
+            {{ $t('connect.member-picker.title') }}
           </h3>
           <button @click="showMemberPicker = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
             <XMarkIcon class="w-4 h-4" />
@@ -574,7 +574,7 @@
           <input
             v-model="memberPickerFilter"
             type="text"
-            placeholder="Search by name, country, or region..."
+            :placeholder="$t('connect.member-picker.search-placeholder')"
             class="w-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded text-xs border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-1 focus:ring-primary-500"
           />
         </div>
@@ -589,14 +589,14 @@
             <div class="min-w-0">
               <div class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ m.name }}</div>
               <div class="text-[10px] text-gray-500">
-                {{ m.country || 'unknown' }} · {{ m.region || 'Other' }}
-                <span v-if="m.unreachable" class="text-amber-400 ml-1">• unreachable</span>
+                {{ m.country || $t('connect.member-picker.unknown') }} · {{ m.region || $t('connect.member-picker.other-region') }}
+                <span v-if="m.unreachable" class="text-amber-400 ml-1">{{ $t('connect.member-picker.unreachable') }}</span>
               </div>
             </div>
-            <span v-if="m.id === activePickerMemberId" class="text-[10px] text-primary-400 flex-shrink-0">Current</span>
+            <span v-if="m.id === activePickerMemberId" class="text-[10px] text-primary-400 flex-shrink-0">{{ $t('connect.member-picker.current') }}</span>
           </button>
           <div v-if="filteredPickerMembers.length === 0" class="text-center text-[10px] text-gray-500 italic py-4">
-            No matches.
+            {{ $t('connect.member-picker.no-matches') }}
           </div>
         </div>
         <div v-if="memberSwitchError" class="px-4 py-2 text-[10px] text-red-400 border-t border-gray-200 dark:border-gray-700">
@@ -610,7 +610,7 @@
       <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-            Edit {{ protocolLabel(vpn.status?.active_protocol || '') }} Config
+            {{ $t('connect.config-editor.title', { protocol: protocolLabel(vpn.status?.active_protocol || '') }) }}
           </h3>
           <button @click="showConfigEditor = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
             <XMarkIcon class="w-4 h-4" />
@@ -625,13 +625,13 @@
         </div>
         <div class="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <span v-if="configSaveStatus" class="text-[10px]" :class="configSaveStatus === 'saved' ? 'text-green-400' : 'text-red-400'">
-            {{ configSaveStatus === 'saved' ? 'Saved and applied' : configSaveStatus }}
+            {{ configSaveStatus === 'saved' ? $t('connect.config-editor.saved-and-applied') : configSaveStatus }}
           </span>
-          <span v-else class="text-[10px] text-gray-500">{{ configEditorContent.length }} bytes</span>
+          <span v-else class="text-[10px] text-gray-500">{{ $t('connect.config-editor.bytes', { count: configEditorContent.length }) }}</span>
           <div class="flex gap-2">
-            <button @click="showConfigEditor = false" class="px-3 py-1.5 text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Cancel</button>
+            <button @click="showConfigEditor = false" class="px-3 py-1.5 text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">{{ $t('connect.config-editor.cancel') }}</button>
             <button @click="saveConfig" :disabled="configSaving" class="px-3 py-1.5 text-[11px] font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md disabled:opacity-50">
-              {{ configSaving ? 'Saving...' : 'Save' }}
+              {{ configSaving ? $t('connect.config-editor.saving') : $t('connect.config-editor.save') }}
             </button>
           </div>
         </div>
@@ -642,6 +642,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useVpnStore, formatSpeed } from '@/stores/vpn'
 import { usePoolStore, formatDuration } from '@/stores/pool'
 import { SelectProtocol, SelectConfig, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause, GetTunnelHealthState } from '../../wailsjs/go/main/App'
@@ -664,6 +665,7 @@ import {
 
 const vpn = useVpnStore()
 const poolStore = usePoolStore()
+const { t } = useI18n()
 
 // Pool indicator computed: only render once the store has the active
 // pool's name. The list refresh is fast enough that we render
@@ -730,9 +732,9 @@ const healthDotClass = computed(() => {
 
 const healthPillLabel = computed(() => {
   switch (tunnelHealthState.value) {
-    case 'healthy':    return 'Tunnel OK'
-    case 'degraded':   return 'Tunnel checks failing'
-    case 'recovering': return 'Recovery in progress'
+    case 'healthy':    return t('connect.health.healthy')
+    case 'degraded':   return t('connect.health.degraded')
+    case 'recovering': return t('connect.health.recovering')
     default:           return ''
   }
 })
@@ -748,9 +750,9 @@ function formatClockTime(ns: number): string {
 const activePoolPolicyShort = computed(() => {
   const p = poolStore.pools.find((x) => x.id === poolStore.activePoolId)
   switch (p?.policy) {
-    case 'geo-nearest':         return 'Geo-Nearest'
-    case 'random':              return 'Random'
-    case 'round-robin-region':  return 'Round-Robin'
+    case 'geo-nearest':         return t('connect.policy.geo-nearest')
+    case 'random':              return t('connect.policy.random')
+    case 'round-robin-region':  return t('connect.policy.round-robin')
     default:                    return ''
   }
 })
@@ -775,21 +777,21 @@ const rotatorCountdown = computed(() => {
 const rotatorPrimaryLabel = computed(() => {
   const r = poolStore.rotatorStatus
   if (!r || !r.active) return ''
-  if (r.idle_blocked) return 'Force-rotate in'
-  return 'Next server in'
+  if (r.idle_blocked) return t('connect.rotator.force-rotate-in')
+  return t('connect.rotator.next-server-in')
 })
 
 const rotatorAtLine = computed(() => {
   const r = poolStore.rotatorStatus
   if (!r || !r.active) return ''
-  if (r.idle_blocked) return `at ${formatClockTime(r.force_rotate_in || 0)}`
-  return `at ${formatClockTime(r.next_rotation_in)}`
+  if (r.idle_blocked) return t('connect.rotator.at', { time: formatClockTime(r.force_rotate_in || 0) })
+  return t('connect.rotator.at', { time: formatClockTime(r.next_rotation_in) })
 })
 
 const rotatorIntervalLabel = computed(() => {
   const r = poolStore.rotatorStatus
   if (!r || !r.active) return ''
-  return `${r.interval_min} min cycle`
+  return t('connect.rotator.min-cycle', { minutes: r.interval_min })
 })
 
 // Server location: "Milan, Italy" / "Frankfurt, Germany" / "Italy"
@@ -884,7 +886,7 @@ async function applyPause(seconds: number) {
     await PauseFor(seconds)
     await vpn.fetchStatus()
   } catch (e: any) {
-    showNotice('Pause failed: ' + (e?.message || e))
+    showNotice(t('connect.toast.pause-failed', { error: e?.message || e }))
   }
 }
 async function resumeNow() {
@@ -892,7 +894,7 @@ async function resumeNow() {
     await CancelPause()
     await vpn.fetchStatus()
   } catch (e: any) {
-    showNotice('Resume failed: ' + (e?.message || e))
+    showNotice(t('connect.toast.resume-failed', { error: e?.message || e }))
   }
 }
 
@@ -908,7 +910,7 @@ async function openConfigEditor() {
     configSaveStatus.value = ''
     showConfigEditor.value = true
   } catch (e: any) {
-    vpn.error = 'Failed to load config: ' + (e?.message || e)
+    vpn.error = t('connect.error.load-config-failed', { error: e?.message || e })
   }
 }
 
@@ -922,7 +924,7 @@ async function saveConfig() {
     // Refresh status after reconnect
     setTimeout(() => { vpn.fetchStatus() }, 3000)
   } catch (e: any) {
-    configSaveStatus.value = e?.message || 'Save failed'
+    configSaveStatus.value = e?.message || t('connect.error.save-failed')
   } finally {
     configSaving.value = false
   }
@@ -955,13 +957,13 @@ async function pickConnection(conn: any) {
     const willReconnect = await SwitchActiveConnection(conn.id, proto)
     const ksState = vpn.status?.kill_switch_state || 'IDLE'
     if (willReconnect && (ksState === 'ARMED' || ksState === 'SINKHOLE')) {
-      showNotice('Kill Switch active. This will block your reconnect!')
+      showNotice(t('connect.toast.kill-switch-block-reconnect'))
     }
     // Parallelise the three post-switch refresh calls - sequential
     // form added ~150 ms perceived lag when switching pool ↔ single.
     await Promise.all([vpn.fetchStatus(), loadConnections(), poolStore.refresh()])
   } catch (e: any) {
-    vpn.error = 'Failed to switch connection'
+    vpn.error = t('connect.error.switch-connection-failed')
   }
 }
 
@@ -1050,7 +1052,7 @@ async function pickEntry(entry: PickerEntry) {
     }
   } catch (e: any) {
     try { LogPrint(`pickEntry: caught error: ${e?.toString()}`) } catch {}
-    vpn.error = e?.toString() || 'failed to switch'
+    vpn.error = e?.toString() || t('connect.error.switch-failed')
   }
 }
 
@@ -1099,14 +1101,14 @@ const codDescription = computed(() => {
   const c = codStatus.value
   if (!c || !c.enabled) return ''
   if (c.vpn_connected) {
-    return `VPN active for ${c.ssid || c.network_type || 'current network'}`
+    return t('connect.cod.vpn-active-for', { network: c.ssid || c.network_type || t('connect.cod.current-network') })
   }
   if (c.rule_match) {
-    return `Rule matched — connecting to ${c.ssid || c.network_type || 'network'}...`
+    return t('connect.cod.rule-matched-connecting', { network: c.ssid || c.network_type || t('connect.cod.network') })
   }
-  if (c.ssid) return `Watching ${c.ssid} (${c.network_type})`
-  if (c.network_type && c.network_type !== 'none') return `Watching ${c.network_type}`
-  return 'No network — idle'
+  if (c.ssid) return t('connect.cod.watching-ssid', { ssid: c.ssid, type: c.network_type })
+  if (c.network_type && c.network_type !== 'none') return t('connect.cod.watching-type', { type: c.network_type })
+  return t('connect.cod.no-network-idle')
 })
 
 // Pool rotator polls every 5s while a pool is active, mirroring the
@@ -1234,11 +1236,11 @@ const showWelcome = computed(() => {
 })
 
 const connectionLabel = computed(() => {
-  if (isSinkhole.value) return 'Kill Switch Active'
+  if (isSinkhole.value) return t('connect.status.kill-switch-active')
   if (vpn.loading) {
-    return isConnected.value ? 'Disconnecting...' : 'Connecting...'
+    return isConnected.value ? t('connect.status.disconnecting') : t('connect.status.connecting')
   }
-  return isConnected.value ? 'Connected' : 'Connect'
+  return isConnected.value ? t('connect.status.connected') : t('connect.status.connect')
 })
 
 const connectionProtocols = computed(() => {
@@ -1343,7 +1345,7 @@ async function switchConfig(configId: string) {
     // Status poll will pick up the change; nudge it.
     await vpn.fetchStatus()
   } catch (e: any) {
-    vpn.error = 'Failed to switch config'
+    vpn.error = t('connect.error.switch-config-failed')
   }
 }
 
@@ -1357,10 +1359,10 @@ const showCodMismatchModal = ref(false)
 
 const codCurrentNetworkLabel = computed(() => {
   const c = codStatus.value
-  if (!c) return 'unknown'
+  if (!c) return t('connect.cod.unknown')
   if (c.ssid) return c.ssid
   if (c.network_type && c.network_type !== 'none') return c.network_type
-  return 'no network'
+  return t('connect.cod.no-network')
 })
 
 function shouldWarnCodMismatch(): boolean {
@@ -1419,7 +1421,7 @@ watch(showMemberPicker, async (open: boolean) => {
     const detail: any = await poolStore.detail(poolStore.activePoolId)
     memberPickerMembers.value = detail?.pool?.members || []
   } catch (e: any) {
-    memberSwitchError.value = e?.toString() || 'failed to load members'
+    memberSwitchError.value = e?.toString() || t('connect.error.load-members-failed')
   }
 })
 
@@ -1430,7 +1432,7 @@ async function pickMember(m: any) {
     await poolStore.switchMember(m.id)
     showMemberPicker.value = false
   } catch (e: any) {
-    memberSwitchError.value = e?.toString() || 'switch failed'
+    memberSwitchError.value = e?.toString() || t('connect.error.switch-failed')
   } finally {
     memberSwitchInFlight.value = false
   }
@@ -1441,7 +1443,7 @@ async function dispatchConnect() {
     try {
       await poolStore.pickAndConnect()
     } catch (e: any) {
-      vpn.error = e?.toString() || 'pool connect failed'
+      vpn.error = e?.toString() || t('connect.error.pool-connect-failed')
     }
   } else {
     await vpn.connect()
@@ -1455,7 +1457,7 @@ async function toggleConnection() {
   // toggling KS off in Settings. We surface a toast so the affordance
   // is not just non-responsive.
   if (isSinkhole.value) {
-    showNotice('Kill Switch is active. Toggle Kill Switch off in Settings to release.')
+    showNotice(t('connect.toast.kill-switch-engaged'))
     return
   }
   if (isConnected.value) {
@@ -1477,7 +1479,7 @@ async function switchProtocol(proto: string) {
       vpn.status.active_protocol = proto
     }
   } catch (e: any) {
-    vpn.error = 'Failed to switch protocol'
+    vpn.error = t('connect.error.switch-protocol-failed')
   }
 }
 

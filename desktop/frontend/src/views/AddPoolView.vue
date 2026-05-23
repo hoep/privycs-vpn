@@ -5,25 +5,25 @@
         <ArrowLeftIcon class="w-5 h-5" />
       </button>
       <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">
-        Add Connection Pool
+        {{ $t('add-pool.title') }}
       </h2>
     </div>
 
     <div class="card p-4 space-y-4">
       <!-- Pool name -->
       <div>
-        <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Pool name</label>
+        <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('add-pool.field.name') }}</label>
         <input
           v-model="poolName"
           type="text"
-          placeholder="e.g. Mullvad WG"
+          :placeholder="$t('add-pool.field.name-placeholder')"
           class="w-full bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
       </div>
 
       <!-- File drop zone -->
       <div>
-        <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Configuration files</label>
+        <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('add-pool.field.config-files') }}</label>
         <div
           @drop.prevent="onDrop"
           @dragover.prevent="dragHover = true"
@@ -33,13 +33,12 @@
                    dragHover ? 'border-primary-500 bg-primary-500/10' : 'border-gray-300 dark:border-gray-700 hover:border-primary-400']"
         >
           <ArrowDownTrayIcon class="w-8 h-8 mx-auto text-gray-400 mb-2" />
-          <p class="text-xs text-gray-600 dark:text-gray-400">
-            Drop a ZIP, or multiple
-            <span class="font-mono">.conf</span> /
-            <span class="font-mono">.ovpn</span> /
-            <span class="font-mono">.sswan</span> files
-          </p>
-          <p class="text-[10px] text-gray-500 mt-1">or click to browse</p>
+          <i18n-t keypath="add-pool.dropzone.instructions" tag="p" class="text-xs text-gray-600 dark:text-gray-400">
+            <template #conf><span class="font-mono">.conf</span></template>
+            <template #ovpn><span class="font-mono">.ovpn</span></template>
+            <template #sswan><span class="font-mono">.sswan</span></template>
+          </i18n-t>
+          <p class="text-[10px] text-gray-500 mt-1">{{ $t('add-pool.dropzone.or-browse') }}</p>
         </div>
         <input
           ref="filePicker"
@@ -50,21 +49,21 @@
           class="hidden"
         />
         <p v-if="selectedFiles.length > 0" class="text-[10px] text-primary-400 mt-2">
-          Selected: {{ selectedFiles.length }} file<span v-if="selectedFiles.length !== 1">s</span>
+          {{ $t('add-pool.selected.count', selectedFiles.length, { n: selectedFiles.length }) }}
           <span class="text-gray-500"> ({{ formatBytes(totalSize) }})</span>
         </p>
       </div>
 
       <!-- Policy -->
       <div>
-        <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Selection policy</label>
+        <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('add-pool.field.policy') }}</label>
         <select
           v-model="policy"
           class="w-full bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
-          <option value="geo-nearest">Geo-Nearest (closest country)</option>
-          <option value="random">Random</option>
-          <option value="round-robin-region">Round-Robin Region</option>
+          <option value="geo-nearest">{{ $t('add-pool.policy.geo-nearest') }}</option>
+          <option value="random">{{ $t('add-pool.policy.random') }}</option>
+          <option value="round-robin-region">{{ $t('add-pool.policy.round-robin-region') }}</option>
         </select>
         <p class="text-[10px] text-gray-500 mt-1">
           {{ policyDescription }}
@@ -81,7 +80,7 @@
           ></div>
         </div>
         <p class="text-[10px] text-gray-500">
-          {{ progress.imported }} imported, {{ progress.skipped }} skipped
+          {{ $t('add-pool.progress.imported-skipped', { imported: progress.imported, skipped: progress.skipped }) }}
         </p>
       </div>
 
@@ -94,14 +93,14 @@
           @click="$router.back()"
           class="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
         >
-          Cancel
+          {{ $t('add-pool.button.cancel') }}
         </button>
         <button
           @click="doImport"
           :disabled="!canImport || importing"
           class="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {{ importing ? 'Importing...' : 'Import Pool' }}
+          {{ importing ? $t('add-pool.button.importing') : $t('add-pool.button.import') }}
         </button>
       </div>
     </div>
@@ -111,11 +110,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { usePoolStore, type PoolPolicy } from '@/stores/pool'
 import { ArrowLeftIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const pool = usePoolStore()
+const { t } = useI18n()
 
 const poolName = ref('')
 const policy = ref<PoolPolicy>('geo-nearest')
@@ -141,19 +142,19 @@ function formatBytes(bytes: number): string {
 
 const policyDescription = computed(() => {
   switch (policy.value) {
-    case 'geo-nearest': return 'Picks the closest server to your country (auto-detected). Falls back to same-region or random.'
-    case 'random':      return 'Picks a random server from the pool on every connect.'
-    case 'round-robin-region': return 'Rotates through different regions on a timer. Configure interval after import.'
+    case 'geo-nearest': return t('add-pool.policy.geo-nearest-description')
+    case 'random':      return t('add-pool.policy.random-description')
+    case 'round-robin-region': return t('add-pool.policy.round-robin-region-description')
   }
   return ''
 })
 
 const progressLabel = computed(() => {
-  if (progress.value.stage === 'extracting') return 'Extracting archive...'
-  if (progress.value.stage === 'parsing')    return `Parsing configs... ${progress.value.current}/${progress.value.total}`
-  if (progress.value.stage === 'resolving')  return `Resolving endpoints... ${progress.value.current}/${progress.value.total}`
-  if (progress.value.stage === 'done')       return 'Finishing...'
-  return 'Working...'
+  if (progress.value.stage === 'extracting') return t('add-pool.progress.extracting')
+  if (progress.value.stage === 'parsing')    return t('add-pool.progress.parsing', { current: progress.value.current, total: progress.value.total })
+  if (progress.value.stage === 'resolving')  return t('add-pool.progress.resolving', { current: progress.value.current, total: progress.value.total })
+  if (progress.value.stage === 'done')       return t('add-pool.progress.finishing')
+  return t('add-pool.progress.working')
 })
 
 function onDrop(e: DragEvent) {
@@ -178,7 +179,7 @@ function readFileAsBytes(file: File): Promise<Uint8Array> {
       const buf = r.result as ArrayBuffer
       resolve(new Uint8Array(buf))
     }
-    r.onerror = () => reject(new Error(`Failed to read ${file.name}: ${r.error}`))
+    r.onerror = () => reject(new Error(t('add-pool.error.failed-to-read', { name: file.name, error: String(r.error) })))
     r.readAsArrayBuffer(file)
   })
 }
@@ -220,7 +221,7 @@ async function doImport() {
     await pool.createFromUploads(poolName.value.trim(), policy.value, uploads)
     router.push('/connections')
   } catch (e: any) {
-    error.value = e?.toString() || 'import failed'
+    error.value = e?.toString() || t('add-pool.error.import-failed')
   } finally {
     importing.value = false
     if (stopProgressListener) {

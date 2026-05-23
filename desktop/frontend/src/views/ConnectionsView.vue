@@ -1,7 +1,7 @@
 <template>
   <div class="p-4 overflow-y-auto max-h-[calc(100vh-7rem)]">
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">Connections</h2>
+      <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">{{ $t('connections.title') }}</h2>
       <div class="flex items-center gap-3">
         <!-- QR code scan — sits next to the cloud/gateway icon to
              group the two "import from outside" actions visually.
@@ -9,10 +9,10 @@
         <button
           @click="showQrScanner = true"
           class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
-          title="Scan QR code"
+          :title="$t('connections.button.scan-qr-title')"
         >
           <QrCodeIcon class="w-4 h-4" />
-          Scan QR
+          {{ $t('connections.button.scan-qr') }}
         </button>
         <button
           v-if="hasApiKey"
@@ -20,15 +20,15 @@
           class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
         >
           <CloudArrowDownIcon class="w-4 h-4" />
-          Gateway
+          {{ $t('connections.button.gateway') }}
         </button>
-        <router-link to="/add-pool" class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1" title="Connection Pool from a ZIP or many config files">
+        <router-link to="/add-pool" class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1" :title="$t('connections.button.add-pool-title')">
           <RectangleStackIcon class="w-4 h-4" />
-          Add Pool
+          {{ $t('connections.button.add-pool') }}
         </router-link>
         <router-link to="/add" class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1">
           <PlusIcon class="w-4 h-4" />
-          Add
+          {{ $t('connections.button.add') }}
         </router-link>
       </div>
     </div>
@@ -41,7 +41,7 @@
          pattern as selectConnection() for singles. The pencil icon
          opens the detail/edit view. -->
     <div v-if="poolStore.pools.length > 0" class="mb-4 space-y-2">
-      <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Connection Pools</h3>
+      <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">{{ $t('connections.pools.heading') }}</h3>
       <div
         v-for="p in poolStore.pools"
         :key="p.id"
@@ -61,7 +61,7 @@
                 {{ p.name }}
               </p>
               <p class="text-[10px] text-gray-500">
-                Pool · {{ p.member_count }} server<span v-if="p.member_count !== 1">s</span> · {{ policyShort(p.policy) }}
+                {{ $t('connections.pools.summary', { count: p.member_count, policy: policyShort(p.policy) }) }}
                 <span v-if="p.is_active && p.active_member_name" class="ml-1 text-primary-400">→ {{ p.active_member_name }}</span>
               </p>
             </div>
@@ -70,14 +70,14 @@
             <button
               @click.stop="$router.push(`/pool/${p.id}`)"
               class="p-1.5 text-gray-400 hover:text-primary-400"
-              title="Edit pool"
+              :title="$t('connections.pools.edit-title')"
             >
               <PencilIcon class="w-4 h-4" />
             </button>
             <button
               @click.stop="confirmDeletePool(p)"
               class="p-1.5 text-gray-400 hover:text-red-400"
-              title="Delete pool"
+              :title="$t('connections.pools.delete-title')"
             >
               <TrashIcon class="w-4 h-4" />
             </button>
@@ -89,14 +89,14 @@
     <!-- Remote configs panel -->
     <div v-if="showRemoteConfigs" class="card p-3 mb-4 border border-primary-500/30">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-xs font-semibold text-gray-500 dark:text-gray-400">Gateway Configs</span>
+        <span class="text-xs font-semibold text-gray-500 dark:text-gray-400">{{ $t('connections.gateway.heading') }}</span>
         <button @click="loadRemoteConfigs" :disabled="loadingRemote" class="text-[10px] text-primary-400 hover:text-primary-300">
-          {{ loadingRemote ? 'Loading...' : 'Refresh' }}
+          {{ loadingRemote ? $t('connections.gateway.loading') : $t('connections.gateway.refresh') }}
         </button>
       </div>
       <p v-if="remoteError" class="text-[10px] text-red-400 mb-2">{{ remoteError }}</p>
       <div v-if="remoteConfigs.length === 0 && !loadingRemote" class="text-[10px] text-gray-500 text-center py-2">
-        No configs available. Click Refresh.
+        {{ $t('connections.gateway.no-configs') }}
       </div>
       <div v-else class="space-y-1.5 max-h-48 overflow-y-auto">
         <div
@@ -122,7 +122,7 @@
             :disabled="downloadingId === rc.protocol + '-' + rc.id"
             class="text-[10px] px-2 py-1 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 flex-shrink-0"
           >
-            {{ downloadingId === rc.protocol + '-' + rc.id ? '...' : 'Import' }}
+            {{ downloadingId === rc.protocol + '-' + rc.id ? '...' : $t('connections.gateway.import') }}
           </button>
         </div>
       </div>
@@ -147,14 +147,14 @@
          actionError, so the cards always render when connections exist. -->
     <div v-if="loadingConnections" class="text-center mt-12">
       <div class="w-6 h-6 mx-auto border-2 border-primary-400 border-t-transparent rounded-full animate-spin mb-3"></div>
-      <p class="text-xs text-gray-500">Loading connections...</p>
+      <p class="text-xs text-gray-500">{{ $t('connections.list.loading') }}</p>
     </div>
 
     <div v-else-if="connections.length === 0" class="text-center mt-12">
       <DocumentTextIcon class="w-12 h-12 mx-auto text-gray-600 mb-3" />
-      <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">No saved connections</p>
+      <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ $t('connections.list.empty') }}</p>
       <router-link to="/add" class="btn-primary px-4 py-2 text-xs">
-        Import Config
+        {{ $t('connections.list.import-config') }}
       </router-link>
     </div>
 
@@ -182,7 +182,7 @@
               @dblclick.stop="startRename(conn)"
               class="text-sm font-medium truncate"
               :class="isSelected(conn.id) ? 'text-primary-300' : 'text-gray-900 dark:text-white'"
-              title="Double-click to rename"
+              :title="$t('connections.card.double-click-rename')"
             >{{ conn.name }}</h3>
             <input
               v-else
@@ -200,7 +200,7 @@
             <button
               @click="startRename(conn)"
               class="p-1 text-gray-500 hover:text-primary-400 transition-colors"
-              title="Rename"
+              :title="$t('connections.card.rename')"
             >
               <PencilIcon class="w-3.5 h-3.5" />
             </button>
@@ -208,21 +208,21 @@
               @click="openDnsEdit(conn)"
               class="p-1 transition-colors"
               :class="conn.dns_override ? 'text-primary-400 hover:text-primary-300' : 'text-gray-500 hover:text-primary-400'"
-              :title="conn.dns_override ? 'DNS Override: ' + conn.dns_override + ' (click to edit)' : 'Set per-connection DNS Override'"
+              :title="conn.dns_override ? $t('connections.card.dns-override-current', { dns: conn.dns_override }) : $t('connections.card.dns-override-set')"
             >
               <GlobeAltIcon class="w-3.5 h-3.5" />
             </button>
             <router-link
               :to="{ path: '/add', query: { connectionId: conn.id } }"
               class="p-1 text-gray-500 hover:text-primary-400 transition-colors"
-              title="Add protocol"
+              :title="$t('connections.card.add-protocol')"
             >
               <PlusIcon class="w-3.5 h-3.5" />
             </router-link>
             <button
               @click="remove(conn.id)"
               class="p-1 text-gray-500 hover:text-red-400 transition-colors"
-              title="Delete"
+              :title="$t('connections.card.delete')"
             >
               <TrashIcon class="w-3.5 h-3.5" />
             </button>
@@ -253,7 +253,7 @@
               v-if="conn.protocols && conn.protocols.length > 1"
               @click="removeProtocol(conn.id, pc.protocol)"
               class="ml-0.5 opacity-0 group-hover:opacity-100 transition-opacity w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-red-500 hover:text-white flex items-center justify-center text-[9px] leading-none"
-              :title="'Remove ' + protocolLabel(pc.protocol) + ' from this connection'"
+              :title="$t('connections.card.remove-protocol', { protocol: protocolLabel(pc.protocol) })"
             >
               ×
             </button>
@@ -272,14 +272,14 @@
              stored (fresh import that never connected, or static-IP-
              less .ovpn). -->
         <div v-if="activeConfig(conn)?.local_address" class="text-[11px] text-gray-500 font-mono">
-          <span class="text-gray-400">VPN IP:</span> {{ activeConfig(conn)?.local_address }}
+          <span class="text-gray-400">{{ $t('connections.card.vpn-ip') }}</span> {{ activeConfig(conn)?.local_address }}
         </div>
 
         <!-- Connected indicator with protocol brand color -->
         <div v-if="isConnected(conn.id)" class="mt-2 flex items-center gap-1.5">
           <div class="w-1.5 h-1.5 rounded-full animate-pulse" :class="protocolDotColor(vpn.status?.active_protocol)"></div>
           <span class="text-[10px] font-medium" :class="protocolTextColor(vpn.status?.active_protocol)">
-            Connected via {{ protocolLabel(vpn.status?.active_protocol) }}
+            {{ $t('connections.card.connected-via', { protocol: protocolLabel(vpn.status?.active_protocol) }) }}
           </span>
         </div>
       </div>
@@ -302,14 +302,14 @@
     >
       <div class="card p-4 max-w-md w-full">
         <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-          DNS Override
+          {{ $t('connections.dns.title') }}
         </h3>
         <p class="text-[11px] text-gray-500 mb-3">
-          Per-connection DNS for "{{ dnsEditTarget.name }}". Empty inherits Settings global.
+          {{ $t('connections.dns.subtitle', { name: dnsEditTarget.name }) }}
         </p>
         <DnsOverrideField
           v-model="dnsEditDraft"
-          placeholder="e.g. 1.1.1.1, 2606:4700:4700::1111"
+          :placeholder="$t('connections.dns.placeholder')"
           @update:model-value="validateDnsEdit"
         />
         <p
@@ -320,21 +320,21 @@
           v-else
           class="text-[10px] text-gray-500 mb-2"
         >
-          Comma-separated IPv4/IPv6. Overrides Settings DNS for this connection only.
+          {{ $t('connections.dns.hint') }}
         </p>
         <div class="flex justify-end gap-2">
           <button
             @click="dnsEditTarget = null"
             class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
           >
-            Cancel
+            {{ $t('connections.dns.cancel') }}
           </button>
           <button
             @click="saveDnsEdit"
             :disabled="!!dnsEditError"
             class="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-md disabled:opacity-50"
           >
-            Save
+            {{ $t('connections.dns.save') }}
           </button>
         </div>
       </div>
@@ -344,6 +344,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
 import { usePoolStore } from '@/stores/pool'
@@ -367,12 +368,13 @@ import {
 const router = useRouter()
 const vpn = useVpnStore()
 const poolStore = usePoolStore()
+const { t } = useI18n()
 
 function policyShort(p: string): string {
   switch (p) {
-    case 'geo-nearest': return 'Geo-Nearest'
-    case 'random':      return 'Random'
-    case 'round-robin-region': return 'Round-Robin'
+    case 'geo-nearest': return t('connections.policy.geo-nearest')
+    case 'random':      return t('connections.policy.random')
+    case 'round-robin-region': return t('connections.policy.round-robin')
   }
   return p
 }
@@ -394,17 +396,17 @@ async function selectPool(p: any) {
     await poolStore.activate(p.id)
     await loadConnections()
   } catch (e: any) {
-    actionError.value = e?.toString() || 'Failed to activate pool'
+    actionError.value = e?.toString() || t('connections.error.activate-pool-failed')
   }
 }
 
 async function confirmDeletePool(p: any) {
-  if (!confirm(`Delete pool "${p.name}"? This cannot be undone.`)) return
+  if (!confirm(t('connections.dialog.delete-pool-confirm', { name: p.name }))) return
   try {
     await poolStore.remove(p.id)
     await loadConnections()
   } catch (e: any) {
-    actionError.value = e?.toString() || 'Failed to delete pool'
+    actionError.value = e?.toString() || t('connections.error.delete-pool-failed')
   }
 }
 const connections = ref<any[]>([])
@@ -432,10 +434,10 @@ async function handleQrScanned(raw: string) {
       showRemoteConfigs.value = true
       await loadRemoteConfigs()
     } else {
-      actionError.value = 'QR content not recognised as a VPN config or Privycs enrollment URL'
+      actionError.value = t('connections.error.qr-not-recognised')
     }
   } catch (e: any) {
-    actionError.value = `QR import failed: ${e}`
+    actionError.value = t('connections.error.qr-import-failed', { error: e })
   }
 }
 const editingId = ref('')
@@ -468,7 +470,7 @@ async function loadRemoteConfigs() {
     localStorage.setItem('privycs-api-user', profile.user)
     hasApiKey.value = true
   } catch (e: any) {
-    remoteError.value = e?.toString()?.replace('Error: ', '') || 'Failed to connect'
+    remoteError.value = e?.toString()?.replace('Error: ', '') || t('connections.error.connect-failed')
     remoteConfigs.value = []
   } finally {
     loadingRemote.value = false
@@ -484,7 +486,7 @@ async function downloadRemoteConfig(rc: any) {
     // Remove from remote list after successful import
     remoteConfigs.value = remoteConfigs.value.filter(c => (c.protocol + '-' + c.id) !== key)
   } catch (e: any) {
-    actionError.value = 'Import failed: ' + (e?.toString()?.replace('Error: ', '') || 'Unknown error')
+    actionError.value = t('connections.error.import-failed', { error: e?.toString()?.replace('Error: ', '') || t('connections.error.unknown') })
   } finally {
     downloadingId.value = ''
   }
@@ -558,7 +560,7 @@ async function selectConnection(connId: string) {
     // ConnectionView dropdown's three-call refresh pattern.
     await Promise.all([vpn.fetchStatus(), loadConnections(), poolStore.refresh()])
   } catch (e: any) {
-    actionError.value = 'Failed to select connection'
+    actionError.value = t('connections.error.select-connection-failed')
   }
 }
 
@@ -576,7 +578,7 @@ async function selectProtocol(connId: string, protocol: string) {
     // the listbox needs to re-render without the stale pool highlight.
     await Promise.all([loadConnections(), poolStore.refresh()])
   } catch (e: any) {
-    actionError.value = 'Failed to switch protocol'
+    actionError.value = t('connections.error.switch-protocol-failed')
   }
 }
 
@@ -587,7 +589,7 @@ async function remove(id: string) {
     await loadConnections()
     await vpn.fetchStatus()
   } catch (e: any) {
-    actionError.value = 'Failed to delete connection'
+    actionError.value = t('connections.error.delete-connection-failed')
   }
 }
 
@@ -598,7 +600,7 @@ async function removeProtocol(connId: string, protocol: string) {
     await loadConnections()
     await vpn.fetchStatus()
   } catch (e: any) {
-    actionError.value = 'Failed to remove protocol'
+    actionError.value = t('connections.error.remove-protocol-failed')
   }
 }
 
@@ -641,7 +643,7 @@ async function validateDnsEdit() {
   if (!raw) { dnsEditError.value = ''; return }
   try {
     const bad = (await ValidateDnsOverride(raw)) as string[]
-    dnsEditError.value = bad && bad.length ? `Invalid: ${bad.join(', ')}` : ''
+    dnsEditError.value = bad && bad.length ? t('connections.dns.invalid', { entries: bad.join(', ') }) : ''
   } catch (e) {
     console.error('DNS validate failed:', e)
   }
@@ -654,7 +656,7 @@ async function saveDnsEdit() {
     await loadConnections()
     dnsEditTarget.value = null
   } catch (e: any) {
-    actionError.value = 'Failed to save DNS override'
+    actionError.value = t('connections.error.save-dns-failed')
   }
 }
 
@@ -667,7 +669,7 @@ async function saveRename(id: string) {
       await loadConnections()
       await vpn.fetchStatus()
     } catch (e: any) {
-      actionError.value = 'Failed to rename connection'
+      actionError.value = t('connections.error.rename-connection-failed')
     }
   }
   editingId.value = ''

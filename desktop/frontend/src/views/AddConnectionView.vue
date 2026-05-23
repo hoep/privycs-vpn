@@ -6,7 +6,7 @@
           <ArrowLeftIcon class="w-5 h-5" />
         </button>
         <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-300">
-          {{ targetConnection ? 'Add Protocol to ' + targetConnection.name : 'Add Connection' }}
+          {{ targetConnection ? $t('add-connection.title-add-protocol', { name: targetConnection.name }) : $t('add-connection.title') }}
         </h2>
       </div>
       <div class="flex items-center gap-2">
@@ -17,10 +17,10 @@
         <button
           @click="showQrScanner = true"
           class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
-          title="Scan QR code"
+          :title="$t('add-connection.button.scan-qr-title')"
         >
           <QrCodeIcon class="w-4 h-4" />
-          Scan QR
+          {{ $t('add-connection.button.scan-qr') }}
         </button>
         <button
           v-if="hasApiKey"
@@ -28,7 +28,7 @@
           class="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
         >
           <CloudArrowDownIcon class="w-4 h-4" />
-          Gateway
+          {{ $t('add-connection.button.gateway') }}
         </button>
       </div>
     </div>
@@ -37,15 +37,15 @@
     <div v-if="showGateway" class="card p-3 mb-4 border border-primary-500/30">
       <div class="flex items-center justify-between mb-2">
         <span class="text-xs font-semibold text-gray-500 dark:text-gray-400">
-          {{ targetConnection ? 'Missing Protocols from Gateway' : 'Gateway Configs' }}
+          {{ targetConnection ? $t('add-connection.gateway.missing-protocols') : $t('add-connection.gateway.configs') }}
         </span>
         <button @click="loadGatewayConfigs" :disabled="loadingGateway" class="text-[10px] text-primary-400 hover:text-primary-300">
-          {{ loadingGateway ? 'Loading...' : 'Refresh' }}
+          {{ loadingGateway ? $t('add-connection.gateway.loading') : $t('add-connection.gateway.refresh') }}
         </button>
       </div>
       <p v-if="gatewayError" class="text-[10px] text-red-400 mb-2">{{ gatewayError }}</p>
       <div v-if="filteredGatewayConfigs.length === 0 && !loadingGateway" class="text-[10px] text-gray-500 text-center py-2">
-        No configs available. Click Refresh.
+        {{ $t('add-connection.gateway.no-configs') }}
       </div>
       <div v-else class="space-y-1.5 max-h-64 overflow-y-auto">
         <div
@@ -72,7 +72,7 @@
             :disabled="gatewayImportingId === rc.protocol + '-' + rc.id"
             class="text-[10px] px-2 py-1 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 flex-shrink-0"
           >
-            {{ gatewayImportingId === rc.protocol + '-' + rc.id ? '...' : 'Import' }}
+            {{ gatewayImportingId === rc.protocol + '-' + rc.id ? '...' : $t('add-connection.gateway.import') }}
           </button>
         </div>
       </div>
@@ -82,7 +82,7 @@
     <div class="space-y-4">
       <div class="text-center mb-2">
         <p class="text-xs text-gray-500 dark:text-gray-400">
-          {{ targetConnection ? 'Add another protocol config' : 'Import a VPN configuration file' }}
+          {{ targetConnection ? $t('add-connection.intro.add-another') : $t('add-connection.intro.import') }}
         </p>
       </div>
 
@@ -102,10 +102,10 @@
       >
         <DocumentArrowUpIcon class="w-10 h-10 mx-auto text-gray-500 mb-3" />
         <p class="text-sm text-gray-600 dark:text-gray-300 font-medium">
-          {{ dragOver ? 'Drop file here' : 'Click to select config file' }}
+          {{ dragOver ? $t('add-connection.dropzone.drop-here') : $t('add-connection.dropzone.click-to-select') }}
         </p>
         <p class="text-xs text-gray-500 mt-1">
-          .conf (WireGuard) / .ovpn (OpenVPN) / .sswan (IPSec)
+          {{ $t('add-connection.dropzone.formats-hint') }}
         </p>
       </div>
 
@@ -118,7 +118,7 @@
               <p class="text-sm text-gray-900 dark:text-white font-medium truncate">{{ selectedFile.name }}</p>
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 <span class="font-medium" :class="protocolColor(detectedProtocol)">
-                  {{ detectedProtocol ? protocolDisplayName(detectedProtocol) : 'Unknown' }}
+                  {{ detectedProtocol ? protocolDisplayName(detectedProtocol) : $t('add-connection.protocol.unknown') }}
                 </span>
                 / {{ formatFileSize(selectedFile.size) }}
               </p>
@@ -127,11 +127,11 @@
 
           <!-- Connection name (only for new connections) -->
           <div v-if="!targetConnection">
-            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Connection Name</label>
+            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">{{ $t('add-connection.form.connection-name') }}</label>
             <input
               v-model="connectionName"
               type="text"
-              placeholder="e.g. Office VPN"
+              :placeholder="$t('add-connection.form.connection-name-placeholder')"
               maxlength="64"
               class="input"
             />
@@ -142,7 +142,7 @@
 
           <!-- Add to existing connection (only for new connections) -->
           <div v-if="!targetConnection && existingConnections.length > 0" class="mt-3">
-            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Or add to existing connection</label>
+            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">{{ $t('add-connection.form.add-to-existing') }}</label>
             <AppSelect
               v-model="addToExisting"
               :options="existingConnectionOptions"
@@ -155,7 +155,7 @@
           :disabled="importing"
           class="btn-primary w-full py-2.5 text-sm disabled:opacity-50"
         >
-          {{ importing ? 'Importing...' : (addToExisting || targetConnection ? 'Add Protocol Config' : 'Import Config') }}
+          {{ importing ? $t('add-connection.button.importing') : (addToExisting || targetConnection ? $t('add-connection.button.add-protocol-config') : $t('add-connection.button.import-config')) }}
         </button>
       </div>
 
@@ -165,19 +165,19 @@
 
     <!-- Supported Formats Info -->
     <div class="mt-6 card p-4">
-      <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Supported Formats</h3>
+      <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">{{ $t('add-connection.formats.title') }}</h3>
       <div class="space-y-1.5">
         <div class="flex items-center gap-2">
           <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
-          <span class="text-xs text-gray-600 dark:text-gray-300">.conf — WireGuard</span>
+          <span class="text-xs text-gray-600 dark:text-gray-300">{{ $t('add-connection.formats.wireguard') }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="w-1.5 h-1.5 rounded-full bg-orange-400"></span>
-          <span class="text-xs text-gray-600 dark:text-gray-300">.ovpn — OpenVPN</span>
+          <span class="text-xs text-gray-600 dark:text-gray-300">{{ $t('add-connection.formats.openvpn') }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-          <span class="text-xs text-gray-600 dark:text-gray-300">.sswan — IPSec/IKEv2</span>
+          <span class="text-xs text-gray-600 dark:text-gray-300">{{ $t('add-connection.formats.ipsec') }}</span>
         </div>
       </div>
     </div>
@@ -193,6 +193,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ImportConfig, ListConnections, FetchMyProfile, DownloadAndImportConfig, GetSettings, UpdateSettings } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
@@ -208,6 +209,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
@@ -238,7 +240,7 @@ const targetConnection = computed(() => {
 
 const existingConnectionOptions = computed(() => {
   return [
-    { value: '', label: 'Create new connection' },
+    { value: '', label: t('add-connection.option.create-new') },
     ...existingConnections.value.map(conn => ({
       value: conn.id,
       label: `${conn.name} (${conn.protocols?.map((p: any) => protocolShort(p.protocol)).join(', ')})`
@@ -280,7 +282,7 @@ async function loadGatewayConfigs() {
     localStorage.setItem('privycs-api-user', profile.user)
     hasApiKey.value = true
   } catch (e: any) {
-    gatewayError.value = e?.toString()?.replace('Error: ', '') || 'Failed to connect'
+    gatewayError.value = e?.toString()?.replace('Error: ', '') || t('add-connection.error.failed-to-connect')
     gatewayConfigs.value = []
   } finally {
     loadingGateway.value = false
@@ -296,17 +298,17 @@ async function importFromGateway(rc: any) {
     const connID = targetConnection.value?.id || ''
     await DownloadAndImportConfig(rc.protocol, rc.id, rc.peer_name, connID)
     success.value = connID
-      ? `${protocolDisplayName(rc.protocol)} config added from gateway`
-      : 'Connection imported from gateway'
+      ? t('add-connection.success.protocol-added-from-gateway', { protocol: protocolDisplayName(rc.protocol) })
+      : t('add-connection.success.imported-from-gateway')
     await new Promise(resolve => setTimeout(resolve, 500))
     router.push('/connection')
   } catch (e: any) {
-    const msg = e?.toString()?.replace('Error: ', '') || 'Unknown error'
+    const msg = e?.toString()?.replace('Error: ', '') || t('add-connection.error.unknown')
     // Show errors inline inside the gateway panel (where the user just
     // clicked) instead of in the file-import error slot far below — the
     // file-import error renders below the gateway list and was easy to
     // miss when the gateway list is long enough to scroll past it.
-    gatewayError.value = 'Gateway import failed: ' + msg
+    gatewayError.value = t('add-connection.error.gateway-import-failed', { msg })
   } finally {
     gatewayImportingId.value = ''
   }
@@ -340,7 +342,7 @@ async function handleQrScanned(raw: string) {
     // stays in one place.
     fileContent.value = payload.content
     detectedProtocol.value = 'wireguard'
-    if (!connectionName.value) connectionName.value = 'scanned'
+    if (!connectionName.value) connectionName.value = t('add-connection.default-scanned-name')
     selectedFile.value = null
     error.value = ''
     success.value = ''
@@ -356,14 +358,14 @@ async function handleQrScanned(raw: string) {
         currentSettings.api_key = payload.apiKey
         await UpdateSettings(currentSettings)
       } catch (e) {
-        error.value = `Could not store gateway credentials: ${e}`
+        error.value = t('add-connection.error.store-credentials', { error: String(e) })
         return
       }
     }
     showGateway.value = true
     await loadGatewayConfigs()
   } else {
-    error.value = 'QR code content not recognised as a VPN config or Privycs enrollment URL'
+    error.value = t('add-connection.error.qr-not-recognised')
   }
 }
 
@@ -406,7 +408,7 @@ function processFile(file: File) {
 
 async function importConfig() {
   if (!fileContent.value || !detectedProtocol.value) {
-    error.value = 'Cannot detect protocol from file'
+    error.value = t('add-connection.error.cannot-detect-protocol')
     return
   }
 
@@ -426,16 +428,16 @@ async function importConfig() {
       connID
     )
     success.value = connID
-      ? `${protocolDisplayName(detectedProtocol.value)} config added`
-      : 'Connection imported successfully'
+      ? t('add-connection.success.protocol-added', { protocol: protocolDisplayName(detectedProtocol.value) })
+      : t('add-connection.success.imported')
     // Wait for success message to be visible, then navigate
     await new Promise(resolve => setTimeout(resolve, 500))
     router.push('/connection')
   } catch (e: any) {
     const msg = e?.toString() || ''
-    if (msg.includes('invalid config')) error.value = 'Invalid configuration file format'
-    else if (msg.includes('unsupported')) error.value = 'Unsupported protocol or file format'
-    else error.value = 'Import failed — please check your config file'
+    if (msg.includes('invalid config')) error.value = t('add-connection.error.invalid-config')
+    else if (msg.includes('unsupported')) error.value = t('add-connection.error.unsupported')
+    else error.value = t('add-connection.error.import-failed')
   } finally {
     importing.value = false
   }
