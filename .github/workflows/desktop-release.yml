@@ -142,10 +142,18 @@ jobs:
         run: go run scripts/fetchgeoip/main.go
       - name: Build desktop app
         working-directory: desktop
+        env:
+          # Pro-tier license verifier — embed the ed25519 public key
+          # whose private half lives in the gateway env (LemonSqueezy
+          # webhook signer). Empty when the secret isn't set, in which
+          # case VerifyLicenseKey rejects every key with
+          # ErrLicenseEmptyPublic ("This build cannot validate license
+          # keys") — fail-closed.
+          LICENSE_PUBLIC_KEY_HEX: ${{ secrets.LICENSE_PUBLIC_KEY_HEX }}
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then VERSION="dev"; fi
-          ~/go/bin/wails build -ldflags "-X main.AppVersion=$VERSION"
+          ~/go/bin/wails build -ldflags "-X main.AppVersion=$VERSION -X main.licensePublicKeyHex=$LICENSE_PUBLIC_KEY_HEX"
       - name: Prepare artifacts
         run: |
           mv desktop/build/bin/privycs-vpn desktop/build/bin/privycs-vpn-linux-amd64
@@ -208,10 +216,12 @@ jobs:
         working-directory: desktop
         env:
           GOARCH: ${{ matrix.arch }}
+          # See linux build step for the rationale on this secret.
+          LICENSE_PUBLIC_KEY_HEX: ${{ secrets.LICENSE_PUBLIC_KEY_HEX }}
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then VERSION="dev"; fi
-          ~/go/bin/wails build -platform darwin/${{ matrix.arch }} -ldflags "-X main.AppVersion=$VERSION"
+          ~/go/bin/wails build -platform darwin/${{ matrix.arch }} -ldflags "-X main.AppVersion=$VERSION -X main.licensePublicKeyHex=$LICENSE_PUBLIC_KEY_HEX"
 
       # === macOS code signing + notarization scaffold ===
       #
@@ -451,11 +461,14 @@ jobs:
           Write-Host "wintun.dll staged in build/bin/ for the NSIS installer to pick up"
       - name: Build desktop app with NSIS installer
         working-directory: desktop
+        env:
+          # See linux build step for the rationale on this secret.
+          LICENSE_PUBLIC_KEY_HEX: ${{ secrets.LICENSE_PUBLIC_KEY_HEX }}
         run: |
           $env:PATH = "$env:USERPROFILE\go\bin;C:\Program Files (x86)\NSIS;$env:PATH"
           $version = "$env:GITHUB_REF" -replace 'refs/tags/', ''
           if (-not $version) { $version = "dev" }
-          wails build -platform windows/amd64 -nsis -ldflags "-X main.AppVersion=$version"
+          wails build -platform windows/amd64 -nsis -ldflags "-X main.AppVersion=$version -X main.licensePublicKeyHex=$env:LICENSE_PUBLIC_KEY_HEX"
       - name: Prepare artifacts
         shell: pwsh
         run: |
