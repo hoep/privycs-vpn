@@ -577,27 +577,29 @@ func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile, oldConn
 	// phonebook entry. The FriendlyName uses the slot-stable connName
 	// so the cert entry correlates 1-to-1 with the slot ID in the
 	// Privycs log.
+	// v1.0.4: same fix as cmdIPSecConfigureWindows in privileged_helper.
+	// See that function's comment for the array-comparison root cause.
 	psScript := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 $p12Password = ConvertTo-SecureString -String '%s' -AsPlainText -Force
 $friendly = 'Privycs IPSec - %s'
+$store = 'Cert:\LocalMachine\My'
 try {
-    $imported = Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop
-    $myThumb = $imported.Thumbprint
-    $myIssuer = $imported.Issuer
-    Get-ChildItem Cert:\LocalMachine\My | Where-Object {
-        $_.Thumbprint -ne $myThumb -and ( $_.FriendlyName -like 'Privycs IPSec - *' -or $_.Issuer -eq $myIssuer )
-    } | Remove-Item -Force -ErrorAction SilentlyContinue
-    $imported.FriendlyName = $friendly
+    $imported = @(Import-PfxCertificate -FilePath '%s' -CertStoreLocation $store -Password $p12Password -ErrorAction Stop)
 } catch {
-    $imported = Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\CurrentUser\My -Password $p12Password
-    $myThumb = $imported.Thumbprint
-    $myIssuer = $imported.Issuer
-    Get-ChildItem Cert:\CurrentUser\My | Where-Object {
-        $_.Thumbprint -ne $myThumb -and ( $_.FriendlyName -like 'Privycs IPSec - *' -or $_.Issuer -eq $myIssuer )
-    } | Remove-Item -Force -ErrorAction SilentlyContinue
-    $imported.FriendlyName = $friendly
+    $store = 'Cert:\CurrentUser\My'
+    $imported = @(Import-PfxCertificate -FilePath '%s' -CertStoreLocation $store -Password $p12Password)
 }
+$myThumbs = @($imported | ForEach-Object { $_.Thumbprint })
+$leaf = $imported | Where-Object { $_.Issuer -ne $_.Subject } | Select-Object -First 1
+if (-not $leaf) { $leaf = $imported[0] }
+$myIssuer = $leaf.Issuer
+@(Get-ChildItem $store | Where-Object {
+    ($_.Thumbprint -notin $myThumbs) -and (
+        ($_.FriendlyName -like 'Privycs IPSec - *') -or ($_.Issuer -eq $myIssuer)
+    )
+}) | Remove-Item -Force -ErrorAction SilentlyContinue
+$leaf.FriendlyName = $friendly
 Remove-VpnConnection -Name '%s' -Force -ErrorAction SilentlyContinue
 Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -AuthenticationMethod MachineCertificate -EncryptionLevel Required -RememberCredential -Force
 `, escapePowerShellString(p12Password), escapePowerShellString(friendlyLabel),

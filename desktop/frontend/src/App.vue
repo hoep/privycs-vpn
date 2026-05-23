@@ -50,8 +50,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, markRaw } from 'vue'
+import { ref, computed, onMounted, onUnmounted, markRaw } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useVpnStore } from '@/stores/vpn'
 import PoolImportToast from '@/components/PoolImportToast.vue'
 import AppLoadingToast from '@/components/AppLoadingToast.vue'
@@ -66,14 +67,20 @@ import {
 const route = useRoute()
 const vpn = useVpnStore()
 const apiUser = ref(localStorage.getItem('privycs-api-user') || '')
+const { t } = useI18n()
 
-const navItems = [
-  { path: '/connection', label: 'Connect', icon: markRaw(ShieldCheckIcon) },
-  { path: '/connections', label: 'Configs', icon: markRaw(QueueListIcon) },
-  { path: '/add', label: 'Add', icon: markRaw(PlusCircleIcon) },
-  { path: '/settings', label: 'Settings', icon: markRaw(Cog6ToothIcon) },
-  { path: '/help', label: 'Help', icon: markRaw(QuestionMarkCircleIcon) },
-]
+// Bottom-nav labels are computed off the reactive i18n locale so a
+// runtime language switch via setLocale() re-renders the bar
+// immediately (was a static array with hard-coded English labels —
+// user reported 'Bottom Menübar wird nie beim Sprachwechsel
+// mitübersetzt' on 2026-05-23).
+const navItems = computed(() => [
+  { path: '/connection', label: t('nav.connect'), icon: markRaw(ShieldCheckIcon) },
+  { path: '/connections', label: t('nav.configs'), icon: markRaw(QueueListIcon) },
+  { path: '/add', label: t('nav.add'), icon: markRaw(PlusCircleIcon) },
+  { path: '/settings', label: t('nav.settings'), icon: markRaw(Cog6ToothIcon) },
+  { path: '/help', label: t('nav.help'), icon: markRaw(QuestionMarkCircleIcon) },
+])
 
 function isActiveRoute(path: string) {
   return route.path === path

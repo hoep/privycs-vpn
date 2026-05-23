@@ -1757,17 +1757,43 @@ func (h *PrivilegedHelper) cmdIPSecConfigureWindows(cmd HelperCommand) HelperRes
 	// created them. SYSTEM's HKCU is not the end-user's HKCU, so the client
 	// side (running as the user) is responsible for cleaning up any stale
 	// user-scope entry with this name — see configureWindowsFromSSwan.
+	// v1.0.4: PowerShell array-comparison fix. Import-PfxCertificate on
+	// a .p12 with both leaf + intermediate CA returns an ARRAY of
+	// X509Certificate2 objects. The v1.0.3 sweep used `$_.Thumbprint
+	// -ne $myThumb` where $myThumb was that array — in PowerShell,
+	// scalar -ne array returns the FILTERED REMAINDER (non-empty when
+	// any element differs), which is truthy in a Where-Object context.
+	// Effect: EVERY cert in the store (including the just-imported
+	// leaf) passed the filter → got swept → no Privycs cert left for
+	// rasdial → Windows fell back to an unrelated stale cert → 13801.
+	//
+	// Fix:
+	//   1. Use `-notin` for proper array-containment check.
+	//   2. Identify the LEAF cert (`Issuer -ne Subject`) so we tag /
+	//      issuer-pick the right one — CA certs in the bundle have
+	//      themselves as Issuer and would skew the sweep target.
+	//   3. Emit Write-Host diagnostics so the next failure carries
+	//      actionable signal (thumbprints, issuer, sweep count).
 	psScript := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 $p12Password = ConvertTo-SecureString -String '%s' -AsPlainText -Force
 $friendly = 'Privycs IPSec - %s'
-$imported = Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop
-$myThumb = $imported.Thumbprint
-$myIssuer = $imported.Issuer
-Get-ChildItem Cert:\LocalMachine\My | Where-Object {
-    $_.Thumbprint -ne $myThumb -and ( $_.FriendlyName -like 'Privycs IPSec - *' -or $_.Issuer -eq $myIssuer )
-} | Remove-Item -Force -ErrorAction SilentlyContinue
-$imported.FriendlyName = $friendly
+$imported = @(Import-PfxCertificate -FilePath '%s' -CertStoreLocation Cert:\LocalMachine\My -Password $p12Password -ErrorAction Stop)
+$myThumbs = @($imported | ForEach-Object { $_.Thumbprint })
+$leaf = $imported | Where-Object { $_.Issuer -ne $_.Subject } | Select-Object -First 1
+if (-not $leaf) { $leaf = $imported[0] }
+$myIssuer = $leaf.Issuer
+Write-Host "ipsec-helper: leaf thumb=$($leaf.Thumbprint) issuer=$myIssuer imported=$($imported.Count)"
+$toDelete = @(Get-ChildItem Cert:\LocalMachine\My | Where-Object {
+    ($_.Thumbprint -notin $myThumbs) -and (
+        ($_.FriendlyName -like 'Privycs IPSec - *') -or ($_.Issuer -eq $myIssuer)
+    )
+})
+Write-Host "ipsec-helper: sweeping $($toDelete.Count) stale cert(s)"
+$toDelete | ForEach-Object { Write-Host "ipsec-helper: remove thumb=$($_.Thumbprint) friendly=$($_.FriendlyName) subj=$($_.Subject)" } | Out-Null
+$toDelete | Remove-Item -Force -ErrorAction SilentlyContinue
+$leaf.FriendlyName = $friendly
+Write-Host "ipsec-helper: tagged leaf with FriendlyName='$friendly'"
 Remove-VpnConnection -Name '%s' -Force -AllUserConnection -ErrorAction SilentlyContinue
 Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -AuthenticationMethod MachineCertificate -EncryptionLevel Required -RememberCredential -AllUserConnection -Force
 `, escapePowerShellString(p12Pass), escapePowerShellString(friendlyLabel),

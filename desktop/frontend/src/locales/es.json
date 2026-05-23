@@ -769,6 +769,13 @@
   "common": {
     "back": "Atrás"
   },
+  "nav": {
+    "connect": "Conectar",
+    "configs": "Perfiles",
+    "add": "Nuevo",
+    "settings": "Opciones",
+    "help": "Ayuda"
+  },
   "pro": {
     "title": "Privycs Pro",
     "badge": "PRO",

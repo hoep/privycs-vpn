@@ -141,6 +141,13 @@
   "common": {
     "back": "Voltar"
   },
+  "nav": {
+    "connect": "Conectar",
+    "configs": "Perfis",
+    "add": "Novo",
+    "settings": "Opções",
+    "help": "Ajuda"
+  },
   "pro": {
     "title": "Privycs Pro",
     "badge": "PRO",
