@@ -523,6 +523,7 @@
     <string name="pro_restore">Kauf wiederherstellen</string>
     <string name="pro_restoring">Suche nach früheren Käufen…</string>
     <string name="pro_bundle_note">Ein plattformübergreifendes Bundle (Android + Desktop + iOS) ist verfügbar. Falls du einen Bundle-Lizenzschlüssel hast, aktiviere ihn unten.</string>
+    <string name="pro_billing_coming_soon">Der direkte Kauf über Google Play wird mit dem öffentlichen Launch freigeschaltet. Falls du bereits einen Privycs-Pro-Lizenzschlüssel besitzt (z.B. aus dem plattformübergreifenden Bundle), aktiviere ihn unten.</string>
     <string name="pro_activate_with_key">Ich habe bereits einen Lizenzschlüssel</string>
     <string name="pro_activate_title">Lizenzschlüssel aktivieren</string>
     <string name="pro_activate_subtitle">Füge deinen PRVC-…-Schlüssel aus der Kauf-E-Mail ein oder lade eine .privycs-license-Datei.</string>

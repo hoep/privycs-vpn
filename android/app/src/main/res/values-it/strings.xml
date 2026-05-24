@@ -545,6 +545,7 @@
     <string name="pro_restore">Ripristina acquisto</string>
     <string name="pro_restoring">Verifica acquisti precedenti…</string>
     <string name="pro_bundle_note">Un bundle multipiattaforma (Android + Desktop + iOS) è disponibile. Se hai una chiave di licenza del bundle, attivala qui sotto.</string>
+    <string name="pro_billing_coming_soon">L\'acquisto diretto tramite Google Play sarà abilitato con il lancio pubblico. Se hai già una chiave di licenza Privycs Pro (ad esempio dal bundle multipiattaforma), attivala qui sotto.</string>
     <string name="pro_activate_with_key">Ho già una chiave di licenza</string>
     <string name="pro_activate_title">Attiva una chiave di licenza</string>
     <string name="pro_activate_subtitle">Incolla la tua chiave PRVC-… dall\'email di acquisto oppure carica un file .privycs-license.</string>

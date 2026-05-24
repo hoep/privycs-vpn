@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.R
 import com.privycs.vpn.billing.BillingManager
+import com.privycs.vpn.data.EntitlementRepository
 import com.privycs.vpn.ui.components.LicenseKeyEntryDialog
 
 /**
@@ -153,8 +154,21 @@ fun ProUpgradeScreen(onBack: () -> Unit) {
 
             if (isPro) {
                 ProActiveCard()
-            } else {
+            } else if (EntitlementRepository.PLAY_BILLING_ENABLED) {
                 ProPurchaseSection(billing)
+            } else {
+                // v1.0.5.4: Play Billing UI is hidden until the
+                // `privycs_pro_lifetime` managed product is live in
+                // Play Console (i.e. once we leave Closed Testing
+                // for Production). The bundle-key activation path
+                // below stays visible so cross-platform-bundle
+                // holders can still activate Pro on Android during
+                // Alpha / Closed Testing.
+                Text(
+                    stringResource(R.string.pro_billing_coming_soon),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             Spacer(Modifier.height(20.dp))

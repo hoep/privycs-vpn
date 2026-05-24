@@ -174,5 +174,16 @@ class EntitlementRepository(context: Context) {
          * the production release.
          */
         const val GATING_ENABLED = false
+
+        /**
+         * Master switch for the Google Play Billing purchase UI on
+         * the Pro upgrade screen. While false, the "Unlock Pro" and
+         * "Restore purchase" buttons are hidden; the bundle-license-
+         * key activation path stays visible so cross-platform-bundle
+         * holders can still activate Pro. Flip to true once the
+         * `privycs_pro_lifetime` managed product is configured in
+         * Play Console (Production-Track or earlier).
+         */
+        const val PLAY_BILLING_ENABLED = false
     }
 }

@@ -545,6 +545,7 @@
     <string name="pro_restore">Restore purchase</string>
     <string name="pro_restoring">Checking for previous purchases…</string>
     <string name="pro_bundle_note">A cross-platform bundle (Android + Desktop + iOS) is available. If you have a bundle license key, activate it below.</string>
+    <string name="pro_billing_coming_soon">Direct purchase via Google Play will be enabled with the public launch. If you already have a Privycs Pro license key (e.g. from the cross-platform bundle), activate it below.</string>
     <string name="pro_activate_with_key">I already have a license key</string>
     <string name="pro_activate_title">Activate a license key</string>
     <string name="pro_activate_subtitle">Paste your PRVC-… key from the purchase email or load a .privycs-license file.</string>
