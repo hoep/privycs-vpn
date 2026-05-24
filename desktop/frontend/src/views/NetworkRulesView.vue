@@ -37,7 +37,17 @@
           >
             {{ $t('network-rules.master.title') }}
           </h3>
-          <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+          <!-- v1.0.5.1: subtitle colour pairs to the card's
+               background. The original gray-500 was too low contrast
+               on the primary-tinted card (light-mode mostly). Use
+               primary tones with reduced contrast when the card is
+               primary-tinted, gray when neutral. -->
+          <p
+            class="text-[11px] mt-1 leading-relaxed"
+            :class="settings.network_rules_enabled
+              ? 'text-primary-700/75 dark:text-primary-200/80'
+              : 'text-gray-500 dark:text-gray-400'"
+          >
             {{ settings.network_rules_enabled
               ? $t('network-rules.master.subtitle-on')
               : $t('network-rules.master.subtitle-off') }}

@@ -226,7 +226,16 @@ private fun MasterToggleCard(enabled: Boolean, onToggle: (Boolean) -> Unit) {
                         else R.string.netrules_master_subtitle_off,
                     ),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // v1.0.5.1: pair subtitle colour to the card's
+                    // background. Pre-fix used onSurfaceVariant which
+                    // is light-gray-on-green when the card sits on
+                    // primaryContainer → unreadable. Material3
+                    // guideline: secondary text on a colored container
+                    // = the "on<container>" colour with ~75 % alpha.
+                    color = if (enabled)
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Spacer(Modifier.width(12.dp))
