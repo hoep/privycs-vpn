@@ -1,2 +1,2 @@
-versionCode=10266
-versionName=1.0.5.2
+versionCode=10267
+versionName=1.0.5.3

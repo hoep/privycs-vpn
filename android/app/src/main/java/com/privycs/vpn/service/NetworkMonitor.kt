@@ -569,6 +569,30 @@ class NetworkMonitor private constructor(private val context: Context) {
         // stale value leaking into a different WiFi.
         val effectiveSsid = if (networkType == "wifi") detectCurrentSsid() else ""
 
+        // v1.0.5.3: boot-time SSID conservatism. On app start the
+        // SSID latch is empty until the first onCapabilitiesChanged
+        // delivers it; resolving rules against an empty SSID while
+        // an SSID-rule exists silently treats a trusted-WiFi as
+        // "any WiFi" and fires a connect that the very next eval
+        // (~1-3s later, once SSID arrives) tears back down —
+        // visible "connect-then-disconnect" flicker on every app
+        // open. Skip the entire pipeline until SSID resolves.
+        // Mirrors evaluateRulesNow()'s guard so all rule-driven
+        // entry points behave identically.
+        if (networkType == "wifi" && effectiveSsid.isEmpty()) {
+            val hasSsidRule = PrivycsApp.instance.networkRulesRepository.rules.value.any {
+                it.matchType == RuleMatchType.SSID_EXACT ||
+                    it.matchType == RuleMatchType.SSID_PATTERN
+            }
+            if (hasSsidRule) {
+                PrivycsLogger.d(
+                    TAG,
+                    "Skipping evaluate: WiFi with SSID-rule but SSID not yet latched",
+                )
+                return
+            }
+        }
+
         // Stability guard: while the VPN is up AND the SSID is still
         // unresolved (background redaction not yet lifted by a
         // callback), skip rather than act on an unknown SSID — acting
