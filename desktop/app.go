@@ -1296,11 +1296,17 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 						log.Printf("TunnelHealth: recovery disconnect: %v", err)
 					}
 					a.mu.Unlock()
-					// Brief settle delay so wintun.sys/NDIS teardown
-					// completes before the new Up() races with the
-					// release. 2s is empirically the minimum on
-					// Windows for a clean restart.
-					time.Sleep(2 * time.Second)
+					// v1.0.5.11: previously a fixed 2 s sleep here as
+					// a coarse Windows wintun-settle guard. The
+					// guarantee is now provided inside the WG
+					// disconnect path itself (helper-side active poll
+					// for SCM service disappearance — see
+					// privileged_helper.go disconnectWireGuard /
+					// awg_tunnel_service_windows.go uninstallAWGTunnel
+					// Service). disconnectInternal does not return
+					// until the kernel-side teardown is confirmed,
+					// so the next Up() below is safe without an
+					// extra timer here.
 
 					a.mu.Lock()
 					excludeID := ""

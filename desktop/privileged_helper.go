@@ -516,6 +516,24 @@ func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse
 		if err != nil {
 			return HelperResponse{Success: false, Error: fmt.Sprintf("uninstalltunnelservice failed: %s: %v", string(out), err), Output: string(out)}
 		}
+		// v1.0.5.11: Block until the per-tunnel SCM service is
+		// fully gone. `wireguard.exe /uninstalltunnelservice`
+		// returns when SCM has dispatched stop+delete, but the
+		// wintun.sys driver cleanup (NDIS unbind, WFP filter
+		// removal, adapter ref-count drop) is async — the kernel
+		// is still releasing state after userspace returns
+		// success. Returning to the caller (App.disconnectInternal
+		// → TunnelHealth failover → next Up(), or a rapid manual
+		// Disconnect+Connect cycle) before this completes lets
+		// the next Up() race the lingering kernel state and
+		// triggers the historic Windows BSOD pattern (v0.9.10.29
+		// and a recurrence observed in v1.0.5.x failover).
+		//
+		// Active polling (typical ~500-800 ms, capped at 3 s)
+		// rather than a fixed sleep so fast machines do not wait
+		// unnecessarily and slow machines (AV, disk I/O pressure)
+		// get the time they need.
+		waitForVanillaWGServiceGone(ifaceName, 3*time.Second)
 		return HelperResponse{Success: true, Output: string(out)}
 	}
 

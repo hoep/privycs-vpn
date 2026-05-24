@@ -473,6 +473,16 @@ func uninstallAWGTunnelService(ifaceName string) error {
 	if err := stopAndDeleteService(s, serviceName); err != nil {
 		return err
 	}
+	// v1.0.5.11: same Windows-BSOD-class race protection as the
+	// vanilla-WG path (see privileged_helper.go disconnectWireGuard).
+	// stopAndDeleteService polls until svc.Stopped + dispatches
+	// Delete, but Delete returns once SCM has accepted the
+	// deletion request — the wintun.sys driver cleanup is still
+	// async at that point. Block until SCM has fully dropped the
+	// service entry before returning, so a subsequent Up() (manual
+	// reconnect, failover, pool rotation) does not race the
+	// lingering kernel state.
+	waitForServiceGoneByName(m, serviceName, 3*time.Second)
 	log.Printf("awg-helper: uninstalled service %s", serviceName)
 	return nil
 }
