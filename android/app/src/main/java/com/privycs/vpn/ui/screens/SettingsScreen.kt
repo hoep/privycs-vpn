@@ -1,11 +1,15 @@
 package com.privycs.vpn.ui.screens
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -275,6 +279,143 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(stringResource(R.string.pro_view))
+                }
+            }
+
+            // -- Permissions: re-grant cards (v1.0.5.6) --
+            // One card per runtime permission that is currently
+            // missing. Cards naturally disappear as the user grants
+            // each permission. Battery exemption uses a special
+            // intent rather than a runtime permission dialog. The
+            // BG-location card waits until FG-location is granted
+            // (Android's mandatory ordering on Q+). The whole
+            // section is hidden when nothing is missing.
+            val activityCtx = context as? Activity
+            val sdk = Build.VERSION.SDK_INT
+            val rulesActive = settings.networkRulesEnabled
+
+            var permTick by remember { mutableStateOf(0) }
+            val refreshPerms: () -> Unit = { permTick++ }
+
+            val notifGranted = remember(permTick) {
+                if (sdk >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.POST_NOTIFICATIONS,
+                    ) == PackageManager.PERMISSION_GRANTED
+                } else true
+            }
+            val fineLocGranted = remember(permTick) {
+                ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_FINE_LOCATION,
+                ) == PackageManager.PERMISSION_GRANTED
+            }
+            val nearbyWifiGranted = remember(permTick) {
+                if (sdk >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.NEARBY_WIFI_DEVICES,
+                    ) == PackageManager.PERMISSION_GRANTED
+                } else true
+            }
+            val bgLocGranted = remember(permTick) {
+                if (sdk >= Build.VERSION_CODES.Q) {
+                    ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                    ) == PackageManager.PERMISSION_GRANTED
+                } else true
+            }
+            val batteryExempt = remember(permTick) {
+                com.privycs.vpn.util.BatteryOptimizationHelper
+                    .isIgnoringBatteryOptimizations(context)
+            }
+
+            val notifLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) { refreshPerms() }
+            val fineLocLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestMultiplePermissions(),
+            ) { refreshPerms() }
+            val nearbyWifiLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) { refreshPerms() }
+            val bgLocLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) { refreshPerms() }
+            val batteryLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.StartActivityForResult(),
+            ) { refreshPerms() }
+
+            val showNotif = !notifGranted
+            val showFineLoc = rulesActive && !fineLocGranted
+            val showNearbyWifi = rulesActive &&
+                sdk >= Build.VERSION_CODES.TIRAMISU && !nearbyWifiGranted
+            val showBgLoc = rulesActive && sdk >= Build.VERSION_CODES.Q &&
+                fineLocGranted && !bgLocGranted
+            val showBattery = rulesActive && !batteryExempt
+
+            val anyPermVisible = showNotif || showFineLoc ||
+                showNearbyWifi || showBgLoc || showBattery
+            if (anyPermVisible) {
+                SettingsSection(title = stringResource(R.string.settings_perm_section_title)) {
+                    if (showNotif) {
+                        PermissionCard(
+                            title = stringResource(R.string.settings_perm_notifications_title),
+                            body = stringResource(R.string.settings_perm_notifications_body),
+                            onAction = {
+                                if (sdk >= Build.VERSION_CODES.TIRAMISU) {
+                                    notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                        )
+                    }
+                    if (showFineLoc) {
+                        PermissionCard(
+                            title = stringResource(R.string.settings_perm_location_fg_title),
+                            body = stringResource(R.string.settings_perm_location_fg_body),
+                            onAction = {
+                                fineLocLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                                    ),
+                                )
+                            },
+                        )
+                    }
+                    if (showNearbyWifi) {
+                        PermissionCard(
+                            title = stringResource(R.string.settings_perm_nearby_wifi_title),
+                            body = stringResource(R.string.settings_perm_nearby_wifi_body),
+                            onAction = {
+                                if (sdk >= Build.VERSION_CODES.TIRAMISU) {
+                                    nearbyWifiLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+                                }
+                            },
+                        )
+                    }
+                    if (showBgLoc) {
+                        PermissionCard(
+                            title = stringResource(R.string.settings_perm_location_bg_title),
+                            body = stringResource(R.string.settings_perm_location_bg_body),
+                            onAction = {
+                                if (sdk >= Build.VERSION_CODES.Q) {
+                                    bgLocLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                                }
+                            },
+                        )
+                    }
+                    if (showBattery) {
+                        PermissionCard(
+                            title = stringResource(R.string.settings_perm_battery_title),
+                            body = stringResource(R.string.settings_perm_battery_body),
+                            onAction = {
+                                if (activityCtx != null) {
+                                    com.privycs.vpn.util.BatteryOptimizationHelper
+                                        .openBatteryOptimizationDialog(activityCtx)
+                                }
+                                refreshPerms()
+                            },
+                        )
+                    }
                 }
             }
 
@@ -1147,6 +1288,35 @@ internal fun SettingsToggle(
                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary
             )
         )
+    }
+}
+
+@Composable
+private fun PermissionCard(
+    title: String,
+    body: String,
+    onAction: () -> Unit,
+) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = body,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onAction,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.settings_perm_button_grant))
+        }
+        Spacer(modifier = Modifier.height(4.dp))
     }
 }
 
