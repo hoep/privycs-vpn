@@ -555,7 +555,7 @@
     <string name="settings_perm_nearby_wifi_title">Accesso ai dispositivi Wi-Fi nelle vicinanze</string>
     <string name="settings_perm_nearby_wifi_body">Consente a Privycs di leggere il nome del Wi-Fi attuale su Android 13 e versioni successive senza richiedere che i servizi di localizzazione siano attivi. Dichiarato con neverForLocation — mai utilizzato per la geolocalizzazione.</string>
     <string name="settings_perm_location_bg_title">Accesso al nome Wi-Fi in background</string>
-    <string name="settings_perm_location_bg_body">Necessario affinché le regole basate su SSID continuino a reagire mentre l\'app è chiusa o lo schermo è spento. Scegli "Consenti sempre" nella schermata successiva.</string>
+    <string name="settings_perm_location_bg_body">Necessario affinché le regole basate su SSID continuino a reagire mentre l\'app è chiusa o lo schermo è spento. Scegli \"Consenti sempre\" nella schermata successiva.</string>
     <string name="settings_perm_battery_title">Esenzione ottimizzazione batteria</string>
     <string name="settings_perm_battery_body">Senza questa, Android può ritardare gli eventi di cambio di rete fino a 15 minuti in Doze, quindi le regole Connect-on-Demand non reagiscono in tempo reale. L\'esenzione è necessaria solo per il rilevamento istantaneo dei cambi Wi-Fi / cellulare.</string>
     <string name="pro_activate_with_key">Ho già una chiave di licenza</string>

@@ -533,7 +533,7 @@
     <string name="settings_perm_nearby_wifi_title">Acceso a dispositivos Wi-Fi cercanos</string>
     <string name="settings_perm_nearby_wifi_body">Permite a Privycs leer el nombre del Wi-Fi actual en Android 13 y posteriores sin necesidad de que los servicios de ubicación estén activados. Declarado con neverForLocation — nunca utilizado para geolocalización.</string>
     <string name="settings_perm_location_bg_title">Acceso al nombre de Wi-Fi en segundo plano</string>
-    <string name="settings_perm_location_bg_body">Necesario para que las reglas basadas en SSID sigan reaccionando mientras la app está cerrada o la pantalla está apagada. Elige "Permitir todo el tiempo" en la siguiente pantalla.</string>
+    <string name="settings_perm_location_bg_body">Necesario para que las reglas basadas en SSID sigan reaccionando mientras la app está cerrada o la pantalla está apagada. Elige \"Permitir todo el tiempo\" en la siguiente pantalla.</string>
     <string name="settings_perm_battery_title">Exención de optimización de batería</string>
     <string name="settings_perm_battery_body">Sin esto, Android puede retrasar los eventos de cambio de red hasta 15 minutos en Doze, de modo que las reglas de Conexión bajo demanda no reaccionan en tiempo real. La exención solo es necesaria para la detección instantánea de cambios de Wi-Fi / móvil.</string>
     <string name="pro_activate_with_key">Ya tengo una clave de licencia</string>

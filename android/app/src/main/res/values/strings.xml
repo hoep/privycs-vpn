@@ -555,7 +555,7 @@
     <string name="settings_perm_nearby_wifi_title">Nearby Wi-Fi devices access</string>
     <string name="settings_perm_nearby_wifi_body">Lets Privycs read the current Wi-Fi name on Android 13 and newer without requiring location services to be turned on. Declared with neverForLocation — never used for geolocation.</string>
     <string name="settings_perm_location_bg_title">Wi-Fi name access in the background</string>
-    <string name="settings_perm_location_bg_body">Required so SSID-based rules keep reacting while the app is closed or the screen is off. Choose "Allow all the time" on the next screen.</string>
+    <string name="settings_perm_location_bg_body">Required so SSID-based rules keep reacting while the app is closed or the screen is off. Choose \"Allow all the time\" on the next screen.</string>
     <string name="settings_perm_battery_title">Battery optimization exemption</string>
     <string name="settings_perm_battery_body">Without this, Android may delay network-change events by up to 15 minutes in Doze, so Connect-on-Demand rules don't react in real time. The exemption is required only for the Wi-Fi / mobile change detection to be instant.</string>
     <string name="pro_activate_with_key">I already have a license key</string>
