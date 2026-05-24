@@ -19,6 +19,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 data class NetworkState(
@@ -213,6 +215,31 @@ class NetworkMonitor private constructor(private val context: Context) {
                     // own right; a stale "I tapped Disconnect 5 s ago"
                     // stamp should not suppress the evaluation that runs
                     // as a direct consequence of the new rule.
+                    AlwaysOnDetector.clearUserDisconnectStamp(context)
+                    evaluateCurrentNetwork()
+                }
+        }
+
+        // v1.0.5.10: Re-evaluate whenever the Auto-tunnel master toggle
+        // (settings.networkRulesEnabled) flips. Without this, toggling
+        // master OFF→ON did not apply any matching rule until the next
+        // spontaneous network event (up to 10 s via the backstop tick).
+        // The user-perceived bug: "I just turned Auto-tunnel ON but
+        // nothing happened." Now master-toggle changes fire the eval
+        // pipeline within the same 300 ms debounce as other triggers.
+        // We map the settingsFlow to just the boolean and apply
+        // distinctUntilChanged so other settings changes (gateway URL,
+        // theme, etc.) don't spuriously re-fire the engine.
+        scope.launch {
+            PrivycsApp.instance.settingsRepository.settingsFlow
+                .map { it.networkRulesEnabled }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    PrivycsLogger.d(
+                        TAG,
+                        "Master toggle changed: networkRulesEnabled=$enabled, re-evaluating",
+                    )
+                    lastRuleKey = ""
                     AlwaysOnDetector.clearUserDisconnectStamp(context)
                     evaluateCurrentNetwork()
                 }
