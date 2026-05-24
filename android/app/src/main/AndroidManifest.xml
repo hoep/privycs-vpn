@@ -23,19 +23,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- v0.9.15.75: ACCESS_BACKGROUND_LOCATION is intentionally NOT
-         declared in the open-test build. Declaring it triggers
-         Google Play's background-location declaration form + demo-
-         video review gate, which would block the open-test launch.
-         SSID-based Connect-on-Demand runs foreground-only until then
-         — NetworkMonitor degrades gracefully (the OS redacts the SSID
-         to a backgrounded app without this permission, it does not
-         error). To re-enable for the production release: add this
-         <uses-permission> line back AND flip BACKGROUND_LOCATION_ENABLED
-         in MainActivity.kt, then prepare the Play Console form +
-         video.
+    <!-- v1.0.5.5: ACCESS_BACKGROUND_LOCATION re-enabled. Background
+         location is required for SSID-based Connect-on-Demand rules
+         to react while the app is closed / screen off — from
+         Android 10 the OS only reveals the current Wi-Fi SSID to a
+         backgrounded app if this permission is held. The runtime
+         permission flow in MainActivity.kt (BACKGROUND_LOCATION_
+         ENABLED=true) walks the user through foreground-grant →
+         background-grant after a prominent in-app rationale. Play
+         Console declaration + demo-video review is bundled with the
+         FGS-specialUse and QUERY_ALL_PACKAGES declarations in one
+         submission for v1.0.5.5. -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    -->
+
     <!-- Required for reliable Connect-on-Demand reaction in Doze /
          App Standby (v0.9.15.24). Without battery-optimization
          exemption Android defers our NetworkCallback delivery to

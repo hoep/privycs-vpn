@@ -33,16 +33,15 @@ import com.privycs.vpn.ui.theme.PrivycsVpnTheme
 import com.privycs.vpn.util.AppLocale
 import kotlinx.coroutines.launch
 
-// v0.9.15.75: the open-test build ships WITHOUT ACCESS_BACKGROUND_LOCATION
-// — declaring it would trigger Google Play's background-location
-// declaration form + demo-video review gate and block the open-test
-// launch. SSID-based Connect-on-Demand therefore runs foreground-only
-// for now (NetworkMonitor already degrades: the OS redacts the SSID to
-// a backgrounded app without this permission). To re-enable for the
-// production release: flip this to true AND re-add the
-// <uses-permission ACCESS_BACKGROUND_LOCATION> line in AndroidManifest.xml
-// (then prepare the Play Console declaration form + demo video).
-private const val BACKGROUND_LOCATION_ENABLED = false
+// v1.0.5.5: ACCESS_BACKGROUND_LOCATION is now declared (see manifest).
+// SSID-based Connect-on-Demand rules now react reliably even while the
+// app is closed / screen off, which fixes the background-redaction
+// limitation that v0.9.15.75 deliberately accepted to defer the Play
+// Console review gate. Play declaration + demo video are bundled with
+// the FGS-specialUse + QUERY_ALL_PACKAGES declarations in one
+// submission. The runtime grant flow below walks the user through
+// foreground-then-background prompts after a prominent rationale.
+private const val BACKGROUND_LOCATION_ENABLED = true
 
 class MainActivity : ComponentActivity() {
 
