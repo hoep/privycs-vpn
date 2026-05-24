@@ -148,6 +148,11 @@
     "settings": "Opzioni",
     "help": "Aiuto"
   },
+  "warnings": {
+    "ipv6_leak_helper_unreachable": "Protezione anti-fuga IPv6 non riuscita: il helper privilegiato non è raggiungibile. Il traffico IPv6 potrebbe bypassare la VPN.",
+    "ipv6_leak_helper_error": "Protezione anti-fuga IPv6 non riuscita: {detail}. Il traffico IPv6 potrebbe bypassare la VPN.",
+    "ipv6_leak_legacy": "{detail}"
+  },
   "pro": {
     "title": "Privycs Pro",
     "badge": "PRO",
@@ -619,6 +624,11 @@
       "help": "Se disattivato, tutte le regole sotto vengono saltate e si applica solo il Comportamento predefinito.",
       "disabled-notice": "Disattivato per impostazione predefinita in v0.9.13.4 dopo segnalazioni di stabilità. Attivalo per renderlo operativo. Le regole esistenti vengono mantenute."
     },
+    "master": {
+      "title": "Motore regole auto-connessione",
+      "subtitle-on": "Le regole sotto decidono quando la VPN si connette automaticamente. Disattiva per disabilitare ogni comportamento di auto-connessione.",
+      "subtitle-off": "Auto-connessione disattivata. Connetti e disconnetti manualmente dalla schermata Connetti, oppure attiva qui per eseguire le regole sotto."
+    },
     "empty": {
       "heading": "Nessuna regola ancora",
       "body": "Ogni rete ricade sul <strong>Comportamento predefinito</strong> sotto. Aggiungi una regola per sovrascriverlo per un SSID Wi-Fi specifico, un BSSID o un tipo di rete — instradando quella rete a un Pool, una Connessione o Nessuna VPN."
@@ -628,9 +638,10 @@
       "priority": "priorità {n}"
     },
     "fallback": {
-      "heading": "Ripiego — quando nessuna regola corrisponde",
+      "heading": "Comportamento predefinito — quando nessuna regola corrisponde",
       "cod-label": "Connect on Demand",
-      "cod-help": "Comportamento predefinito per ogni rete che nessuna regola sopra ha intercettato"
+      "cod-help": "Comportamento predefinito per ogni rete che nessuna regola sopra ha intercettato",
+      "static-body": "Quando nessuna regola sopra corrisponde alla rete corrente — o quando il motore è spento — la VPN <strong>non</strong> si connette/disconnette automaticamente. Usa la schermata <strong>Connetti</strong> per controllare il tunnel manualmente."
     },
     "cod": {
       "when-connected-to": "Quando connesso a",

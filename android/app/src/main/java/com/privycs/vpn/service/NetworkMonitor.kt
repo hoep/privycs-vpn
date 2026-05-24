@@ -552,6 +552,16 @@ class NetworkMonitor private constructor(private val context: Context) {
     }
 
     private suspend fun runEvaluation() {
+        // v1.0.5: master on/off — when the NetworkRules engine is
+        // disabled via the master toggle in NetworkRulesScreen, no
+        // rule may trigger any auto-connect/-disconnect. Bypass the
+        // full evaluation pipeline here for the smallest possible
+        // surface. The user can still manually Connect/Disconnect via
+        // the Connect screen — that path doesn't go through this
+        // function. Matches Desktop's `network_rules_enabled` gate.
+        if (!PrivycsApp.instance.settingsRepository.getSettingsBlocking().networkRulesEnabled) {
+            return
+        }
         val networkType = detectNetworkType()
         // v0.9.15.70 — single SSID source: the callback-driven latch.
         // detectCurrentSsid() reads currentWifiSsid (set in

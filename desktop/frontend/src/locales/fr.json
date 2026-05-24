@@ -148,6 +148,11 @@
     "settings": "Options",
     "help": "Aide"
   },
+  "warnings": {
+    "ipv6_leak_helper_unreachable": "La protection contre les fuites IPv6 a échoué : le service privilégié est inaccessible. Le trafic IPv6 peut contourner le VPN.",
+    "ipv6_leak_helper_error": "La protection contre les fuites IPv6 a échoué : {detail}. Le trafic IPv6 peut contourner le VPN.",
+    "ipv6_leak_legacy": "{detail}"
+  },
   "pro": {
     "title": "Privycs Pro",
     "badge": "PRO",
@@ -619,6 +624,11 @@
       "help": "Quand désactivé, chaque règle ci-dessous est ignorée et seul le comportement par défaut s'applique.",
       "disabled-notice": "Désactivé par défaut en v0.9.13.4 suite à des rapports de stabilité. Activez pour mettre en route. Les règles existantes sont conservées."
     },
+    "master": {
+      "title": "Moteur de règles auto-connexion",
+      "subtitle-on": "Les règles ci-dessous déterminent quand le VPN se connecte automatiquement. Désactivez pour arrêter tout comportement d'auto-connexion.",
+      "subtitle-off": "L'auto-connexion est désactivée. Connectez et déconnectez manuellement depuis l'écran Connexion, ou activez ici pour que les règles ci-dessous s'exécutent."
+    },
     "empty": {
       "heading": "Aucune règle pour le moment",
       "body": "Chaque réseau retombe sur le <strong>comportement par défaut</strong> ci-dessous. Ajoutez une règle pour le remplacer pour un SSID Wi-Fi, BSSID ou type de réseau spécifique — en routant ce réseau vers un pool, une connexion ou Pas de VPN."
@@ -628,9 +638,10 @@
       "priority": "priorité {n}"
     },
     "fallback": {
-      "heading": "Repli — quand aucune règle ne correspond",
+      "heading": "Comportement par défaut — quand aucune règle ne correspond",
       "cod-label": "Connect on Demand",
-      "cod-help": "Comportement par défaut pour tout réseau qu'aucune règle ci-dessus n'a fait correspondre"
+      "cod-help": "Comportement par défaut pour tout réseau qu'aucune règle ci-dessus n'a fait correspondre",
+      "static-body": "Quand aucune règle ci-dessus ne correspond au réseau actuel — ou quand le moteur est désactivé — le VPN ne se connecte/déconnecte <strong>pas</strong> automatiquement. Utilisez l'écran <strong>Connexion</strong> pour contrôler le tunnel manuellement."
     },
     "cod": {
       "when-connected-to": "Lorsque connecté à",

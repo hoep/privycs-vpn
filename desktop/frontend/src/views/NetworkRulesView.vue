@@ -16,34 +16,42 @@
       </button>
     </div>
 
-    <!-- Precedence explainer — the visible-precedence half of the
-         COD + Network-Rules unification (Option A1). -->
-    <div class="card p-3 mb-3 bg-primary-500/5 border border-primary-500/20">
-      <h3 class="text-xs font-semibold text-primary-500 mb-1">{{ $t('network-rules.precedence.heading') }}</h3>
-      <p class="text-[11px] text-gray-500 leading-relaxed" v-html="$t('network-rules.precedence.body')"></p>
-    </div>
-
-    <!-- Rules engine enable gate (moved here from Settings in A1) -->
-    <div class="card p-3 mb-3">
-      <div class="flex items-center justify-between">
-        <div>
-          <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('network-rules.engine.label') }}</span>
-          <p class="text-[10px] text-gray-400 mt-0.5">
-            {{ $t('network-rules.engine.help') }}
+    <!-- v1.0.5: Master on/off — pinned at the top, primary-colored card
+         when enabled so it reads as the first thing on the screen.
+         Mirrors Android's MasterToggleCard. When OFF, the engine no-
+         ops and no rule below fires; the user can still manually
+         Connect/Disconnect from the Connect screen. -->
+    <div
+      class="card p-4 mb-3 border-2"
+      :class="settings.network_rules_enabled
+        ? 'bg-primary-500/10 border-primary-500/40'
+        : 'bg-gray-50 dark:bg-gray-800/30 border-gray-300 dark:border-gray-700'"
+    >
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex-1 min-w-0">
+          <h3
+            class="text-sm font-semibold"
+            :class="settings.network_rules_enabled
+              ? 'text-primary-700 dark:text-primary-300'
+              : 'text-text'"
+          >
+            {{ $t('network-rules.master.title') }}
+          </h3>
+          <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+            {{ settings.network_rules_enabled
+              ? $t('network-rules.master.subtitle-on')
+              : $t('network-rules.master.subtitle-off') }}
           </p>
         </div>
         <Switch
           :model-value="!!settings.network_rules_enabled"
           @update:model-value="onEngineToggle"
           :class="settings.network_rules_enabled ? 'toggle-enabled' : 'toggle-disabled'"
-          class="toggle"
+          class="toggle flex-shrink-0"
         >
           <span class="toggle-knob" :class="settings.network_rules_enabled ? 'translate-x-5' : 'translate-x-0'" />
         </Switch>
       </div>
-      <p v-if="!settings.network_rules_enabled" class="text-[10px] text-amber-500 mt-2">
-        {{ $t('network-rules.engine.disabled-notice') }}
-      </p>
     </div>
 
     <!-- Empty-state explainer -->
@@ -105,111 +113,16 @@
       </div>
     </div>
 
-    <!-- Default behaviour — the legacy Connect-on-Demand config,
-         inlined here in A1 so the rules-first / default-fallback
-         precedence lives on one screen. Engine behaviour unchanged. -->
-    <div class="card p-4">
+    <!-- v1.0.5: Default behaviour — static info matching Android's
+         DefaultBehaviourCard. The legacy configurable Connect-on-
+         Demand UI was removed in v1.0.5 unification; the field stays
+         in AppSettings.ConnectOnDemand for backward compat but the
+         engine no longer consults it (rules-only). -->
+    <div class="card p-4 bg-gray-50 dark:bg-gray-800/30">
       <p class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
         {{ $t('network-rules.fallback.heading') }}
       </p>
-      <div class="flex items-center justify-between">
-        <div>
-          <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('network-rules.fallback.cod-label') }}</span>
-          <p class="text-[10px] text-gray-400 mt-0.5">
-            {{ $t('network-rules.fallback.cod-help') }}
-          </p>
-        </div>
-        <button
-          @click="toggleConnectOnDemand"
-          class="toggle"
-          :class="[
-            connectOnDemand.enabled && platform.auto_connect_supported ? 'toggle-enabled' : 'toggle-disabled',
-            !platform.auto_connect_supported ? 'opacity-40 cursor-not-allowed' : ''
-          ]"
-          :disabled="!platform.auto_connect_supported"
-        >
-          <span class="toggle-knob" :class="connectOnDemand.enabled && platform.auto_connect_supported ? 'translate-x-5' : 'translate-x-0'" />
-        </button>
-      </div>
-
-      <!-- On-demand options (visible when enabled) -->
-      <div v-if="connectOnDemand.enabled && platform.auto_connect_supported" class="mt-3 ml-1 space-y-2.5 border-l-2 border-gray-200 dark:border-gray-600 pl-3">
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-600 dark:text-gray-400">{{ $t('network-rules.cod.when-connected-to') }}</span>
-          <AppSelect
-            :model-value="connectOnDemand.trigger || 'any'"
-            @update:model-value="connectOnDemand.trigger = $event; saveOnDemandSettings()"
-            :options="triggerOptions"
-          />
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-600 dark:text-gray-400">{{ $t('network-rules.cod.wifi-networks') }}</span>
-          <AppSelect
-            :model-value="connectOnDemand.ssid_mode || 'all'"
-            @update:model-value="connectOnDemand.ssid_mode = $event; saveOnDemandSettings()"
-            :options="ssidModeOptions"
-          />
-        </div>
-        <div v-if="connectOnDemand.ssid_mode === 'only' || connectOnDemand.ssid_mode === 'except'">
-          <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">
-            {{ connectOnDemand.ssid_mode === 'only' ? $t('network-rules.cod.connect-only-on') : $t('network-rules.cod.do-not-connect-on') }}
-          </label>
-          <div class="flex gap-1.5">
-            <input
-              v-model="newSSID"
-              @keyup.enter="addSSID"
-              type="text"
-              :placeholder="$t('network-rules.cod.ssid-input-placeholder')"
-              class="input text-xs flex-1"
-            />
-            <button
-              @click="addSSID"
-              type="button"
-              class="btn-secondary px-2 py-1 text-xs whitespace-nowrap"
-              :disabled="!newSSID.trim()"
-            >
-              {{ $t('network-rules.button.add') }}
-            </button>
-          </div>
-          <div
-            v-if="connectOnDemand.ssid_list && connectOnDemand.ssid_list.length > 0"
-            class="flex flex-wrap gap-1.5 mt-2"
-          >
-            <span
-              v-for="ssid in connectOnDemand.ssid_list"
-              :key="ssid"
-              class="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-full"
-            >
-              {{ ssid }}
-              <button
-                @click="removeSSID(ssid)"
-                type="button"
-                class="hover:text-red-500 ml-0.5 text-base leading-none"
-                :title="$t('network-rules.cod.remove-ssid', { ssid })"
-              >&times;</button>
-            </span>
-          </div>
-          <p
-            v-else
-            class="text-[10px] text-gray-400 mt-1"
-          >
-            {{ $t('network-rules.cod.no-ssids-yet') }} {{ connectOnDemand.ssid_mode === 'only' ? $t('network-rules.cod.no-ssids-only-hint') : $t('network-rules.cod.no-ssids-except-hint') }}
-          </p>
-        </div>
-        <!-- Live status indicator -->
-        <div v-if="codStatus" class="flex items-center gap-1.5 pt-1">
-          <span class="inline-block w-1.5 h-1.5 rounded-full"
-            :class="codStatus.vpn_connected ? 'bg-green-400' : (codStatus.rule_match ? 'bg-yellow-400' : 'bg-gray-400')"
-          />
-          <span class="text-[10px] text-gray-500 dark:text-gray-400">
-            <template v-if="codStatus.ssid">{{ codStatus.ssid }} ({{ codStatus.network_type }})</template>
-            <template v-else-if="codStatus.network_type !== 'none'">{{ codStatus.network_type }}</template>
-            <template v-else>{{ $t('network-rules.status.no-network') }}</template>
-            <template v-if="codStatus.vpn_connected"> {{ $t('network-rules.status.vpn-active') }}</template>
-            <template v-else-if="codStatus.rule_match"> {{ $t('network-rules.status.connecting') }}</template>
-          </span>
-        </div>
-      </div>
+      <p class="text-[11px] text-gray-500 leading-relaxed" v-html="$t('network-rules.fallback.static-body')"></p>
     </div>
 
     <!-- Edit / Create modal: HeadlessUI Dialog with smooth in/out -->

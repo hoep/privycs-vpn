@@ -562,6 +562,11 @@
       "help": "Si está desactivado, se omiten todas las reglas y solo se aplica el comportamiento por defecto.",
       "disabled-notice": "Desactivado por defecto en v0.9.13.4 tras informes de estabilidad. Actívalo para habilitarlo. Las reglas existentes se conservan."
     },
+    "master": {
+      "title": "Motor de reglas de auto-conexión",
+      "subtitle-on": "Las reglas siguientes deciden cuándo la VPN se conecta automáticamente. Desactiva para deshabilitar todo comportamiento de auto-conexión.",
+      "subtitle-off": "Auto-conexión desactivada. Conecta y desconecta manualmente desde la pantalla Conectar, o activa esto para que se ejecuten las reglas."
+    },
     "empty": {
       "heading": "Aún no hay reglas",
       "body": "Toda red cae en el <strong>Comportamiento por defecto</strong> de abajo. Añade una regla para anularlo en un SSID, BSSID o tipo de red específico — enrutando esa red a un pool, una conexión o sin VPN."
@@ -571,9 +576,10 @@
       "priority": "prioridad {n}"
     },
     "fallback": {
-      "heading": "Reserva — cuando ninguna regla coincide",
+      "heading": "Comportamiento por defecto — cuando ninguna regla coincide",
       "cod-label": "Connect on Demand",
-      "cod-help": "Comportamiento por defecto para cualquier red con la que no haya coincidido ninguna regla anterior"
+      "cod-help": "Comportamiento por defecto para cualquier red con la que no haya coincidido ninguna regla anterior",
+      "static-body": "Cuando ninguna regla anterior coincide con la red actual — o cuando el motor está apagado — la VPN <strong>no</strong> se conecta ni se desconecta automáticamente. Usa la pantalla <strong>Conectar</strong> para controlar el túnel manualmente."
     },
     "cod": {
       "when-connected-to": "Cuando esté conectado a",
@@ -775,6 +781,11 @@
     "add": "Nuevo",
     "settings": "Opciones",
     "help": "Ayuda"
+  },
+  "warnings": {
+    "ipv6_leak_helper_unreachable": "Falló la protección contra fugas de IPv6: el helper privilegiado no es accesible. El tráfico IPv6 podría omitir la VPN.",
+    "ipv6_leak_helper_error": "Falló la protección contra fugas de IPv6: {detail}. El tráfico IPv6 podría omitir la VPN.",
+    "ipv6_leak_legacy": "{detail}"
   },
   "pro": {
     "title": "Privycs Pro",

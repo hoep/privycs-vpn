@@ -533,6 +533,19 @@ func (i *IPSecProtocol) configureWindowsFromSSwan(profile *sswanProfile, oldConn
 		}
 		i.configured = true
 		log.Printf("Windows IKEv2 VPN connection created via helper: %s -> %s", i.connName, profile.Remote.Addr)
+		// v1.0.5: surface the helper's PowerShell Write-Host diagnostics
+		// (ipsec-helper: lines) in the client log even on success — they
+		// carry the cert-store sweep counts + thumbprints the helper saw,
+		// which is the only way to debug a still-failing rasdial 13801
+		// from outside the SYSTEM process.
+		if s := strings.TrimSpace(resp.Output); s != "" {
+			for _, ln := range strings.Split(s, "\n") {
+				ln = strings.TrimRight(ln, "\r")
+				if ln != "" {
+					log.Printf("helper: %s", ln)
+				}
+			}
+		}
 		return nil
 	}
 

@@ -11,9 +11,12 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -41,7 +44,12 @@ import java.util.UUID
 fun NetworkRulesScreen(onBack: () -> Unit) {
     val app = PrivycsApp.instance
     val repo = remember { app.networkRulesRepository }
+    val settingsRepo = remember { app.settingsRepository }
     val rules by repo.rules.collectAsState()
+    // v1.0.5 — master on/off for the rules engine; the prominent toggle
+    // card at the top of this screen edits this flag. When false, the
+    // NetworkMonitor short-circuits its evaluation and no rule can fire.
+    val settings by settingsRepo.settingsFlow.collectAsState(initial = settingsRepo.defaultSettings())
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var editing by remember { mutableStateOf<NetworkRule?>(null) }
@@ -84,7 +92,21 @@ fun NetworkRulesScreen(onBack: () -> Unit) {
         ) {
             item {
                 Spacer(Modifier.height(12.dp))
-                PrecedenceHeaderCard()
+                // v1.0.5: master toggle — top of screen, primary-colored
+                // card so it's the first thing the user sees. When OFF,
+                // NetworkMonitor.runEvaluation() returns immediately so
+                // no rule fires; when ON, the rule list below is
+                // evaluated top-to-bottom on every network change.
+                MasterToggleCard(
+                    enabled = settings.networkRulesEnabled,
+                    onToggle = { newValue ->
+                        scope.launch {
+                            settingsRepo.updateSettings(
+                                settings.copy(networkRulesEnabled = newValue),
+                            )
+                        }
+                    },
+                )
                 Spacer(Modifier.height(16.dp))
             }
 
@@ -160,6 +182,57 @@ fun NetworkRulesScreen(onBack: () -> Unit) {
                         editing = null
                     }
                 },
+            )
+        }
+    }
+}
+
+/**
+ * Master on/off toggle for the NetworkRules engine — pinned at the top
+ * of the screen, primary-colored for visual prominence. When this is
+ * off, no rule can fire regardless of the rule list below; the user
+ * can still manually Connect/Disconnect from the Connect screen.
+ * Mirrors Desktop's master toggle in NetworkRulesView.vue.
+ */
+@Composable
+private fun MasterToggleCard(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (enabled)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.netrules_master_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (enabled)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else
+                        MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    stringResource(
+                        if (enabled) R.string.netrules_master_subtitle_on
+                        else R.string.netrules_master_subtitle_off,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = enabled,
+                onCheckedChange = onToggle,
             )
         }
     }

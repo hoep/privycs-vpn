@@ -148,6 +148,11 @@
     "settings": "Opções",
     "help": "Ajuda"
   },
+  "warnings": {
+    "ipv6_leak_helper_unreachable": "Falha na proteção contra vazamento de IPv6: o helper privilegiado está inacessível. O tráfego IPv6 pode contornar a VPN.",
+    "ipv6_leak_helper_error": "Falha na proteção contra vazamento de IPv6: {detail}. O tráfego IPv6 pode contornar a VPN.",
+    "ipv6_leak_legacy": "{detail}"
+  },
   "pro": {
     "title": "Privycs Pro",
     "badge": "PRO",
@@ -619,6 +624,11 @@
       "help": "Quando desativado, todas as regras abaixo são ignoradas e apenas o Comportamento padrão se aplica.",
       "disabled-notice": "Desativado por padrão na v0.9.13.4 após relatos de estabilidade. Ative para usar. As regras existentes são preservadas."
     },
+    "master": {
+      "title": "Motor de regras de auto-conexão",
+      "subtitle-on": "As regras abaixo decidem quando a VPN conecta automaticamente. Desative para desabilitar todo comportamento de auto-conexão.",
+      "subtitle-off": "Auto-conexão desativada. Conecte e desconecte manualmente pela tela Conectar, ou ative aqui para executar as regras abaixo."
+    },
     "empty": {
       "heading": "Nenhuma regra ainda",
       "body": "Toda rede cai no <strong>Comportamento padrão</strong> abaixo. Adicione uma regra para sobrescrevê-lo para um SSID Wi-Fi, BSSID ou tipo de rede específico — direcionando essa rede para um Pool, uma Conexão ou Sem VPN."
@@ -628,9 +638,10 @@
       "priority": "prioridade {n}"
     },
     "fallback": {
-      "heading": "Fallback — quando nenhuma regra corresponde",
+      "heading": "Comportamento padrão — quando nenhuma regra corresponde",
       "cod-label": "Connect on Demand",
-      "cod-help": "Comportamento padrão para qualquer rede que nenhuma regra acima tenha correspondido"
+      "cod-help": "Comportamento padrão para qualquer rede que nenhuma regra acima tenha correspondido",
+      "static-body": "Quando nenhuma regra acima corresponde à rede atual — ou quando o motor está desligado — a VPN <strong>não</strong> conecta nem desconecta automaticamente. Use a tela <strong>Conectar</strong> para controlar o túnel manualmente."
     },
     "cod": {
       "when-connected-to": "Quando conectado a",

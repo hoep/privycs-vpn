@@ -9,6 +9,7 @@ import android.net.NetworkRequest
 import android.net.VpnService
 import android.util.Log
 import com.privycs.vpn.PrivycsApp
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.data.models.VpnStatus
@@ -122,7 +123,7 @@ class VpnServiceManager private constructor(private val context: Context) {
         if (cur.error != null && cur.error.isNotBlank()) {
             return
         }
-        _status.value = cur.copy(error = "WARNING: $text")
+        _status.value = cur.copy(error = context.getString(R.string.banner_warning_prefix, text))
     }
 
     /**
@@ -199,7 +200,7 @@ class VpnServiceManager private constructor(private val context: Context) {
                         result is com.privycs.vpn.util.ConnectCoordinator.Result.Gated
                     ) {
                         PrivycsLogger.w(TAG, "connect() pool rejected by coordinator: $result")
-                        _status.value = _status.value.copy(error = "Pool connect rejected: $result")
+                        _status.value = _status.value.copy(error = context.getString(R.string.banner_pool_connect_rejected, result.toString()))
                     }
                 }
                 return
@@ -210,14 +211,14 @@ class VpnServiceManager private constructor(private val context: Context) {
         val connection = connectionRepo.getById(connId)
         if (connection == null) {
             PrivycsLogger.w(TAG, "connect() called with no matching connection (id=$connId)")
-            _status.value = VpnStatus(error = "No connection selected")
+            _status.value = VpnStatus(error = context.getString(R.string.banner_no_connection_selected))
             return
         }
 
         val config = connection.getActiveConfig()
         if (config == null) {
             PrivycsLogger.w(TAG, "connect() connection '${connection.name}' has no config for ${connection.activeProtocol}")
-            _status.value = VpnStatus(error = "No config for ${connection.activeProtocol.label}")
+            _status.value = VpnStatus(error = context.getString(R.string.banner_no_config_for_protocol, connection.activeProtocol.label))
             return
         }
 
@@ -249,7 +250,7 @@ class VpnServiceManager private constructor(private val context: Context) {
                 result is com.privycs.vpn.util.ConnectCoordinator.Result.Gated
             ) {
                 PrivycsLogger.w(TAG, "connect() rejected by coordinator: $result")
-                _status.value = _status.value.copy(error = "Connection rejected: $result")
+                _status.value = _status.value.copy(error = context.getString(R.string.banner_connection_rejected, result.toString()))
             }
         }
     }
@@ -643,7 +644,7 @@ class VpnServiceManager private constructor(private val context: Context) {
                 uptime = 0L,
                 rxBytes = 0L,
                 txBytes = 0L,
-                error = "Kill switch active",
+                error = context.getString(R.string.banner_kill_switch_active),
             )
             _status.value = masked
             com.privycs.vpn.util.SpeedTracker.record(0L, 0L, connected = false)

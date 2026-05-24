@@ -587,4 +587,26 @@
     <string name="app">Privycs VPN</string>
     <string name="notifcation_title">Privycs VPN - %s</string>
     <string name="notifcation_title_notconnect">Privycs VPN - Not connected</string>
+
+    <!-- Red banner on Connect screen when post-connect IPv6 leak check
+         detects the IPSec tunnel did not capture v6 traffic. Was hard-
+         coded English in PrivycsVpnService.kt until v1.0.5. -->
+    <string name="ipv6_leak_warning">IPv6 traffic may bypass the VPN — the server did not accept the IPv6 traffic selector. Switch to WireGuard for full IPv6 protection.</string>
+
+    <!-- Connect-screen error banners. Previously hard-coded English in
+         VpnServiceManager.kt; surfaced via VpnStatus.error and rendered
+         in the red errorContainer Card on the Connect screen. -->
+    <string name="banner_warning_prefix">WARNING: %1$s</string>
+    <string name="banner_pool_connect_rejected">Pool connect rejected: %1$s</string>
+    <string name="banner_connection_rejected">Connection rejected: %1$s</string>
+    <string name="banner_no_connection_selected">No connection selected</string>
+    <string name="banner_no_config_for_protocol">No config for %1$s</string>
+    <string name="banner_kill_switch_active">Kill switch active</string>
+
+    <!-- v1.0.5: master on/off card pinned at the top of the
+         NetworkRules screen. Mirrors Desktop's network_rules_enabled
+         toggle in NetworkRulesView.vue. -->
+    <string name="netrules_master_title">Auto-tunnel rules engine</string>
+    <string name="netrules_master_subtitle_on">Rules below decide when the VPN connects automatically. Turn off to disable all auto-tunnel behaviour.</string>
+    <string name="netrules_master_subtitle_off">Auto-tunnel is off. Connect and disconnect manually from the Connect screen, or turn this on to let rules below run.</string>
 </resources>

@@ -211,12 +211,19 @@ func (a *App) applyIPv6Killswitch(tunV4 string) {
 	log.Printf("IPv6 killswitch: enabling (%s, tunV4=%s)", reason, tunV4)
 	client := NewHelperClient()
 	if !client.IsHelperReachable() {
-		msg := "IPv6 leak protection failed: privileged helper unreachable. Your IPv6 traffic may bypass the VPN."
+		// v1.0.5 i18n pattern: emit a stable English KEY + detail so
+		// the Vue frontend can translate; Notify() keeps an English
+		// summary because the OS notification can't reach vue-i18n.
 		log.Printf("IPv6 killswitch: helper unreachable, can't block — leak risk remains")
 		if a.ctx != nil {
-			wailsRuntime.EventsEmit(a.ctx, "vpn:ipv6_leak_warning", msg)
+			wailsRuntime.EventsEmit(a.ctx, "vpn:ipv6_leak_warning", map[string]string{
+				"key":    "ipv6_leak_helper_unreachable",
+				"detail": "",
+			})
 		}
-		Notify("IPv6 leak protection failed", msg, NotifyError)
+		Notify("IPv6 leak protection failed",
+			"Privileged helper unreachable. IPv6 traffic may bypass the VPN.",
+			NotifyError)
 		return
 	}
 	resp, err := client.SendCommand("ipv6_block", nil)
@@ -227,12 +234,16 @@ func (a *App) applyIPv6Killswitch(tunV4 string) {
 		} else if resp.Error != "" {
 			errStr = resp.Error
 		}
-		msg := fmt.Sprintf("IPv6 leak protection failed: %s. Your IPv6 traffic may bypass the VPN.", errStr)
 		log.Printf("IPv6 killswitch: helper RPC failed: err=%v resp=%+v", err, resp)
 		if a.ctx != nil {
-			wailsRuntime.EventsEmit(a.ctx, "vpn:ipv6_leak_warning", msg)
+			wailsRuntime.EventsEmit(a.ctx, "vpn:ipv6_leak_warning", map[string]string{
+				"key":    "ipv6_leak_helper_error",
+				"detail": errStr,
+			})
 		}
-		Notify("IPv6 leak protection failed", msg, NotifyError)
+		Notify("IPv6 leak protection failed",
+			fmt.Sprintf("%s. IPv6 traffic may bypass the VPN.", errStr),
+			NotifyError)
 		return
 	}
 	log.Printf("IPv6 killswitch: blocked (%s)", strings.TrimSpace(resp.Output))

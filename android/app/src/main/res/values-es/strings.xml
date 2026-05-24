@@ -587,4 +587,14 @@
     <string name="app">Privycs VPN</string>
     <string name="notifcation_title">Privycs VPN - %s</string>
     <string name="notifcation_title_notconnect">Privycs VPN - Sin conexión</string>
+    <string name="ipv6_leak_warning">El tráfico IPv6 podría omitir la VPN — el servidor no aceptó el selector de tráfico IPv6. Cambia a WireGuard para una protección IPv6 completa.</string>
+    <string name="banner_warning_prefix">ADVERTENCIA: %1$s</string>
+    <string name="banner_pool_connect_rejected">Conexión del pool rechazada: %1$s</string>
+    <string name="banner_connection_rejected">Conexión rechazada: %1$s</string>
+    <string name="banner_no_connection_selected">Ninguna conexión seleccionada</string>
+    <string name="banner_no_config_for_protocol">Sin configuración para %1$s</string>
+    <string name="banner_kill_switch_active">Kill switch activo</string>
+    <string name="netrules_master_title">Motor de reglas de auto-conexión</string>
+    <string name="netrules_master_subtitle_on">Las reglas siguientes deciden cuándo la VPN se conecta automáticamente. Desactiva para deshabilitar todo comportamiento de auto-conexión.</string>
+    <string name="netrules_master_subtitle_off">Auto-conexión desactivada. Conecta y desconecta manualmente desde la pantalla Conectar, o activa esto para que se ejecuten las reglas.</string>
 </resources>

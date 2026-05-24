@@ -148,6 +148,11 @@
     "settings": "Optionen",
     "help": "Hilfe"
   },
+  "warnings": {
+    "ipv6_leak_helper_unreachable": "IPv6-Leak-Schutz fehlgeschlagen: der privilegierte Helper ist nicht erreichbar. IPv6-Verkehr umgeht möglicherweise das VPN.",
+    "ipv6_leak_helper_error": "IPv6-Leak-Schutz fehlgeschlagen: {detail}. IPv6-Verkehr umgeht möglicherweise das VPN.",
+    "ipv6_leak_legacy": "{detail}"
+  },
   "pro": {
     "title": "Privycs Pro",
     "badge": "PRO",
@@ -619,6 +624,11 @@
       "help": "Wenn aus, werden alle Regeln unten übersprungen und nur das Standardverhalten gilt.",
       "disabled-notice": "Standardmäßig deaktiviert seit v0.9.13.4 nach Stabilitätsmeldungen. Zum Aktivieren einschalten. Vorhandene Regeln bleiben erhalten."
     },
+    "master": {
+      "title": "Auto-Tunnel-Regel-Engine",
+      "subtitle-on": "Die Regeln unten entscheiden, wann das VPN automatisch verbindet. Ausschalten, um jegliches Auto-Tunnel-Verhalten zu deaktivieren.",
+      "subtitle-off": "Auto-Tunnel ist aus. Verbinde und trenne manuell über den Connect-Screen, oder schalte hier ein, um die Regeln unten laufen zu lassen."
+    },
     "empty": {
       "heading": "Noch keine Regeln",
       "body": "Jedes Netzwerk fällt auf das unten stehende <strong>Standardverhalten</strong> zurück. Regel hinzufügen, um dieses für eine bestimmte Wi-Fi-SSID, BSSID oder einen Netzwerktyp zu überschreiben — und das Netzwerk an einen Pool, eine Verbindung oder „Kein VPN\" zu leiten."
@@ -628,9 +638,10 @@
       "priority": "Priorität {n}"
     },
     "fallback": {
-      "heading": "Fallback — wenn keine Regel passt",
+      "heading": "Standardverhalten — wenn keine Regel passt",
       "cod-label": "Connect-on-Demand",
-      "cod-help": "Standardverhalten für jedes Netzwerk, auf das keine Regel oben passte"
+      "cod-help": "Standardverhalten für jedes Netzwerk, auf das keine Regel oben passte",
+      "static-body": "Wenn keine Regel oben auf das aktuelle Netzwerk passt — oder wenn die Engine aus ist — verbindet/trennt das VPN <strong>nicht</strong> automatisch. Nutze den <strong>Connect</strong>-Screen, um den Tunnel manuell zu steuern."
     },
     "cod": {
       "when-connected-to": "Wenn verbunden mit",

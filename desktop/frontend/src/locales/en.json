@@ -148,6 +148,11 @@
     "settings": "Settings",
     "help": "Help"
   },
+  "warnings": {
+    "ipv6_leak_helper_unreachable": "IPv6 leak protection failed: the privileged helper is unreachable. IPv6 traffic may bypass the VPN.",
+    "ipv6_leak_helper_error": "IPv6 leak protection failed: {detail}. IPv6 traffic may bypass the VPN.",
+    "ipv6_leak_legacy": "{detail}"
+  },
   "pro": {
     "title": "Privycs Pro",
     "badge": "PRO",
@@ -619,6 +624,11 @@
       "help": "When off, every rule below is skipped and only the Default behaviour applies.",
       "disabled-notice": "Disabled by default in v0.9.13.4 after stability reports. Toggle on to activate. Existing rules persist."
     },
+    "master": {
+      "title": "Auto-tunnel rules engine",
+      "subtitle-on": "Rules below decide when the VPN connects automatically. Turn off to disable all auto-tunnel behaviour.",
+      "subtitle-off": "Auto-tunnel is off. Connect and disconnect manually from the Connect screen, or turn this on to let rules below run."
+    },
     "empty": {
       "heading": "No rules yet",
       "body": "Every network falls through to the <strong>Default behaviour</strong> below. Add a rule to override it for a specific Wi-Fi SSID, BSSID, or network type — routing that network to a Pool, a Connection, or No VPN."
@@ -628,9 +638,10 @@
       "priority": "priority {n}"
     },
     "fallback": {
-      "heading": "Fallback — when no rule matches",
+      "heading": "Default behaviour — when no rule matches",
       "cod-label": "Connect on Demand",
-      "cod-help": "Default behaviour for any network no rule above matched"
+      "cod-help": "Default behaviour for any network no rule above matched",
+      "static-body": "When no rule above matches the current network — or when the engine is off — the VPN does <strong>not</strong> auto-connect or disconnect. Use the <strong>Connect</strong> screen to control the tunnel manually."
     },
     "cod": {
       "when-connected-to": "When connected to",

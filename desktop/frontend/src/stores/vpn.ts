@@ -79,6 +79,11 @@ export const useVpnStore = defineStore('vpn', () => {
   const version = ref('')
   const loading = ref(false)
   const error = ref('')
+  // v1.0.5: IPv6 leak warning surfaced from the Go backend via the
+  // 'vpn:ipv6_leak_warning' event. Backend emits a stable key + an
+  // optional detail string; the ConnectionView renders the i18n'd
+  // warnings.<key> message in a red banner. Cleared on disconnect.
+  const ipv6Warning = ref<{ key: string; detail: string } | null>(null)
 
   // Rolling speed history in bytes/second, computed from successive
   // bytes_rx / bytes_tx deltas. Each array is a fixed-length ring
@@ -234,6 +239,24 @@ export const useVpnStore = defineStore('vpn', () => {
     unsubscribe = EventsOn('vpn:status', (data: any) => {
       status.value = data
       updateSpeedSamples(data)
+      // Clear stale IPv6 warning whenever we re-evaluate status. Fresh
+      // warnings re-fire from the helper on each connect attempt.
+      if (!data?.connected) {
+        ipv6Warning.value = null
+      }
+    })
+    // v1.0.5: surface IPv6-killswitch failures as a red banner. Was
+    // emitted by the Go backend since v0.9.14.96 but no frontend
+    // subscriber existed — the warning silently vanished.
+    EventsOn('vpn:ipv6_leak_warning', (data: any) => {
+      if (data && typeof data === 'object' && data.key) {
+        ipv6Warning.value = { key: String(data.key), detail: String(data.detail ?? '') }
+      } else if (typeof data === 'string') {
+        // Backward compat: pre-v1.0.5 backend emitted a raw English
+        // string. Wrap it as an opaque key so the renderer falls
+        // through to the raw text via i18n fallback.
+        ipv6Warning.value = { key: 'ipv6_leak_legacy', detail: data }
+      }
     })
   }
 
@@ -258,6 +281,7 @@ export const useVpnStore = defineStore('vpn', () => {
     version,
     loading,
     error,
+    ipv6Warning,
     rxSpeedHistory,
     txSpeedHistory,
     fetchStatus,

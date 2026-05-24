@@ -2192,8 +2192,7 @@ class PrivycsVpnService : VpnService() {
                 // Surface to UI via VpnServiceManager error field; UI
                 // can subscribe via status flow and show a banner.
                 VpnServiceManager.getInstance(this@PrivycsVpnService).emitWarning(
-                    "IPv6 traffic may bypass the VPN — server didn't accept IPv6 traffic-selector. " +
-                        "Switch to WireGuard for full v6 protection."
+                    getString(R.string.ipv6_leak_warning)
                 )
             } else {
                 PrivycsLogger.d(TAG, "ipv6-leak check: tunnel captures v6 OR OS has no v6 — clean")

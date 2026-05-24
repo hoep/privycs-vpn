@@ -299,6 +299,15 @@ data class AppSettings(
     val apiKey: String = "",
     @SerialName("connect_on_demand")
     val connectOnDemand: ConnectOnDemandSettings = ConnectOnDemandSettings(),
+    // v1.0.5: master on/off for the NetworkRules engine. When false,
+    // NetworkMonitor.evaluate() returns immediately so no rule can
+    // trigger an auto-connect/-disconnect. Defaults true so existing
+    // installs with rules continue to behave as before; user toggles
+    // off via the NetworkRulesScreen master switch (top of screen,
+    // primary-colored card). Matches Desktop's `network_rules_enabled`
+    // field semantics one-to-one.
+    @SerialName("network_rules_enabled")
+    val networkRulesEnabled: Boolean = true,
     // First-launch tracking. Set to true by MainActivity after the
     // post-install location-permission rationale has been shown
     // exactly once. Defaults to false so an upgrade-from-old-version

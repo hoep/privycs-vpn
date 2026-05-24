@@ -57,6 +57,9 @@ class SettingsRepository(private val context: Context) {
         // openvpn,ipsec"). Empty / missing key falls back to the
         // AppSettings default in the data class.
         val PROTOCOL_FAILOVER_ORDER = stringPreferencesKey("protocol_failover_order")
+        // v1.0.5: master on/off for the NetworkRules engine. Matches
+        // Desktop's `network_rules_enabled` field. Defaults true.
+        val NETWORK_RULES_ENABLED = booleanPreferencesKey("network_rules_enabled")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -89,6 +92,7 @@ class SettingsRepository(private val context: Context) {
             tunnelHealthMode = prefs[Keys.TUNNEL_HEALTH_MODE] ?: "auto",
             tunnelHealthTarget = prefs[Keys.TUNNEL_HEALTH_TARGET] ?: "",
             keepMonitorAlive = prefs[Keys.KEEP_MONITOR_ALIVE] ?: false,
+            networkRulesEnabled = prefs[Keys.NETWORK_RULES_ENABLED] ?: true,
             protocolFailoverOrder = (prefs[Keys.PROTOCOL_FAILOVER_ORDER] ?: "")
                 .split(",")
                 .mapNotNull { VpnProtocol.fromString(it.trim()) }
@@ -183,6 +187,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.KEEP_MONITOR_ALIVE] = settings.keepMonitorAlive
             prefs[Keys.PROTOCOL_FAILOVER_ORDER] =
                 settings.protocolFailoverOrder.joinToString(",") { it.name.lowercase() }
+            prefs[Keys.NETWORK_RULES_ENABLED] = settings.networkRulesEnabled
         }
     }
 
