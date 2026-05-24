@@ -146,18 +146,36 @@ func ipv6UnblockMacOS() HelperResponse {
 
 const ipv6WindowsGroup = "Privycs IPv6 Killswitch"
 
+// v1.0.5.13: rule names simplified to single-token ASCII identifiers.
+// User-reported on a German-locale Windows: the previous names
+// containing parens and spaces ("Privycs IPv6 Killswitch (Allow
+// Loopback)") combined with "remoteip=::1/128" + "protocol=any"
+// caused netsh advfirewall's argument parser to bail out with
+// "Eine angegebene IP-Adresse oder ein angegebenes Adressschlüsselwort
+// ist ungültig". Some Windows builds appear to do a secondary
+// re-tokenisation of the name value that mis-parses parens, and
+// the resulting failure surfaces against the next positional token
+// (the IP). The fix is purely syntactic — no functional change.
+const (
+	ipv6WindowsAllowLoopbackName = "Privycs-V6-AllowLoopback"
+	ipv6WindowsBlockOutboundName = "Privycs-V6-BlockOutbound"
+)
+
 func ipv6BlockWindows() HelperResponse {
 	// Idempotent: clear first.
 	ipv6UnblockWindows()
 	// Allow loopback v6 (::1) explicitly so localhost services don't
 	// break — Windows Firewall evaluates Allow before Block when
-	// rules have the same direction/profile.
+	// rules have the same direction/profile. v1.0.5.13: dropped
+	// the /128 prefix (single host implied), dropped protocol=any
+	// (the netsh default) and enable=yes (rules are enabled by
+	// default on creation) so the rule line is as minimal as
+	// possible and offers the fewest surfaces for parser quirks.
 	allowOut, allowErr := exec.Command(
 		"netsh", "advfirewall", "firewall", "add", "rule",
-		"name=Privycs IPv6 Killswitch (Allow Loopback)",
-		"description=Allow IPv6 to loopback while v4-only tunnel is active",
-		"dir=out", "action=allow", "remoteip=::1/128", "enable=yes",
-		"profile=any", "protocol=any",
+		"name="+ipv6WindowsAllowLoopbackName,
+		"dir=out", "action=allow", "remoteip=::1",
+		"profile=any",
 	).CombinedOutput()
 	if allowErr != nil {
 		return HelperResponse{
@@ -168,10 +186,9 @@ func ipv6BlockWindows() HelperResponse {
 	// Block everything else outbound to v6.
 	blockOut, blockErr := exec.Command(
 		"netsh", "advfirewall", "firewall", "add", "rule",
-		"name=Privycs IPv6 Killswitch (Block Outbound)",
-		"description=Block all IPv6 outbound while v4-only tunnel is active",
-		"dir=out", "action=block", "remoteip=::/0", "enable=yes",
-		"profile=any", "protocol=any",
+		"name="+ipv6WindowsBlockOutboundName,
+		"dir=out", "action=block", "remoteip=::/0",
+		"profile=any",
 	).CombinedOutput()
 	if blockErr != nil {
 		// Roll back the allow rule so we don't leave a dangling allow.
@@ -186,6 +203,19 @@ func ipv6BlockWindows() HelperResponse {
 
 func ipv6UnblockWindows() HelperResponse {
 	// Best-effort: delete by name. Windows tolerates non-existent rule names.
+	// Includes both the v1.0.5.13 ASCII-only names AND the legacy
+	// names from earlier installs so an upgrade cleans up cleanly.
+	exec.Command(
+		"netsh", "advfirewall", "firewall", "delete", "rule",
+		"name="+ipv6WindowsAllowLoopbackName,
+	).Run()
+	exec.Command(
+		"netsh", "advfirewall", "firewall", "delete", "rule",
+		"name="+ipv6WindowsBlockOutboundName,
+	).Run()
+	// Legacy-name cleanup (pre-v1.0.5.13). Idempotent and silent
+	// on miss; removes any rules that the previous netsh-parser-
+	// affected releases might have managed to create.
 	exec.Command(
 		"netsh", "advfirewall", "firewall", "delete", "rule",
 		"name=Privycs IPv6 Killswitch (Allow Loopback)",
