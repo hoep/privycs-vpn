@@ -164,58 +164,74 @@ const (
 func ipv6BlockWindows() HelperResponse {
 	// Idempotent: clear first.
 	ipv6UnblockWindows()
-	// Allow loopback v6 (::1) explicitly so localhost services don't
-	// break — Windows Firewall evaluates Allow before Block when
-	// rules have the same direction/profile. v1.0.5.13: dropped
-	// the /128 prefix (single host implied), dropped protocol=any
-	// (the netsh default) and enable=yes (rules are enabled by
-	// default on creation) so the rule line is as minimal as
-	// possible and offers the fewest surfaces for parser quirks.
+	// v1.0.5.14: switched from netsh advfirewall to PowerShell's
+	// New-NetFirewallRule cmdlet. The v1.0.5.13 simplification of
+	// the rule name + IP parameters did not solve the user-reported
+	// "netsh add allow-loopback ... Eine angegebene IP-Adresse oder
+	// ein angegebenes Adressschlüsselwort ist ungültig" — the
+	// genuine cause is that the legacy netsh advfirewall parser on
+	// some Windows builds rejects bare IPv6 literals (::1, ::/0)
+	// at the `remoteip=` keyword, regardless of subnet-prefix
+	// presence, rule-name spacing, or other parameter quirks.
+	// PowerShell's New-NetFirewallRule uses the modern Defender-
+	// Firewall COM API which handles IPv6 addresses natively.
+	//
+	// PowerShell is available on every Windows 10+ install
+	// (Windows PowerShell 5.1 is part of the OS).
+	allowScript := `New-NetFirewallRule ` +
+		`-DisplayName '` + ipv6WindowsAllowLoopbackName + `' ` +
+		`-Description 'Allow IPv6 loopback while v4-only tunnel is active' ` +
+		`-Direction Outbound -Action Allow ` +
+		`-RemoteAddress '::1' ` +
+		`-Profile Any -ErrorAction Stop | Out-Null`
 	allowOut, allowErr := exec.Command(
-		"netsh", "advfirewall", "firewall", "add", "rule",
-		"name="+ipv6WindowsAllowLoopbackName,
-		"dir=out", "action=allow", "remoteip=::1",
-		"profile=any",
+		"powershell.exe", "-NoProfile", "-NonInteractive",
+		"-ExecutionPolicy", "Bypass", "-Command", allowScript,
 	).CombinedOutput()
 	if allowErr != nil {
 		return HelperResponse{
 			Success: false,
-			Error:   fmt.Sprintf("netsh add allow-loopback: %s: %v", strings.TrimSpace(string(allowOut)), allowErr),
+			Error:   fmt.Sprintf("New-NetFirewallRule allow-loopback: %s: %v", strings.TrimSpace(string(allowOut)), allowErr),
 		}
 	}
 	// Block everything else outbound to v6.
+	blockScript := `New-NetFirewallRule ` +
+		`-DisplayName '` + ipv6WindowsBlockOutboundName + `' ` +
+		`-Description 'Block all IPv6 outbound while v4-only tunnel is active' ` +
+		`-Direction Outbound -Action Block ` +
+		`-RemoteAddress '::/0' ` +
+		`-Profile Any -ErrorAction Stop | Out-Null`
 	blockOut, blockErr := exec.Command(
-		"netsh", "advfirewall", "firewall", "add", "rule",
-		"name="+ipv6WindowsBlockOutboundName,
-		"dir=out", "action=block", "remoteip=::/0",
-		"profile=any",
+		"powershell.exe", "-NoProfile", "-NonInteractive",
+		"-ExecutionPolicy", "Bypass", "-Command", blockScript,
 	).CombinedOutput()
 	if blockErr != nil {
 		// Roll back the allow rule so we don't leave a dangling allow.
 		ipv6UnblockWindows()
 		return HelperResponse{
 			Success: false,
-			Error:   fmt.Sprintf("netsh add block: %s: %v", strings.TrimSpace(string(blockOut)), blockErr),
+			Error:   fmt.Sprintf("New-NetFirewallRule block: %s: %v", strings.TrimSpace(string(blockOut)), blockErr),
 		}
 	}
 	return HelperResponse{Success: true, Output: "ipv6 blocked (Windows Firewall '" + ipv6WindowsGroup + "')"}
 }
 
 func ipv6UnblockWindows() HelperResponse {
-	// Best-effort: delete by name. Windows tolerates non-existent rule names.
-	// Includes both the v1.0.5.13 ASCII-only names AND the legacy
-	// names from earlier installs so an upgrade cleans up cleanly.
+	// v1.0.5.14: PowerShell Remove-NetFirewallRule for the
+	// v1.0.5.14+ rules. Legacy netsh cleanup retained for any
+	// pre-existing rules from older installs (some of which
+	// may have managed to half-create rules via the netsh path).
+	// Remove-NetFirewallRule with -ErrorAction SilentlyContinue
+	// no-ops cleanly when the rule does not exist.
+	removeScript := `Remove-NetFirewallRule ` +
+		`-DisplayName '` + ipv6WindowsAllowLoopbackName + `','` + ipv6WindowsBlockOutboundName + `' ` +
+		`-ErrorAction SilentlyContinue | Out-Null`
 	exec.Command(
-		"netsh", "advfirewall", "firewall", "delete", "rule",
-		"name="+ipv6WindowsAllowLoopbackName,
+		"powershell.exe", "-NoProfile", "-NonInteractive",
+		"-ExecutionPolicy", "Bypass", "-Command", removeScript,
 	).Run()
-	exec.Command(
-		"netsh", "advfirewall", "firewall", "delete", "rule",
-		"name="+ipv6WindowsBlockOutboundName,
-	).Run()
-	// Legacy-name cleanup (pre-v1.0.5.13). Idempotent and silent
-	// on miss; removes any rules that the previous netsh-parser-
-	// affected releases might have managed to create.
+	// Legacy-name cleanup (pre-v1.0.5.13 + v1.0.5.13-only
+	// netsh-created rules). Idempotent + silent on miss.
 	exec.Command(
 		"netsh", "advfirewall", "firewall", "delete", "rule",
 		"name=Privycs IPv6 Killswitch (Allow Loopback)",
@@ -223,6 +239,14 @@ func ipv6UnblockWindows() HelperResponse {
 	exec.Command(
 		"netsh", "advfirewall", "firewall", "delete", "rule",
 		"name=Privycs IPv6 Killswitch (Block Outbound)",
+	).Run()
+	exec.Command(
+		"netsh", "advfirewall", "firewall", "delete", "rule",
+		"name="+ipv6WindowsAllowLoopbackName,
+	).Run()
+	exec.Command(
+		"netsh", "advfirewall", "firewall", "delete", "rule",
+		"name="+ipv6WindowsBlockOutboundName,
 	).Run()
 	return HelperResponse{Success: true, Output: "ipv6 unblocked (Windows)"}
 }
