@@ -557,7 +557,7 @@
     <string name="settings_perm_location_bg_title">Wi-Fi name access in the background</string>
     <string name="settings_perm_location_bg_body">Required so SSID-based rules keep reacting while the app is closed or the screen is off. Choose \"Allow all the time\" on the next screen.</string>
     <string name="settings_perm_battery_title">Battery optimization exemption</string>
-    <string name="settings_perm_battery_body">Without this, Android may delay network-change events by up to 15 minutes in Doze, so Connect-on-Demand rules don't react in real time. The exemption is required only for the Wi-Fi / mobile change detection to be instant.</string>
+    <string name="settings_perm_battery_body">Without this, Android may delay network-change events by up to 15 minutes in Doze, so Connect-on-Demand rules do not react in real time. The exemption is required only for the Wi-Fi / mobile change detection to be instant.</string>
     <string name="pro_activate_with_key">I already have a license key</string>
     <string name="pro_activate_title">Activate a license key</string>
     <string name="pro_activate_subtitle">Paste your PRVC-… key from the purchase email or load a .privycs-license file.</string>
