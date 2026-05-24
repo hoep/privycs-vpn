@@ -425,10 +425,61 @@ class NetworkMonitor private constructor(private val context: Context) {
             try {
                 val r = object : android.content.BroadcastReceiver() {
                     override fun onReceive(context: Context, intent: android.content.Intent) {
-                        PrivycsLogger.d(
-                            TAG,
-                            "Wake receiver fired: ${intent.action}",
-                        )
+                        val action = intent.action
+                        PrivycsLogger.d(TAG, "Wake receiver fired: $action")
+
+                        // v1.0.5.9: WifiManager.NETWORK_STATE_CHANGED_ACTION
+                        // fast-path. This broadcast arrives within
+                        // ~100-300ms of Wi-Fi association — well before
+                        // ConnectivityManager.NetworkCallback fires on
+                        // throttling OEMs (Samsung / Xiaomi / Oppo can
+                        // delay the callback by 5-8s). It also carries
+                        // EXTRA_WIFI_INFO with the live SSID in the same
+                        // delivery, so we don't have to wait for the
+                        // separate onCapabilitiesChanged callback to
+                        // latch the SSID — we set the latch directly
+                        // here. Net effect: rule-driven disconnect/
+                        // connect on a Wi-Fi-SSID-match collapses from
+                        // 5-10 s to sub-second.
+                        if (action == android.net.wifi.WifiManager.NETWORK_STATE_CHANGED_ACTION) {
+                            try {
+                                @Suppress("DEPRECATION")
+                                val netInfo = intent.getParcelableExtra<android.net.NetworkInfo>(
+                                    android.net.wifi.WifiManager.EXTRA_NETWORK_INFO
+                                )
+                                if (netInfo?.isConnected == true) {
+                                    @Suppress("DEPRECATION")
+                                    val wifiInfo = intent.getParcelableExtra<android.net.wifi.WifiInfo>(
+                                        android.net.wifi.WifiManager.EXTRA_WIFI_INFO
+                                    )
+                                    val rawSsid = wifiInfo?.ssid
+                                    if (!rawSsid.isNullOrEmpty() && rawSsid != "<unknown ssid>") {
+                                        // SSID arrives quoted: strip
+                                        // leading + trailing quotes if
+                                        // present, leave non-quoted as-is.
+                                        val cleaned = if (rawSsid.length >= 2 &&
+                                            rawSsid.first() == '"' && rawSsid.last() == '"'
+                                        ) {
+                                            rawSsid.substring(1, rawSsid.length - 1)
+                                        } else rawSsid
+                                        currentWifiSsid = cleaned
+                                        PrivycsLogger.d(
+                                            TAG,
+                                            "Wifi fast-path: SSID latched from broadcast",
+                                        )
+                                    }
+                                } else if (netInfo?.isConnectedOrConnecting == false) {
+                                    // Wi-Fi gone — clear the SSID latch
+                                    // so the next rule evaluation does
+                                    // not match a stale SSID.
+                                    currentWifiSsid = ""
+                                }
+                            } catch (e: Throwable) {
+                                PrivycsLogger.w(TAG, "Wifi fast-path latch failed: ${e.message}")
+                                // Fall through; evaluation still runs.
+                            }
+                        }
+
                         evaluateCurrentNetwork()
                     }
                 }
@@ -436,6 +487,8 @@ class NetworkMonitor private constructor(private val context: Context) {
                     addAction(android.content.Intent.ACTION_SCREEN_ON)
                     @Suppress("DEPRECATION")
                     addAction(android.net.ConnectivityManager.CONNECTIVITY_ACTION)
+                    // v1.0.5.9: Wi-Fi-association fast-path.
+                    addAction(android.net.wifi.WifiManager.NETWORK_STATE_CHANGED_ACTION)
                 }
                 if (android.os.Build.VERSION.SDK_INT >= 33) {
                     context.registerReceiver(
