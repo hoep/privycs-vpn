@@ -95,6 +95,28 @@ class AutoTunnelWorker(
                 if (!vpnManager.isConnected && !vpnManager.isConnecting.value &&
                     !AlwaysOnDetector.wasRecentlyManuallyDisconnected(applicationContext, 30_000L)
                 ) {
+                    // v1.0.5.2: rules-aware gate — same as
+                    // BootReceiver and handleAlwaysOnReconnect. The
+                    // backstop tick must NOT reconnect when the
+                    // current network resolves to "do not connect"
+                    // (e.g. trusted-home-WiFi on an except-rule).
+                    // Without this, a tunnel that NetworkMonitor
+                    // correctly tore down on a rule match would be
+                    // reconnected on the next 15-min tick and torn
+                    // down again — visible flicker.
+                    val settings = app.settingsRepository.getSettingsBlocking()
+                    val rulesActive = settings.networkRulesEnabled && codEnabled
+                    if (rulesActive) {
+                        val shouldConnect = NetworkMonitor.getInstance(applicationContext)
+                            .evaluateRulesNow()
+                        if (!shouldConnect) {
+                            PrivycsLogger.d(
+                                TAG,
+                                "backstop tick: pool '${activePool.name}' active+disconnected but rules do not match, skipping",
+                            )
+                            return Result.success()
+                        }
+                    }
                     PrivycsLogger.i(
                         TAG,
                         "backstop tick: pool '${activePool.name}' active but disconnected, firing reconnect",

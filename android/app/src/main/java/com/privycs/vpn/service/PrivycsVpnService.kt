@@ -2543,6 +2543,37 @@ class PrivycsVpnService : VpnService() {
                 stopSelf()
                 return@launch
             }
+
+            // v1.0.5.2: NetworkRules-aware Always-On reconnect. Without
+            // this gate, the system Always-On VPN feature force-starts
+            // our service after an app update (Play Store internal
+            // testing, sideloaded APK install, etc.) — we then connect
+            // to the last active slot immediately and the user sees a
+            // "connect for 3-5s then disconnect" flicker once the
+            // NetworkMonitor evaluates rules and matches an "except"
+            // rule on the current network. BootReceiver already gates
+            // boot-auto-connect on evaluateRulesNow(); mirror the same
+            // gate here for the system-restart path so the two
+            // forced-startup code paths are consistent. The master
+            // toggle (networkRulesEnabled) gates this check.
+            val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
+            val rulesRepo = PrivycsApp.instance.networkRulesRepository
+            val rulesActive = settings.networkRulesEnabled &&
+                rulesRepo.rules.value.isNotEmpty()
+            if (rulesActive) {
+                val shouldConnect = NetworkMonitor.getInstance(this@PrivycsVpnService)
+                    .evaluateRulesNow()
+                if (!shouldConnect) {
+                    PrivycsLogger.i(
+                        TAG,
+                        "handleAlwaysOnReconnect: network rules do not match current network, yielding",
+                    )
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    return@launch
+                }
+            }
+
             val claimed = com.privycs.vpn.util.ConnectCoordinator
                 .markAlwaysOnConnecting(activeConnEarly)
             if (!claimed) {

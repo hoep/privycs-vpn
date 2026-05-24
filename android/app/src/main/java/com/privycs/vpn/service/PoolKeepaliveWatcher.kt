@@ -136,6 +136,24 @@ object PoolKeepaliveWatcher {
             return
         }
 
+        // v1.0.5.2: rules-aware gate. Without this, when network
+        // rules say "do not connect on this WiFi", an onAvailable
+        // tick for that same WiFi would still fire a pool reconnect
+        // — the user then sees connect-then-disconnect flicker once
+        // NetworkMonitor evaluates and tears it down. Mirrors the
+        // gate in BootReceiver, handleAlwaysOnReconnect, and
+        // AutoTunnelWorker.
+        val settings = app.settingsRepository.getSettingsBlocking()
+        val rulesActive = settings.networkRulesEnabled &&
+            app.networkRulesRepository.rules.value.isNotEmpty()
+        if (rulesActive) {
+            val shouldConnect = NetworkMonitor.getInstance(context).evaluateRulesNow()
+            if (!shouldConnect) {
+                Log.d(TAG, "skip: rules do not match current network")
+                return
+            }
+        }
+
         Log.i(TAG, "pool '${activePool.name}' not connected after network restore - firing reconnect")
         try {
             ConnectCoordinator.requestPoolConnect(
