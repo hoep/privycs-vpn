@@ -241,21 +241,32 @@
           >
             <button
               @click="selectProtocol(conn.id, pc.protocol)"
-              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all max-w-[220px]"
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all max-w-[220px] overflow-hidden"
               :class="isSelectedProtocol(conn.id, pc.protocol)
                 ? protocolBadgeActive(pc.protocol)
                 : 'bg-gray-200 dark:bg-gray-700/50 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'"
               :title="endpointFull(pc)"
             >
-              <ProtocolIcon :protocol="pc.protocol" size="xs" />
+              <ProtocolIcon :protocol="pc.protocol" size="xs" class="shrink-0" />
               <!-- v1.0.5.17: badge label is the endpoint host (port
                    stripped for compactness; full host:port available
                    via tooltip). Falls back to the protocol-name label
                    when the server address has not been extracted yet
                    (rare — pre-first-Configure on file-picker imports).
                    Connect-screen badges deliberately keep the protocol
-                   name; this change is connections-list-only. -->
-              <span class="truncate">{{ endpointShort(pc) || protocolLabel(pc.protocol) }}</span>
+                   name; this change is connections-list-only.
+                   v1.0.5.18: min-w-0 on the span + overflow-hidden on
+                   the button parent + shrink-0 on the icon. Tailwind's
+                   `truncate` only emits overflow/ellipsis/nowrap, not
+                   min-width:0 — and flex items default to
+                   min-width:auto = intrinsic content size, which made
+                   the span ignore the button's max-w-[220px] cap and
+                   bleed text out across the card on long hostnames
+                   (user-reported "Balken über Menü, Icons abgeschnitten"
+                   when connected to ipsShield with a 30-char endpoint).
+                   overflow-hidden on the button is the belt-and-
+                   suspenders backstop. -->
+              <span class="truncate min-w-0">{{ endpointShort(pc) || protocolLabel(pc.protocol) }}</span>
             </button>
             <button
               v-if="conn.protocols && conn.protocols.length > 1"

@@ -183,13 +183,31 @@ func ipv6BlockWindows() HelperResponse {
 	// Verified by Microsoft's own documentation: "Windows Defender
 	// Firewall does not filter loopback traffic by default".
 	//
-	// One outbound block rule for the entire IPv6 address space
-	// is sufficient.
+	// v1.0.5.18: `::/0` was ALSO rejected by New-NetFirewallRule's
+	// validator (user-reported "Mindestens ein Adresspräfix ist
+	// ungültig", HRESULT 0x80070057) because the cmdlet refuses
+	// any IPv6 address range that mathematically includes loopback
+	// addresses (::1) — same by-design restriction that previously
+	// rejected `::1` itself in v1.0.5.14.
+	//
+	// Workaround: enumerate the four non-loopback IPv6 prefixes that
+	// together cover every routable destination address EXCEPT the
+	// loopback block (::1/128) and the unspecified address (::/128):
+	//
+	//   2000::/3   — Global Unicast (everything publicly routable)
+	//   fc00::/7   — Unique Local Addresses (RFC 4193)
+	//   fe80::/10  — Link-Local
+	//   ff00::/8   — Multicast (incl. solicited-node, all-routers)
+	//
+	// New-NetFirewallRule accepts a comma-separated list of prefixes
+	// in -RemoteAddress, so this stays a single rule. The cmdlet
+	// validates each prefix independently and none of these intersect
+	// the loopback range.
 	blockScript := `New-NetFirewallRule ` +
 		`-DisplayName '` + ipv6WindowsBlockOutboundName + `' ` +
 		`-Description 'Block all IPv6 outbound while v4-only tunnel is active' ` +
 		`-Direction Outbound -Action Block ` +
-		`-RemoteAddress '::/0' ` +
+		`-RemoteAddress '2000::/3','fc00::/7','fe80::/10','ff00::/8' ` +
 		`-Profile Any -ErrorAction Stop | Out-Null`
 	blockOut, blockErr := exec.Command(
 		"powershell.exe", "-NoProfile", "-NonInteractive",

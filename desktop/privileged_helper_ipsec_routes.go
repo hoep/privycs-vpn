@@ -7,6 +7,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
@@ -102,28 +103,71 @@ func (h *PrivilegedHelper) cmdIPSecInstallWindowsRoutes(cmd HelperCommand) Helpe
 	// is wrapped in try/catch so an "already exists" failure on one
 	// CIDR does not abort the batch. $ok / $fail counters at the
 	// end produce a single-line summary that we propagate as Output.
+	//
+	// v1.0.5.18: write the script to a temp file and invoke via
+	// `powershell -File <path>` rather than `-Command <inline>`.
+	// User-reported on a 302-CIDR route batch: "The filename or
+	// extension is too long" — Windows' CreateProcess command-line
+	// length limit is ~8 KB effective, and 300 CIDRs of inline PS
+	// renders to ~24 KB. The temp-file path bypasses that limit
+	// because the script lives on disk, not in the process args.
 	var b strings.Builder
-	b.WriteString(`$ErrorActionPreference = 'Stop'; `)
-	b.WriteString(`$ok = 0; $fail = 0; `)
+	b.WriteString("$ErrorActionPreference = 'Stop'\n")
+	b.WriteString("$ok = 0\n$fail = 0\n")
 	// One-shot split-tunnel enable. Errors here are surfaced (it is
 	// the gate that makes Add-VpnConnectionRoute have any effect).
 	fmt.Fprintf(&b,
-		`Set-VpnConnection -Name '%s' -SplitTunneling $true -AllUserConnection:$false -PassThru -ErrorAction Stop | Out-Null; `,
+		"Set-VpnConnection -Name '%s' -SplitTunneling $true -AllUserConnection:$false -PassThru -ErrorAction Stop | Out-Null\n",
 		connName,
 	)
 	for _, c := range clean {
 		fmt.Fprintf(&b,
-			`try { Add-VpnConnectionRoute -ConnectionName '%s' -DestinationPrefix '%s' -PassThru -ErrorAction Stop | Out-Null; $ok++ } catch { $fail++ }; `,
+			"try { Add-VpnConnectionRoute -ConnectionName '%s' -DestinationPrefix '%s' -PassThru -ErrorAction Stop | Out-Null; $ok++ } catch { $fail++ }\n",
 			connName, c,
 		)
 	}
-	b.WriteString(`Write-Output "routes-ok=$ok fail=$fail"`)
+	b.WriteString("Write-Output \"routes-ok=$ok fail=$fail\"\n")
+
+	// Write to a temp .ps1 in the OS temp dir. UTF-8 with BOM so
+	// PowerShell reliably picks up the encoding regardless of the
+	// system's default ANSI codepage.
+	scriptDir := os.TempDir()
+	scriptFile, ferr := os.CreateTemp(scriptDir, "privycs-vpn-routes-*.ps1")
+	if ferr != nil {
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("create temp script: %v", ferr),
+		}
+	}
+	defer func() {
+		_ = scriptFile.Close()
+		_ = os.Remove(scriptFile.Name())
+	}()
+	// UTF-8 BOM
+	if _, werr := scriptFile.Write([]byte{0xEF, 0xBB, 0xBF}); werr != nil {
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("write temp script BOM: %v", werr),
+		}
+	}
+	if _, werr := scriptFile.WriteString(b.String()); werr != nil {
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("write temp script body: %v", werr),
+		}
+	}
+	if cerr := scriptFile.Close(); cerr != nil {
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("close temp script: %v", cerr),
+		}
+	}
 
 	out, err := exec.Command(
 		"powershell.exe",
 		"-NoProfile", "-NonInteractive",
 		"-ExecutionPolicy", "Bypass",
-		"-Command", b.String(),
+		"-File", scriptFile.Name(),
 	).CombinedOutput()
 	if err != nil {
 		return HelperResponse{
