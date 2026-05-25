@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
+
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // RemoteConfigEntry represents a VPN config from the gateway API
@@ -339,6 +343,68 @@ func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName st
 				log.Printf("DownloadAndImportConfig: could not locate freshly-imported config %s for Windows routes attachment", stableID)
 			}
 			a.mu.Unlock()
+
+			// v1.0.5.19: on Windows ONLY, send the script to the
+			// privileged helper for full RAS VPN provisioning at
+			// import time — PKCS#12 + CA import to LocalMachine
+			// cert store, Add-VpnConnection with MachineCertificate
+			// + SplitTunneling, ~300 Add-VpnConnectionRoute calls
+			// for bypass-complement + IPv6 routes, rasphone.pbk
+			// patching for DisableClassBasedDefaultRoute +
+			// IpInterfaceMetric, DNS-pin /32 host routes. The
+			// helper runs the script via cmd.exe /c and cleans it
+			// up afterwards (script contains cert material).
+			//
+			// Effect: after gateway-pull on Windows, the Windows
+			// RAS VPN is fully ready — user clicks Connect, the
+			// existing configureWindows path sees the connection
+			// already exists and skips, rasdial connects, and
+			// the post-rasdial route install (the v1.0.5.16 path)
+			// becomes an idempotent no-op since the routes are
+			// already in place.
+			//
+			// Failure is non-fatal: import already succeeded, the
+			// connection still works via the existing client-side
+			// Add-VpnConnection + post-rasdial routes fallback.
+			// Error is logged + event-emitted for the UI to surface.
+			if runtime.GOOS == "windows" {
+				client := NewHelperClient()
+				if !client.IsHelperReachable() {
+					log.Printf("DownloadAndImportConfig: Windows IPSec auto-setup skipped — helper unreachable")
+				} else {
+					// Use the connection's display name (or the
+					// stable ID as fallback) for the temp-script
+					// filename component. The helper sanitises it.
+					connectionDisplayName := name
+					if connectionDisplayName == "" {
+						connectionDisplayName = stableID
+					}
+					scriptB64 := base64.StdEncoding.EncodeToString([]byte(winRoutes))
+					resp, ierr := client.SendCommand("ipsec_install_windows_profile", map[string]string{
+						"connection_name": connectionDisplayName,
+						"script_b64":      scriptB64,
+					})
+					if ierr != nil {
+						log.Printf("DownloadAndImportConfig: Windows IPSec auto-setup IPC failed: %v", ierr)
+						wailsRuntime.EventsEmit(a.ctx, "vpn:warning", map[string]string{
+							"key":    "ipsec_windows_auto_setup_failed",
+							"detail": ierr.Error(),
+						})
+					} else if !resp.Success {
+						log.Printf("DownloadAndImportConfig: Windows IPSec auto-setup helper reported failure: %s", resp.Error)
+						wailsRuntime.EventsEmit(a.ctx, "vpn:warning", map[string]string{
+							"key":    "ipsec_windows_auto_setup_failed",
+							"detail": resp.Error,
+						})
+					} else {
+						log.Printf("DownloadAndImportConfig: Windows IPSec auto-setup: %s", resp.Output)
+						wailsRuntime.EventsEmit(a.ctx, "vpn:info", map[string]string{
+							"key":    "ipsec_windows_auto_setup_ok",
+							"detail": resp.Output,
+						})
+					}
+				}
+			}
 		}
 	}
 
