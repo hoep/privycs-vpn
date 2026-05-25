@@ -241,13 +241,21 @@
           >
             <button
               @click="selectProtocol(conn.id, pc.protocol)"
-              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all"
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all max-w-[220px]"
               :class="isSelectedProtocol(conn.id, pc.protocol)
                 ? protocolBadgeActive(pc.protocol)
                 : 'bg-gray-200 dark:bg-gray-700/50 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'"
+              :title="endpointFull(pc)"
             >
               <ProtocolIcon :protocol="pc.protocol" size="xs" />
-              {{ protocolLabel(pc.protocol) }}
+              <!-- v1.0.5.17: badge label is the endpoint host (port
+                   stripped for compactness; full host:port available
+                   via tooltip). Falls back to the protocol-name label
+                   when the server address has not been extracted yet
+                   (rare — pre-first-Configure on file-picker imports).
+                   Connect-screen badges deliberately keep the protocol
+                   name; this change is connections-list-only. -->
+              <span class="truncate">{{ endpointShort(pc) || protocolLabel(pc.protocol) }}</span>
             </button>
             <button
               v-if="conn.protocols && conn.protocols.length > 1"
@@ -602,6 +610,42 @@ async function removeProtocol(connId: string, protocol: string) {
   } catch (e: any) {
     actionError.value = t('connections.error.remove-protocol-failed')
   }
+}
+
+// v1.0.5.17: connections-list pill-button label = endpoint host
+// (no port) instead of protocol-name text. Connect-screen badges
+// still use protocolLabel; this is connections-list-only.
+//
+// endpointShort returns the host part of pc.server_address with the
+// port stripped for compact display in the badge. Handles three
+// shapes:
+//   "host"            → "host"
+//   "host:port"       → "host"
+//   "[ipv6]:port"     → "[ipv6]"
+//   "" / undefined    → "" (caller falls back to protocol-name label)
+function endpointShort(pc: any): string {
+  const s = (pc?.server_address ?? '').trim()
+  if (!s) return ''
+  // IPv6 literal in brackets — keep the brackets, drop ":port"
+  if (s.startsWith('[')) {
+    const close = s.indexOf(']')
+    if (close > 0) return s.slice(0, close + 1)
+    return s
+  }
+  // Plain host or IPv4 — split on LAST ":" so a hostname with
+  // multiple colons (rare but allowed in DNS) keeps everything
+  // before the final colon.
+  const lastColon = s.lastIndexOf(':')
+  if (lastColon === -1) return s
+  return s.slice(0, lastColon)
+}
+
+// endpointFull returns the unmodified pc.server_address for the
+// pill-button tooltip — power users hover to see host:port. Falls
+// back to the protocol-name label when no server-address is known.
+function endpointFull(pc: any): string {
+  const s = (pc?.server_address ?? '').trim()
+  return s || protocolLabel(pc?.protocol ?? '')
 }
 
 function protocolLabel(proto: string): string {

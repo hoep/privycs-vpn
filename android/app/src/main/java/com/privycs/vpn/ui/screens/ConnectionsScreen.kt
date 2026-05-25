@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -817,7 +818,14 @@ private fun ConnectionCard(
                                 onRemove = if (canRemove) {
                                     { onRemoveConfig(cfg.id) }
                                 } else null,
-                                onEdit = { onEditConfig(cfg.id) }
+                                onEdit = { onEditConfig(cfg.id) },
+                                // v1.0.5.17: badge shows endpoint host
+                                // (port stripped) instead of being a
+                                // logo-only chip. Connect-screen badges
+                                // stay logo-only (no endpoint passed
+                                // there). The gateway-browser badge
+                                // further below also stays logo-only.
+                                endpoint = cfg.serverAddress,
                             )
                         }
                         // Add-config button — always visible (no
@@ -892,11 +900,34 @@ private fun ConnectionCard(
     }
 }
 
+// v1.0.5.17: ProtocolBadge now optionally accepts an endpoint string
+// that renders next to the icon. Used by the connections-list view to
+// show server-host (port stripped) instead of being a logo-only chip.
+// The Connect-screen ProtocolBadges deliberately keep the logo-only
+// look — per user direction this change is connections-list-only.
+//
+// endpointShort strips the port for compact display:
+//   "host"          → "host"
+//   "host:port"     → "host"
+//   "[ipv6]:port"   → "[ipv6]"
+//   ""              → "" (badge stays logo-only)
+private fun endpointShort(serverAddress: String?): String {
+    val s = (serverAddress ?: "").trim()
+    if (s.isEmpty()) return ""
+    if (s.startsWith("[")) {
+        val close = s.indexOf(']')
+        return if (close > 0) s.substring(0, close + 1) else s
+    }
+    val lastColon = s.lastIndexOf(':')
+    return if (lastColon == -1) s else s.substring(0, lastColon)
+}
+
 @Composable
 private fun ProtocolBadge(
     protocol: VpnProtocol,
     onRemove: (() -> Unit)? = null,
-    onEdit: (() -> Unit)? = null
+    onEdit: (() -> Unit)? = null,
+    endpoint: String? = null
 ) {
     val color = when (protocol) {
         VpnProtocol.AMNEZIAWG -> com.privycs.vpn.ui.theme.AmneziaWgIndigo
@@ -914,10 +945,13 @@ private fun ProtocolBadge(
         VpnProtocol.IPSEC     -> com.privycs.vpn.R.drawable.ic_protocol_strongswan
     }
 
-    // Brand icons alone; the shortLabel text was dropped on user request
-    // ("WG/OVPN/IPSec" tags felt redundant next to the logo). Icon bumped
-    // to 20dp so the detail of the WireGuard dragon / strongSwan swan is
-    // readable at this zoom.
+    // v1.0.5.17: brand icon + optional endpoint host text. When the
+    // caller passes no endpoint (default), the badge stays the
+    // previous logo-only chip (Connect-screen + gateway-browser
+    // call sites). Connections-list call sites pass the server
+    // address so the badge shows logo + host (port stripped, see
+    // endpointShort helper above).
+    val endpointDisplay = endpointShort(endpoint)
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
@@ -931,6 +965,17 @@ private fun ProtocolBadge(
             tint = color,
             modifier = Modifier.size(20.dp)
         )
+        if (endpointDisplay.isNotEmpty()) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = endpointDisplay,
+                style = MaterialTheme.typography.labelSmall,
+                color = color,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 160.dp)
+            )
+        }
         if (onEdit != null) {
             Spacer(modifier = Modifier.width(2.dp))
             IconButton(
