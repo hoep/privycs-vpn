@@ -164,37 +164,27 @@ const (
 func ipv6BlockWindows() HelperResponse {
 	// Idempotent: clear first.
 	ipv6UnblockWindows()
-	// v1.0.5.14: switched from netsh advfirewall to PowerShell's
-	// New-NetFirewallRule cmdlet. The v1.0.5.13 simplification of
-	// the rule name + IP parameters did not solve the user-reported
-	// "netsh add allow-loopback ... Eine angegebene IP-Adresse oder
-	// ein angegebenes Adressschlüsselwort ist ungültig" — the
-	// genuine cause is that the legacy netsh advfirewall parser on
-	// some Windows builds rejects bare IPv6 literals (::1, ::/0)
-	// at the `remoteip=` keyword, regardless of subnet-prefix
-	// presence, rule-name spacing, or other parameter quirks.
-	// PowerShell's New-NetFirewallRule uses the modern Defender-
-	// Firewall COM API which handles IPv6 addresses natively.
+	// v1.0.5.15: dropped the explicit allow-loopback rule entirely.
+	// Earlier releases tried to add an `::1` allow rule before the
+	// `::/0` block, both via netsh advfirewall (v1.0.5.13 and
+	// earlier — rejected the literal IPv6 address at the `remoteip=`
+	// keyword) and via PowerShell `New-NetFirewallRule` (v1.0.5.14
+	// — rejected `::1` with HRESULT 0x80070057 / "undefinierte
+	// Multicast-, Broadcast- oder Loopback-IPv6-Adresse", which
+	// is the cmdlet's own validator refusing loopback addresses
+	// in firewall rules by design).
 	//
-	// PowerShell is available on every Windows 10+ install
-	// (Windows PowerShell 5.1 is part of the OS).
-	allowScript := `New-NetFirewallRule ` +
-		`-DisplayName '` + ipv6WindowsAllowLoopbackName + `' ` +
-		`-Description 'Allow IPv6 loopback while v4-only tunnel is active' ` +
-		`-Direction Outbound -Action Allow ` +
-		`-RemoteAddress '::1' ` +
-		`-Profile Any -ErrorAction Stop | Out-Null`
-	allowOut, allowErr := exec.Command(
-		"powershell.exe", "-NoProfile", "-NonInteractive",
-		"-ExecutionPolicy", "Bypass", "-Command", allowScript,
-	).CombinedOutput()
-	if allowErr != nil {
-		return HelperResponse{
-			Success: false,
-			Error:   fmt.Sprintf("New-NetFirewallRule allow-loopback: %s: %v", strings.TrimSpace(string(allowOut)), allowErr),
-		}
-	}
-	// Block everything else outbound to v6.
+	// The allow-loopback rule turns out to be redundant on Windows:
+	// loopback traffic to ::1 (and 127.0.0.0/8) never traverses
+	// the Windows Filter Platform at all — the kernel routes it
+	// internally before the firewall sees it. A block rule on
+	// `::/0` therefore does NOT block loopback connections, even
+	// though the address mathematically falls inside the range.
+	// Verified by Microsoft's own documentation: "Windows Defender
+	// Firewall does not filter loopback traffic by default".
+	//
+	// One outbound block rule for the entire IPv6 address space
+	// is sufficient.
 	blockScript := `New-NetFirewallRule ` +
 		`-DisplayName '` + ipv6WindowsBlockOutboundName + `' ` +
 		`-Description 'Block all IPv6 outbound while v4-only tunnel is active' ` +
@@ -206,8 +196,6 @@ func ipv6BlockWindows() HelperResponse {
 		"-ExecutionPolicy", "Bypass", "-Command", blockScript,
 	).CombinedOutput()
 	if blockErr != nil {
-		// Roll back the allow rule so we don't leave a dangling allow.
-		ipv6UnblockWindows()
 		return HelperResponse{
 			Success: false,
 			Error:   fmt.Sprintf("New-NetFirewallRule block: %s: %v", strings.TrimSpace(string(blockOut)), blockErr),
