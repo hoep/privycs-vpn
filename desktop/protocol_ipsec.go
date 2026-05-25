@@ -31,6 +31,22 @@ type IPSecProtocol struct {
 	serverAddr  string
 	localAddr   string
 	configured  bool // true after first successful Configure()
+	// windowsConnectedTrustUntil — Windows-only fast-path for the
+	// post-rasdial status reporting. rasdial blocks until the IKE
+	// SA is fully established, so when upWindows returns nil we
+	// already know the tunnel is up — but the existing Status()
+	// query spawns a `Get-VpnConnection` PowerShell which costs
+	// 200-500 ms per invocation. The app.go connect-path then
+	// polls Status() every 250 ms until Connected=true, which
+	// can take 1-5 s of pure user-visible "connecting…" latency
+	// even though rasdial already proved the tunnel is up. v1.0.5.16
+	// optimisation: upWindows sets this timestamp to now+5 s; while
+	// the current time is before this deadline, Status() short-
+	// circuits with Connected=true and skips the PS spawn. After
+	// the deadline, Status() falls back to the live PS query
+	// (needed so a tunnel dropping silently is detected by the
+	// status emitter / tunnel-health monitor).
+	windowsConnectedTrustUntil time.Time
 	// splitTunneling holds the .sswan-defined CIDR bypass list. Only
 	// the macOS path consumes it (post-Up route-table manipulation
 	// via the privileged helper); Linux/Windows do split-tunneling
@@ -75,6 +91,17 @@ func (i *IPSecProtocol) SetTunnelName(name string) {
 		return
 	}
 	i.tunnelName = name
+}
+
+// ConnectionName returns the Windows phonebook entry name / Linux
+// swanctl conn id / macOS .mobileconfig PayloadDisplayName that this
+// handler is currently bound to. Set by configureFromStruct from the
+// imported config's cfg.ConnectionName; matches the value passed to
+// Add-VpnConnection on Windows. Exposed for app-side post-Up route
+// installation (see app.go installWindowsIPSecRoutes — uses this name
+// as the -ConnectionName arg to Add-VpnConnectionRoute).
+func (i *IPSecProtocol) ConnectionName() string {
+	return i.connName
 }
 
 // IPSecConfig holds IPSec-specific configuration
@@ -221,6 +248,24 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			}
 		}
 	case "windows":
+		// v1.0.5.16 fast-path: trust the windowsConnectedTrustUntil
+		// timestamp set in upWindows for ~5 s after a successful
+		// rasdial. Saves the 200-500 ms PowerShell spawn per
+		// Status() invocation during the post-Up poll loop in
+		// app.go (which polls every 250 ms until Connected=true).
+		// User-visible: rasdial returns within ~1 s; without this
+		// the App still shows "Connecting…" for 1-5 s while the
+		// poll loop accumulates PS spawn overhead.
+		if !i.windowsConnectedTrustUntil.IsZero() &&
+			time.Now().Before(i.windowsConnectedTrustUntil) {
+			status.Connected = true
+			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
+			// Skip the PS query + traffic-stats lookup. The status
+			// emitter (called every few seconds by the App) will
+			// catch up with real-state data after the trust window
+			// expires — bytes counter starts populating then.
+			return status
+		}
 		// Look up both per-user AND machine-wide VPN connections — the helper
 		// creates with -AllUserConnection, direct-fallback creates per-user.
 		psCmd := fmt.Sprintf(
@@ -994,6 +1039,13 @@ func (i *IPSecProtocol) upWindows(ctx context.Context) error {
 		return fmt.Errorf("rasdial failed: %s: %w", string(out), err)
 	}
 	i.connectedAt = time.Now()
+	// v1.0.5.16: short-circuit the next ~5 s of Status() calls. See
+	// the windowsConnectedTrustUntil field doc on IPSecProtocol — the
+	// poll loop in app.go would otherwise spawn Get-VpnConnection
+	// every 250 ms (200-500 ms PS startup each) producing 1-5 s of
+	// user-visible "Connecting…" lag even though rasdial blocked
+	// until the SA is fully established.
+	i.windowsConnectedTrustUntil = time.Now().Add(5 * time.Second)
 	log.Printf("IPSec connected: %s", i.connName)
 	return nil
 }

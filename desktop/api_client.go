@@ -152,6 +152,38 @@ func (a *App) FetchMyConfig(protocol string, configID int) (string, error) {
 	return string(body), nil
 }
 
+// FetchMyConfigWindowsRoutes downloads the Windows-specific PowerShell
+// .cmd companion file for an IPSec connection. Returns "" + nil if the
+// gateway has no such endpoint configured (older gateway) or returns
+// 404 — the caller treats the empty string as "no extra routes needed"
+// and the connection still works (just without the bypass-routes /
+// IPv6 routing workaround that the .cmd encodes).
+//
+// Workaround for: Windows IKEv2 with MachineCertificate only honours
+// the FIRST traffic-selector from the server (a 0.0.0.0/0 default),
+// so IPv6 routing + bypass-network exceptions from the Apple-NE-style
+// ExcludedRoutes/IncludedRoutes blocks in the .mobileconfig are lost.
+// The companion endpoint serves a generated .cmd containing explicit
+// Add-VpnConnectionRoute directives that feed those routes back in
+// after Add-VpnConnection.
+func (a *App) FetchMyConfigWindowsRoutes(configID int) (string, error) {
+	log.Printf("FetchMyConfigWindowsRoutes: configID=%d", configID)
+	path := fmt.Sprintf("/api/v1/ipsec/connections/%d/profile/windows", configID)
+	body, err := a.apiRequest("GET", path)
+	if err != nil {
+		// 404 from older gateways without this endpoint is expected;
+		// return empty string + nil so the caller proceeds without
+		// routes (degraded mode — IPv4 default route still works,
+		// just no IPv6 / no bypass).
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			log.Printf("FetchMyConfigWindowsRoutes: endpoint not available on gateway (404) — continuing without routes")
+			return "", nil
+		}
+		return "", err
+	}
+	return string(body), nil
+}
+
 // buildWireGuardConf generates a .conf file from the API JSON response
 func (a *App) buildWireGuardConf(body []byte) (string, error) {
 	var result struct {
@@ -263,5 +295,52 @@ func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName st
 		name = ""
 	}
 
-	return a.ImportConfig(protocol, configContent, filename, name, connectionID)
+	if err := a.ImportConfig(protocol, configContent, filename, name, connectionID); err != nil {
+		return err
+	}
+
+	// v1.0.5.16: for IPSec, additionally fetch the Windows-companion
+	// .cmd that carries explicit Add-VpnConnectionRoute directives for
+	// bypass / IPv6 routing. Stored on the just-imported ProtocolConfig
+	// so the Windows connect path can parse + install routes after
+	// rasdial succeeds. Workaround for Windows IKEv2 honouring only
+	// the FIRST traffic-selector from the server (a 0.0.0.0/0 default),
+	// which loses every ExcludedRoutes/IncludedRoutes entry from the
+	// Apple-NE-style .mobileconfig.
+	//
+	// Non-fatal on failure: a missing endpoint (older gateway → 404)
+	// or transient network problem leaves WindowsRoutesScript empty
+	// and the connection still works (without v6 / without bypass).
+	if protocol == "ipsec" {
+		winRoutes, wErr := a.FetchMyConfigWindowsRoutes(configID)
+		if wErr != nil {
+			log.Printf("DownloadAndImportConfig: FetchMyConfigWindowsRoutes non-fatal failure: %v — continuing without Windows routes", wErr)
+		}
+		if winRoutes != "" {
+			stableID := fmt.Sprintf("gw-%s-%d", protocol, configID)
+			a.mu.Lock()
+			updated := false
+			for _, conn := range a.connections.List() {
+				for _, pc := range conn.Protocols {
+					if pc.ID == stableID {
+						pc.WindowsRoutesScript = winRoutes
+						updated = true
+						break
+					}
+				}
+				if updated {
+					break
+				}
+			}
+			if updated {
+				a.connections.Save()
+				log.Printf("DownloadAndImportConfig: stored Windows routes script (%d bytes) on config %s", len(winRoutes), stableID)
+			} else {
+				log.Printf("DownloadAndImportConfig: could not locate freshly-imported config %s for Windows routes attachment", stableID)
+			}
+			a.mu.Unlock()
+		}
+	}
+
+	return nil
 }

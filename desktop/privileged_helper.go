@@ -48,6 +48,7 @@ var allowedActions = map[string]bool{
 	"ipsec_check_dependencies":   true, // macOS: brew/strongswan/charon health
 	"ipsec_split_routes_add":     true, // macOS post-up CIDR-bypass routes
 	"ipsec_split_routes_remove":  true,
+	"ipsec_install_windows_routes": true, // Windows post-up split-tunnel + bypass routes
 	"macos_dns_override_set":     true, // primary-service DNS override (swanctl-darwin)
 	"macos_dns_override_restore": true,
 	"macos_dns_override_clean":   true, // orphan-cleanup at app startup
@@ -317,6 +318,8 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdIPSecSplitRoutesAdd(cmd)
 	case "ipsec_split_routes_remove":
 		return h.cmdIPSecSplitRoutesRemove(cmd)
+	case "ipsec_install_windows_routes":
+		return h.cmdIPSecInstallWindowsRoutes(cmd)
 	case "macos_dns_override_set":
 		return h.cmdMacOSDNSOverrideSet(cmd)
 	case "macos_dns_override_restore":

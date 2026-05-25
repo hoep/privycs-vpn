@@ -1239,6 +1239,71 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 		}
 	}
 
+	// v1.0.5.16: Windows IPSec — install bypass / IPv6 routes from the
+	// gateway-supplied .cmd companion script. Windows IKEv2 with
+	// MachineCertificate honours only the FIRST traffic-selector from
+	// the server (a 0.0.0.0/0 default), so IPv6 routing + bypass-network
+	// exceptions encoded in the .mobileconfig as Apple-NE-style
+	// ExcludedRoutes/IncludedRoutes are lost. The .cmd carries explicit
+	// Add-VpnConnectionRoute directives; we parse out the CIDRs (Option
+	// B from the operator brief — never execute the .cmd directly,
+	// because it also contains cert imports / Add-VpnConnection calls
+	// that this code path already handled separately) and ask the
+	// helper to install them via the ipsec_install_windows_routes IPC.
+	//
+	// Best-effort: failures here do not roll back the connect — the
+	// tunnel is up; the user just loses the bypass + IPv6 routing
+	// niceties for this session. Logged so post-mortem is possible.
+	if activeProto == "ipsec" && runtime.GOOS == "windows" {
+		go func() {
+			a.mu.RLock()
+			conn := a.connections.Active()
+			var routesScript, connName string
+			if conn != nil {
+				if pc := conn.GetActiveConfig(); pc != nil &&
+					pc.Protocol == "ipsec" {
+					routesScript = pc.WindowsRoutesScript
+				}
+			}
+			if ipsecProto, ok := a.protocols["ipsec"].(*IPSecProtocol); ok {
+				connName = ipsecProto.ConnectionName()
+			}
+			a.mu.RUnlock()
+			if routesScript == "" {
+				log.Printf("Windows IPSec routes: no WindowsRoutesScript on active config (hand-imported .mobileconfig or older gateway) — skipping")
+				return
+			}
+			if connName == "" {
+				log.Printf("Windows IPSec routes: missing connection name from IPSec handler — skipping")
+				return
+			}
+			cidrs := extractAddVpnConnectionRouteCIDRs(routesScript)
+			if len(cidrs) == 0 {
+				log.Printf("Windows IPSec routes: WindowsRoutesScript parsed to 0 CIDRs — skipping")
+				return
+			}
+			log.Printf("Windows IPSec routes: installing %d CIDRs on connection %q", len(cidrs), connName)
+			client := NewHelperClient()
+			if !client.IsHelperReachable() {
+				log.Printf("Windows IPSec routes: helper unreachable — skipping (tunnel stays up without bypass/IPv6 routes)")
+				return
+			}
+			resp, err := client.SendCommand("ipsec_install_windows_routes", map[string]string{
+				"connection_name": connName,
+				"cidrs":           strings.Join(cidrs, "\n"),
+			})
+			if err != nil {
+				log.Printf("Windows IPSec routes: helper IPC failed: %v", err)
+				return
+			}
+			if !resp.Success {
+				log.Printf("Windows IPSec routes: helper reported failure: %s", resp.Error)
+				return
+			}
+			log.Printf("Windows IPSec routes: %s", resp.Output)
+		}()
+	}
+
 	// Tunnel-liveness monitor: 60s ICMP probe to a known reliable
 	// target. Mode resolution (matches Android):
 	//   - "off":    never run

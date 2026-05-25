@@ -33,6 +33,21 @@ type ProtocolConfig struct {
 	ServerAddress string `json:"server_address"` // extracted endpoint
 	LocalAddress  string `json:"local_address"`  // VPN IP (if parseable)
 	AddedAt       string `json:"added_at"`
+	// WindowsRoutesScript — IPSec only, optional. Server-generated
+	// PowerShell .cmd content carrying explicit Add-VpnConnectionRoute
+	// directives for excluded-networks / bypass routing on Windows.
+	// Empty for non-IPSec protocols and for IPSec profiles imported
+	// from a non-Privycs gateway (hand-pasted .mobileconfig). When
+	// non-empty, the Windows IPSec connect path parses out the
+	// -DestinationPrefix CIDRs after a successful rasdial and asks
+	// the helper to install them via the ipsec_install_windows_routes
+	// IPC command. Workaround for: Windows IKEv2 with MachineCertificate
+	// only honours the FIRST traffic-selector from the server (a
+	// 0.0.0.0/0 default), so IPv6 routing + bypass-network exceptions
+	// from the Apple-NE-style ExcludedRoutes/IncludedRoutes blocks in
+	// the .mobileconfig are lost. The companion .cmd endpoint feeds
+	// those routes back in as explicit Windows route entries.
+	WindowsRoutesScript string `json:"windows_routes_script,omitempty"`
 }
 
 // SavedConnection represents a VPN server/endpoint with one or more protocol configs

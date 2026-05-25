@@ -1,0 +1,182 @@
+// privileged_helper_ipsec_routes.go — installs explicit per-CIDR
+// routes on a Windows IKEv2 VPN connection, sidestepping the
+// platform's first-traffic-selector-only limitation.
+
+package main
+
+import (
+	"fmt"
+	"log"
+	"os/exec"
+	"regexp"
+	"runtime"
+	"strings"
+)
+
+// safeWindowsVPNName — what we accept as a VPN connection name from
+// the App-side IPC. Tight allowlist: letters, digits, hyphen,
+// underscore, dot, single-quote, space. Mirrors what the App writes
+// at Add-VpnConnection time (the user's connection display name,
+// possibly with spaces). Prevents shell-injection into the PS
+// invocation.
+var safeWindowsVPNName = regexp.MustCompile(`^[A-Za-z0-9_.\- ]+$`)
+
+// safeCIDRRoute — a CIDR shape we will pass to Add-VpnConnectionRoute.
+// Accepts IPv4 (a.b.c.d/N) and IPv6 (xxxx::yyyy/N). Tighter than the
+// generic CIDR check elsewhere because this set goes straight into a
+// PowerShell command line.
+var safeCIDRRoute = regexp.MustCompile(`^[0-9A-Fa-f:.]+/[0-9]{1,3}$`)
+
+// cmdIPSecInstallWindowsRoutes — applies Set-VpnConnection -SplitTunneling
+// $true to the named VPN connection and adds each provided CIDR via
+// Add-VpnConnectionRoute. Used by the IPSec connect path on Windows
+// after a successful rasdial — fills in the bypass / IPv6 routes the
+// platform discards because IKEv2 with MachineCertificate honours
+// only the first traffic-selector returned by the server.
+//
+// Args:
+//   - connection_name : the Windows VPN connection name (string,
+//     matched against safeWindowsVPNName).
+//   - cidrs           : newline-separated list of CIDRs (strings,
+//     each matched against safeCIDRRoute). Empty / invalid entries
+//     skipped with a logged warning; the operation continues with
+//     whatever is valid (degraded > total failure).
+//
+// Behaviour notes:
+//   - Idempotent. Add-VpnConnectionRoute can fail with "the route
+//     already exists" if called twice for the same CIDR — we wrap
+//     each call in try/catch and continue, so a reconnect against
+//     an already-routed connection succeeds.
+//   - One PowerShell invocation for the entire batch (single
+//     subprocess spawn). For a 304-CIDR script the per-route
+//     overhead is dominated by the inner cmdlet, not the outer
+//     PowerShell startup — measured ~5-8 s on a typical Windows
+//     11 install for 300 routes.
+//   - Best-effort with non-fatal per-route failure: a single bad
+//     CIDR does not abort the batch. The response Output enumerates
+//     ok / fail counts so the caller can log a summary.
+func (h *PrivilegedHelper) cmdIPSecInstallWindowsRoutes(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "windows" {
+		return HelperResponse{Success: false, Error: "ipsec_install_windows_routes: windows-only"}
+	}
+
+	connName := strings.TrimSpace(cmd.Args["connection_name"])
+	if connName == "" {
+		return HelperResponse{Success: false, Error: "connection_name required"}
+	}
+	if !safeWindowsVPNName.MatchString(connName) {
+		return HelperResponse{Success: false, Error: "connection_name has illegal characters"}
+	}
+
+	rawCidrs := cmd.Args["cidrs"]
+	if rawCidrs == "" {
+		return HelperResponse{Success: false, Error: "cidrs required"}
+	}
+	cidrs := strings.Split(rawCidrs, "\n")
+
+	// Filter + validate before building the PS script.
+	clean := make([]string, 0, len(cidrs))
+	skipped := 0
+	for _, c := range cidrs {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if !safeCIDRRoute.MatchString(c) {
+			log.Printf("ipsec_install_windows_routes: skip invalid CIDR %q", c)
+			skipped++
+			continue
+		}
+		clean = append(clean, c)
+	}
+	if len(clean) == 0 {
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("no valid CIDRs in %d entries (%d skipped)", len(cidrs), skipped),
+		}
+	}
+
+	// Build the PowerShell batch. Split-tunneling is enabled exactly
+	// once at the top (Set-VpnConnection is idempotent and returns
+	// quickly when SplitTunneling is already $true). Each route line
+	// is wrapped in try/catch so an "already exists" failure on one
+	// CIDR does not abort the batch. $ok / $fail counters at the
+	// end produce a single-line summary that we propagate as Output.
+	var b strings.Builder
+	b.WriteString(`$ErrorActionPreference = 'Stop'; `)
+	b.WriteString(`$ok = 0; $fail = 0; `)
+	// One-shot split-tunnel enable. Errors here are surfaced (it is
+	// the gate that makes Add-VpnConnectionRoute have any effect).
+	fmt.Fprintf(&b,
+		`Set-VpnConnection -Name '%s' -SplitTunneling $true -AllUserConnection:$false -PassThru -ErrorAction Stop | Out-Null; `,
+		connName,
+	)
+	for _, c := range clean {
+		fmt.Fprintf(&b,
+			`try { Add-VpnConnectionRoute -ConnectionName '%s' -DestinationPrefix '%s' -PassThru -ErrorAction Stop | Out-Null; $ok++ } catch { $fail++ }; `,
+			connName, c,
+		)
+	}
+	b.WriteString(`Write-Output "routes-ok=$ok fail=$fail"`)
+
+	out, err := exec.Command(
+		"powershell.exe",
+		"-NoProfile", "-NonInteractive",
+		"-ExecutionPolicy", "Bypass",
+		"-Command", b.String(),
+	).CombinedOutput()
+	if err != nil {
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("powershell batch failed: %s: %v", strings.TrimSpace(string(out)), err),
+		}
+	}
+	summary := strings.TrimSpace(string(out))
+	log.Printf("ipsec_install_windows_routes: connection=%s candidates=%d skipped=%d → %s",
+		connName, len(clean), skipped, summary)
+	return HelperResponse{
+		Success: true,
+		Output: fmt.Sprintf("installed routes for %s (%s, %d candidates, %d skipped pre-validation)",
+			connName, summary, len(clean), skipped),
+	}
+}
+
+// extractAddVpnConnectionRouteCIDRs scans a server-side PowerShell .cmd
+// for "-DestinationPrefix '<cidr>'" / "-DestinationPrefix \"<cidr>\""
+// directives and returns each unique CIDR. Order-preserving. Used by
+// the App-side connect path: parse the stored WindowsRoutesScript
+// (downloaded once at gateway import), pass the extracted CIDRs to
+// cmdIPSecInstallWindowsRoutes via IPC. We deliberately do NOT
+// execute the .cmd directly because the script also contains cert
+// imports / Add-VpnConnection invocations that the App already
+// handled separately — re-running them would create conflicts.
+//
+// Lives in the helper file because the cmdline-rule extraction is
+// used by both sides (App fetches + parses; helper sanity-checks).
+// On non-Windows builds the function is still compile-included (no
+// build tag) so the App-side parser is platform-independent.
+var addVpnRouteRegex = regexp.MustCompile(
+	`(?i)-DestinationPrefix\s+["']([^"']+)["']`,
+)
+
+func extractAddVpnConnectionRouteCIDRs(script string) []string {
+	matches := addVpnRouteRegex.FindAllStringSubmatch(script, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(matches))
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		c := strings.TrimSpace(m[1])
+		if c == "" {
+			continue
+		}
+		if _, dup := seen[c]; dup {
+			continue
+		}
+		seen[c] = struct{}{}
+		out = append(out, c)
+	}
+	return out
+}
+
