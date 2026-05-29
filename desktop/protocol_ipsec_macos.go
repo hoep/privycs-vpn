@@ -274,6 +274,77 @@ func (i *IPSecProtocol) installMacOSSplitTunnelRoutes(gw4, iface4, gw6 string) {
 	persistMacOSSplitRouteState(i.connName, cidrsV4, cidrsV6)
 }
 
+// installMacOSV6DefaultRoute asks the helper to add `default ::/0 via
+// utun<N>` on macOS so charon-libipsec actually carries IPv6 traffic.
+// User-reported 2026-05-29: even with v1.0.5.21's /128 → /64 vip
+// rebind fixing source-selection, IPv6 still doesn't leave the tunnel
+// — netstat -rn -f inet6 confirms no default v6 route via the utun.
+// charon-libipsec on macOS does not install routing entries itself
+// (it relies on the IKE peer's traffic-selectors being expressed via
+// kernel SPD only). v1.0.5.27 fixes this by installing the v6 default
+// route ourselves post-bypass.
+//
+// ORDERING — CRITICAL: this runs AFTER installMacOSSplitTunnelRoutes
+// so any user-configured v6 bypass CIDRs are already in the routing
+// table when ::/0 lands. BSD's longest-prefix-match then honors the
+// bypass routes over the catch-all default. Reversing the order would
+// route bypass-destined v6 traffic through the tunnel for the window
+// between the two installs.
+//
+// Best-effort: a missing helper, an absent v6 vip, or a route(8)
+// failure logs and falls through. The tunnel stays up; only IPv6
+// connectivity is degraded — same as today's state, so no regression
+// over the pre-v1.0.5.27 behaviour.
+//
+// The v6 vip is obtained via the protocol's own Status() — which on
+// macOS pulls swanctl --list-sas and runs the same parser the helper
+// uses. We pass the vip to the helper so it can find the right utun
+// via helperFindUtunWithV6 (idempotent with the rebind path).
+func (i *IPSecProtocol) installMacOSV6DefaultRoute() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	status := i.Status()
+	v6vip := strings.TrimSpace(parseFirstV6(status.LocalAddress))
+	if v6vip == "" {
+		log.Printf("IPSec v6-default: no v6 vip in Status — tunnel may be v4-only or charon hasn't surfaced the vip yet")
+		return
+	}
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		log.Printf("IPSec v6-default: helper unreachable, skipping ::/0 install")
+		return
+	}
+	resp, err := client.SendCommand("ipsec_install_macos_v6_default_route", map[string]string{
+		"v6_vip": v6vip,
+	})
+	if err != nil || !resp.Success {
+		log.Printf("IPSec v6-default: helper install failed (non-fatal): err=%v resp=%+v", err, resp)
+		return
+	}
+	log.Printf("IPSec v6-default: %s", resp.Output)
+}
+
+// parseFirstV6 returns the first IPv6 literal found in a comma- or
+// whitespace-separated address list. Returns "" when no v6 literal is
+// present. Used to extract the v6 vip from Status().LocalAddress which
+// may contain "10.100.114.3, fd45:43:45::3" for dual-stack tunnels.
+func parseFirstV6(addrs string) string {
+	for _, tok := range strings.FieldsFunc(addrs, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t'
+	}) {
+		tok = strings.TrimSpace(tok)
+		if strings.Contains(tok, ":") {
+			// strip an optional /<prefix> suffix
+			if i := strings.IndexByte(tok, '/'); i > 0 {
+				tok = tok[:i]
+			}
+			return tok
+		}
+	}
+	return ""
+}
+
 // removeMacOSSplitTunnelRoutes loads the persisted state for connName
 // and asks the helper to delete each route. Idempotent — missing
 // state file or helper failure both no-op (the helper itself ignores

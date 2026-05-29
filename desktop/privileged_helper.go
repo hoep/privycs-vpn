@@ -48,6 +48,7 @@ var allowedActions = map[string]bool{
 	"ipsec_check_dependencies":   true, // macOS: brew/strongswan/charon health
 	"ipsec_split_routes_add":     true, // macOS post-up CIDR-bypass routes
 	"ipsec_split_routes_remove":  true,
+	"ipsec_install_macos_v6_default_route": true, // macOS post-bypass: ::/0 via utun for v6 tunnel
 	"ipsec_install_windows_routes": true, // Windows post-up split-tunnel + bypass routes
 	"ipsec_install_windows_profile": true, // Windows: execute gateway-supplied full-setup .cmd at import time
 	"macos_dns_override_set":     true, // primary-service DNS override (swanctl-darwin)
@@ -319,6 +320,8 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdIPSecSplitRoutesAdd(cmd)
 	case "ipsec_split_routes_remove":
 		return h.cmdIPSecSplitRoutesRemove(cmd)
+	case "ipsec_install_macos_v6_default_route":
+		return h.cmdIPSecInstallMacOSV6DefaultRoute(cmd)
 	case "ipsec_install_windows_routes":
 		return h.cmdIPSecInstallWindowsRoutes(cmd)
 	case "ipsec_install_windows_profile":
@@ -2253,6 +2256,79 @@ func (h *PrivilegedHelper) cmdIPSecSplitRoutesRemove(cmd HelperCommand) HelperRe
 		out += fmt.Sprintf("; %d failed: %s", len(failed), strings.Join(failed, ", "))
 	}
 	return HelperResponse{Success: true, Output: out}
+}
+
+// cmdIPSecInstallMacOSV6DefaultRoute installs `default ::/0 via utun`
+// on macOS so charon-libipsec actually carries IPv6 traffic. Without
+// this, charon-libipsec brings the SA up (v6 vip assigned, kernel SPD
+// loaded) but installs NO routing entry pointing v6 traffic at the
+// utun — netstat -rn -f inet6 shows no default via utun4 and outbound
+// v6 packets exit via the physical interface and fail.
+//
+// MUST be called by the App-side AFTER ipsec_split_routes_add returns,
+// so any user-configured v6 bypass CIDRs are already in the routing
+// table when ::/0 lands. BSD's longest-prefix-match then honors the
+// bypass routes over the catch-all default. This ordering matters —
+// reversing it would route bypass-destined v6 traffic through the
+// tunnel for the duration of the window. The user explicitly flagged
+// this requirement ("excluded networks must be considered!!!").
+//
+// Idempotent: "File exists" return from route(8) is treated as
+// success (the route is already in place from a prior call or from
+// charon-libipsec itself installing it for the same iface). Failures
+// other than File-exists are reported back to the caller.
+//
+// Inputs:
+//
+//	v6_vip — the local v6 vip from swanctl --list-sas / --initiate
+//	         output. Used to find the utun via helperFindUtunWithV6
+//	         so we don't add a default route to the wrong interface
+//	         (the physical iface or an unrelated utun).
+//
+// Darwin-only — callers must guard on runtime.GOOS.
+func (h *PrivilegedHelper) cmdIPSecInstallMacOSV6DefaultRoute(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: false, Error: "ipsec_install_macos_v6_default_route: darwin-only"}
+	}
+	v6vip := strings.TrimSpace(cmd.Args["v6_vip"])
+	if v6vip == "" {
+		return HelperResponse{Success: false, Error: "v6_vip required"}
+	}
+	utun := helperFindUtunWithV6(v6vip)
+	if utun == "" {
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("no utun found with v6 vip %s — is the IPSec tunnel actually up?", v6vip),
+		}
+	}
+	// route(8) syntax on macOS: `route -n add -inet6 default -interface <name>`.
+	// The `-interface` form (vs. gateway form) is what we need here
+	// because charon-libipsec maintains its own ESP encapsulation
+	// over the utun pty — there is no v6 gateway address inside the
+	// tunnel, just the utun's link-local. -interface tells the kernel
+	// "for ::/0 destinations, send the packet at this iface" and the
+	// charon-libipsec userspace reader then picks it up and encrypts.
+	out, err := exec.Command("/sbin/route", "-n", "add", "-inet6", "default", "-interface", utun).CombinedOutput()
+	if err != nil {
+		outStr := strings.TrimSpace(string(out))
+		// File-exists = already installed (probably by charon-libipsec
+		// itself, or by an earlier call). Idempotent.
+		if strings.Contains(outStr, "File exists") {
+			return HelperResponse{
+				Success: true,
+				Output:  fmt.Sprintf("default ::/0 via %s already present (idempotent)", utun),
+			}
+		}
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("route add -inet6 default -interface %s: %v: %s", utun, err, outStr),
+		}
+	}
+	log.Printf("macOS IPSec v6 default route: ::/0 via %s installed", utun)
+	return HelperResponse{
+		Success: true,
+		Output:  fmt.Sprintf("default ::/0 via %s installed", utun),
+	}
 }
 
 // cmdMacOSDNSOverrideSet applies the user's DNS-Override on macOS by

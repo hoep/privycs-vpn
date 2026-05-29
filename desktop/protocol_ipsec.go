@@ -1013,6 +1013,16 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 	if len(i.splitTunneling) > 0 {
 		i.installMacOSSplitTunnelRoutes(gw4, iface4, gw6)
 	}
+	// v1.0.5.27: install default ::/0 v6 route via the utun so v6
+	// traffic actually leaves the tunnel. charon-libipsec on macOS
+	// brings the SA up (v6 vip + SPD policy) but installs NO routing
+	// entry for v6 — netstat shows no default via utun and v6 packets
+	// exit via the physical iface and fail. Done AFTER the bypass
+	// route install so any user-configured v6 bypass CIDRs are in
+	// the routing table first and BSD longest-prefix-match honors
+	// them over ::/0. Best-effort: failure leaves the tunnel up but
+	// without v6 — same as today's state, no regression.
+	i.installMacOSV6DefaultRoute()
 	return nil
 }
 
