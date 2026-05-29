@@ -842,12 +842,14 @@ func (h *PrivilegedHelper) connectIPSec(cmd HelperCommand) HelperResponse {
 		_, _ = exec.Command("/usr/sbin/setkey", "-F").CombinedOutput()
 		_, _ = exec.Command("/usr/sbin/setkey", "-FP").CombinedOutput()
 	}
-	out, err := exec.Command(swanctlBin, "--load-all").CombinedOutput()
+	loadArgs := helperMacOSSwanctlArgs([]string{"--load-all"})
+	out, err := exec.Command(swanctlBin, loadArgs...).CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --load-all failed: %s", string(out))}
 	}
 
-	out, err = exec.Command(swanctlBin, "--initiate", "--child", connName).CombinedOutput()
+	initArgs := helperMacOSSwanctlArgs([]string{"--initiate", "--child", connName})
+	out, err = exec.Command(swanctlBin, initArgs...).CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --initiate failed: %s", string(out)), Output: string(out)}
 	}
@@ -965,7 +967,8 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 	// both worlds: clean termination when charon is healthy,
 	// guaranteed progression to forced kill when it isn't.
 	tctx, tcancel := context.WithTimeout(context.Background(), 3*time.Second)
-	out, err := exec.CommandContext(tctx, swanctlBin, "--terminate", "--ike", connName).CombinedOutput()
+	termArgs := helperMacOSSwanctlArgs([]string{"--terminate", "--ike", connName})
+	out, err := exec.CommandContext(tctx, swanctlBin, termArgs...).CombinedOutput()
 	tcancel()
 	if err != nil {
 		// Even on terminate-failure or timeout, fall through to
@@ -1202,6 +1205,7 @@ func (h *PrivilegedHelper) cmdStatus(cmd HelperCommand) HelperResponse {
 		if cmd.Interface != "" {
 			args = append(args, "--ike", cmd.Interface)
 		}
+		args = helperMacOSSwanctlArgs(args)
 		out, err := exec.Command(swanctlBin, args...).CombinedOutput()
 		if err != nil {
 			return HelperResponse{Success: false, Error: "swanctl not available", Output: string(out)}
@@ -1469,7 +1473,8 @@ func (h *PrivilegedHelper) cmdIPSecConfigure(cmd HelperCommand) HelperResponse {
 			}
 		}
 	}
-	out, err := exec.Command(swanctlBin, "--load-all").CombinedOutput()
+	loadArgs := helperMacOSSwanctlArgs([]string{"--load-all"})
+	out, err := exec.Command(swanctlBin, loadArgs...).CombinedOutput()
 	if err != nil {
 		errMsg := fmt.Sprintf("swanctl --load-all: %s", string(out))
 		if runtime.GOOS == "darwin" && strings.Contains(string(out), "No such file") {
@@ -1573,6 +1578,44 @@ func (h *PrivilegedHelper) cmdMacOSRestartCharon(cmd HelperCommand) HelperRespon
 // don't `ipsec stop` on disconnect because the user may have other
 // connections coming up in quick succession; the cost of an idle
 // charon is one daemon process and the vici socket — negligible.
+// helperMacOSViciURI returns the explicit unix-socket URI for the
+// running charon's VICI socket on this macOS install, in a form
+// swanctl accepts via --uri. Empty string when no candidate socket
+// exists. Used by every macOS swanctl invocation in the helper —
+// without this, swanctl on Homebrew strongSwan 6.0.6 connects to
+// its compile-time default URI (`unix:///var/run/charon.vici`)
+// which is NOT the Homebrew socket path (`unix:///opt/homebrew/
+// var/run/charon.vici`), producing "Connection refused" even when
+// charon is running normally. v1.0.5.20 fix.
+func helperMacOSViciURI() string {
+	viciCandidates := []string{
+		"/opt/homebrew/var/run/charon.vici",
+		"/usr/local/var/run/charon.vici",
+		"/var/run/charon.vici",
+	}
+	for _, p := range viciCandidates {
+		if fi, err := os.Stat(p); err == nil && (fi.Mode()&os.ModeSocket) != 0 {
+			return "unix://" + p
+		}
+	}
+	return ""
+}
+
+// helperMacOSSwanctlArgs appends `--uri <socket>` to a base swanctl
+// argument list when on Darwin and a vici socket is present. On
+// non-darwin / no-socket the args are returned unchanged. Centralises
+// the URI-passthrough so a single call site change keeps every macOS
+// swanctl invocation consistent.
+func helperMacOSSwanctlArgs(args []string) []string {
+	if runtime.GOOS != "darwin" {
+		return args
+	}
+	if uri := helperMacOSViciURI(); uri != "" {
+		return append(append([]string(nil), args...), "--uri", uri)
+	}
+	return args
+}
+
 func helperEnsureMacOSCharonRunning() error {
 	viciCandidates := []string{
 		"/opt/homebrew/var/run/charon.vici",
