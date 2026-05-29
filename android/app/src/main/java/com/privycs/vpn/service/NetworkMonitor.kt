@@ -640,6 +640,21 @@ class NetworkMonitor private constructor(private val context: Context) {
         // the Connect screen — that path doesn't go through this
         // function. Matches Desktop's `network_rules_enabled` gate.
         if (!PrivycsApp.instance.settingsRepository.getSettingsBlocking().networkRulesEnabled) {
+            // v1.0.5.25: don't just bail — propagate the OFF state
+            // into _networkState so every reader of networkState.value
+            // (ConnectScreen post-disconnect orchestration,
+            // VpnPauseTimer expiry, post-sinkhole COD resume etc.)
+            // sees shouldConnect=false instead of inheriting whatever
+            // the LAST eval-while-ON computed. Without this, a fresh
+            // master-OFF toggle leaves a stale shouldConnect=true in
+            // the flow and downstream readers keep firing reconnects
+            // even though the engine itself is paused.
+            _networkState.value = NetworkState(
+                networkType = _networkState.value.networkType,
+                ssid = _networkState.value.ssid,
+                shouldConnect = false,
+                ruleMatch = "Auto-tunnel master OFF",
+            )
             return
         }
         val networkType = detectNetworkType()

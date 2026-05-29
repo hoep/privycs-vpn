@@ -460,6 +460,10 @@
     <string name="settings_dns_test_in_progress">Wird getestet…</string>
     <string name="settings_dns_test_error">Fehler: %1$s</string>
     <string name="settings_dns_test_success">%1$s → %2$s (%3$dms)</string>
+    <string name="settings_dns_test_success_with_resolver">%1$s → %2$s (%3$dms · über %4$s)</string>
+    <string name="settings_dns_resolver_vpn">VPN-DNS</string>
+    <string name="settings_dns_resolver_system">System-DNS</string>
+    <string name="settings_dns_resolver_custom">Benutzerdefiniert</string>
     <string name="settings_dns_tip_title">Tipp: verschlüsseltes DNS aktivieren</string>
     <string name="settings_dns_tip_body">%1$s bietet auch DNS-over-TLS an. Für Ende-zu-Ende-Verschlüsselung: Android-Einstellungen → Netzwerk → Privates DNS → \"%2$s\" eingeben.</string>
     <string name="settings_tunnel_health_desc">Regelmäßiger ICMP-Ping, um zu prüfen, ob der Tunnel tatsächlich Datenverkehr überträgt (nicht nur \"verbunden\" ist). Drei aufeinanderfolgende Fehlschläge lösen die Wiederherstellung aus: Rotation des Pool-Mitglieds oder Trennen/Wiederverbinden einer Einzelverbindung.</string>

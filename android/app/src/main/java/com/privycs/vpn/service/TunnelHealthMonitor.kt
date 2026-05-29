@@ -227,6 +227,22 @@ object TunnelHealthMonitor {
             return
         }
 
+        // GATE 3 (v1.0.5.25): master Auto-tunnel OFF = strictly manual
+        // mode. Health-driven recovery is automatic behaviour by
+        // definition and must respect the same kill-switch that
+        // PoolKeepalive / AutoTunnelWorker / handleAlwaysOnReconnect
+        // already do. Without this gate, a server-side disconnect or
+        // network glitch while master is OFF would still silently
+        // re-establish the tunnel — the very thing the user toggled
+        // off to prevent. Still mark DEGRADED so the UI surfaces the
+        // dead state instead of pretending we're connected.
+        val settingsSnap = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
+        if (!settingsSnap.networkRulesEnabled) {
+            PrivycsLogger.i(TAG, "recovery: skip — Auto-tunnel master OFF (manual-only mode)")
+            _state.value = State.DEGRADED
+            return
+        }
+
         try {
             // USER source so the disconnect respects the same
             // Coordinator gates as a manual tap. Note: it does NOT

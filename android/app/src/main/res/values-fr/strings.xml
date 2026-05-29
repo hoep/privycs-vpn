@@ -460,6 +460,10 @@
     <string name="settings_dns_test_in_progress">Test en cours…</string>
     <string name="settings_dns_test_error">Erreur : %1$s</string>
     <string name="settings_dns_test_success">%1$s → %2$s (%3$d ms)</string>
+    <string name="settings_dns_test_success_with_resolver">%1$s → %2$s (%3$d ms · via %4$s)</string>
+    <string name="settings_dns_resolver_vpn">DNS VPN</string>
+    <string name="settings_dns_resolver_system">DNS système</string>
+    <string name="settings_dns_resolver_custom">Personnalisé</string>
     <string name="settings_dns_tip_title">Astuce : activez le DNS chiffré</string>
     <string name="settings_dns_tip_body">%1$s propose aussi le DNS-over-TLS. Pour un chiffrement de bout en bout : Paramètres Android → Réseau → DNS privé → saisissez \"%2$s\".</string>
     <string name="settings_tunnel_health_desc">Ping ICMP périodique pour vérifier que le tunnel transporte réellement du trafic (pas seulement \"connecté\"). Trois échecs consécutifs déclenchent une récupération : rotation des membres du pool ou déconnexion/reconnexion de la connexion unique.</string>

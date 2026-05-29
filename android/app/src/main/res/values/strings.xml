@@ -460,6 +460,10 @@
     <string name="settings_dns_test_in_progress">Testing…</string>
     <string name="settings_dns_test_error">Error: %1$s</string>
     <string name="settings_dns_test_success">%1$s → %2$s (%3$dms)</string>
+    <string name="settings_dns_test_success_with_resolver">%1$s → %2$s (%3$dms · via %4$s)</string>
+    <string name="settings_dns_resolver_vpn">VPN DNS</string>
+    <string name="settings_dns_resolver_system">System DNS</string>
+    <string name="settings_dns_resolver_custom">Custom</string>
     <string name="settings_dns_tip_title">Tip: enable encrypted DNS</string>
     <string name="settings_dns_tip_body">%1$s also offers DNS-over-TLS. For end-to-end encryption: Android Settings → Network → Private DNS → enter \"%2$s\".</string>
     <string name="settings_tunnel_health_desc">Periodic ICMP ping to verify the tunnel is actually carrying traffic (not just \"connected\"). Three consecutive failures trigger recovery: pool member rotation or single-connection disconnect/reconnect.</string>

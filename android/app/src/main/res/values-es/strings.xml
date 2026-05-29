@@ -460,6 +460,10 @@
     <string name="settings_dns_test_in_progress">Probando…</string>
     <string name="settings_dns_test_error">Error: %1$s</string>
     <string name="settings_dns_test_success">%1$s → %2$s (%3$d ms)</string>
+    <string name="settings_dns_test_success_with_resolver">%1$s → %2$s (%3$d ms · vía %4$s)</string>
+    <string name="settings_dns_resolver_vpn">DNS VPN</string>
+    <string name="settings_dns_resolver_system">DNS del sistema</string>
+    <string name="settings_dns_resolver_custom">Personalizado</string>
     <string name="settings_dns_tip_title">Consejo: habilita el DNS cifrado</string>
     <string name="settings_dns_tip_body">%1$s también ofrece DNS-over-TLS. Para cifrado de extremo a extremo: Ajustes de Android → Red → DNS privado → introduce \"%2$s\".</string>
     <string name="settings_tunnel_health_desc">Ping ICMP periódico para verificar que el túnel realmente transporta tráfico (no solo que está \"conectado\"). Tres fallos consecutivos activan la recuperación: rotación de miembros del grupo o desconexión/reconexión de una conexión única.</string>

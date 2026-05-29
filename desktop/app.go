@@ -3201,6 +3201,18 @@ func (a *App) handleSystemDidWake() {
 		log.Printf("PowerEvents: didWake — ReconnectOnSystemWake disabled, no action")
 		return
 	}
+	// v1.0.5.25: master Auto-tunnel OFF = strictly manual mode. The
+	// wake-recovery path was the last automatic reconnect entry on
+	// Desktop the v1.0.5.22 audit missed — same contract as Android's
+	// handleAlwaysOnReconnect / AutoTunnelWorker / PoolKeepalive gates.
+	// User report: "on demand off + laptop zuklappen + aufmachen →
+	// reconnected trotzdem" was exactly this path. With master OFF the
+	// wake-up must not bring the tunnel back; the user explicitly
+	// disabled automatic management.
+	if !a.settings.NetworkRulesEnabled {
+		log.Printf("PowerEvents: didWake — Auto-tunnel master OFF, no action")
+		return
+	}
 	a.mu.RLock()
 	connected := a.connected
 	activeConn := a.connections.Active()

@@ -337,6 +337,25 @@ fun ConnectScreen(
                         // re-enter within roughly one second, every time.
                         vpnManager.disconnect()
                         coroutineScope.launch {
+                            // v1.0.5.25: master toggle OFF = strictly
+                            // manual. Without this gate the disconnect
+                            // fires and 400 ms later this client-side
+                            // orchestration calls connect() again,
+                            // visibly re-establishing the tunnel even
+                            // though the user explicitly disabled
+                            // Auto-tunnel. Closes the gap left by the
+                            // v1.0.5.22 audit (which covered service-
+                            // side reconnect paths but missed this UI-
+                            // driven one).
+                            val settingsSnap = PrivycsApp.instance
+                                .settingsRepository.getSettingsBlocking()
+                            if (!settingsSnap.networkRulesEnabled) {
+                                com.privycs.vpn.util.PrivycsLogger.i(
+                                    "ConnectScreen",
+                                    "Manual disconnect: skip on-demand reconnect — master OFF",
+                                )
+                                return@launch
+                            }
                             if (!PrivycsApp.instance.networkRulesRepository.hasRules) return@launch
                             // Give the disconnect a moment to propagate
                             // (service stopSelf + scope.cancel + status=empty).

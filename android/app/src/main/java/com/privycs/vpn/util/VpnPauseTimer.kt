@@ -109,6 +109,17 @@ object VpnPauseTimer {
                 // COD reconnect check.
                 _pauseUntilEpochMs.value = 0L
 
+                // v1.0.5.25: master Auto-tunnel OFF disables pause-
+                // expiry auto-reconnect. The pause was a user gesture
+                // and the master toggle is the same user's strictly-
+                // manual preference; together they mean "stay off
+                // until I tap Connect myself".
+                val settingsSnap = com.privycs.vpn.PrivycsApp.instance
+                    .settingsRepository.getSettingsBlocking()
+                if (!settingsSnap.networkRulesEnabled) {
+                    Log.i(TAG, "Pause expired but Auto-tunnel master OFF — no auto-reconnect")
+                    return@launch
+                }
                 if (!com.privycs.vpn.PrivycsApp.instance.networkRulesRepository.hasRules) {
                     return@launch
                 }

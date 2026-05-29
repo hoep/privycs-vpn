@@ -676,12 +676,48 @@ fun SettingsScreen(
                 var dnsTesting by remember { mutableStateOf(false) }
                 val testScope = rememberCoroutineScope()
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // v1.0.5.25: resolve which DNS the test is going
+                    // to use, so we can surface it in the success
+                    // line ("via Quad9", "via 1.1.1.1", "via system").
+                    // Detection mirrors the supportingText logic
+                    // above: a known provider preset wins, then a
+                    // custom IP, else system DNS. Computed at click
+                    // time so a fresh entry in the override field
+                    // immediately reflects.
+                    val vpnLabel = stringResource(R.string.settings_dns_resolver_vpn)
+                    val systemLabel = stringResource(R.string.settings_dns_resolver_system)
+                    val customLabel = stringResource(R.string.settings_dns_resolver_custom)
                     OutlinedButton(
                         onClick = {
                             dnsTesting = true
+                            val trimmedOverride = dnsOverride.trim()
+                            // v1.0.5.25: VPN DNS vs System DNS when no
+                            // override is set. Override only applies
+                            // INSIDE the tunnel; when no override AND
+                            // tunnel is up the resolver in use is what
+                            // the server pushed (= "VPN DNS"). Tunnel
+                            // down + no override = system DNS (Wi-Fi /
+                            // mobile network's own resolver).
+                            val isConnectedNow = com.privycs.vpn.service.VpnServiceManager
+                                .getInstance(context).isConnected
+                            val label = when {
+                                trimmedOverride.isEmpty() ->
+                                    if (isConnectedNow) vpnLabel else systemLabel
+                                dnsProvider != null -> dnsProvider.label
+                                else -> {
+                                    val first = trimmedOverride
+                                        .split(",", " ")
+                                        .map { it.trim() }
+                                        .firstOrNull { it.isNotEmpty() }
+                                        .orEmpty()
+                                    if (first.isNotEmpty()) "$customLabel $first" else customLabel
+                                }
+                            }
                             testScope.launch {
                                 val res = withContext(Dispatchers.IO) {
-                                    com.privycs.vpn.util.DnsValidator.testResolution()
+                                    com.privycs.vpn.util.DnsValidator.testResolution(
+                                        resolverLabel = label,
+                                    )
                                 }
                                 dnsTestResult = res
                                 dnsTesting = false
@@ -702,6 +738,14 @@ fun SettingsScreen(
                         Text(
                             text = if (res.error != null)
                                 stringResource(R.string.settings_dns_test_error, res.error)
+                            else if (res.resolverLabel.isNotBlank())
+                                stringResource(
+                                    R.string.settings_dns_test_success_with_resolver,
+                                    res.host,
+                                    res.addresses.firstOrNull() ?: "?",
+                                    res.durationMs,
+                                    res.resolverLabel,
+                                )
                             else
                                 stringResource(
                                     R.string.settings_dns_test_success,

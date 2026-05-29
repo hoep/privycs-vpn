@@ -206,17 +206,26 @@ object DnsValidator {
         val host: String,
         val addresses: List<String>,
         val durationMs: Long,
+        // v1.0.5.25: human-readable label for the resolver in effect.
+        // Filled in by the caller (it knows the user's DNS-override
+        // and the detectProvider() result); we just round-trip it
+        // through the TestResult so the UI has a single source for
+        // its success-line render.
+        val resolverLabel: String = "",
         val error: String? = null,
     )
 
-    fun testResolution(host: String = "cloudflare.com"): TestResult {
+    fun testResolution(
+        host: String = "cloudflare.com",
+        resolverLabel: String = "",
+    ): TestResult {
         val target = host.ifBlank { "cloudflare.com" }
         val start = System.currentTimeMillis()
         return try {
             val addrs = InetAddress.getAllByName(target).map { it.hostAddress.orEmpty() }
-            TestResult(target, addrs, System.currentTimeMillis() - start)
+            TestResult(target, addrs, System.currentTimeMillis() - start, resolverLabel)
         } catch (e: Exception) {
-            TestResult(target, emptyList(), System.currentTimeMillis() - start, e.message ?: "lookup failed")
+            TestResult(target, emptyList(), System.currentTimeMillis() - start, resolverLabel, e.message ?: "lookup failed")
         }
     }
 }
