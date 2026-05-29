@@ -966,6 +966,13 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 				cancel()
 				a.connected = false
 			}
+			// v1.0.5.24: user-initiated protocol switch ends the prior
+			// session. Wake-bridge baseline bytes accumulated by the
+			// previous protocol's sessions are no longer meaningful;
+			// the new protocol's counter starts at 0 and the user-
+			// visible total should match.
+			a.sessionByteBaselineRx = 0
+			a.sessionByteBaselineTx = 0
 		}
 		a.activeProtocol = protocol
 		a.settings.ActiveProtocol = protocol
@@ -2031,6 +2038,12 @@ func (a *App) ActivateConnection(id string, protocol string) error {
 			log.Printf("Warning: disconnect failed during activate: %v", err)
 		}
 	}
+	// v1.0.5.24: switching to a different connection ends the prior
+	// session. Reset the wake-bridge baseline so the new connection's
+	// byte counter starts at 0 instead of inheriting accumulated
+	// bytes from the previous connection's wake recoveries.
+	a.sessionByteBaselineRx = 0
+	a.sessionByteBaselineTx = 0
 	a.mu.Unlock()
 
 	// CONFIGURE phase — NO LOCK. setTunnelName + applyDnsOverride +

@@ -58,6 +58,25 @@ class VpnServiceManager private constructor(private val context: Context) {
     val isConnected: Boolean
         get() = _status.value.connected
 
+    // v1.0.5.24: pool byte-counter continuity baseline. When a pool
+    // rotates from member A to member B, the underlying tunnel
+    // (WireGuard / OpenVPN / IPSec) tears down and the new member
+    // starts a fresh tunnel with its own counter at 0. Without
+    // compensation the user-visible counter snaps back to 0 every
+    // rotation. We detect any backwards jump in tunnel rxBytes/
+    // txBytes while the same pool stays active and add the
+    // pre-rotation value to a baseline, so the displayed counter
+    // keeps climbing across rotations. Reset to 0 on pool teardown
+    // (activePoolId becomes empty) so a fresh pool session starts
+    // clean. Mirrors Desktop's sessionByteBaseline pattern but
+    // triggered by member-switch instead of by the macOS-IPSec
+    // wake-restart specifically.
+    @Volatile private var poolBaselineRxBytes: Long = 0L
+    @Volatile private var poolBaselineTxBytes: Long = 0L
+    @Volatile private var lastPoolRawRxBytes: Long = 0L
+    @Volatile private var lastPoolRawTxBytes: Long = 0L
+    @Volatile private var lastPoolIdForBaseline: String = ""
+
     // Zombie-VpnService defense (v0.9.15.23). Tracks whether THIS app
     // instance has ever brought a tunnel up to Connected. Set on every
     // disconnected→connected transition, cleared on the reverse and at
@@ -698,16 +717,63 @@ class VpnServiceManager private constructor(private val context: Context) {
             // No pool active: store as-is (single-connection path).
             else -> status
         }
+
+        // v1.0.5.24: pool byte-counter continuity. If a pool is active,
+        // compensate for tunnel-counter resets at rotation/reconnect
+        // boundaries so the displayed counter keeps climbing instead
+        // of snapping to 0. Logic:
+        //   - Pool teardown (activePoolId cleared OR different pool id
+        //     than last sample) → reset everything to 0; the next
+        //     non-zero raw value re-baselines.
+        //   - Backwards jump in raw rxBytes / txBytes while the same
+        //     pool stays active → stash the previous raw values into
+        //     the baseline (the post-rotation tunnel restart cost us
+        //     those bytes from the displayed counter; add them back).
+        //   - Otherwise baseline carries unchanged.
+        // The single-connection path (activePoolId.isEmpty()) bypasses
+        // this entirely — the tunnel-poller is authoritative there and
+        // any reset means a fresh user-initiated session.
+        val displayStatus = if (activePoolId.isNotEmpty()) {
+            if (activePoolId != lastPoolIdForBaseline) {
+                poolBaselineRxBytes = 0L
+                poolBaselineTxBytes = 0L
+                lastPoolRawRxBytes = 0L
+                lastPoolRawTxBytes = 0L
+                lastPoolIdForBaseline = activePoolId
+            }
+            if (finalStatus.rxBytes < lastPoolRawRxBytes) {
+                poolBaselineRxBytes += lastPoolRawRxBytes
+            }
+            if (finalStatus.txBytes < lastPoolRawTxBytes) {
+                poolBaselineTxBytes += lastPoolRawTxBytes
+            }
+            lastPoolRawRxBytes = finalStatus.rxBytes
+            lastPoolRawTxBytes = finalStatus.txBytes
+            finalStatus.copy(
+                rxBytes = finalStatus.rxBytes + poolBaselineRxBytes,
+                txBytes = finalStatus.txBytes + poolBaselineTxBytes,
+            )
+        } else {
+            if (lastPoolIdForBaseline.isNotEmpty()) {
+                poolBaselineRxBytes = 0L
+                poolBaselineTxBytes = 0L
+                lastPoolRawRxBytes = 0L
+                lastPoolRawTxBytes = 0L
+                lastPoolIdForBaseline = ""
+            }
+            finalStatus
+        }
+
         val prev = _status.value
-        _status.value = finalStatus
+        _status.value = displayStatus
         // Feed the sparkline tracker so the upload/download cards have
         // a speed history to render. Non-connected samples reset the
         // tracker so the sparkline flatlines immediately on disconnect
         // instead of holding a stale spike into the next session.
         com.privycs.vpn.util.SpeedTracker.record(
-            status.rxBytes,
-            status.txBytes,
-            status.connected,
+            displayStatus.rxBytes,
+            displayStatus.txBytes,
+            displayStatus.connected,
         )
 
         // Bridge actual-tunnel-state -> coordinator intent-state. The

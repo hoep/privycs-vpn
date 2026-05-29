@@ -67,6 +67,19 @@ type IPSecProtocol struct {
 	// Windows IPSec uses rasdial which doesn't accept DNS override
 	// directly.
 	dnsOverride []string
+	// v1.0.5.24: macOS swanctl byte-counter sticky-max. parseSwanctlBytes
+	// can transiently return 0 during the brief gap between the
+	// per-CHILD-SA --ike-filtered query and the all-SA fallback query
+	// (lines 236-248 below), and after a rekey the SA database may
+	// report a freshly-zeroed counter for a poll tick or two before
+	// the new CHILD SA's ESP counters tick up. Either case made the
+	// user-visible counter jump backwards to 0 mid-session. Sticky-max
+	// holds the highest values observed for this Status()-handler
+	// lifetime and never reports lower. Reset to 0 on Up() so a fresh
+	// connect starts clean. macOS-only field (Linux/Windows have their
+	// own kernel-driven counters that don't have this gap).
+	stickyMaxBytesRx int64
+	stickyMaxBytesTx int64
 }
 
 // SetDnsOverride records the user's manual DNS server list (from
@@ -144,6 +157,12 @@ func (i *IPSecProtocol) Up(ctx context.Context) error {
 	if !i.IsAvailable() {
 		return fmt.Errorf("IPSec not available on this system")
 	}
+
+	// v1.0.5.24: reset macOS sticky-max counter so a fresh session
+	// starts at 0 instead of inheriting the previous session's peak.
+	// No-op fields on Linux/Windows (they don't consume them).
+	i.stickyMaxBytesRx = 0
+	i.stickyMaxBytesTx = 0
 
 	switch runtime.GOOS {
 	case "linux":
@@ -245,6 +264,21 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 						status.BytesTx = tx2
 					}
 				}
+			}
+			// v1.0.5.24: sticky-max so the counter never visibly goes
+			// backwards mid-session. Both the filtered + unfiltered
+			// queries can transiently return 0 (rekey, brief charon
+			// hiccup, fallback gap). User-perceived bug was "counter
+			// shows 50 MB then drops to 0 then climbs again".
+			if status.BytesRx > i.stickyMaxBytesRx {
+				i.stickyMaxBytesRx = status.BytesRx
+			} else {
+				status.BytesRx = i.stickyMaxBytesRx
+			}
+			if status.BytesTx > i.stickyMaxBytesTx {
+				i.stickyMaxBytesTx = status.BytesTx
+			} else {
+				status.BytesTx = i.stickyMaxBytesTx
 			}
 		}
 	case "windows":
