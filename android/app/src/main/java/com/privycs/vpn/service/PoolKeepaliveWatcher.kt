@@ -136,17 +136,21 @@ object PoolKeepaliveWatcher {
             return
         }
 
-        // v1.0.5.2: rules-aware gate. Without this, when network
-        // rules say "do not connect on this WiFi", an onAvailable
-        // tick for that same WiFi would still fire a pool reconnect
-        // — the user then sees connect-then-disconnect flicker once
-        // NetworkMonitor evaluates and tears it down. Mirrors the
-        // gate in BootReceiver, handleAlwaysOnReconnect, and
-        // AutoTunnelWorker.
+        // v1.0.5.22: master-toggle OFF disables pool keepalive entirely.
+        // Manual-only mode means no auto-reconnect on network-restore
+        // either — the user explicitly turned the engine off, even a
+        // user-selected pool stays disconnected after a network drop
+        // until they tap Connect themselves.
         val settings = app.settingsRepository.getSettingsBlocking()
-        val rulesActive = settings.networkRulesEnabled &&
-            app.networkRulesRepository.rules.value.isNotEmpty()
-        if (rulesActive) {
+        if (!settings.networkRulesEnabled) {
+            Log.d(TAG, "skip: Auto-tunnel master OFF — manual-only mode")
+            return
+        }
+        // v1.0.5.2: rules-aware gate. With master ON and rules
+        // present, an onAvailable tick on a Wi-Fi covered by an
+        // except-rule should NOT fire a pool reconnect — the user
+        // would otherwise see a connect-then-disconnect flicker.
+        if (app.networkRulesRepository.rules.value.isNotEmpty()) {
             val shouldConnect = NetworkMonitor.getInstance(context).evaluateRulesNow()
             if (!shouldConnect) {
                 Log.d(TAG, "skip: rules do not match current network")

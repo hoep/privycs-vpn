@@ -453,8 +453,16 @@ func (a *App) startup(ctx context.Context) {
 		a.startTray()
 	}()
 
-	// Auto-connect: prefer connect-on-demand if enabled, fall back to legacy.
-	if a.settings.ConnectOnDemand.Enabled {
+	// v1.0.5.22: master-toggle (NetworkRulesEnabled) is the single
+	// authoritative auto-anything gate. When OFF, no startup-time
+	// auto-connect of any flavour — COD monitoring, legacy auto-
+	// connect-on-start, both inactive. Manual-only mode. Mirrors
+	// the Android master-OFF semantics so cross-platform parity
+	// stays intact. User-reported "wenn on demand off ist soll NUR
+	// manuell connected werden".
+	if !a.settings.NetworkRulesEnabled {
+		log.Printf("startup: Auto-tunnel master OFF — no auto-connect, no on-demand monitoring (manual-only mode)")
+	} else if a.settings.ConnectOnDemand.Enabled {
 		// COD owns the connect/disconnect lifecycle whenever enabled,
 		// regardless of whether a tunnel is already up at startup. The
 		// monitor's first evaluation will either confirm the connect

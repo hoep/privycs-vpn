@@ -64,6 +64,21 @@ class AutoTunnelWorker(
                 return Result.success()
             }
 
+            // v1.0.5.22: master-toggle OFF short-circuits the entire
+            // backstop tick. With Auto-tunnel disabled the engine
+            // must NOT re-arm itself, must NOT re-evaluate, must NOT
+            // pool-keepalive. Manual-only mode = no auto-reconnect
+            // anywhere. Worker still runs (WorkManager doesn't know
+            // about the toggle) but its body becomes a no-op.
+            val settingsForGate = app.settingsRepository.getSettingsBlocking()
+            if (!settingsForGate.networkRulesEnabled) {
+                PrivycsLogger.d(
+                    TAG,
+                    "backstop tick: Auto-tunnel master OFF — skipping rule re-eval + pool keepalive",
+                )
+                return Result.success()
+            }
+
             // 1. Re-arm the NetworkMonitor + force a re-evaluation.
             //    start() is idempotent - returns immediately if
             //    already running. reevaluate() is the public

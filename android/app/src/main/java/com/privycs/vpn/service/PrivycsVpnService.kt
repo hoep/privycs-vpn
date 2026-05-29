@@ -2544,23 +2544,34 @@ class PrivycsVpnService : VpnService() {
                 return@launch
             }
 
-            // v1.0.5.2: NetworkRules-aware Always-On reconnect. Without
-            // this gate, the system Always-On VPN feature force-starts
-            // our service after an app update (Play Store internal
-            // testing, sideloaded APK install, etc.) — we then connect
-            // to the last active slot immediately and the user sees a
-            // "connect for 3-5s then disconnect" flicker once the
-            // NetworkMonitor evaluates rules and matches an "except"
-            // rule on the current network. BootReceiver already gates
-            // boot-auto-connect on evaluateRulesNow(); mirror the same
-            // gate here for the system-restart path so the two
-            // forced-startup code paths are consistent. The master
-            // toggle (networkRulesEnabled) gates this check.
+            // v1.0.5.22: master-toggle is now the single authoritative
+            // gate for every auto-reconnect path. When the user turns
+            // Auto-tunnel OFF the engine must NOT bring the tunnel
+            // back up — not on Always-On VPN service restart, not on
+            // the periodic backstop tick, not on network-restore.
+            // Only USER-source intents (Connect tap, tile, widget)
+            // may start the tunnel. v1.0.5.2 had this gate conditional
+            // on rules existing, which left a hole: with master OFF
+            // the gate was bypassed and we still reconnected. User-
+            // reported "wenn on demand off ist soll NUR manuell
+            // connected werden".
+            //
+            // Master ON + rules present: evaluate as before.
+            // Master ON + no rules: no specific gating signal — fall
+            // through to the previous Always-On reconnect behaviour
+            // (user explicitly enabled the engine).
             val settings = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
+            if (!settings.networkRulesEnabled) {
+                PrivycsLogger.i(
+                    TAG,
+                    "handleAlwaysOnReconnect: Auto-tunnel master OFF — refusing system-restart reconnect (manual-only mode)",
+                )
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return@launch
+            }
             val rulesRepo = PrivycsApp.instance.networkRulesRepository
-            val rulesActive = settings.networkRulesEnabled &&
-                rulesRepo.rules.value.isNotEmpty()
-            if (rulesActive) {
+            if (rulesRepo.rules.value.isNotEmpty()) {
                 val shouldConnect = NetworkMonitor.getInstance(this@PrivycsVpnService)
                     .evaluateRulesNow()
                 if (!shouldConnect) {
