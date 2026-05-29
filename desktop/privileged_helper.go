@@ -854,6 +854,63 @@ func (h *PrivilegedHelper) connectIPSec(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("swanctl --initiate failed: %s", string(out)), Output: string(out)}
 	}
 
+	// v1.0.5.21: macOS-only post-initiate fixup for the IPv6 vip
+	// source-address-selection bug. strongSwan's charon-libipsec
+	// plugin installs the v6 vip on the utun adapter as a /128
+	// Point-to-Point binding (a --> a, prefixlen 128). macOS's
+	// RFC 6724 source-address-selection then refuses to pick that
+	// address as a source for global IPv6 destinations (Rule 5
+	// "prefer outgoing interface" doesn't apply because the /128
+	// P2P binding is not considered an "applicable" source), and
+	// outbound v6 connections fall back to source `::1` and fail
+	// with "No route to host" — even though the tunnel + routing
+	// are otherwise fully established and gateway-side NAT66 works.
+	//
+	// User-verified: rebinding the same address as a /64 prefix
+	// (instead of /128 P2P) flips macOS source-selection so it
+	// picks the vip automatically. WireGuard + OpenVPN on macOS
+	// already install their v6 vip with a real prefix (not /128
+	// P2P) which is why they don't hit this; charon-libipsec is
+	// the outlier.
+	//
+	// Best-effort: any failure here is non-fatal — the tunnel is
+	// up, the user just loses v6 source-auto-selection (workaround:
+	// applications explicitly bind to the vip).
+	if runtime.GOOS == "darwin" {
+		v6vip := helperParseSwanctlLocalV6(string(out))
+		if v6vip == "" {
+			// --initiate output didn't surface the local v6 TS —
+			// fall back to --list-sas which always lists it.
+			sasArgs := helperMacOSSwanctlArgs([]string{"--list-sas", "--ike", connName})
+			if sasOut, sasErr := exec.Command(swanctlBin, sasArgs...).CombinedOutput(); sasErr == nil {
+				v6vip = helperParseSwanctlLocalV6(string(sasOut))
+			}
+		}
+		if v6vip != "" {
+			utun := helperFindUtunWithV6(v6vip)
+			if utun != "" {
+				// Remove the existing /128 P2P binding first;
+				// the alias add otherwise creates a duplicate.
+				_, _ = exec.Command("ifconfig", utun, "inet6", "-alias", v6vip).CombinedOutput()
+				if rebindOut, rebindErr := exec.Command(
+					"ifconfig", utun, "inet6", v6vip, "prefixlen", "64",
+				).CombinedOutput(); rebindErr != nil {
+					log.Printf(
+						"macOS IPSec v6 vip rebind %s on %s failed (non-fatal): %v: %s",
+						v6vip, utun, rebindErr, strings.TrimSpace(string(rebindOut)),
+					)
+				} else {
+					log.Printf(
+						"macOS IPSec v6 vip rebind: %s on %s now /64 (was /128 P2P) — source-selection fixed",
+						v6vip, utun,
+					)
+				}
+			} else {
+				log.Printf("macOS IPSec v6 vip %s found in swanctl output but no utun has it bound — skipping rebind", v6vip)
+			}
+		}
+	}
+
 	// DNS override (Linux-only path). User's Settings.DNSOverride
 	// reaches us via cmd.Args["dns_servers"] (space-separated IPs).
 	// Apply by backing up /etc/resolv.conf and writing a fresh
@@ -1578,6 +1635,71 @@ func (h *PrivilegedHelper) cmdMacOSRestartCharon(cmd HelperCommand) HelperRespon
 // don't `ipsec stop` on disconnect because the user may have other
 // connections coming up in quick succession; the cost of an idle
 // charon is one daemon process and the vici socket — negligible.
+// helperParseSwanctlLocalV6 extracts the first local IPv6 address from
+// a swanctl output (--initiate or --list-sas), looking for the
+// "local <v4>/<n> <v6>/<n>" line. Returns "" when no local v6 is
+// surfaced. The match is intentionally permissive: it accepts any
+// IPv6 literal (containing ":") at the start or end of the line so
+// dual-stack and v6-only profiles both produce a hit.
+//
+// Example matches:
+//
+//	"    local  10.100.126.3/32 fd63:43:45::3/128"  → "fd63:43:45::3"
+//	"    local  fd63:43:45::3/128"                   → "fd63:43:45::3"
+//
+// v1.0.5.21 — feeds the macOS /128-P2P → /64 v6 vip rebind.
+var helperLocalV6Pattern = regexp.MustCompile(
+	`local\s+(?:[^\s]+\s+)?([0-9a-fA-F:]+:[0-9a-fA-F:]+)/\d+`,
+)
+
+func helperParseSwanctlLocalV6(swanctlOutput string) string {
+	for _, line := range strings.Split(swanctlOutput, "\n") {
+		// Cheap filter so we don't run the regex on every line.
+		// swanctl prefixes the TS-installed line with "    local "
+		// after the SA header; the IKE_SA endpoints line is
+		// "  local '<id>' @ <addr>..." which we don't want to
+		// match. The leading "    local " (4 spaces) discriminates.
+		if !strings.HasPrefix(strings.TrimRight(line, " \t"), "    local") &&
+			!strings.HasPrefix(strings.TrimRight(line, " \t"), "  local") {
+			continue
+		}
+		if !strings.Contains(line, "::") {
+			continue
+		}
+		m := helperLocalV6Pattern.FindStringSubmatch(line)
+		if len(m) >= 2 {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+// helperFindUtunWithV6 returns the utun interface name (e.g. "utun5")
+// that has the given IPv6 address currently bound, or "" when none
+// matches. Iterates utun0..utun15 via `ifconfig <name>`; stops at the
+// first match. Used by the macOS post-initiate v6-vip rebind so we
+// know which interface to ifconfig.
+func helperFindUtunWithV6(v6vip string) string {
+	for i := 0; i < 16; i++ {
+		name := fmt.Sprintf("utun%d", i)
+		out, err := exec.Command("ifconfig", name).CombinedOutput()
+		if err != nil {
+			continue
+		}
+		// Match either "inet6 fd63:43:45::3" or
+		// "inet6 fd63:43:45::3%utun5" — the scopeid suffix is
+		// emitted for link-local addresses only, but we strip it
+		// defensively so a future macOS version that adds it
+		// for ULAs would not break the lookup.
+		body := string(out)
+		if strings.Contains(body, "inet6 "+v6vip+" ") ||
+			strings.Contains(body, "inet6 "+v6vip+"%") {
+			return name
+		}
+	}
+	return ""
+}
+
 // helperMacOSViciURI returns the explicit unix-socket URI for the
 // running charon's VICI socket on this macOS install, in a form
 // swanctl accepts via --uri. Empty string when no candidate socket
