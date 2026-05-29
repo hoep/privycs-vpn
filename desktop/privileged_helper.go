@@ -1532,6 +1532,58 @@ func (h *PrivilegedHelper) cmdIPSecConfigure(cmd HelperCommand) HelperResponse {
 	}
 	loadArgs := helperMacOSSwanctlArgs([]string{"--load-all"})
 	out, err := exec.Command(swanctlBin, loadArgs...).CombinedOutput()
+	// v1.0.5.26: macOS auto-restart-on-load-all-failure.
+	//
+	// User-reported 2026-05-29: even with a fresh helper (v1.0.5.20
+	// onward, which centralises the --uri pass-through via
+	// helperMacOSSwanctlArgs), Profile-Import AND Connect both fail
+	// with `connecting to 'unix:///var/run/charon.vici' failed:
+	// Connection refused` when charon is in a stuck/zombie state —
+	// the process is up (pgrep finds it) but the vici socket refuses
+	// connections. Manual `sudo ipsec stop && sudo ipsec start` heals
+	// it instantly; afterwards charon auto-loads /etc/swanctl/conf.d/*
+	// at startup and the profile is available.
+	//
+	// This block automates that recovery for the IPSec-configure path
+	// (which both Profile-Import and Connect go through): when the
+	// load-all fails with a "Connection refused" or "Connection reset"
+	// against the vici socket, hard-restart charon (stop → setkey
+	// flush → start) and retry --load-all once. Only kicks in on the
+	// specific error signature so non-vici failures (malformed
+	// swanctl.conf, missing certs, charon startup error) fall through
+	// to the normal error path. Logged loudly so the recovery is
+	// visible in the helper log.
+	if err != nil && runtime.GOOS == "darwin" {
+		outStr := string(out)
+		looksLikeViciDown := strings.Contains(outStr, "Connection refused") ||
+			strings.Contains(outStr, "Connection reset") ||
+			strings.Contains(outStr, "No such file or directory")
+		if looksLikeViciDown {
+			log.Printf("ipsec_configure: swanctl --load-all reports vici unreachable (%q); attempting auto-restart of charon and one retry",
+				strings.TrimSpace(outStr))
+			if stopOut, restartErr := helperMacOSHardRestartCharon(); restartErr != nil {
+				log.Printf("ipsec_configure: auto-restart-and-retry — restart failed: %v (stop output=%q); returning original load-all error",
+					restartErr, strings.TrimSpace(stopOut))
+			} else {
+				log.Printf("ipsec_configure: auto-restart-and-retry — charon restarted, retrying --load-all")
+				retryArgs := helperMacOSSwanctlArgs([]string{"--load-all"})
+				retryOut, retryErr := exec.Command(swanctlBin, retryArgs...).CombinedOutput()
+				if retryErr == nil {
+					log.Printf("ipsec_configure: auto-restart-and-retry — SUCCESS on retry (output=%q)",
+						strings.TrimSpace(string(retryOut)))
+					return HelperResponse{Success: true, Output: string(retryOut)}
+				}
+				log.Printf("ipsec_configure: auto-restart-and-retry — retry STILL failed: %v (output=%q); returning retry error",
+					retryErr, strings.TrimSpace(string(retryOut)))
+				// Fall through to error reporting using the RETRY
+				// output so the user sees the post-restart failure
+				// mode (which is more informative — original could
+				// have been a stuck-socket symptom).
+				out = retryOut
+				err = retryErr
+			}
+		}
+	}
 	if err != nil {
 		errMsg := fmt.Sprintf("swanctl --load-all: %s", string(out))
 		if runtime.GOOS == "darwin" && strings.Contains(string(out), "No such file") {
@@ -1559,14 +1611,41 @@ func (h *PrivilegedHelper) cmdMacOSRestartCharon(cmd HelperCommand) HelperRespon
 	if runtime.GOOS != "darwin" {
 		return HelperResponse{Success: false, Error: "macos_restart_charon is darwin-only"}
 	}
+	stopOut, err := helperMacOSHardRestartCharon()
+	if err != nil {
+		return HelperResponse{
+			Success: false,
+			Error:   fmt.Sprintf("charon-restart: stop output=%q; %v", strings.TrimSpace(stopOut), err),
+		}
+	}
+	return HelperResponse{Success: true, Output: "charon restarted (kernel SADB+SPD flushed)"}
+}
+
+// helperMacOSHardRestartCharon executes the full `ipsec stop` →
+// wait-for-socket-gone → setkey-flush → `ipsec start` →
+// wait-for-socket-back sequence. Returns (stopCommandOutput, error).
+// Extracted from cmdMacOSRestartCharon (v0.9.14.88) in v1.0.5.26 so the
+// auto-restart-on-load-all-failure path in cmdIPSecConfigure can reuse
+// the same logic instead of issuing its own IPC roundtrip.
+//
+// User-reported (2026-05-29): macOS IPSec import fails with
+// `connecting to 'unix:///var/run/charon.vici' failed: Connection refused`
+// when charon is in a stuck/zombie state (process present but vici
+// socket not accepting connections). Manual `sudo ipsec stop && sudo
+// ipsec start` heals it. This helper makes that the automatic
+// recovery path when load-all hits the same symptom.
+//
+// Darwin-only — callers must guard on runtime.GOOS.
+func helperMacOSHardRestartCharon() (string, error) {
 	ipsecBin := helperFindMacOSStrongswanBinary("ipsec")
 	if ipsecBin == "" {
-		return HelperResponse{Success: false, Error: "ipsec wrapper not found"}
+		return "", fmt.Errorf("ipsec wrapper not found")
 	}
 	// Stop. Output captured for diagnosis on failure; ipsec stop
 	// returns 0 even if charon was already down so we don't gate
 	// on the exit code — only on the socket disappearing.
-	stopOut, _ := exec.Command(ipsecBin, "stop").CombinedOutput()
+	stopOutBytes, _ := exec.Command(ipsecBin, "stop").CombinedOutput()
+	stopOut := string(stopOutBytes)
 
 	viciCandidates := []string{
 		"/opt/homebrew/var/run/charon.vici",
@@ -1613,15 +1692,9 @@ func (h *PrivilegedHelper) cmdMacOSRestartCharon(cmd HelperCommand) HelperRespon
 	// Start fresh. Reuses the existing helper which polls vici
 	// socket up to 8 s.
 	if err := helperEnsureMacOSCharonRunning(); err != nil {
-		return HelperResponse{
-			Success: false,
-			Error: fmt.Sprintf(
-				"charon-restart: stop output=%q; start failed: %v",
-				strings.TrimSpace(string(stopOut)), err,
-			),
-		}
+		return stopOut, fmt.Errorf("start failed: %v", err)
 	}
-	return HelperResponse{Success: true, Output: "charon restarted (kernel SADB+SPD flushed)"}
+	return stopOut, nil
 }
 
 // helperEnsureMacOSCharonRunning is darwin-only. It checks whether
