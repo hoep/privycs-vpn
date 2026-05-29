@@ -223,6 +223,17 @@
     <string name="netrules_action_connect_active">Conectar (conexión o grupo activo)</string>
     <string name="netrules_summary_target_connect_active">→ Conectar</string>
     <string name="netrules_default_behaviour_body">Cuando ninguna regla anterior coincide con la red actual, Privycs no realiza ninguna acción — la VPN permanece en el último estado que estableciste.</string>
+    <string name="netrules_eval_header">EVALUACIÓN ACTUAL</string>
+    <string name="netrules_eval_network_wifi_named">Conectado a Wi-Fi \"%1$s\"</string>
+    <string name="netrules_eval_network_wifi_unnamed">Conectado a Wi-Fi (nombre aún no detectado)</string>
+    <string name="netrules_eval_network_mobile">Conectado a datos móviles</string>
+    <string name="netrules_eval_network_ethernet">Conectado por Ethernet</string>
+    <string name="netrules_eval_network_none">Sin conexión de red</string>
+    <string name="netrules_eval_master_on">Túnel automático: activado</string>
+    <string name="netrules_eval_master_off">Túnel automático: desactivado</string>
+    <string name="netrules_eval_decision_manual">Solo control manual — el motor no realiza ninguna acción</string>
+    <string name="netrules_eval_decision_idle">Ninguna regla coincide — el motor no realiza ninguna acción</string>
+    <string name="netrules_eval_arrow_prefix">→</string>
 
     <!-- ConnectOnDemandScreen -->
     <string name="cod_title">Conexión bajo demanda</string>

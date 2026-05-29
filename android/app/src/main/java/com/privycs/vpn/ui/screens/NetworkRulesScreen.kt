@@ -155,7 +155,7 @@ fun NetworkRulesScreen(onBack: () -> Unit) {
 
             item {
                 Spacer(Modifier.height(8.dp))
-                DefaultBehaviourCard()
+                LiveEvalCard()
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -300,14 +300,59 @@ private fun EmptyRulesCard() {
 }
 
 /**
- * The pinned fallback explainer. Post the COD→rules conversion there
- * is no separate "default behaviour" to edit — when no rule matches,
- * the engine simply takes no action.
+ * v1.0.5.23: live evaluation result pinned at the bottom of the
+ * NetworkRules screen — replaces the previous static
+ * "DefaultBehaviourCard". Reactively reflects the engine's current
+ * decision against the current network, in the user's own terms:
+ *
+ *   "Connected to WiFi 'Hoep@Home' (Auto-tunnel = Off) → Manual control"
+ *   "Connected to Mobile (Auto-tunnel = On, no matching rule) → No action"
+ *   "Connected to WiFi 'Home' (Auto-tunnel = On, except-rule) → VPN Off"
+ *
+ * Subscribes to NetworkMonitor.networkState (network type + SSID +
+ * rule resolution) and to settings.networkRulesEnabled (master
+ * toggle). Composes the display string from the two on every flow
+ * emit. No engine changes — the eval pipeline already publishes
+ * NetworkState on every run; we just render it.
  */
 @Composable
-private fun DefaultBehaviourCard() {
+private fun LiveEvalCard() {
+    val app = PrivycsApp.instance
+    val nm = remember { com.privycs.vpn.service.NetworkMonitor.getInstance(app) }
+    val state by nm.networkState.collectAsState()
+    val settings by app.settingsRepository.settingsFlow.collectAsState(
+        initial = app.settingsRepository.defaultSettings()
+    )
+
+    val networkText = when {
+        state.networkType == "wifi" && state.ssid.isNotEmpty() ->
+            stringResource(R.string.netrules_eval_network_wifi_named, state.ssid)
+        state.networkType == "wifi" ->
+            stringResource(R.string.netrules_eval_network_wifi_unnamed)
+        state.networkType == "mobile" ->
+            stringResource(R.string.netrules_eval_network_mobile)
+        state.networkType == "ethernet" ->
+            stringResource(R.string.netrules_eval_network_ethernet)
+        else ->
+            stringResource(R.string.netrules_eval_network_none)
+    }
+
+    val masterText = if (settings.networkRulesEnabled) {
+        stringResource(R.string.netrules_eval_master_on)
+    } else {
+        stringResource(R.string.netrules_eval_master_off)
+    }
+
+    val decisionText = when {
+        !settings.networkRulesEnabled ->
+            stringResource(R.string.netrules_eval_decision_manual)
+        state.ruleMatch.isEmpty() ->
+            stringResource(R.string.netrules_eval_decision_idle)
+        else -> state.ruleMatch
+    }
+
     Text(
-        stringResource(R.string.netrules_fallback_header),
+        stringResource(R.string.netrules_eval_header),
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -321,14 +366,21 @@ private fun DefaultBehaviourCard() {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                stringResource(R.string.netrules_default_behaviour_title),
+                networkText,
                 style = MaterialTheme.typography.titleSmall,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
             Text(
-                stringResource(R.string.netrules_default_behaviour_body),
+                masterText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.netrules_eval_arrow_prefix) + " " + decisionText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }

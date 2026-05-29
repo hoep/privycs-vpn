@@ -643,6 +643,20 @@
       "cod-help": "Standardverhalten für jedes Netzwerk, auf das keine Regel oben passte",
       "static-body": "Wenn keine Regel oben auf das aktuelle Netzwerk passt — oder wenn die Engine aus ist — verbindet/trennt das VPN <strong>nicht</strong> automatisch. Nutze den <strong>Connect</strong>-Screen, um den Tunnel manuell zu steuern."
     },
+    "eval": {
+      "heading": "Aktuelle Auswertung",
+      "network-wifi-named": "Verbunden mit WLAN \"{ssid}\"",
+      "network-wifi-unnamed": "Verbunden mit WLAN (Name noch nicht erkannt)",
+      "network-mobile": "Verbunden mit Mobilfunk",
+      "network-ethernet": "Verbunden über Ethernet",
+      "network-none": "Keine Netzwerkverbindung",
+      "master-on": "Auto-Tunnel: Ein",
+      "master-off": "Auto-Tunnel: Aus",
+      "decision-manual": "Nur manuelle Steuerung — Engine unternimmt nichts",
+      "decision-rule-active": "Eine Regel passt auf das aktuelle Netzwerk — Engine handelt",
+      "decision-no-match": "Keine Regel passt — Engine unternimmt nichts",
+      "arrow": "→"
+    },
     "cod": {
       "when-connected-to": "Wenn verbunden mit",
       "wifi-networks": "Wi-Fi-Netzwerken",

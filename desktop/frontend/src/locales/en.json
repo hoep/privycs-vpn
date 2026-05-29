@@ -643,6 +643,20 @@
       "cod-help": "Default behaviour for any network no rule above matched",
       "static-body": "When no rule above matches the current network — or when the engine is off — the VPN does <strong>not</strong> auto-connect or disconnect. Use the <strong>Connect</strong> screen to control the tunnel manually."
     },
+    "eval": {
+      "heading": "Current evaluation",
+      "network-wifi-named": "Connected to Wi-Fi \"{ssid}\"",
+      "network-wifi-unnamed": "Connected to Wi-Fi (name not yet detected)",
+      "network-mobile": "Connected to mobile data",
+      "network-ethernet": "Connected via Ethernet",
+      "network-none": "No network connection",
+      "master-on": "Auto-tunnel: On",
+      "master-off": "Auto-tunnel: Off",
+      "decision-manual": "Manual control only — engine takes no action",
+      "decision-rule-active": "A rule matches the current network — engine is acting",
+      "decision-no-match": "No rule matches — engine takes no action",
+      "arrow": "→"
+    },
     "cod": {
       "when-connected-to": "When connected to",
       "wifi-networks": "WiFi networks",

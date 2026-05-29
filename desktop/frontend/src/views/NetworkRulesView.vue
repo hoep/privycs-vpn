@@ -123,16 +123,24 @@
       </div>
     </div>
 
-    <!-- v1.0.5: Default behaviour — static info matching Android's
-         DefaultBehaviourCard. The legacy configurable Connect-on-
-         Demand UI was removed in v1.0.5 unification; the field stays
-         in AppSettings.ConnectOnDemand for backward compat but the
-         engine no longer consults it (rules-only). -->
+    <!-- v1.0.5.23: dynamic evaluation card — replaces the previous
+         static fallback explainer. Subscribes (poll every 2 s) to
+         GetCurrentNetworkRulesEval, renders the user's current
+         engine decision in their own language. Mirrors Android's
+         LiveEvalCard composable in NetworkRulesScreen.kt. -->
     <div class="card p-4 bg-gray-50 dark:bg-gray-800/30">
       <p class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
-        {{ $t('network-rules.fallback.heading') }}
+        {{ $t('network-rules.eval.heading') }}
       </p>
-      <p class="text-[11px] text-gray-500 leading-relaxed" v-html="$t('network-rules.fallback.static-body')"></p>
+      <p class="text-[13px] text-gray-700 dark:text-gray-200 font-semibold mb-1">
+        {{ evalNetworkText }}
+      </p>
+      <p class="text-[11px] text-gray-500 mb-2">
+        {{ evalMasterText }}
+      </p>
+      <p class="text-[12px] font-semibold text-primary-600 dark:text-primary-400">
+        {{ $t('network-rules.eval.arrow') }} {{ evalDecisionText }}
+      </p>
     </div>
 
     <!-- Edit / Create modal: HeadlessUI Dialog with smooth in/out -->
@@ -344,6 +352,7 @@ import {
   ListNetworkRules, AddNetworkRule, UpdateNetworkRule, DeleteNetworkRule,
   SetNetworkRulesOrder, ListPools, ListConnections,
   GetSettings, UpdateSettings, GetPlatformFeatures, GetConnectOnDemandStatus,
+  GetCurrentNetworkRulesEval,
 } from '../../wailsjs/go/main/App'
 import {
   ArrowLeftIcon, PlusIcon, PencilIcon, TrashIcon,
@@ -375,6 +384,58 @@ const connections = ref<any[]>([])
 const editing = ref<NetworkRule | null>(null)
 const deleting = ref<NetworkRule | null>(null)
 const draft = ref<NetworkRule>(emptyRule())
+
+// --- v1.0.5.23: live evaluation snapshot for the bottom card ---
+// Polled every 2s from the Go side; the eval card composables
+// (evalNetworkText / evalMasterText / evalDecisionText) read from
+// this and the i18n catalog.
+interface NetworkRulesEvalSnapshot {
+  network_type: string
+  ssid: string
+  master_enabled: boolean
+  has_rules: boolean
+  engine_active: boolean
+  rule_matching: boolean
+}
+const evalSnap = ref<NetworkRulesEvalSnapshot>({
+  network_type: 'none',
+  ssid: '',
+  master_enabled: false,
+  has_rules: false,
+  engine_active: false,
+  rule_matching: false,
+})
+let evalPollTimer: number | undefined
+const evalNetworkText = computed(() => {
+  const t1 = t
+  if (evalSnap.value.network_type === 'wifi' && evalSnap.value.ssid) {
+    return t1('network-rules.eval.network-wifi-named', { ssid: evalSnap.value.ssid })
+  }
+  if (evalSnap.value.network_type === 'wifi') {
+    return t1('network-rules.eval.network-wifi-unnamed')
+  }
+  if (evalSnap.value.network_type === 'mobile') {
+    return t1('network-rules.eval.network-mobile')
+  }
+  if (evalSnap.value.network_type === 'ethernet') {
+    return t1('network-rules.eval.network-ethernet')
+  }
+  return t1('network-rules.eval.network-none')
+})
+const evalMasterText = computed(() =>
+  evalSnap.value.master_enabled
+    ? t('network-rules.eval.master-on')
+    : t('network-rules.eval.master-off')
+)
+const evalDecisionText = computed(() => {
+  if (!evalSnap.value.master_enabled) {
+    return t('network-rules.eval.decision-manual')
+  }
+  if (evalSnap.value.rule_matching) {
+    return t('network-rules.eval.decision-rule-active')
+  }
+  return t('network-rules.eval.decision-no-match')
+})
 
 // --- Settings + Connect-on-Demand ("Default behaviour") state ---
 // In v0.9.15.73 the legacy COD config and the rules-engine gate were
@@ -661,6 +722,19 @@ async function moveDown(i: number) {
   await load()
 }
 
+async function refreshEvalSnap() {
+  try {
+    const snap = await GetCurrentNetworkRulesEval()
+    if (snap) {
+      evalSnap.value = snap as any
+    }
+  } catch (e) {
+    // Non-fatal: backend not ready yet, or transient. Card just
+    // shows the last good state (or initial defaults). Don't log
+    // — polls every 2 s, would flood the console.
+  }
+}
+
 onMounted(async () => {
   load()
   loadSettings()
@@ -669,9 +743,18 @@ onMounted(async () => {
   } catch (e) {
     console.error('Failed to load platform features:', e)
   }
+  // v1.0.5.23: live eval poll (2 s) for the bottom card. One-shot
+  // initial fetch + interval. Setting a longer interval would feel
+  // sluggish when the user joins / leaves a Wi-Fi.
+  refreshEvalSnap()
+  evalPollTimer = window.setInterval(refreshEvalSnap, 2000)
 })
 
 onUnmounted(() => {
   stopCodStatusPolling()
+  if (evalPollTimer !== undefined) {
+    window.clearInterval(evalPollTimer)
+    evalPollTimer = undefined
+  }
 })
 </script>

@@ -223,6 +223,17 @@
     <string name="netrules_action_connect_active">Connect (active connection or pool)</string>
     <string name="netrules_summary_target_connect_active">→ Connect</string>
     <string name="netrules_default_behaviour_body">When no rule above matches the current network, Privycs takes no action — the VPN stays in whatever state you last set it.</string>
+    <string name="netrules_eval_header">CURRENT EVALUATION</string>
+    <string name="netrules_eval_network_wifi_named">Connected to Wi-Fi \"%1$s\"</string>
+    <string name="netrules_eval_network_wifi_unnamed">Connected to Wi-Fi (name not yet detected)</string>
+    <string name="netrules_eval_network_mobile">Connected to mobile data</string>
+    <string name="netrules_eval_network_ethernet">Connected via Ethernet</string>
+    <string name="netrules_eval_network_none">No network connection</string>
+    <string name="netrules_eval_master_on">Auto-tunnel: On</string>
+    <string name="netrules_eval_master_off">Auto-tunnel: Off</string>
+    <string name="netrules_eval_decision_manual">Manual control only — engine takes no action</string>
+    <string name="netrules_eval_decision_idle">No rule matches — engine takes no action</string>
+    <string name="netrules_eval_arrow_prefix">→</string>
 
     <!-- ConnectOnDemandScreen -->
     <string name="cod_title">Connect on Demand</string>

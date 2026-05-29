@@ -581,6 +581,20 @@
       "cod-help": "Comportamiento por defecto para cualquier red con la que no haya coincidido ninguna regla anterior",
       "static-body": "Cuando ninguna regla anterior coincide con la red actual — o cuando el motor está apagado — la VPN <strong>no</strong> se conecta ni se desconecta automáticamente. Usa la pantalla <strong>Conectar</strong> para controlar el túnel manualmente."
     },
+    "eval": {
+      "heading": "Evaluación actual",
+      "network-wifi-named": "Conectado a Wi-Fi \"{ssid}\"",
+      "network-wifi-unnamed": "Conectado a Wi-Fi (nombre aún no detectado)",
+      "network-mobile": "Conectado a datos móviles",
+      "network-ethernet": "Conectado por Ethernet",
+      "network-none": "Sin conexión de red",
+      "master-on": "Túnel automático: activado",
+      "master-off": "Túnel automático: desactivado",
+      "decision-manual": "Solo control manual — el motor no realiza ninguna acción",
+      "decision-rule-active": "Una regla coincide con la red actual — el motor está actuando",
+      "decision-no-match": "Ninguna regla coincide — el motor no realiza ninguna acción",
+      "arrow": "→"
+    },
     "cod": {
       "when-connected-to": "Cuando esté conectado a",
       "wifi-networks": "Redes WiFi",

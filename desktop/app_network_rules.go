@@ -17,6 +17,47 @@ func (a *App) ListNetworkRules() []*NetworkRule {
 	return a.networkRules.List()
 }
 
+// NetworkRulesEvalSnapshot is the structured result the
+// NetworkRulesView LiveEvalCard renders. v1.0.5.23 added — gives the
+// Vue frontend everything it needs to render the user's current
+// engine decision in their own language, without having to subscribe
+// to every internal state flow.
+type NetworkRulesEvalSnapshot struct {
+	NetworkType   string `json:"network_type"`    // "wifi" | "mobile" | "ethernet" | "none"
+	SSID          string `json:"ssid"`            // empty unless networkType == "wifi" AND SSID has been latched
+	MasterEnabled bool   `json:"master_enabled"`  // settings.NetworkRulesEnabled
+	HasRules      bool   `json:"has_rules"`       // at least one rule exists in the registry
+	EngineActive  bool   `json:"engine_active"`   // MasterEnabled && HasRules — the engine is actually deciding
+	RuleMatching  bool   `json:"rule_matching"`   // engine active AND current network matches a rule
+}
+
+// GetCurrentNetworkRulesEval returns a snapshot of the current
+// engine decision context — current network type/SSID, master-toggle
+// state, whether any rule currently matches. The Vue
+// NetworkRulesView LiveEvalCard polls this every 2s and renders the
+// human-readable decision in the user's locale.
+func (a *App) GetCurrentNetworkRulesEval() *NetworkRulesEvalSnapshot {
+	snap := &NetworkRulesEvalSnapshot{}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.settings != nil {
+		snap.MasterEnabled = a.settings.NetworkRulesEnabled
+	}
+	if a.networkRules != nil {
+		snap.HasRules = len(a.networkRules.List()) > 0
+	}
+	snap.EngineActive = snap.MasterEnabled && snap.HasRules
+	if a.autoConnect != nil {
+		if nm := a.autoConnect.NetworkMonitor(); nm != nil {
+			state := nm.CurrentState()
+			snap.NetworkType = state.NetworkType
+			snap.SSID = state.SSID
+			snap.RuleMatching = snap.EngineActive && state.RuleMatch
+		}
+	}
+	return snap
+}
+
 // AddNetworkRule appends a new rule to the end of the list. Caller
 // can reorder via SetNetworkRulesOrder afterwards.
 func (a *App) AddNetworkRule(rule *NetworkRule) error {
