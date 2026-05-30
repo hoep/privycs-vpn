@@ -75,6 +75,13 @@ var allowedActions = map[string]bool{
 	// ovpn-dco/tap adapter is ephemeral and takes its DNS config with
 	// it on disconnect.
 	"windows_dns_set": true,
+	// v1.0.5.28: helper-side log truncation. The unprivileged app
+	// process cannot truncate the per-profile *.log files in the
+	// shared appDataDir because the helper (root/SYSTEM) writes them
+	// at openvpn-start time, and even with mode 0644 the file owner
+	// stays root/SYSTEM — Truncate needs WRITE permission, not just
+	// read. The helper does Truncate as root and reports success.
+	"clear_logs": true,
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.
@@ -342,8 +349,104 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdIPv6Block(cmd)
 	case "ipv6_unblock":
 		return h.cmdIPv6Unblock(cmd)
+	case "clear_logs":
+		return h.cmdClearLogs(cmd)
 	default:
 		return HelperResponse{Success: false, Error: "unhandled action"}
+	}
+}
+
+// cmdClearLogs truncates every *.log file under the paths supplied by
+// the caller. The caller (settings.go clearLogs) discovers the *.log
+// files in appDataDir on the user side and ships the absolute paths
+// here as cmd.Args["paths"] (newline-separated). The helper rejects
+// anything outside the expected appDataDir / Windows-ProgramData
+// helper-data-dir patterns to avoid being abused as a generic
+// "truncate arbitrary file" RPC.
+//
+// v1.0.5.28: fixes "delete logs → permission denied" on every desktop
+// OS. Helper-spawned daemons (openvpn) create *.log files owned by
+// root/SYSTEM with mode 0644 — readable by the unprivileged app, NOT
+// writable. The clearLogs() call from the user app would error EACCES
+// on the first such file. Routing the truncate through the helper
+// solves this on all three OSes uniformly.
+func (h *PrivilegedHelper) cmdClearLogs(cmd HelperCommand) HelperResponse {
+	pathsArg := cmd.Args["paths"]
+	if pathsArg == "" {
+		return HelperResponse{Success: true, Output: "no paths"}
+	}
+	var allowedPrefixes []string
+	switch runtime.GOOS {
+	case "windows":
+		programData := os.Getenv("PROGRAMDATA")
+		if programData == "" {
+			programData = `C:\ProgramData`
+		}
+		allowedPrefixes = []string{
+			filepath.Join(programData, "PrivycsVPN") + string(os.PathSeparator),
+		}
+		// Per-user appDataDir on Windows is %LOCALAPPDATA%\privycs-vpn;
+		// the helper runs as SYSTEM and doesn't know which user's
+		// LOCALAPPDATA to allow, so we accept any path that contains
+		// the "privycs-vpn" segment AND ends in .log — defence in depth
+		// against directory traversal via the path validator below.
+	default:
+		// macOS + Linux both have appDataDir under the invoking user's
+		// home; same caveat as Windows — helper doesn't know the user
+		// path at IPC time. We rely on the "privycs-vpn" segment +
+		// .log suffix gate below.
+		allowedPrefixes = nil
+	}
+	var truncated, skipped int
+	var firstErr string
+	for _, p := range strings.Split(pathsArg, "\n") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// Path-safety: must end in ".log", must contain "privycs-vpn"
+		// as a directory segment, must pass safePathPattern (no shell
+		// metacharacters, only ASCII filename chars).
+		if !strings.HasSuffix(p, ".log") ||
+			!strings.Contains(p, "privycs-vpn") ||
+			!safePathPattern.MatchString(p) {
+			skipped++
+			continue
+		}
+		if len(allowedPrefixes) > 0 {
+			ok := false
+			for _, prefix := range allowedPrefixes {
+				if strings.HasPrefix(p, prefix) {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				skipped++
+				continue
+			}
+		}
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			continue
+		}
+		if err := os.Truncate(p, 0); err != nil {
+			if firstErr == "" {
+				firstErr = fmt.Sprintf("truncate %s: %v", p, err)
+			}
+			continue
+		}
+		truncated++
+	}
+	if firstErr != "" {
+		return HelperResponse{
+			Success: false,
+			Error:   firstErr,
+			Output:  fmt.Sprintf("truncated=%d skipped=%d", truncated, skipped),
+		}
+	}
+	return HelperResponse{
+		Success: true,
+		Output:  fmt.Sprintf("truncated=%d skipped=%d", truncated, skipped),
 	}
 }
 
@@ -1039,55 +1142,41 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 		log.Printf("swanctl --terminate failed/timed-out (continuing to ipsec-stop + kernel flush): %s: %v",
 			strings.TrimSpace(string(out)), err)
 	}
-	// v0.9.14.93: bulletproof IPSec teardown on macOS — charon stop
-	// + kernel-SADB+SPD flush. Why charon-stop and not just terminate:
-	// `swanctl --terminate` only tells charon to delete the SA, but
-	// charon's userspace session-state (IKE_SA, CHILD_SA descriptors,
-	// rekey timers, DPD timers) can persist even after termination
-	// reports success. If the user immediately disconnect→connect→
-	// disconnect-cycles, that lingering userspace state can spawn
-	// new kernel SAs via rekey/DPD between our flushes, and traffic
-	// keeps flowing through them — exactly the user-reported "ipinfo
-	// zeigt vpn exit nach disconnect" symptom. Killing charon
-	// entirely guarantees no userspace session-state survives.
-	// helperEnsureMacOSCharonRunning() respawns charon at the next
-	// connect (~1-2 s startup cost is acceptable for the safety
-	// guarantee). No-op on Linux (xfrm flush is a separate path;
-	// Linux IPSec connections don't show this symptom in testing).
+	// v1.0.5.28 — macOS IPSec teardown without killing charon.
+	//
+	// Pre-v1.0.5.28 (v0.9.14.93+) we did `ipsec stop` on every
+	// disconnect to guarantee no userspace state survived. Side
+	// effect: every NEXT connect found charon dead, ran load-all
+	// against a non-existent vici socket, got "Connection refused",
+	// then triggered macos_restart_charon as auto-recovery —
+	// adding ~5-7s to every Connect AND making users perceive
+	// IPSec as "ständig down" because charon wasn't running
+	// outside of an active session.
+	//
+	// New strategy: trust `swanctl --terminate` (already invoked
+	// above with 3s timeout) PLUS the kernel-SADB+SPD flush below
+	// to guarantee no SA survives in the kernel — even if charon's
+	// userspace IKE_SA descriptor lingers, it cannot reinstall
+	// kernel SAs without going through a fresh IKE_AUTH that we
+	// would not initiate. Charon stays alive between sessions,
+	// vici socket stays bound, next connect is one swanctl
+	// --load-all + --initiate away with no restart-and-retry
+	// detour.
+	//
+	// Hard-stop fallback: ONLY if --terminate timed out (the
+	// 3-second context-cancellation path above) AND the vici
+	// socket is no longer responsive (charon stuck in zombie
+	// state). That preserves the pre-v1.0.5.28 safety net for
+	// the rare wedged-daemon case the original v0.9.14.93 change
+	// was written for.
+	//
+	// Linux path is unchanged (xfrm flush handled separately, no
+	// historical "ipsec stop on disconnect" there).
 	if runtime.GOOS == "darwin" {
-		ipsecBin := helperFindMacOSStrongswanBinary("ipsec")
-		if ipsecBin != "" {
-			if stopOut, stopErr := exec.Command(ipsecBin, "stop").CombinedOutput(); stopErr != nil {
-				log.Printf("ipsec stop (post-disconnect daemon kill) failed: %s: %v",
-					strings.TrimSpace(string(stopOut)), stopErr)
-			} else {
-				log.Printf("ipsec stop (post-disconnect) OK: %s",
-					strings.TrimSpace(string(stopOut)))
-			}
-			// Brief poll for vici socket disappearance — confirms
-			// charon has actually exited before we declare success.
-			viciCandidates := []string{
-				"/opt/homebrew/var/run/charon.vici",
-				"/usr/local/var/run/charon.vici",
-				"/var/run/charon.vici",
-			}
-			deadline := time.Now().Add(3 * time.Second)
-			for time.Now().Before(deadline) {
-				gone := true
-				for _, p := range viciCandidates {
-					if fi, err := os.Stat(p); err == nil && (fi.Mode()&os.ModeSocket) != 0 {
-						gone = false
-						break
-					}
-				}
-				if gone {
-					break
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-		}
-		// Flush kernel state AFTER charon stops, so charon can't
-		// reinstall SAs via rekey/DPD on its way out.
+		// Flush kernel SADB + SPD unconditionally. Even if charon
+		// can recreate userspace state, the kernel has nothing to
+		// route through until charon's next IKE_AUTH — which only
+		// happens via our explicit Connect path. Belt-and-braces.
 		if flushOut, flushErr := exec.Command("/usr/sbin/setkey", "-F").CombinedOutput(); flushErr != nil {
 			log.Printf("setkey -F (post-disconnect SADB flush) failed: %s: %v",
 				strings.TrimSpace(string(flushOut)), flushErr)
@@ -1101,6 +1190,35 @@ func (h *PrivilegedHelper) disconnectIPSec(cmd HelperCommand) HelperResponse {
 		} else {
 			log.Printf("setkey -FP (post-disconnect SPD flush) OK: %s",
 				strings.TrimSpace(string(flushOut)))
+		}
+		// Hard-stop ONLY if --terminate failed AND vici is dead.
+		// `err != nil` here means the 3s --terminate above failed
+		// or timed out — charon may be wedged. Probe vici with a
+		// 1s --list-sas; if THAT also fails, the daemon really is
+		// stuck and we fall back to the old kill-it path. This
+		// preserves the v0.9.14.93 safety net for the wedged
+		// state without paying the cost on every healthy
+		// disconnect.
+		if err != nil {
+			probeCtx, probeCancel := context.WithTimeout(context.Background(), 1*time.Second)
+			probeArgs := helperMacOSSwanctlArgs([]string{"--list-sas"})
+			_, probeErr := exec.CommandContext(probeCtx, swanctlBin, probeArgs...).CombinedOutput()
+			probeCancel()
+			if probeErr != nil {
+				log.Printf("disconnect: --terminate failed AND vici probe failed — charon wedged, falling back to hard stop")
+				ipsecBin := helperFindMacOSStrongswanBinary("ipsec")
+				if ipsecBin != "" {
+					if stopOut, stopErr := exec.Command(ipsecBin, "stop").CombinedOutput(); stopErr != nil {
+						log.Printf("ipsec stop (wedged-charon fallback) failed: %s: %v",
+							strings.TrimSpace(string(stopOut)), stopErr)
+					} else {
+						log.Printf("ipsec stop (wedged-charon fallback) OK: %s",
+							strings.TrimSpace(string(stopOut)))
+					}
+				}
+			} else {
+				log.Printf("disconnect: --terminate failed but vici still responsive — keeping charon alive (no fallback stop)")
+			}
 		}
 	}
 	// DNS override restore. Linux-only path — macOS via swanctl does

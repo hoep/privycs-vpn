@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
+	"time"
 )
 
 // AppVersion is set at build time via ldflags:
@@ -250,28 +253,78 @@ type logSource struct {
 	path string
 }
 
-// knownLogSources lists the files we read when the LogsView asks for
-// a merged tail. Any file that doesn't exist (because e.g. OpenVPN has
-// never been started) is silently skipped — no error shown to user.
+// knownLogSources discovers every *.log file under appDataDir at call
+// time. The app log "privycs-vpn.log" is always present; OpenVPN
+// per-profile logs ("<connection-name>.log") appear after the first
+// connect attempt for that profile. Any file that disappears between
+// discovery and read is silently skipped by the callers.
+//
+// v1.0.5.28: was previously hard-coded to two static paths
+// ("privycs-vpn.log" + "openvpn.log"). The second one never existed
+// because protocol_openvpn.go writes per-profile <name>.log files;
+// the LogsView and clearLogs both operated on a phantom path. Now
+// the discovery is dynamic. The synthetic tag is the filename minus
+// the .log suffix so the merged view labels each line correctly.
 func knownLogSources() []logSource {
-	return []logSource{
-		{"app", filepath.Join(appDataDir(), "privycs-vpn.log")},
-		{"openvpn", filepath.Join(appDataDir(), "openvpn.log")},
-		// WireGuard / IPSec don't have per-app log files on desktop;
-		// their output is captured inside the app log via log.Printf.
+	dir := appDataDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return []logSource{
+			{"app", filepath.Join(dir, "privycs-vpn.log")},
+		}
 	}
+	var sources []logSource
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
+			continue
+		}
+		tag := strings.TrimSuffix(e.Name(), ".log")
+		if tag == "privycs-vpn" {
+			tag = "app"
+		}
+		sources = append(sources, logSource{
+			tag:  tag,
+			path: filepath.Join(dir, e.Name()),
+		})
+	}
+	if len(sources) == 0 {
+		sources = []logSource{
+			{"app", filepath.Join(dir, "privycs-vpn.log")},
+		}
+	}
+	return sources
 }
 
 // getMergedLogs returns the tail of every known log source, each line
 // prefixed with "[tag] " so the UI can render a single merged stream.
 // perFile caps per-source line count to prevent one chatty daemon from
 // flooding the view.
+//
+// v1.0.5.28: chronologically sorts the merged stream by parsing the
+// leading timestamp on each line. Lines without a parseable timestamp
+// retain the order of their source file and are intermixed using a
+// stable-sort keyed by the most recent preceding timestamp. The
+// effect is one truly interleaved time-ordered stream instead of
+// "all 100 app lines, then all 100 openvpn lines".
+//
+// Recognised timestamp formats (covers app Go-default log + OpenVPN
+// default + strongSwan default):
+//   - "2026/05/30 14:23:45"        (Go log package default)
+//   - "Sat Mar 16 14:23:45 2026"   (OpenVPN default)
+//   - "May 30 14:23:45"            (strongSwan default)
 func getMergedLogs(perFile int) []string {
-	var out []string
+	type taggedLine struct {
+		tag   string
+		line  string
+		ts    int64 // unix-nano; 0 = unparseable, kept stable
+		order int   // tie-breaker so stable sort works
+	}
+	var collected []taggedLine
+	order := 0
 	for _, src := range knownLogSources() {
 		data, err := os.ReadFile(src.path)
 		if err != nil {
-			continue // silently skip missing files
+			continue
 		}
 		if len(data) == 0 {
 			continue
@@ -280,28 +333,116 @@ func getMergedLogs(perFile int) []string {
 		if len(lines) > perFile {
 			lines = lines[len(lines)-perFile:]
 		}
+		var lastTs int64
 		for _, ln := range lines {
-			out = append(out, fmt.Sprintf("[%s] %s", src.tag, ln))
+			ts := parseLogTimestamp(ln)
+			if ts != 0 {
+				lastTs = ts
+			} else {
+				ts = lastTs // continuation lines inherit prev timestamp
+			}
+			collected = append(collected, taggedLine{
+				tag:   src.tag,
+				line:  fmt.Sprintf("[%s] %s", src.tag, ln),
+				ts:    ts,
+				order: order,
+			})
+			order++
 		}
 	}
-	if len(out) == 0 {
+	if len(collected) == 0 {
 		return []string{"No logs yet. Connect to a VPN or trigger an action to generate entries."}
+	}
+	// Stable sort by (ts, original-order). Unparseable lines (ts=0)
+	// drift to the top but keep their source order; this is rare and
+	// only happens for headerless log fragments.
+	sort.SliceStable(collected, func(i, j int) bool {
+		if collected[i].ts != collected[j].ts {
+			return collected[i].ts < collected[j].ts
+		}
+		return collected[i].order < collected[j].order
+	})
+	out := make([]string, len(collected))
+	for i, c := range collected {
+		out[i] = c.line
 	}
 	return out
 }
 
+// parseLogTimestamp tries to extract a unix-nano timestamp from the
+// start of a log line. Returns 0 when no recognised format matches.
+// v1.0.5.28: feeds the chronological merge in getMergedLogs.
+var logTimestampFormats = []string{
+	"2006/01/02 15:04:05",
+	"2006-01-02 15:04:05",
+	"Mon Jan 2 15:04:05 2006",
+	"Jan 2 15:04:05",
+}
+
+func parseLogTimestamp(line string) int64 {
+	if len(line) < 8 {
+		return 0
+	}
+	for _, layout := range logTimestampFormats {
+		if len(line) < len(layout) {
+			continue
+		}
+		candidate := line[:len(layout)]
+		if t, err := time.Parse(layout, candidate); err == nil {
+			// strongSwan's "Jan 2 15:04:05" has no year; assume current
+			// year. Past-cycle log lines from December read at New Year
+			// will be off by one day — acceptable for the merge view.
+			if t.Year() == 0 {
+				t = t.AddDate(time.Now().Year(), 0, 0)
+			}
+			return t.UnixNano()
+		}
+	}
+	return 0
+}
+
 // clearLogs truncates every Privycs-owned log file. External daemon
 // logs (e.g. /var/log/charon.log) are not touched — we don't own them.
+//
+// v1.0.5.28: routes failures through the privileged helper. The user-
+// app process can read the helper-spawned OpenVPN per-profile *.log
+// files (mode 0644) but cannot truncate them — they are owned by
+// root/SYSTEM. First we try the direct Truncate (works for App-owned
+// files like privycs-vpn.log); any file that fails with permission
+// denied is bundled and sent to the helper for root-side truncation.
+// Files that don't exist or are App-owned succeed without the helper
+// roundtrip.
 func clearLogs() error {
 	var firstErr error
+	var helperPaths []string
 	for _, src := range knownLogSources() {
 		if _, err := os.Stat(src.path); os.IsNotExist(err) {
 			continue
 		}
 		if err := os.Truncate(src.path, 0); err != nil {
+			if os.IsPermission(err) {
+				helperPaths = append(helperPaths, src.path)
+				continue
+			}
 			if firstErr == nil {
 				firstErr = fmt.Errorf("truncate %s: %w", src.path, err)
 			}
+		}
+	}
+	if len(helperPaths) > 0 {
+		client := NewHelperClient()
+		if !client.IsHelperReachable() {
+			return fmt.Errorf("helper unreachable — cannot clear %d helper-owned log file(s) (e.g. %s)",
+				len(helperPaths), helperPaths[0])
+		}
+		resp, err := client.SendCommand("clear_logs", map[string]string{
+			"paths": strings.Join(helperPaths, "\n"),
+		})
+		if err != nil {
+			return fmt.Errorf("helper clear_logs failed: %w", err)
+		}
+		if !resp.Success {
+			return fmt.Errorf("helper clear_logs: %s", resp.Error)
 		}
 	}
 	return firstErr
