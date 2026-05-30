@@ -441,7 +441,7 @@ async function handleQrScanned(raw: string) {
   const payload = parseQrPayload(raw)
   try {
     if (payload.kind === 'wireguard') {
-      await ImportConfig(payload.content, 'scanned', 'scanned.conf')
+      await ImportConfig('wireguard', payload.content, 'scanned.conf', 'scanned', '')
       await loadConnections()
     } else if (payload.kind === 'privycs') {
       if (payload.gatewayUrl && payload.apiKey) {

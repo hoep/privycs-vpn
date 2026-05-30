@@ -4,9 +4,13 @@ import {main} from '../models';
 
 export function ActivateConnection(arg1:string,arg2:string):Promise<void>;
 
+export function ActivateLicenseKey(arg1:string):Promise<main.EntitlementState>;
+
 export function ActivatePool(arg1:string):Promise<void>;
 
 export function ActivePoolID():Promise<string>;
+
+export function AddNetworkRule(arg1:main.NetworkRule):Promise<void>;
 
 export function BootstrapState():Promise<main.BootstrapStateInfo>;
 
@@ -20,7 +24,11 @@ export function CreatePoolFromPaths(arg1:string,arg2:string,arg3:Array<string>):
 
 export function CreatePoolFromUploads(arg1:string,arg2:string,arg3:Array<main.PoolUpload>):Promise<main.Pool>;
 
+export function DeactivateLicense():Promise<main.EntitlementState>;
+
 export function DeleteConnection(arg1:string):Promise<void>;
+
+export function DeleteNetworkRule(arg1:string):Promise<void>;
 
 export function DeletePool(arg1:string):Promise<void>;
 
@@ -36,6 +44,8 @@ export function ExportBackup(arg1:string,arg2:string):Promise<void>;
 
 export function FetchMyConfig(arg1:string,arg2:number):Promise<string>;
 
+export function FetchMyConfigWindowsRoutes(arg1:number):Promise<string>;
+
 export function FetchMyProfile():Promise<main.RemoteProfile>;
 
 export function GetActiveConfigContent():Promise<string>;
@@ -43,6 +53,12 @@ export function GetActiveConfigContent():Promise<string>;
 export function GetAvailableProtocols():Promise<Array<main.ProtocolInfo>>;
 
 export function GetConnectOnDemandStatus():Promise<Record<string, any>>;
+
+export function GetCurrentNetworkRulesEval():Promise<main.NetworkRulesEvalSnapshot>;
+
+export function GetDnsProviders():Promise<Array<main.DnsProvider>>;
+
+export function GetEntitlement():Promise<main.EntitlementState>;
 
 export function GetHelperStatus():Promise<main.HelperStatus>;
 
@@ -54,6 +70,8 @@ export function GetPoolDetail(arg1:string):Promise<main.PoolDetail>;
 
 export function GetSettings():Promise<main.AppSettings>;
 
+export function GetTunnelHealthState():Promise<string>;
+
 export function GetVersion():Promise<string>;
 
 export function ImportBackup(arg1:string,arg2:string):Promise<void>;
@@ -62,9 +80,15 @@ export function ImportConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg
 
 export function InstallPrivilegedHelper():Promise<void>;
 
+export function IsProUnlockedJS():Promise<boolean>;
+
 export function ListConnections():Promise<Array<main.SavedConnection>>;
 
+export function ListNetworkRules():Promise<Array<main.NetworkRule>>;
+
 export function ListPools():Promise<Array<main.PoolListItem>>;
+
+export function OpenStoreURL(arg1:string):Promise<void>;
 
 export function PauseFor(arg1:number):Promise<void>;
 
@@ -76,6 +100,8 @@ export function PickBackupSavePath():Promise<string>;
 
 export function PoolRotatorStatus():Promise<main.RotatorStatus>;
 
+export function ProGatingEnabledJS():Promise<boolean>;
+
 export function RemoveProtocolFromConnection(arg1:string,arg2:string):Promise<void>;
 
 export function RenameConnection(arg1:string,arg2:string):Promise<void>;
@@ -86,11 +112,17 @@ export function ResetPoolUnreachable(arg1:string):Promise<number>;
 
 export function SaveActiveConfigContent(arg1:string):Promise<void>;
 
+export function SelectConfig(arg1:string):Promise<void>;
+
 export function SelectProtocol(arg1:string):Promise<void>;
 
 export function SelfIPCountry():Promise<string>;
 
+export function SetConnectionDnsOverride(arg1:string,arg2:string):Promise<void>;
+
 export function SetKillSwitch(arg1:boolean):Promise<void>;
+
+export function SetNetworkRulesOrder(arg1:Array<string>):Promise<void>;
 
 export function SetProtocol(arg1:string):Promise<void>;
 
@@ -102,8 +134,14 @@ export function SwitchConnectionProtocol(arg1:string):Promise<void>;
 
 export function SwitchPoolMember(arg1:string):Promise<void>;
 
+export function TestDnsResolution(arg1:string):Promise<main.DnsTestResult>;
+
 export function UninstallPrivilegedHelper():Promise<void>;
+
+export function UpdateNetworkRule(arg1:main.NetworkRule):Promise<void>;
 
 export function UpdatePool(arg1:string,arg2:main.UpdatePoolRequest):Promise<main.Pool>;
 
 export function UpdateSettings(arg1:main.AppSettings):Promise<void>;
+
+export function ValidateDnsOverride(arg1:string):Promise<Array<string>>;

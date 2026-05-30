@@ -49,7 +49,7 @@
           class="hidden"
         />
         <p v-if="selectedFiles.length > 0" class="text-[10px] text-primary-400 mt-2">
-          {{ $t('add-pool.selected.count', selectedFiles.length, { n: selectedFiles.length }) }}
+          {{ $tc('add-pool.selected.count', selectedFiles.length, { n: selectedFiles.length }) }}
           <span class="text-gray-500"> ({{ formatBytes(totalSize) }})</span>
         </p>
       </div>

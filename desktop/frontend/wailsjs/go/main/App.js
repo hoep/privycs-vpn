@@ -6,12 +6,20 @@ export function ActivateConnection(arg1, arg2) {
   return window['go']['main']['App']['ActivateConnection'](arg1, arg2);
 }
 
+export function ActivateLicenseKey(arg1) {
+  return window['go']['main']['App']['ActivateLicenseKey'](arg1);
+}
+
 export function ActivatePool(arg1) {
   return window['go']['main']['App']['ActivatePool'](arg1);
 }
 
 export function ActivePoolID() {
   return window['go']['main']['App']['ActivePoolID']();
+}
+
+export function AddNetworkRule(arg1) {
+  return window['go']['main']['App']['AddNetworkRule'](arg1);
 }
 
 export function BootstrapState() {
@@ -38,8 +46,16 @@ export function CreatePoolFromUploads(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreatePoolFromUploads'](arg1, arg2, arg3);
 }
 
+export function DeactivateLicense() {
+  return window['go']['main']['App']['DeactivateLicense']();
+}
+
 export function DeleteConnection(arg1) {
   return window['go']['main']['App']['DeleteConnection'](arg1);
+}
+
+export function DeleteNetworkRule(arg1) {
+  return window['go']['main']['App']['DeleteNetworkRule'](arg1);
 }
 
 export function DeletePool(arg1) {
@@ -70,6 +86,10 @@ export function FetchMyConfig(arg1, arg2) {
   return window['go']['main']['App']['FetchMyConfig'](arg1, arg2);
 }
 
+export function FetchMyConfigWindowsRoutes(arg1) {
+  return window['go']['main']['App']['FetchMyConfigWindowsRoutes'](arg1);
+}
+
 export function FetchMyProfile() {
   return window['go']['main']['App']['FetchMyProfile']();
 }
@@ -84,6 +104,18 @@ export function GetAvailableProtocols() {
 
 export function GetConnectOnDemandStatus() {
   return window['go']['main']['App']['GetConnectOnDemandStatus']();
+}
+
+export function GetCurrentNetworkRulesEval() {
+  return window['go']['main']['App']['GetCurrentNetworkRulesEval']();
+}
+
+export function GetDnsProviders() {
+  return window['go']['main']['App']['GetDnsProviders']();
+}
+
+export function GetEntitlement() {
+  return window['go']['main']['App']['GetEntitlement']();
 }
 
 export function GetHelperStatus() {
@@ -106,6 +138,10 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetTunnelHealthState() {
+  return window['go']['main']['App']['GetTunnelHealthState']();
+}
+
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
@@ -122,12 +158,24 @@ export function InstallPrivilegedHelper() {
   return window['go']['main']['App']['InstallPrivilegedHelper']();
 }
 
+export function IsProUnlockedJS() {
+  return window['go']['main']['App']['IsProUnlockedJS']();
+}
+
 export function ListConnections() {
   return window['go']['main']['App']['ListConnections']();
 }
 
+export function ListNetworkRules() {
+  return window['go']['main']['App']['ListNetworkRules']();
+}
+
 export function ListPools() {
   return window['go']['main']['App']['ListPools']();
+}
+
+export function OpenStoreURL(arg1) {
+  return window['go']['main']['App']['OpenStoreURL'](arg1);
 }
 
 export function PauseFor(arg1) {
@@ -150,6 +198,10 @@ export function PoolRotatorStatus() {
   return window['go']['main']['App']['PoolRotatorStatus']();
 }
 
+export function ProGatingEnabledJS() {
+  return window['go']['main']['App']['ProGatingEnabledJS']();
+}
+
 export function RemoveProtocolFromConnection(arg1, arg2) {
   return window['go']['main']['App']['RemoveProtocolFromConnection'](arg1, arg2);
 }
@@ -170,6 +222,10 @@ export function SaveActiveConfigContent(arg1) {
   return window['go']['main']['App']['SaveActiveConfigContent'](arg1);
 }
 
+export function SelectConfig(arg1) {
+  return window['go']['main']['App']['SelectConfig'](arg1);
+}
+
 export function SelectProtocol(arg1) {
   return window['go']['main']['App']['SelectProtocol'](arg1);
 }
@@ -178,8 +234,16 @@ export function SelfIPCountry() {
   return window['go']['main']['App']['SelfIPCountry']();
 }
 
+export function SetConnectionDnsOverride(arg1, arg2) {
+  return window['go']['main']['App']['SetConnectionDnsOverride'](arg1, arg2);
+}
+
 export function SetKillSwitch(arg1) {
   return window['go']['main']['App']['SetKillSwitch'](arg1);
+}
+
+export function SetNetworkRulesOrder(arg1) {
+  return window['go']['main']['App']['SetNetworkRulesOrder'](arg1);
 }
 
 export function SetProtocol(arg1) {
@@ -202,8 +266,16 @@ export function SwitchPoolMember(arg1) {
   return window['go']['main']['App']['SwitchPoolMember'](arg1);
 }
 
+export function TestDnsResolution(arg1) {
+  return window['go']['main']['App']['TestDnsResolution'](arg1);
+}
+
 export function UninstallPrivilegedHelper() {
   return window['go']['main']['App']['UninstallPrivilegedHelper']();
+}
+
+export function UpdateNetworkRule(arg1) {
+  return window['go']['main']['App']['UpdateNetworkRule'](arg1);
 }
 
 export function UpdatePool(arg1, arg2) {
@@ -212,4 +284,8 @@ export function UpdatePool(arg1, arg2) {
 
 export function UpdateSettings(arg1) {
   return window['go']['main']['App']['UpdateSettings'](arg1);
+}
+
+export function ValidateDnsOverride(arg1) {
+  return window['go']['main']['App']['ValidateDnsOverride'](arg1);
 }

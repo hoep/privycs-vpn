@@ -13,8 +13,15 @@
       </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="flex-1 overflow-y-auto">
+    <!-- Main Content. v1.0.5.29: overflow-x-hidden suppresses the
+         horizontal scrollbar macOS draws when a Vue overlay (most
+         common offender: the multi-config protocol-picker dropdown
+         under the right-most pill on the Connect screen) overflows
+         the viewport's right edge. Mobile-style portrait window —
+         no view of this app legitimately needs horizontal scroll;
+         keeping it disabled here is defence-in-depth against future
+         offending overlays. -->
+    <main class="flex-1 overflow-y-auto overflow-x-hidden">
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
           <component :is="Component" />

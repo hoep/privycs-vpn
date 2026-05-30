@@ -300,6 +300,7 @@
             class="relative"
           >
             <button
+              :ref="(el) => setPillRef(group.protocol, el as HTMLElement | null)"
               @click.stop="onPillClick(group)"
               :disabled="vpn.loading"
               class="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
@@ -328,7 +329,10 @@
             <div
               v-if="openPickerProtocol === group.protocol && group.configs.length > 1"
               @click.stop
-              class="absolute left-0 mt-1 w-64 card p-1 shadow-lg z-20"
+              class="absolute mt-1 w-64 card p-1 shadow-lg z-20"
+              :class="pickerAlignRight[group.protocol]
+                ? 'right-0 left-auto'
+                : 'left-0 right-auto'"
             >
               <button
                 v-for="cfg in group.configs"
@@ -1303,6 +1307,38 @@ const protocolGroups = computed<ProtocolGroup[]>(() => {
 // helper the connection picker uses).
 const openPickerProtocol = ref<string | null>(null)
 
+// v1.0.5.29 picker viewport-edge fix. The 256 px-wide dropdown is
+// `absolute`-positioned and defaults to `left-0` (anchored at the
+// left edge of its pill). For pills sitting in the right half of
+// the row this overflowed the viewport right edge and macOS drew
+// a horizontal scrollbar across the bottom of the window — the
+// "lighter bar above the bottom menu" the user reported, observed
+// exclusively for the right-most pill on the Connect screen
+// (typically OpenVPN, since it sits at index 2 in the
+// AmneziaWG / WireGuard / OpenVPN / IPSec ordering and `IPSec`
+// wraps to a new row).
+//
+// pillRefs holds the live <button> element per protocol. On click
+// we measure the pill's rect against window.innerWidth, decide
+// which side has room for the 256 px dropdown, and store the
+// per-protocol alignment in `pickerAlignRight` so the template's
+// :class binding flips the dropdown to `right-0 left-auto` when
+// needed. Defence-in-depth: `<main>` in App.vue is also
+// `overflow-x-hidden` so any future overlay that overflows the
+// viewport can no longer trigger a scrollbar either.
+const PICKER_DROPDOWN_WIDTH = 256 // matches Tailwind w-64
+const PICKER_VIEWPORT_GUTTER = 12 // breathing room from window edge
+const pillRefs = ref<Record<string, HTMLElement | null>>({})
+const pickerAlignRight = ref<Record<string, boolean>>({})
+
+function setPillRef(protocol: string, el: HTMLElement | null): void {
+  if (el) {
+    pillRefs.value[protocol] = el
+  } else {
+    delete pillRefs.value[protocol]
+  }
+}
+
 function isGroupActive(group: ProtocolGroup): boolean {
   const active = vpn.status?.connection_active_config_id || ''
   return group.configs.some(c => c.id === active)
@@ -1314,6 +1350,15 @@ function onPillClick(group: ProtocolGroup): void {
     openPickerProtocol.value = null
     switchConfig(group.configs[0].id)
     return
+  }
+  // v1.0.5.29: decide dropdown alignment from the pill's current
+  // viewport position. Anchor to the right when the left-anchored
+  // dropdown would overflow the viewport's right edge.
+  const pillEl = pillRefs.value[group.protocol]
+  if (pillEl) {
+    const rect = pillEl.getBoundingClientRect()
+    const overflowsRight = rect.left + PICKER_DROPDOWN_WIDTH + PICKER_VIEWPORT_GUTTER > window.innerWidth
+    pickerAlignRight.value[group.protocol] = overflowsRight
   }
   // Multi-config: toggle the picker dropdown.
   openPickerProtocol.value = openPickerProtocol.value === group.protocol ? null : group.protocol

@@ -26,7 +26,7 @@
           <TrashIcon class="w-3.5 h-3.5" />
           {{ $t('logs.button.clear') }}
         </button>
-        <button @click="loadLogs" :disabled="loadingLogs" class="text-xs text-primary-400 hover:text-primary-300 disabled:opacity-50">
+        <button @click="() => loadLogs()" :disabled="loadingLogs" class="text-xs text-primary-400 hover:text-primary-300 disabled:opacity-50">
           <ArrowPathIcon class="w-3.5 h-3.5" :class="loadingLogs ? 'animate-spin' : ''" />
         </button>
       </div>

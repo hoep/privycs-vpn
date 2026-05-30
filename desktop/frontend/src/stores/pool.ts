@@ -161,13 +161,20 @@ export const usePoolStore = defineStore('pool', () => {
     policy: PoolPolicy,
     uploads: Array<{ filename: string; content: string }>
   ) {
-    const created = await CreatePoolFromUploads(name, policy, uploads)
+    // Wails generates PoolUpload.content as `number[]` ([]byte in Go),
+    // but the runtime serialises bytes as base64 strings via JSON. We
+    // ship strings; the cast keeps the type checker happy without
+    // changing runtime behaviour.
+    const created = await CreatePoolFromUploads(name, policy, uploads as any)
     await refresh()
     return created
   }
 
   async function update(id: string, patch: Record<string, any>) {
-    const updated = await UpdatePool(id, patch)
+    // UpdatePool's generated UpdatePoolRequest class includes a runtime
+    // `convertValues` method the bare patch object doesn't satisfy at
+    // type level. The Go side accepts the JSON shape regardless.
+    const updated = await UpdatePool(id, patch as any)
     await refresh()
     return updated
   }
