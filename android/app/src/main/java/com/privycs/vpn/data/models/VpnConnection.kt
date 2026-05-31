@@ -308,6 +308,13 @@ data class AppSettings(
     // field semantics one-to-one.
     @SerialName("network_rules_enabled")
     val networkRulesEnabled: Boolean = true,
+    // v1.0.7 — anonymous crash-report opt-in. Default OFF. Bound to
+    // the Settings → "Anonymous diagnostics" toggle. CrashReporter
+    // re-inits / nullifies the Sentry hub on every flip so the
+    // toggle wirkt sofort, retroaktiv discards queued events on
+    // opt-out. Persisted via SettingsRepository.
+    @SerialName("crash_reports_enabled")
+    val crashReportsEnabled: Boolean = false,
     // First-launch tracking. Set to true by MainActivity after the
     // post-install location-permission rationale has been shown
     // exactly once. Defaults to false so an upgrade-from-old-version

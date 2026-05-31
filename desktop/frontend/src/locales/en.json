@@ -83,7 +83,9 @@
     },
     "diagnostics": {
       "section-title": "Diagnostics",
-      "view-logs": "View Logs"
+      "view-logs": "View Logs",
+      "crash-reports": "Anonymous crash reports",
+      "crash-reports-desc": "Help improve Privycs by sending anonymous crash reports. SSIDs, API keys, IPs and file paths are redacted on-device before upload to our self-hosted backend."
     },
     "backup": {
       "section-title": "Backup & Restore",

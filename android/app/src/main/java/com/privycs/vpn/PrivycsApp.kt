@@ -21,7 +21,9 @@ import de.blinkt.openvpn.core.ConfigParser
 import de.blinkt.openvpn.core.PrivycsStatusListenerBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.strongswan.android.logic.StrongSwanApplication
 import java.io.StringReader
@@ -168,6 +170,32 @@ class PrivycsApp : StrongSwanApplication() {
         instance = this
         connectionRepository = ConnectionRepository(this)
         settingsRepository = SettingsRepository(this)
+
+        // v1.0.7 — anonymous crash reporting. Default OFF. Reads the
+        // persisted opt-in flag synchronously (DataStore Flow first()
+        // call from settingsRepository.getSettingsBlocking() block-
+        // returns within ~ms because we're on the main process which
+        // already has the file open). After the initial init we
+        // observe settingsFlow + re-init on every toggle flip so
+        // opt-in/opt-out wirkt sofort without an app restart.
+        try {
+            val initial = kotlinx.coroutines.runBlocking {
+                settingsRepository.settingsFlow.first()
+            }
+            com.privycs.vpn.util.CrashReporter.init(this, initial.crashReportsEnabled)
+        } catch (t: Throwable) {
+            // Settings flow read failure is non-fatal — crash
+            // reporting just stays off. Logged for triage.
+            Log.w("PrivycsApp", "CrashReporter initial-read failed: ${t.message}")
+        }
+        // Watch for toggle flips. Uses a dedicated coroutine on
+        // IO dispatcher so the app's main scope isn't pinned.
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            settingsRepository.settingsFlow.collect { s ->
+                com.privycs.vpn.util.CrashReporter.init(this@PrivycsApp, s.crashReportsEnabled)
+            }
+        }
+
         networkRulesRepository = com.privycs.vpn.data.NetworkRulesRepository(this)
         poolStateRepository = PoolStateRepository(this)
         poolRepository = PoolRepository(this, poolStateRepository)

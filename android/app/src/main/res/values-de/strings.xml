@@ -625,4 +625,6 @@
     <string name="netrules_master_title">Auto-Tunnel-Regel-Engine</string>
     <string name="netrules_master_subtitle_on">Die Regeln unten entscheiden, wann das VPN automatisch verbindet. Ausschalten, um jegliches Auto-Tunnel-Verhalten zu deaktivieren.</string>
     <string name="netrules_master_subtitle_off">Auto-Tunnel ist aus. Verbinde und trenne manuell über den Connect-Screen, oder schalte hier ein, um die Regeln unten laufen zu lassen.</string>
+    <string name="settings_crash_reports_label">Anonyme Absturzberichte</string>
+    <string name="settings_crash_reports_desc">Hilf Privycs zu verbessern durch anonyme Absturzberichte. SSIDs, API-Keys, IPs und Datei-Pfade werden vor dem Upload zu unserem self-hosted Backend on-device redaktiert.</string>
 </resources>

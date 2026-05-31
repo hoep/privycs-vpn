@@ -625,4 +625,6 @@
     <string name="netrules_master_title">Motor de reglas de auto-conexión</string>
     <string name="netrules_master_subtitle_on">Las reglas siguientes deciden cuándo la VPN se conecta automáticamente. Desactiva para deshabilitar todo comportamiento de auto-conexión.</string>
     <string name="netrules_master_subtitle_off">Auto-conexión desactivada. Conecta y desconecta manualmente desde la pantalla Conectar, o activa esto para que se ejecuten las reglas.</string>
+    <string name="settings_crash_reports_label">Informes de fallo anónimos</string>
+    <string name="settings_crash_reports_desc">Ayuda a mejorar Privycs enviando informes anónimos de fallo. SSIDs, claves API, IPs y rutas de archivos se redactan en el dispositivo antes de subirlos a nuestro backend propio.</string>
 </resources>

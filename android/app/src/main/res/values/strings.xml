@@ -637,4 +637,6 @@
     <string name="netrules_master_title">Auto-tunnel rules engine</string>
     <string name="netrules_master_subtitle_on">Rules below decide when the VPN connects automatically. Turn off to disable all auto-tunnel behaviour.</string>
     <string name="netrules_master_subtitle_off">Auto-tunnel is off. Connect and disconnect manually from the Connect screen, or turn this on to let rules below run.</string>
+    <string name="settings_crash_reports_label">Anonymous crash reports</string>
+    <string name="settings_crash_reports_desc">Help improve Privycs by sending anonymous crash reports. SSIDs, API keys, IPs and file paths are redacted on-device before upload to our self-hosted backend.</string>
 </resources>

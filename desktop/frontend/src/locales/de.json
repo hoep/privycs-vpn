@@ -83,7 +83,9 @@
     },
     "diagnostics": {
       "section-title": "Diagnose",
-      "view-logs": "Protokolle anzeigen"
+      "view-logs": "Protokolle anzeigen",
+      "crash-reports": "Anonyme Absturzberichte",
+      "crash-reports-desc": "Hilf Privycs zu verbessern durch anonyme Absturzberichte. SSIDs, API-Keys, IPs und Datei-Pfade werden vor dem Upload zu unserem self-hosted Backend on-device redaktiert."
     },
     "backup": {
       "section-title": "Sichern & Wiederherstellen",

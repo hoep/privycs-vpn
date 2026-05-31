@@ -173,6 +173,16 @@ android {
 }
 
 dependencies {
+    // v1.0.7 — anonymous crash reporting via self-hosted Bugsink at
+    // crashes.privycs.com (Sentry-protocol compatible). Default OFF;
+    // opt-in via Settings → "Anonymous diagnostics" toggle.
+    // sentry-android pulls in NDK crash capture too which covers the
+    // native libs (libcharon, libopenvpn3, wireguard-android). All
+    // outgoing events go through the beforeSend hook in
+    // util/CrashReporter.kt that strips SSIDs, API keys, public IPs
+    // and user-path segments.
+    implementation("io.sentry:sentry-android:7.14.0")
+
     // Compose BOM
     // 2024.02.00 (Compose UI 1.6.0) had a Samsung-specific crash in
     // AndroidComposeView.sendHoverExitEvent ("The ACTION_HOVER_EXIT

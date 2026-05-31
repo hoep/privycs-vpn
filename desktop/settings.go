@@ -95,6 +95,19 @@ type AppSettings struct {
 	// state is detected via the PVCE magic header (see
 	// encrypted_file.go). UI surfaces this for the privacy banner.
 	EncryptedAtRest bool `json:"encrypted_at_rest,omitempty"`
+	// v1.0.7 — anonymous crash-report opt-in. When true the app
+	// initialises the Sentry SDK with the self-hosted Bugsink DSN
+	// and submits panics, uncaught Vue exceptions, and Go errors
+	// via beforeSend-stripped events. Default OFF; user opts in
+	// via Settings → "Help improve Privycs" toggle. See
+	// crash_reporter.go for the redaction pipeline.
+	CrashReportsEnabled bool `json:"crash_reports_enabled,omitempty"`
+	// v1.0.7 — anonymous per-install UUID used as Sentry user.id
+	// when crash reports are enabled. Regenerated on uninstall +
+	// reinstall (settings.json removed); never linked to API key,
+	// license key, or account email. Stable across app restarts
+	// so duplicate crash reports from the same install dedupe.
+	InstallUUID string `json:"install_uuid,omitempty"`
 }
 
 // ReconnectOnSystemWakeEnabled is the canonical accessor — falls back

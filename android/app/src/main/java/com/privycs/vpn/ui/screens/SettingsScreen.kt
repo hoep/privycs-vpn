@@ -1125,6 +1125,39 @@ fun SettingsScreen(
                 ) {
                     Text(stringResource(R.string.settings_notification_settings_button))
                 }
+                // v1.0.7: anonymous crash-report opt-in toggle. Off by
+                // default. Posts to self-hosted Bugsink at
+                // crashes.privycs.com (DSN in util/CrashReporter.kt).
+                // Toggle wirkt sofort — flip-off swaps the Sentry hub
+                // for a NoOp instance and any queued events are
+                // dropped before any next send attempt.
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = stringResource(R.string.settings_crash_reports_label),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_crash_reports_desc),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = settings.crashReportsEnabled,
+                        onCheckedChange = { v ->
+                            persistScope.launch {
+                                settingsRepo.updateSettings(settings.copy(crashReportsEnabled = v))
+                            }
+                        },
+                    )
+                }
             }
 
             // -- Appearance --

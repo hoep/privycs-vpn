@@ -60,6 +60,11 @@ class SettingsRepository(private val context: Context) {
         // v1.0.5: master on/off for the NetworkRules engine. Matches
         // Desktop's `network_rules_enabled` field. Defaults true.
         val NETWORK_RULES_ENABLED = booleanPreferencesKey("network_rules_enabled")
+        // v1.0.7: anonymous crash-report opt-in. Default false.
+        // Matches Desktop's `crash_reports_enabled`. Bound to the
+        // Settings → "Anonymous diagnostics" toggle. CrashReporter
+        // observes settingsFlow + (re)inits on every transition.
+        val CRASH_REPORTS_ENABLED = booleanPreferencesKey("crash_reports_enabled")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -93,6 +98,7 @@ class SettingsRepository(private val context: Context) {
             tunnelHealthTarget = prefs[Keys.TUNNEL_HEALTH_TARGET] ?: "",
             keepMonitorAlive = prefs[Keys.KEEP_MONITOR_ALIVE] ?: false,
             networkRulesEnabled = prefs[Keys.NETWORK_RULES_ENABLED] ?: true,
+            crashReportsEnabled = prefs[Keys.CRASH_REPORTS_ENABLED] ?: false,
             protocolFailoverOrder = (prefs[Keys.PROTOCOL_FAILOVER_ORDER] ?: "")
                 .split(",")
                 .mapNotNull { VpnProtocol.fromString(it.trim()) }
@@ -188,6 +194,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.PROTOCOL_FAILOVER_ORDER] =
                 settings.protocolFailoverOrder.joinToString(",") { it.name.lowercase() }
             prefs[Keys.NETWORK_RULES_ENABLED] = settings.networkRulesEnabled
+            prefs[Keys.CRASH_REPORTS_ENABLED] = settings.crashReportsEnabled
         }
     }
 

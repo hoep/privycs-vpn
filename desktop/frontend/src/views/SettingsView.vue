@@ -354,6 +354,26 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
           class="btn-secondary block w-full py-2 text-center text-xs">
           {{ $t('settings.diagnostics.view-logs') }}
         </router-link>
+        <!-- v1.0.7: anonymous crash-report opt-in. Default OFF.
+             Posts to self-hosted Bugsink (crashes.privycs.com) only
+             after redaction (see crashReporter.ts). Toggle wirkt
+             sofort — flip-off discards any queued events. -->
+        <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700/50">
+          <div class="flex items-center justify-between">
+            <div class="flex-1 pr-3">
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.diagnostics.crash-reports') }}</span>
+              <p class="text-[10px] text-gray-500">{{ $t('settings.diagnostics.crash-reports-desc') }}</p>
+            </div>
+            <Switch
+              :model-value="!!settings.crash_reports_enabled"
+              @update:model-value="(v: boolean) => { settings.crash_reports_enabled = v; saveSettings() }"
+              :class="settings.crash_reports_enabled ? 'toggle-enabled' : 'toggle-disabled'"
+              class="toggle"
+            >
+              <span class="toggle-knob" :class="settings.crash_reports_enabled ? 'translate-x-5' : 'translate-x-0'" />
+            </Switch>
+          </div>
+        </div>
       </div>
 
       <!-- Backup & Restore -->
@@ -723,6 +743,12 @@ const settings = ref<any>({
   // settings.go *bool fallback). Toggle UI explicitly sets true/false.
   reconnect_on_system_wake: null,
   prevent_display_sleep: false,
+  // v1.0.7: crash-report opt-in. Default OFF. install_uuid is
+  // round-tripped read-only (the Go side manages persistence;
+  // we only need to pass it back via UpdateSettings unchanged
+  // so the field isn't accidentally cleared).
+  crash_reports_enabled: false,
+  install_uuid: '',
 })
 
 // Platform features — controls which settings toggles are available

@@ -83,7 +83,9 @@
     },
     "diagnostics": {
       "section-title": "Diagnostics",
-      "view-logs": "Voir les journaux"
+      "view-logs": "Voir les journaux",
+      "crash-reports": "Rapports de plantage anonymes",
+      "crash-reports-desc": "Aidez à améliorer Privycs en envoyant des rapports de plantage anonymes. SSID, clés API, IPs et chemins de fichiers sont caviardés sur l'appareil avant l'envoi à notre backend auto-hébergé."
     },
     "backup": {
       "section-title": "Sauvegarde et restauration",

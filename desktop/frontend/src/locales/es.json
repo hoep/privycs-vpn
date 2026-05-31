@@ -83,7 +83,9 @@
     },
     "diagnostics": {
       "section-title": "Diagnóstico",
-      "view-logs": "Ver registros"
+      "view-logs": "Ver registros",
+      "crash-reports": "Informes de fallo anónimos",
+      "crash-reports-desc": "Ayuda a mejorar Privycs enviando informes anónimos de fallo. SSIDs, claves API, IPs y rutas de archivos se redactan en el dispositivo antes de subirlos a nuestro backend propio."
     },
     "backup": {
       "section-title": "Copia de seguridad y restauración",

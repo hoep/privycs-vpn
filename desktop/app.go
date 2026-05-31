@@ -199,6 +199,32 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// v1.0.7 — anonymous crash reporting init. Ensures the install
+	// UUID exists in settings.json (generates on first run, persists
+	// thereafter), then initialises the Sentry SDK only if the user
+	// has opted in via CrashReportsEnabled. Default OFF.
+	//
+	// Anything that happens BEFORE this init (e.g. a panic in
+	// NewApp() during a poolStates load) is not caught — by design.
+	// We don't want to ship a crash reporter that runs before
+	// settings can confirm the user opted in.
+	a.mu.Lock()
+	if a.settings != nil {
+		prevUUID := a.settings.InstallUUID
+		EnsureInstallUUID(a.settings)
+		if a.settings.InstallUUID != prevUUID {
+			// Persist the newly-generated UUID on first run.
+			SaveSettings(a.settings)
+		}
+	}
+	var settingsCopy AppSettings
+	if a.settings != nil {
+		settingsCopy = *a.settings
+	}
+	a.mu.Unlock()
+	InitCrashReporter(settingsCopy)
+	ReportGoBuildInfo()
+
 	// Wire tunnel-health state events to the Vue frontend so the
 	// ConnectionView traffic-light pill updates live without
 	// polling. Vue listens via wailsRuntime.EventsOn.
@@ -556,6 +582,12 @@ func (a *App) startup(ctx context.Context) {
 // shutdown is called when the application is closing
 func (a *App) shutdown(ctx context.Context) {
 	log.Println("Privycs VPN shutting down...")
+
+	// v1.0.7 — flush any queued crash events before the process
+	// dies. 2s timeout (set inside FlushCrashReporter) is enough
+	// for a few KB of JSON payload to crashes.privycs.com on any
+	// non-saturated link. Safe no-op when crash reporting is off.
+	FlushCrashReporter()
 
 	// Stop stats emitter (safe to call multiple times)
 	select {
@@ -2463,12 +2495,34 @@ func (a *App) UpdateSettings(settings *AppSettings) error {
 	prevKS := a.settings != nil && a.settings.KillSwitchEnabled
 	prevCOD := a.settings != nil && a.settings.ConnectOnDemand.Enabled
 	wasConnected := a.connected
+	// v1.0.7 — pick up CrashReportsEnabled transitions. We re-init
+	// the Sentry SDK on every flip so an opt-in immediately starts
+	// capturing, and an opt-out immediately stops + discards any
+	// queued events.
+	prevCrash := a.settings != nil && a.settings.CrashReportsEnabled
 
 	a.settings = settings
+	// Preserve the install UUID across UpdateSettings calls — the
+	// frontend doesn't know it exists and would overwrite to ""
+	// on every save. UpdateSettings is the only place we override
+	// the persisted UUID; SaveSettings (called from elsewhere)
+	// always writes the in-memory struct.
+	if settings != nil && settings.InstallUUID == "" {
+		settings.InstallUUID = EnsureInstallUUID(settings)
+	}
 	SaveSettings(settings)
 
 	appCtx := a.ctx
 	a.mu.Unlock()
+
+	// v1.0.7 — apply CrashReportsEnabled transition. InitCrashReporter
+	// is idempotent on no-change so it's safe to always call. The
+	// off→on path produces an immediate Sentry connection (debug log
+	// only, no test event); on→off swaps in a disabled transport so
+	// any in-flight events are discarded.
+	if prevCrash != settings.CrashReportsEnabled {
+		InitCrashReporter(*settings)
+	}
 
 	// Connect-on-Demand transitions:
 	//
