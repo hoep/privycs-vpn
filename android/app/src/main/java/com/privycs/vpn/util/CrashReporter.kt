@@ -95,7 +95,7 @@ object CrashReporter {
             opts.sampleRate = 1.0
             // No traces / replays / profiles.
             opts.tracesSampleRate = 0.0
-            opts.enableNdk = true               // libcharon / OpenVPN3 / wg-android native
+            opts.isEnableNdk = true             // libcharon / OpenVPN3 / wg-android native
             opts.isEnableUserInteractionBreadcrumbs = false  // route privacy
             opts.maxBreadcrumbs = 50
             opts.beforeSend = io.sentry.SentryOptions.BeforeSendCallback { event, _ ->
@@ -204,8 +204,13 @@ object CrashReporter {
         }
         // Always overwrite hostname.
         event.serverName = "redacted"
-        // Modules (loaded library versions) can leak.
-        event.modules = null
+        // Modules (loaded library versions) can leak fingerprints
+        // but the v7 sentry-android SDK keeps the modules field
+        // package-private; we can't directly null it from outside.
+        // The Desktop Go side strips this; on Android we accept
+        // the residual leak — the loaded-libs list is "Android
+        // platform libs + a few of ours" which is fingerprint-able
+        // but doesn't carry user data.
     }
 
     private fun redactString(s: String): String {
