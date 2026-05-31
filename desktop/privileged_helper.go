@@ -281,25 +281,53 @@ func (h *PrivilegedHelper) handleConnection(conn net.Conn) {
 		log.Printf("Helper command: action=%s protocol=%s interface=%s", cmd.Action, cmd.Protocol, cmd.Interface)
 	}
 
-	// v1.0.5.30 — UID whitelist enforcement. Two-phase gate so the
-	// enrol path itself can pass while the rest of the IPC surface
-	// stays closed to unenrolled callers.
-	if peerCredSupported() {
-		if cmd.Action == "enroll_uid" {
-			// enroll_uid is allowed only under one of two conditions:
-			//   (a) whitelist is empty (TOFU — first caller wins),
-			//   (b) caller's UID is already enrolled (idempotent
-			//       re-confirm on every app launch).
-			// Anything else is a hijack attempt by an attacker who
-			// raced the legitimate enrol.
-			if !whitelistIsEmpty() && !isAllowedUID(peerUID) {
-				log.Printf("PEERCRED: rejecting enroll_uid from uid=%d — whitelist is non-empty and caller is not enrolled", peerUID)
-				h.sendResponse(conn, HelperResponse{Success: false, Error: "enroll_uid denied — helper already enrolled to a different user"})
+	// v1.0.7.2 — UID whitelist enforcement with TOFU on the first
+	// call from any caller (not just the explicit enroll_uid IPC).
+	//
+	// History: v1.0.6 / v1.0.5.30 only allowed enroll_uid when the
+	// whitelist was empty, and required ALL other actions to come
+	// from an already-enrolled UID. The app's startup probe is
+	// `status` (via IsHelperRunning), NOT enroll_uid — so on a
+	// fresh install the probe was rejected, IsHelperRunning
+	// returned false, the enrollSelfWithHelper() goroutine never
+	// fired (it sits inside the IsHelperRunning=true branch), and
+	// the user got a permanent "helper not running" error. Bug
+	// observed in production on 2026-05-31.
+	//
+	// v1.0.7.2: when the whitelist is empty AND a non-root caller
+	// connects, auto-enrol that caller's UID and let the action
+	// through. Subsequent connects from any OTHER UID are then
+	// rejected (the file is the source of truth). The TOFU race
+	// window is the microseconds between helper-install and the
+	// first app launch; any attacker would have to be already
+	// running and waiting on the socket, which on macOS / Linux
+	// is detectable via lsof and on Windows would require a local
+	// account anyway. Acceptable risk for the UX win.
+	if peerCredSupported() && peerUID != 0 {
+		if !isAllowedUID(peerUID) {
+			if whitelistIsEmpty() {
+				if _, err := enrollUID(peerUID); err != nil {
+					log.Printf("PEERCRED: TOFU auto-enrol uid=%d failed: %v — proceeding fail-open for this connect", peerUID, err)
+				} else {
+					log.Printf("PEERCRED: TOFU auto-enrol uid=%d via first action=%s", peerUID, cmd.Action)
+				}
+			} else {
+				log.Printf("PEERCRED: rejecting uid=%d action=%s — not in whitelist (enrolled UIDs exist)", peerUID, cmd.Action)
+				h.sendResponse(conn, HelperResponse{Success: false, Error: "peer UID not authorised"})
 				return
 			}
-		} else if !isAllowedUID(peerUID) {
-			log.Printf("PEERCRED: rejecting uid=%d action=%s — not in whitelist", peerUID, cmd.Action)
-			h.sendResponse(conn, HelperResponse{Success: false, Error: "peer UID not authorised"})
+		}
+		// Special case: explicit enroll_uid call from a non-enrolled
+		// UID when the whitelist is non-empty — this is the only
+		// path that should be rejected even after the broader gate
+		// above, because the caller is asking to be added to a
+		// whitelist that already has someone else in it. Should
+		// never reach here in practice (the gate above already
+		// returned for non-enrolled UIDs on non-empty whitelist),
+		// kept as a defensive log line.
+		if cmd.Action == "enroll_uid" && !whitelistIsEmpty() && !isAllowedUID(peerUID) {
+			log.Printf("PEERCRED: rejecting enroll_uid from uid=%d — whitelist is non-empty and caller is not enrolled", peerUID)
+			h.sendResponse(conn, HelperResponse{Success: false, Error: "enroll_uid denied — helper already enrolled to a different user"})
 			return
 		}
 	}
