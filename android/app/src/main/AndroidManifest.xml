@@ -68,6 +68,23 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="false">
 
+        <!-- v1.0.7.4 — disable Sentry auto-init.
+             sentry-android merges a ContentProvider
+             (io.sentry.android.core.SentryInitProvider) into the
+             manifest that runs BEFORE Application.onCreate. We
+             initialise Sentry ourselves in CrashReporter.kt only
+             after the user opts in; the auto-init provider can
+             crash the process during start-up if any of its
+             transitive deps misbehave (observed 2026-05-31 with
+             v1.0.7.2 — "app crashed sofort bei start" even though
+             our CrashReporter.init was gated on opt-in).
+             Both meta-data flags below tell sentry-android to skip
+             its auto-init AND its NDK auto-init. Manual init via
+             SentryAndroid.init() in util/CrashReporter.kt is still
+             fully honoured when the toggle is on. -->
+        <meta-data android:name="io.sentry.auto-init" android:value="false" />
+        <meta-data android:name="io.sentry.ndk.enable" android:value="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
