@@ -171,28 +171,36 @@ class PrivycsApp : StrongSwanApplication() {
         connectionRepository = ConnectionRepository(this)
         settingsRepository = SettingsRepository(this)
 
-        // v1.0.7 — anonymous crash reporting. Default OFF. Reads the
-        // persisted opt-in flag synchronously (DataStore Flow first()
-        // call from settingsRepository.getSettingsBlocking() block-
-        // returns within ~ms because we're on the main process which
-        // already has the file open). After the initial init we
-        // observe settingsFlow + re-init on every toggle flip so
-        // opt-in/opt-out wirkt sofort without an app restart.
-        try {
-            val initial = kotlinx.coroutines.runBlocking {
-                settingsRepository.settingsFlow.first()
-            }
-            com.privycs.vpn.util.CrashReporter.init(this, initial.crashReportsEnabled)
-        } catch (t: Throwable) {
-            // Settings flow read failure is non-fatal — crash
-            // reporting just stays off. Logged for triage.
-            Log.w("PrivycsApp", "CrashReporter initial-read failed: ${t.message}")
-        }
-        // Watch for toggle flips. Uses a dedicated coroutine on
-        // IO dispatcher so the app's main scope isn't pinned.
+        // v1.0.7.3 — anonymous crash reporting. Default OFF. NO
+        // runBlocking on the main thread: just observe the
+        // settings flow on Dispatchers.IO and (re-)init the
+        // Sentry SDK on every emission. The first emission lands
+        // within milliseconds of DataStore opening the file, so
+        // crash reporting comes online well before the user can
+        // trigger any UI. Until then the redaction-pipeline +
+        // captureException paths are fast no-ops.
+        //
+        // Why this is safer than the runBlocking I shipped in
+        // v1.0.7-1.0.7.2: a corrupt DataStore (rare but seen on
+        // upgrade across major Android versions) made the first()
+        // call hang forever on the main thread, ANR'd the app at
+        // startup, and the user reported "crashed sofort bei
+        // start" 2026-05-31. With the IO-observer approach the
+        // worst case is "crash reporting never inits" instead of
+        // "app never starts".
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            settingsRepository.settingsFlow.collect { s ->
-                com.privycs.vpn.util.CrashReporter.init(this@PrivycsApp, s.crashReportsEnabled)
+            try {
+                settingsRepository.settingsFlow.collect { s ->
+                    try {
+                        com.privycs.vpn.util.CrashReporter.init(this@PrivycsApp, s.crashReportsEnabled)
+                    } catch (t: Throwable) {
+                        // Sentry init failure must NEVER take the app
+                        // down. Logged for triage, then we move on.
+                        Log.w("PrivycsApp", "CrashReporter init failed: ${t.message}")
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.w("PrivycsApp", "Settings observer for CrashReporter failed: ${t.message}")
             }
         }
 
