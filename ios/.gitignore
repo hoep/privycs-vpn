@@ -1,0 +1,66 @@
+# Xcode user-specific
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+DerivedData/
+*.moved-aside
+
+# Build artefacts
+build/
+.build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+Packages/
+Package.resolved
+.swiftpm/
+
+# CocoaPods (not used — SPM only)
+Pods/
+
+# Carthage (not used)
+Carthage/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# macOS finder
+.DS_Store
+
+# Secrets — must never commit
+*.p8
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.entitlements.bak
+SigningSecrets/
+PrivateKeys/
+.env
+.env.local
+
+# Local Xcode project user data
+project.xcworkspace/xcuserdata/
+*.xcworkspacedata.user
+
+# Code-coverage
+*.gcno
+*.gcda
+coverage.profdata
+
+# Vendored binary frameworks (built from source — see Scripts/)
+ThirdParty/AmneziaWG/*.xcframework
+ThirdParty/AmneziaWG/build/
+
+# IDE noise
+.idea/
+.vscode/
+
+# Crash dumps (local debug only)
+*.crash
+*.ips
