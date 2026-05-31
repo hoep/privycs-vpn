@@ -82,6 +82,11 @@ var allowedActions = map[string]bool{
 	// stays root/SYSTEM — Truncate needs WRITE permission, not just
 	// read. The helper does Truncate as root and reports success.
 	"clear_logs": true,
+	// v1.0.5.30: enrol the calling user's UID into the helper's
+	// peer-cred whitelist. App calls this once on first connect
+	// after install/upgrade. TOFU-protected: only honoured when the
+	// whitelist is empty OR the caller is already enrolled.
+	"enroll_uid": true,
 }
 
 // safePathPattern validates file paths to prevent directory traversal and injection.
@@ -243,6 +248,24 @@ func (h *PrivilegedHelper) handleConnection(conn net.Conn) {
 	// Set read deadline to prevent hung connections
 	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 
+	// v1.0.5.30 — peer-UID enforcement. Closes the local-RCE-as-root
+	// attack the 2026-05-21 audit flagged: prior to this gate, any
+	// unprivileged user could connect to the 0666 AF_UNIX socket
+	// and invoke any whitelisted action. Linux / macOS get
+	// SO_PEERCRED / LOCAL_PEERCRED; Windows AF_UNIX has no
+	// equivalent and falls back to the icacls Authenticated-Users
+	// ACL until the v1.0.6 named-pipe transition.
+	var peerUID uint32
+	if peerCredSupported() {
+		uid, err := getPeerUID(conn)
+		if err != nil {
+			log.Printf("PEERCRED: rejecting connection — getPeerUID failed: %v", err)
+			h.sendResponse(conn, HelperResponse{Success: false, Error: "peer credentials unavailable"})
+			return
+		}
+		peerUID = uid
+	}
+
 	decoder := json.NewDecoder(conn)
 	var cmd HelperCommand
 	if err := decoder.Decode(&cmd); err != nil {
@@ -250,10 +273,44 @@ func (h *PrivilegedHelper) handleConnection(conn net.Conn) {
 		return
 	}
 
-	// Audit log every command
-	log.Printf("Helper command: action=%s protocol=%s interface=%s", cmd.Action, cmd.Protocol, cmd.Interface)
+	// Audit log every command — include peer UID where available so a
+	// forensic review can correlate IPC traffic with system users.
+	if peerCredSupported() {
+		log.Printf("Helper command: uid=%d action=%s protocol=%s interface=%s", peerUID, cmd.Action, cmd.Protocol, cmd.Interface)
+	} else {
+		log.Printf("Helper command: action=%s protocol=%s interface=%s", cmd.Action, cmd.Protocol, cmd.Interface)
+	}
 
-	resp := h.executeCommand(cmd)
+	// v1.0.5.30 — UID whitelist enforcement. Two-phase gate so the
+	// enrol path itself can pass while the rest of the IPC surface
+	// stays closed to unenrolled callers.
+	if peerCredSupported() {
+		if cmd.Action == "enroll_uid" {
+			// enroll_uid is allowed only under one of two conditions:
+			//   (a) whitelist is empty (TOFU — first caller wins),
+			//   (b) caller's UID is already enrolled (idempotent
+			//       re-confirm on every app launch).
+			// Anything else is a hijack attempt by an attacker who
+			// raced the legitimate enrol.
+			if !whitelistIsEmpty() && !isAllowedUID(peerUID) {
+				log.Printf("PEERCRED: rejecting enroll_uid from uid=%d — whitelist is non-empty and caller is not enrolled", peerUID)
+				h.sendResponse(conn, HelperResponse{Success: false, Error: "enroll_uid denied — helper already enrolled to a different user"})
+				return
+			}
+		} else if !isAllowedUID(peerUID) {
+			log.Printf("PEERCRED: rejecting uid=%d action=%s — not in whitelist", peerUID, cmd.Action)
+			h.sendResponse(conn, HelperResponse{Success: false, Error: "peer UID not authorised"})
+			return
+		}
+	}
+
+	resp := h.executeCommand(HelperCommand{
+		Action:     cmd.Action,
+		Protocol:   cmd.Protocol,
+		Interface:  cmd.Interface,
+		ConfigPath: cmd.ConfigPath,
+		Args:       attachPeerUIDToArgs(cmd.Args, peerUID),
+	})
 
 	// Audit log result. Output is logged on every action whose Output
 	// field is non-empty (wg-quick up/down, swanctl, etc.) so we can
@@ -351,9 +408,67 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdIPv6Unblock(cmd)
 	case "clear_logs":
 		return h.cmdClearLogs(cmd)
+	case "enroll_uid":
+		return h.cmdEnrollUID(cmd)
 	default:
 		return HelperResponse{Success: false, Error: "unhandled action"}
 	}
+}
+
+// attachPeerUIDToArgs threads the peer UID through to the command
+// handlers via the cmd.Args bag. cmdEnrollUID consumes it; other
+// handlers ignore it. Key is a reserved name that the IPC layer
+// strips and the handlers will never read from user input.
+// v1.0.5.30 — supports the peer-UID enforcement and enrolment flow.
+func attachPeerUIDToArgs(args map[string]string, uid uint32) map[string]string {
+	out := make(map[string]string, len(args)+1)
+	for k, v := range args {
+		// Defensive: callers shouldn't be able to forge this key
+		// since handleConnection always overrides it. Strip
+		// anyway so a malicious client can't smuggle a UID
+		// through a different action and read it via logs.
+		if k == "_peer_uid" {
+			continue
+		}
+		out[k] = v
+	}
+	out["_peer_uid"] = fmt.Sprintf("%d", uid)
+	return out
+}
+
+// cmdEnrollUID records the calling user's UID in the helper's
+// whitelist. Called by the app on first successful Connect after
+// install or upgrade. The handleConnection gate already enforces
+// TOFU-eligibility, so by the time we get here the caller is
+// authorised; this handler's job is the persistent write.
+// v1.0.5.30.
+func (h *PrivilegedHelper) cmdEnrollUID(cmd HelperCommand) HelperResponse {
+	uidStr := cmd.Args["_peer_uid"]
+	if uidStr == "" {
+		// Windows path or platform without peer-cred — record a
+		// no-op success so the client doesn't loop trying.
+		log.Printf("ENROL: no peer UID available (platform=%s) — skipping whitelist write", runtime.GOOS)
+		return HelperResponse{Success: true, Output: "no peer credentials available; whitelist not used on this platform"}
+	}
+	v, err := strconv.ParseUint(uidStr, 10, 32)
+	if err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("enroll_uid: malformed _peer_uid: %v", err)}
+	}
+	uid := uint32(v)
+	if uid == 0 {
+		// Refuse to enrol root explicitly — it's implicitly
+		// allowed and recording it would obscure who the real
+		// trusted user is on disk.
+		log.Printf("ENROL: declining to enrol uid=0 (root is implicit)")
+		return HelperResponse{Success: true, Output: "root is implicitly allowed; no enrolment needed"}
+	}
+	count, err := enrollUID(uid)
+	if err != nil {
+		log.Printf("ENROL: write failed for uid=%d: %v", uid, err)
+		return HelperResponse{Success: false, Error: err.Error()}
+	}
+	log.Printf("ENROL: uid=%d enrolled (whitelist now has %d entries)", uid, count)
+	return HelperResponse{Success: true, Output: fmt.Sprintf("uid=%d enrolled; whitelist has %d entries", uid, count)}
 }
 
 // cmdClearLogs truncates every *.log file under the paths supplied by

@@ -386,21 +386,23 @@ func isAnyWLANAdapterConnected() bool {
 	}
 	defer procWlanCloseHandle.Call(clientHandle, 0)
 
-	var ifListPtr uintptr
+	// v1.0.5.30: see readWLANSSIDViaSyscall for the typed-pointer
+	// + unsafe.Add refactor that avoids the unsafeptr vet warnings.
+	var ifList *wlanInterfaceInfoList
 	ret, _, _ = procWlanEnumInterfaces.Call(
 		clientHandle, 0,
-		uintptr(unsafe.Pointer(&ifListPtr)),
+		uintptr(unsafe.Pointer(&ifList)),
 	)
-	if ret != 0 || ifListPtr == 0 {
+	if ret != 0 || ifList == nil {
 		return false
 	}
-	defer procWlanFreeMemory.Call(ifListPtr)
+	defer procWlanFreeMemory.Call(uintptr(unsafe.Pointer(ifList)))
 
-	header := (*wlanInterfaceInfoList)(unsafe.Pointer(ifListPtr))
 	const headerSize = 8
 	entrySize := unsafe.Sizeof(wlanInterfaceInfo{})
-	for i := uint32(0); i < header.NumberOfItems; i++ {
-		entry := (*wlanInterfaceInfo)(unsafe.Pointer(uintptr(ifListPtr) + uintptr(headerSize) + uintptr(i)*entrySize))
+	ifListBase := unsafe.Pointer(ifList)
+	for i := uint32(0); i < ifList.NumberOfItems; i++ {
+		entry := (*wlanInterfaceInfo)(unsafe.Add(ifListBase, uintptr(headerSize)+uintptr(i)*entrySize))
 		if entry.IsState == 1 {
 			return true
 		}
@@ -558,19 +560,27 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 	}
 	defer procWlanCloseHandle.Call(clientHandle, 0)
 
-	var ifListPtr uintptr
+	// v1.0.5.30: refactored from `var ifListPtr uintptr` +
+	// `unsafe.Pointer(uintptr(...))` round-trips to a typed
+	// **wlanInterfaceInfoList. Win32 still gets the raw pointer
+	// because procWlanEnumInterfaces.Call takes uintptr, but
+	// `&ifList` reinterpretation only crosses unsafe-Pointer
+	// rules once at the syscall boundary (vet-clean). All
+	// subsequent struct + offset access uses typed pointers +
+	// unsafe.Add, which vet's unsafeptr analyzer accepts as
+	// safe pointer arithmetic.
+	var ifList *wlanInterfaceInfoList
 	ret, _, _ = procWlanEnumInterfaces.Call(
 		clientHandle, 0,
-		uintptr(unsafe.Pointer(&ifListPtr)),
+		uintptr(unsafe.Pointer(&ifList)),
 	)
-	if ret != 0 || ifListPtr == 0 {
-		log.Printf("WLAN[user]: WlanEnumInterfaces failed ret=%d ptr=%v", ret, ifListPtr)
+	if ret != 0 || ifList == nil {
+		log.Printf("WLAN[user]: WlanEnumInterfaces failed ret=%d ifList=%v", ret, ifList)
 		return "", false
 	}
-	defer procWlanFreeMemory.Call(ifListPtr)
+	defer procWlanFreeMemory.Call(uintptr(unsafe.Pointer(ifList)))
 
-	header := (*wlanInterfaceInfoList)(unsafe.Pointer(ifListPtr))
-	count := header.NumberOfItems
+	count := ifList.NumberOfItems
 	if count == 0 {
 		log.Printf("WLAN[user]: 0 interfaces enumerated")
 		return "", true
@@ -579,10 +589,10 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 
 	const headerSize = 8 // NumberOfItems + Index = 2 * uint32
 	entrySize := unsafe.Sizeof(wlanInterfaceInfo{})
+	ifListBase := unsafe.Pointer(ifList)
 
 	for i := uint32(0); i < count; i++ {
-		entryPtr := unsafe.Pointer(uintptr(ifListPtr) + uintptr(headerSize) + uintptr(i)*entrySize)
-		entry := (*wlanInterfaceInfo)(entryPtr)
+		entry := (*wlanInterfaceInfo)(unsafe.Add(ifListBase, uintptr(headerSize)+uintptr(i)*entrySize))
 		log.Printf("WLAN[user]: interface[%d] state=%d (1=connected)", i, entry.IsState)
 
 		// IsState 1 = wlan_interface_state_connected. Skip
@@ -591,7 +601,13 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 			continue
 		}
 
-		var dataPtr uintptr
+		// Same typed-pointer pattern for WlanQueryInterface output —
+		// declare as *byte so we can do unsafe.Add arithmetic on
+		// the WLAN_CONNECTION_ATTRIBUTES layout without uintptr
+		// round-trips. WlanFreeMemory takes the raw pointer back
+		// as uintptr, which is the only unsafe.Pointer rule-3
+		// conversion left.
+		var dataPtr *byte
 		var dataSize uint32
 		ret, _, _ := procWlanQueryInterface.Call(
 			clientHandle,
@@ -603,7 +619,7 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 			0,
 		)
 		log.Printf("WLAN[user]: WlanQueryInterface ret=%d size=%d", ret, dataSize)
-		if ret != 0 || dataPtr == 0 {
+		if ret != 0 || dataPtr == nil {
 			continue
 		}
 
@@ -629,22 +645,23 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 		const profileNameByteLen = 512 // 256 * sizeof(wchar_t)
 		const ssidLenOffset = 528
 		const ssidBytesOffset = 532
+		dataBase := unsafe.Pointer(dataPtr)
 
 		// Try the location-restricted real SSID first.
-		ssidLen := *(*uint32)(unsafe.Pointer(uintptr(dataPtr) + ssidLenOffset))
+		ssidLen := *(*uint32)(unsafe.Add(dataBase, ssidLenOffset))
 		log.Printf("WLAN[user]: dot11Ssid uSSIDLength=%d", ssidLen)
 		if ssidLen > 0 && ssidLen <= 32 {
-			ssidBytes := (*[32]byte)(unsafe.Pointer(uintptr(dataPtr) + ssidBytesOffset))
+			ssidBytes := (*[32]byte)(unsafe.Add(dataBase, ssidBytesOffset))
 			result := string(ssidBytes[:ssidLen])
 			log.Printf("WLAN[user]: returning dot11Ssid=%q", result)
-			procWlanFreeMemory.Call(dataPtr)
+			procWlanFreeMemory.Call(uintptr(dataBase))
 			return result, true
 		}
 
 		// Fallback: profile name. Not subject to location permission
 		// in our testing because the OS reads it from the locally-
 		// saved WLAN profile, not from a live scan.
-		profileWChar := (*[256]uint16)(unsafe.Pointer(uintptr(dataPtr) + profileNameOffset))
+		profileWChar := (*[256]uint16)(unsafe.Add(dataBase, profileNameOffset))
 		nameLen := 0
 		for nameLen < 256 && profileWChar[nameLen] != 0 {
 			nameLen++
@@ -653,11 +670,11 @@ func readWLANSSIDViaSyscall() (ssid string, ok bool) {
 		if nameLen > 0 {
 			result := utf16ToString(profileWChar[:nameLen])
 			log.Printf("WLAN[user]: returning strProfileName=%q", result)
-			procWlanFreeMemory.Call(dataPtr)
+			procWlanFreeMemory.Call(uintptr(dataBase))
 			return result, true
 		}
 		_ = profileNameByteLen // referenced via offset constants, retained for documentation
-		procWlanFreeMemory.Call(dataPtr)
+		procWlanFreeMemory.Call(uintptr(dataBase))
 	}
 
 	return "", true

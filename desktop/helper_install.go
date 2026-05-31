@@ -72,6 +72,12 @@ func IsHelperRunning() bool {
 // to install it (one-time admin prompt). Returns nil if helper is ready.
 func EnsureHelper() error {
 	if IsHelperRunning() {
+		// v1.0.5.30: helper reachable — enrol our UID into its
+		// peer-cred whitelist if we're not already enrolled.
+		// Idempotent + fire-and-forget; failures are logged but
+		// don't block app startup (pre-v1.0.5.30 helpers don't
+		// know the action and reply "unknown action").
+		go enrollSelfWithHelper()
 		return nil
 	}
 
@@ -81,12 +87,51 @@ func EnsureHelper() error {
 			log.Printf("Helper service installed but failed to start: %v", err)
 			return err
 		}
+		go enrollSelfWithHelper()
 		return nil
 	}
 
 	// Not installed — install it
 	log.Println("Helper not installed, triggering installation...")
-	return InstallHelper()
+	if err := InstallHelper(); err != nil {
+		return err
+	}
+	go enrollSelfWithHelper()
+	return nil
+}
+
+// enrollSelfWithHelper calls the helper's enroll_uid IPC so the
+// helper records our UID in its peer-cred whitelist. Critical for
+// v1.0.5.30 security model: after the first enrol, the helper
+// rejects every connect that isn't from our enrolled UID (or root).
+//
+// Fire-and-forget — runs in its own goroutine so a slow socket
+// roundtrip doesn't block app startup. Logged outcomes only;
+// the helper itself logs prominently on every enrol decision.
+//
+// Pre-v1.0.5.30 helpers reply "unknown action" — handled silently
+// because the same binary upgrade ships the helper-side change,
+// so this only happens during the brief upgrade window where the
+// app has been replaced but the helper service hasn't reloaded.
+func enrollSelfWithHelper() {
+	client := NewHelperClient()
+	resp, err := client.SendCommand("enroll_uid", nil)
+	if err != nil {
+		log.Printf("Helper enrol: IPC failed: %v", err)
+		return
+	}
+	if !resp.Success {
+		if strings.Contains(resp.Error, "unknown action") {
+			// Pre-v1.0.5.30 helper — silent, will be enrolled
+			// after next helper restart.
+			return
+		}
+		log.Printf("Helper enrol: rejected: %s", resp.Error)
+		return
+	}
+	if resp.Output != "" {
+		log.Printf("Helper enrol: %s", strings.TrimSpace(resp.Output))
+	}
 }
 
 // getHelperBinaryPath returns the path to the current executable.

@@ -182,21 +182,24 @@ func getConnectedAdapterGUID() (string, bool) {
 	}
 	defer procWlanCloseHandle.Call(clientHandle, 0)
 
-	var ifListPtr uintptr
+	// v1.0.5.30: see readWLANSSIDViaSyscall in network_monitor_windows.go
+	// for the typed-pointer + unsafe.Add refactor rationale (avoids the
+	// unsafeptr vet warnings).
+	var ifList *wlanInterfaceInfoList
 	ret, _, _ = procWlanEnumInterfaces.Call(
 		clientHandle, 0,
-		uintptr(unsafe.Pointer(&ifListPtr)),
+		uintptr(unsafe.Pointer(&ifList)),
 	)
-	if ret != 0 || ifListPtr == 0 {
+	if ret != 0 || ifList == nil {
 		return "", false
 	}
-	defer procWlanFreeMemory.Call(ifListPtr)
+	defer procWlanFreeMemory.Call(uintptr(unsafe.Pointer(ifList)))
 
-	header := (*wlanInterfaceInfoList)(unsafe.Pointer(ifListPtr))
 	const headerSize = 8
 	entrySize := unsafe.Sizeof(wlanInterfaceInfo{})
-	for i := uint32(0); i < header.NumberOfItems; i++ {
-		entry := (*wlanInterfaceInfo)(unsafe.Pointer(uintptr(ifListPtr) + uintptr(headerSize) + uintptr(i)*entrySize))
+	ifListBase := unsafe.Pointer(ifList)
+	for i := uint32(0); i < ifList.NumberOfItems; i++ {
+		entry := (*wlanInterfaceInfo)(unsafe.Add(ifListBase, uintptr(headerSize)+uintptr(i)*entrySize))
 		if entry.IsState != 1 {
 			continue
 		}
