@@ -1,0 +1,122 @@
+# XcodeGen project specification — generate PrivycsVPN.xcodeproj
+# from this YAML by running `xcodegen generate` from the ios/
+# directory on a Mac with XcodeGen installed (`brew install xcodegen`).
+#
+# Rationale: Xcode's .pbxproj is a 5000+ line binary-flavoured plist
+# that's painful to merge + diff. XcodeGen lets us treat the project
+# layout as code — single source of truth, regeneratable, line-by-
+# line diffable. Used by airbnb / Google for the same reasons.
+name: PrivycsVPN
+options:
+  bundleIdPrefix: com.privycs.vpn
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: en
+  defaultConfig: Release
+  groupSortPosition: bottom
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    DEVELOPMENT_TEAM: "${PRIVYCS_TEAM_ID}"     # set via .env / CI secret
+    CODE_SIGN_STYLE: Manual
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: YES
+    MARKETING_VERSION: "1.0.7"                  # synced with ios/latest_version.txt
+    CURRENT_PROJECT_VERSION: "1"
+  configs:
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: -Onone
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+    Release:
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      VALIDATE_PRODUCT: YES
+
+packages:
+  PrivycsCore:
+    path: Core
+  WireGuardKit:
+    url: https://git.zx2c4.com/wireguard-apple
+    from: 1.0.16-26-g15ed3ee
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: 8.36.0
+  OpenVPNAdapter:
+    url: https://github.com/ss-abramchuk/OpenVPNAdapter
+    from: 0.8.0
+
+targets:
+  # ───── Main App ─────────────────────────────────────────────────
+  PrivycsVPN:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    resources:
+      - path: App/Resources
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Privycs VPN
+        LSApplicationCategoryType: public.app-category.utilities
+        NSLocationWhenInUseUsageDescription: >
+          Privycs uses your location only to read the current Wi-Fi
+          name so On-Demand Network Rules can match against trusted
+          SSIDs. No location coordinates are stored or transmitted.
+        ITSAppUsesNonExemptEncryption: false
+        UIBackgroundModes:
+          - fetch
+    entitlements:
+      path: App/PrivycsVPN.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+          - app-proxy-provider
+        com.apple.security.application-groups:
+          - group.com.privycs.vpn
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.privycs.vpn
+        com.apple.developer.networking.vpn.api:
+          - allow-vpn
+    dependencies:
+      - package: PrivycsCore
+      - package: Sentry
+        product: Sentry
+      - target: PrivycsVPNTunnel
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.privycs.vpn
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+
+  # ───── Packet Tunnel Extension ──────────────────────────────────
+  PrivycsVPNTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Tunnel
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: Privycs VPN Tunnel
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PrivycsPacketTunnelProvider
+    entitlements:
+      path: Tunnel/PrivycsVPNTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.privycs.vpn
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.privycs.vpn
+    dependencies:
+      - package: PrivycsCore
+      - package: WireGuardKit
+        product: WireGuardKit
+      - package: OpenVPNAdapter
+        product: OpenVPNAdapter
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.privycs.vpn.tunnel

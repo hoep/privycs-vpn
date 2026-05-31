@@ -1,0 +1,126 @@
+{
+  "sourceLanguage" : "en",
+  "version" : "1.0",
+  "strings" : {
+    "app.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Privycs VPN" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Privycs VPN" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Privycs VPN" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Privycs VPN" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Privycs VPN" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Privycs VPN" } }
+      }
+    },
+    "tab.connect" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connect" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Verbinden" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Conectar" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Connecter" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Collega" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Conectar" } }
+      }
+    },
+    "tab.configs" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Configs" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Konfigurationen" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Configuraciones" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Configurations" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Configurazioni" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Configurações" } }
+      }
+    },
+    "tab.add" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Hinzufügen" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Añadir" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Ajouter" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Aggiungi" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Adicionar" } }
+      }
+    },
+    "tab.settings" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Einstellungen" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Ajustes" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Réglages" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Impostazioni" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Definições" } }
+      }
+    },
+    "tab.help" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Help" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Hilfe" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Ayuda" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Aide" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Aiuto" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Ajuda" } }
+      }
+    },
+    "connect.status.connected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connected" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Verbunden" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Conectado" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Connecté" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Connesso" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Conectado" } }
+      }
+    },
+    "connect.status.disconnected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Disconnected" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Getrennt" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Desconectado" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Déconnecté" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Disconnesso" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Desconectado" } }
+      }
+    },
+    "connect.stats.download" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Download" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Empfangen" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Descarga" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Téléchargement" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Download" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Descarregamento" } }
+      }
+    },
+    "connect.stats.upload" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Upload" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Gesendet" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Subida" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Téléversement" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Upload" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Carregamento" } }
+      }
+    },
+    "settings.crash_reports" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Anonymous crash reports" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Anonyme Absturzberichte" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Informes de fallo anónimos" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Rapports de plantage anonymes" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Segnalazioni di crash anonime" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Relatórios de falha anónimos" } }
+      }
+    },
+    "settings.crash_reports_desc" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Help improve Privycs by sending anonymous crash reports. SSIDs, API keys, IPs and file paths are redacted on-device before upload to our self-hosted backend." } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Hilf Privycs zu verbessern durch anonyme Absturzberichte. SSIDs, API-Keys, IPs und Datei-Pfade werden vor dem Upload zu unserem self-hosted Backend on-device redaktiert." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Ayuda a mejorar Privycs enviando informes anónimos de fallo. SSIDs, claves API, IPs y rutas de archivos se redactan en el dispositivo antes de subirlos a nuestro backend propio." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Aidez à améliorer Privycs en envoyant des rapports de plantage anonymes. SSID, clés API, IPs et chemins de fichiers sont caviardés sur l’appareil avant l’envoi à notre backend auto-hébergé." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Aiuta a migliorare Privycs inviando segnalazioni anonime di crash. SSID, chiavi API, IP e percorsi di file vengono oscurati sul dispositivo prima del caricamento sul nostro backend self-hosted." } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Ajude a melhorar o Privycs enviando relatórios anónimos de falhas. SSIDs, chaves de API, IPs e caminhos de ficheiros são redigidos no dispositivo antes do envio para o nosso backend self-hosted." } }
+      }
+    }
+  }
+}
