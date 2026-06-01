@@ -60,6 +60,7 @@ struct ConnectionView: View {
                                     )
                                 }
                                 if hasMultipleConfigs { protocolBadgeRow }
+                                locationLine
                                 statsRow
                                 connectionDetails
                                 // NOTE: the hardcoded TunnelHealthPill(.healthy)
@@ -229,6 +230,27 @@ struct ConnectionView: View {
     }
 
     // MARK: Stats
+
+    // Flag + city, country line (Android parity). Pool path uses the
+    // broadcast member country/name; single-connection path falls back to
+    // the server country code + connection name (often "<cc>-<city3>-…").
+    @ViewBuilder private var locationLine: some View {
+        let cc = status.activeMemberCountry.isEmpty ? status.serverCountryCode : status.activeMemberCountry
+        let labelName = status.activeMemberName.isEmpty ? status.connectionName : status.activeMemberName
+        let flag = PoolHostnameLabels.flagEmoji(cc)
+        let city = PoolHostnameLabels.cityFromHostname(labelName)
+        let country = PoolHostnameLabels.countryNameFromCode(cc)
+        let loc: String = {
+            var s = flag.isEmpty ? "" : flag + "  "
+            if !city.isEmpty && !country.isEmpty { s += "\(city), \(country)" }
+            else if !city.isEmpty { s += city }
+            else if !country.isEmpty { s += country }
+            return s.trimmingCharacters(in: .whitespaces)
+        }()
+        if !loc.isEmpty {
+            Text(loc).font(.system(size: 13)).foregroundStyle(.secondary)
+        }
+    }
 
     private var statsRow: some View {
         HStack(spacing: 12) {
