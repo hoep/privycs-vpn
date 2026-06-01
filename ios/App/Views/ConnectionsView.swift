@@ -9,8 +9,16 @@ import PrivycsCore
 struct ConnectionsView: View {
     @EnvironmentObject private var appState: AppState
     @State private var addProtocolFor: SavedConnection?
-    @State private var renameFor: SavedConnection?
-    @State private var renameText = ""
+    @State private var editConnFor: SavedConnection?
+    @State private var editConfigFor: EditConfigTarget?
+
+    /// Identifiable wrapper so a (connection, config) pair can drive a
+    /// `.sheet(item:)` for the raw-config editor.
+    struct EditConfigTarget: Identifiable {
+        let connectionID: String
+        let config: ProtocolConfig
+        var id: String { config.id }
+    }
 
     var body: some View {
         NavigationStack {
@@ -40,12 +48,12 @@ struct ConnectionsView: View {
             .sheet(item: $addProtocolFor) { conn in
                 AddProtocolSheet(connection: conn).environmentObject(appState)
             }
-            .alert("Rename connection", isPresented: Binding(
-                get: { renameFor != nil }, set: { if !$0 { renameFor = nil } }
-            )) {
-                TextField("Name", text: $renameText)
-                Button("Cancel", role: .cancel) { renameFor = nil }
-                Button("Save") { commitRename() }
+            .sheet(item: $editConnFor) { conn in
+                EditConnectionSheet(connection: conn).environmentObject(appState)
+            }
+            .sheet(item: $editConfigFor) { target in
+                EditProtocolConfigSheet(connectionID: target.connectionID, config: target.config)
+                    .environmentObject(appState)
             }
         }
     }
@@ -69,8 +77,11 @@ struct ConnectionsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(conn.name).font(.body)
+                if !conn.dnsOverride.isEmpty {
+                    Image(systemName: "lock.shield").font(.caption2).foregroundStyle(PrivycsColor.teal)
+                }
                 Spacer()
-                Button { startRename(conn) } label: {
+                Button { editConnFor = conn } label: {
                     Image(systemName: "pencil").font(.caption)
                 }
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
@@ -82,7 +93,7 @@ struct ConnectionsView: View {
                     Button {
                         Task { await appState.setActiveConfig(connectionID: conn.id, configID: cfg.id) }
                     } label: {
-                        ProtocolBadge(proto: cfg.protocol, endpoint: cfg.serverAddress,
+                        ProtocolBadge(proto: cfg.protocol, endpoint: endpointHost(cfg.serverAddress),
                                       active: cfg.id == conn.activeConfigID)
                     }
                     // .borderless (not .plain) so each pill is an
@@ -90,6 +101,13 @@ struct ConnectionsView: View {
                     // made the whole row swallow the tap ("pills do nothing").
                     .buttonStyle(.borderless)
                     .contextMenu {
+                        // Raw-config editing only for text formats (IPSec is a
+                        // binary .mobileconfig — no in-app editor, like Android).
+                        if cfg.protocol == .wireguard || cfg.protocol == .amneziawg || cfg.protocol == .openvpn {
+                            Button {
+                                editConfigFor = EditConfigTarget(connectionID: conn.id, config: cfg)
+                            } label: { Label("Edit config", systemImage: "pencil") }
+                        }
                         Button(role: .destructive) {
                             Task { await appState.removeConfig(connectionID: conn.id, configID: cfg.id) }
                         } label: { Label("Remove \(cfg.protocol.shortLabel)", systemImage: "trash") }
@@ -100,26 +118,25 @@ struct ConnectionsView: View {
                 }
                 .buttonStyle(.borderless)
             }
+            // Per-protocol VPN-IP summary (Android parity) — only configs
+            // that have a cached inner address from a prior connect.
+            let withIP = conn.protocols.filter { !$0.localAddress.isEmpty }
+            if !withIP.isEmpty {
+                Text(withIP.map { "\($0.protocol.shortLabel): \($0.localAddress)" }.joined(separator: " · "))
+                    .font(.caption2).fontDesign(.monospaced).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
         }
         .padding(.vertical, 2)
     }
 
-    private func startRename(_ conn: SavedConnection) {
-        renameText = conn.name
-        renameFor = conn
-    }
-
-    private func commitRename() {
-        guard let conn = renameFor else { return }
-        let newName = renameText.trimmingCharacters(in: .whitespaces)
-        renameFor = nil
-        guard !newName.isEmpty else { return }
-        Task {
-            var updated = conn
-            updated.name = newName
-            try? await appState.connectionRepo.save(updated)
-            appState.connections = (try? await appState.connectionRepo.loadAll()) ?? appState.connections
+    /// Strip the port for a compact endpoint display in the badge.
+    private func endpointHost(_ s: String) -> String {
+        guard !s.isEmpty else { return s }
+        if s.hasPrefix("["), let close = s.firstIndex(of: "]") {   // [IPv6]:port
+            return String(s[s.index(after: s.startIndex)..<close])
         }
+        return s.split(separator: ":").first.map(String.init) ?? s
     }
 
     private func deleteConnections(at offsets: IndexSet) {
@@ -216,5 +233,111 @@ struct FlowRow: Layout {
             x += s.width + spacing
             rowHeight = max(rowHeight, s.height)
         }
+    }
+}
+
+/// Edit a connection's name + per-connection DNS override (Android's
+/// edit-connection dialog had both; iOS previously only renamed).
+struct EditConnectionSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let connection: SavedConnection
+    @State private var name: String
+    @State private var dns: String
+
+    init(connection: SavedConnection) {
+        self.connection = connection
+        _name = State(initialValue: connection.name)
+        _dns = State(initialValue: connection.dnsOverride)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Name") {
+                    TextField("Name", text: $name)
+                }
+                Section {
+                    TextField("e.g. 1.1.1.1, 9.9.9.9", text: $dns)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                } header: {
+                    Text("DNS override")
+                } footer: {
+                    Text("Comma-separated DNS servers used while this connection is active. Empty = use the global setting.")
+                }
+            }
+            .navigationTitle("Edit connection")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Save") { Task { await save() } } }
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+            }
+        }
+    }
+
+    private func save() async {
+        var updated = connection
+        let n = name.trimmingCharacters(in: .whitespaces)
+        if !n.isEmpty { updated.name = n }
+        updated.dnsOverride = dns.trimmingCharacters(in: .whitespaces)
+        try? await appState.connectionRepo.save(updated)
+        appState.connections = (try? await appState.connectionRepo.loadAll()) ?? appState.connections
+        dismiss()
+    }
+}
+
+/// Raw config text editor for a WireGuard/AmneziaWG/OpenVPN config —
+/// re-parses + validates on save (port of Android's edit-protocol dialog).
+struct EditProtocolConfigSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let connectionID: String
+    let config: ProtocolConfig
+    @State private var text: String
+    @State private var error: String?
+
+    init(connectionID: String, config: ProtocolConfig) {
+        self.connectionID = connectionID
+        self.config = config
+        _text = State(initialValue: config.configContent)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                TextEditor(text: $text)
+                    .font(.system(size: 12, design: .monospaced))
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .padding(8)
+                if let error {
+                    Text(error).font(.caption).foregroundStyle(PrivycsColor.error)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal)
+                }
+            }
+            .navigationTitle("Edit \(config.protocol.shortLabel)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Save") { Task { await save() } } }
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+            }
+        }
+    }
+
+    private func save() async {
+        let detected = ConfigImport.detectProtocol(filename: config.filename, content: text)
+        guard detected == config.protocol else {
+            error = "This no longer parses as \(config.protocol.shortLabel)."
+            return
+        }
+        let updated = ProtocolConfig(
+            id: config.id, protocol: config.protocol, filename: config.filename,
+            nickname: config.nickname, configContent: text,
+            serverAddress: ConfigImport.extractServerAddress(text, config.protocol),
+            localAddress: config.localAddress, addedAt: config.addedAt
+        )
+        _ = try? await appState.connectionRepo.addOrUpdate(connectionID: connectionID, name: "", config: updated)
+        appState.connections = (try? await appState.connectionRepo.loadAll()) ?? appState.connections
+        dismiss()
     }
 }
