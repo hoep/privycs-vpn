@@ -57,8 +57,8 @@ public actor EntitlementRepository {
         // Reverify the license key from keychain — guards against
         // backup-restore on a clock-rolled-back device, malformed
         // tampering etc.
-        if let stored = try? await secretStore.get(KeychainKey.proLicense),
-           let key = stored {
+        // `try?` flattens Optionals (SE-0230) — get throws -> String? yields String? not String??
+        if let key = try? await secretStore.get(KeychainKey.proLicense) {
             do {
                 let payload = try licenseVerifier.verify(key)
                 if LicenseVerifier.unlocksIOS(payload) {

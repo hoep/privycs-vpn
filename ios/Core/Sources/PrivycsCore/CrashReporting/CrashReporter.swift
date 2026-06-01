@@ -118,8 +118,11 @@ public actor CrashReporter {
     // MARK: — install-UUID
 
     private func ensureInstallUUID() async -> String {
-        if let stored = try? await secretStore.get(KeychainKey.installUUID),
-           let existing = stored, !existing.isEmpty {
+        // `try?` over a `throws -> String?` expression flattens to String?
+        // (SE-0230) — single bind is enough; double-bind/re-shadow does not
+        // compile because `existing` is already non-optional after the first.
+        if let existing = try? await secretStore.get(KeychainKey.installUUID),
+           !existing.isEmpty {
             return existing
         }
         let fresh = UUID().uuidString.replacingOccurrences(of: "-", with: "")
