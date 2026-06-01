@@ -29,7 +29,15 @@ jobs:
             echo "ios_changed=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-          if git diff --name-only "$PREV_TAG" "${{ github.ref }}" | grep -q '^ios/'; then
+          # Gate on ios/latest_version.txt (the iOS version file), NOT a raw
+          # ios/ diff — per the documented per-OS version-file pattern. A raw
+          # ios/ diff made every DESKTOP tag (v1.0.7.x) rebuild iOS too,
+          # because iOS source fixes land on main between iOS releases; the
+          # rebuild reused the unchanged build number and TestFlight rejected
+          # the duplicate (v1.0.7.8 failed exactly here). Building + uploading
+          # to TestFlight must require a deliberate iOS version bump, which
+          # also honors "no iOS release until feature parity".
+          if git diff --name-only "$PREV_TAG" "${{ github.ref }}" | grep -q '^ios/latest_version.txt$'; then
             echo "ios_changed=true" >> $GITHUB_OUTPUT
           else
             echo "ios_changed=false" >> $GITHUB_OUTPUT
