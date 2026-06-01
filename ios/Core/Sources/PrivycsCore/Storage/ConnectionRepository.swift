@@ -91,21 +91,56 @@ public actor ConnectionRepository {
     public func addOrUpdate(connectionID: String?, name: String, config: ProtocolConfig) async throws -> SavedConnection {
         let all = try await loadAll()
         if let cid = connectionID, var conn = all.first(where: { $0.id == cid }) {
-            if let idx = conn.protocols.firstIndex(where: {
-                $0.protocol == config.protocol && $0.filename == config.filename
-            }) {
-                // Update in place, preserve the existing config id.
-                let existingID = conn.protocols[idx].id
+            // Match by stable id first (explicit update / re-import keeping id).
+            var existingIndex: Int? = config.id.isEmpty
+                ? nil : conn.protocols.firstIndex(where: { $0.id == config.id })
+            // Filename-fallback collapses ONLY a true re-import: same
+            // (protocol, filename) AND byte-identical content. Matching on
+            // (protocol, filename) alone silently OVERWROTE a 2nd
+            // same-protocol server that happened to share a generic name
+            // (the reported "2. Profil überschreibt das 1." bug). Ported
+            // field-for-field from Android ConnectionRepository.addOrUpdate.
+            if existingIndex == nil && !config.filename.isEmpty {
+                existingIndex = conn.protocols.firstIndex(where: {
+                    $0.protocol == config.protocol &&
+                    $0.filename == config.filename &&
+                    $0.configContent == config.configContent
+                })
+            }
+            if let idx = existingIndex {
+                // True re-import — preserve id + nickname so activeConfigID /
+                // pool-member refs stay valid.
+                let keep = conn.protocols[idx]
                 conn.protocols[idx] = ProtocolConfig(
-                    id: existingID,
+                    id: keep.id,
                     protocol: config.protocol,
                     filename: config.filename,
-                    nickname: config.nickname,
+                    nickname: keep.nickname,
                     configContent: config.configContent,
                     serverAddress: config.serverAddress
                 )
             } else {
-                conn.protocols.append(config)
+                // Genuinely new config — append. If it shares (protocol,
+                // filename) with an attached config, give it a disambiguating
+                // nickname so the pill switcher can tell the two apart.
+                let sameNameCount = conn.protocols.filter {
+                    $0.protocol == config.protocol && $0.filename == config.filename
+                }.count
+                if sameNameCount > 0 && config.nickname.isEmpty {
+                    let base = config.filename.contains(".")
+                        ? String(config.filename[..<config.filename.lastIndex(of: ".")!])
+                        : config.protocol.rawValue
+                    conn.protocols.append(ProtocolConfig(
+                        id: config.id,
+                        protocol: config.protocol,
+                        filename: config.filename,
+                        nickname: "\(base) (\(sameNameCount + 1))",
+                        configContent: config.configContent,
+                        serverAddress: config.serverAddress
+                    ))
+                } else {
+                    conn.protocols.append(config)
+                }
             }
             if conn.activeConfigID.isEmpty { conn.activeConfigID = config.id }
             try await save(conn)
