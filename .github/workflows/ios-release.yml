@@ -85,13 +85,27 @@ jobs:
           git clone https://git.zx2c4.com/wireguard-apple .deps/wireguard-apple
           (cd .deps/wireguard-apple && git checkout "$PIN")
 
-          # 2. Patch Package.swift swift-tools-version from 5.3 to 5.5.
-          #    Upstream declares 5.3 but uses .macOS(.v12) / .iOS(.v15)
-          #    which need PackageDescription 5.5+ — manifest fails to
-          #    compile otherwise.
+          # 2a. Patch Package.swift swift-tools-version from 5.3 to 5.5.
+          #     Upstream declares 5.3 but uses .macOS(.v12) / .iOS(.v15)
+          #     which need PackageDescription 5.5+ — manifest fails to
+          #     compile otherwise.
           sed -i '' '1s|.*|// swift-tools-version:5.5|' .deps/wireguard-apple/Package.swift
           echo "Patched Package.swift first line:"
           head -1 .deps/wireguard-apple/Package.swift
+
+          # 2b. Patch WireGuardKitC.h to include <sys/types.h>.
+          #     The header uses u_int32_t / u_char / u_int16_t but does
+          #     not include the system header that declares them.
+          #     Strict Clang modules on Xcode 16 reject the implicit
+          #     declarations. Mullvad's fork already has this fix.
+          HEADER=.deps/wireguard-apple/Sources/WireGuardKitC/WireGuardKitC.h
+          if ! grep -q '<sys/types.h>' "$HEADER"; then
+            sed -i '' '/^#include "x25519.h"/a\
+#include <sys/types.h>
+' "$HEADER"
+            echo "Patched WireGuardKitC.h to include <sys/types.h>:"
+            head -8 "$HEADER"
+          fi
 
           # 3. Build libwg-go.a for iOS arm64.
           #    Makefile reads PLATFORM_NAME + ARCHS + DESTDIR from env.
