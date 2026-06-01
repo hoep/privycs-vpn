@@ -1,13 +1,14 @@
 import Foundation
 
-/// Privycs QR-code payload formats. Mirror der Android `QRPayload`
-/// parsing-logic. Drei mögliche Payload-typen:
+/// Privycs QR-code payload formats. 1:1 mirror of the Android
+/// `QrCodePayload` / `parseQrPayload` logic:
 ///
-///   1. WireGuard / AmneziaWG: roh wg-quick INI text.
-///   2. OpenVPN: roh .ovpn text.
-///   3. Privycs Enrollment: JSON
-///      `{"kind":"privycs","gateway_url":"...","api_key":"..."}`
-///      — automatisch konfiguriert Gateway+API-Key.
+///   1. Privycs enrollment URL — the `privycs://enroll?...` scheme with
+///      query params (url/gateway, apikey/token, …). The QR points the
+///      client at a gateway to pull configs from; required for
+///      OpenVPN/IPSec (too large for a QR) and an alternative for WG.
+///   2. Raw wg-quick .conf — the standard WireGuard QR (`[Interface]`
+///      first non-comment line). AmneziaWG if it carries AWG keys.
 public enum QRPayload: Sendable {
     case wireguard(String)
     case amneziawg(String)
@@ -17,29 +18,39 @@ public enum QRPayload: Sendable {
     public static func parse(_ raw: String) -> QRPayload? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 1. Privycs enrollment JSON?
-        if let data = trimmed.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let kind = json["kind"] as? String, kind == "privycs",
-           let urlStr = json["gateway_url"] as? String,
-           let url = URL(string: urlStr),
-           let apiKey = json["api_key"] as? String {
-            return .privycsEnrollment(gatewayURL: url, apiKey: apiKey)
-        }
-
-        // 2. wg-quick INI? Look for [Interface] + [Peer]
-        if trimmed.contains("[Interface]") && trimmed.contains("[Peer]") {
-            if trimmed.contains("Jc =") || trimmed.contains("S1 =") {
-                return .amneziawg(trimmed)
+        // 1. Privycs custom URL scheme: privycs://enroll?url=…&apikey=…
+        //    (accepts the gateway/token aliases too, like Android).
+        if trimmed.lowercased().hasPrefix("privycs://"),
+           let comps = URLComponents(string: trimmed),
+           comps.host?.lowercased() == "enroll" {
+            let q = comps.queryItems ?? []
+            func param(_ keys: [String]) -> String? {
+                for k in keys {
+                    if let v = q.first(where: { $0.name.lowercased() == k })?.value, !v.isEmpty {
+                        return v
+                    }
+                }
+                return nil
             }
-            return .wireguard(trimmed)
+            if let urlStr = param(["url", "gateway"]),
+               let url = URL(string: urlStr),
+               let apiKey = param(["apikey", "token"]) {
+                return .privycsEnrollment(gatewayURL: url, apiKey: apiKey)
+            }
+            return nil
         }
 
-        // 3. OpenVPN? Look for "client" + "remote ..." lines
-        if trimmed.contains("client") && trimmed.range(of: #"^remote\s"#, options: [.regularExpression, .anchored]) != nil {
-            return .openvpn(trimmed)
+        // 2. Raw wg-quick INI — [Interface] as the first non-comment line.
+        let firstLine = trimmed
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty && !$0.hasPrefix("#") }
+        if firstLine?.caseInsensitiveCompare("[Interface]") == .orderedSame {
+            return ConfigImport.isAmneziaWG(trimmed) ? .amneziawg(trimmed) : .wireguard(trimmed)
         }
-        if trimmed.contains("\nremote ") || trimmed.hasPrefix("remote ") {
+
+        // 3. Raw OpenVPN (uncommon in a QR, but accept it).
+        if trimmed.range(of: #"(?m)^\s*remote\s"#, options: .regularExpression) != nil {
             return .openvpn(trimmed)
         }
 
