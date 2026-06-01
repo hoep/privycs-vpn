@@ -100,9 +100,8 @@ jobs:
           #     declarations. Mullvad's fork already has this fix.
           HEADER=.deps/wireguard-apple/Sources/WireGuardKitC/WireGuardKitC.h
           if ! grep -q '<sys/types.h>' "$HEADER"; then
-            sed -i '' '/^#include "x25519.h"/a\
-#include <sys/types.h>
-' "$HEADER"
+            awk '/^#include "x25519.h"/ { print; print "#include <sys/types.h>"; next } { print }' "$HEADER" > "$HEADER.tmp"
+            mv "$HEADER.tmp" "$HEADER"
             echo "Patched WireGuardKitC.h to include <sys/types.h>:"
             head -8 "$HEADER"
           fi
