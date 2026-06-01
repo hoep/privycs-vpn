@@ -41,5 +41,22 @@
     <true/>
     <key>com.apple.security.network.server</key>
     <true/>
+    <!--
+      Personal VPN (NEVPNManager IKEv2) — lets the app create + control
+      its own IPSec VPN config in-process (replaces the dead
+      .mobileconfig+AppleScript path and the Homebrew-strongSwan/swanctl
+      backend). See nevpn_macos.go.
+
+      NOTE: on Developer-ID (non-App-Store) distribution this managed
+      entitlement may additionally require an embedded provisioning
+      profile generated from a macOS App ID carrying the Personal VPN
+      capability (created on developer.apple.com, analogous to the iOS
+      profiles). The first signed+notarized build reveals whether the
+      runtime grants it without one; if not, add the profile to CI.
+    -->
+    <key>com.apple.developer.networking.vpn.api</key>
+    <array>
+        <string>allow-vpn</string>
+    </array>
 </dict>
 </plist>

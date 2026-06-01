@@ -217,68 +217,17 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			}
 		}
 	case "darwin":
-		// swanctl path is the only macOS path. Query via helper —
-		// charon's vici socket is root-only, so direct client-side
-		// access would fail. SA up when state=ESTABLISHED. Byte
-		// counters AND the negotiated virtual IP come from the same
-		// `swanctl --list-sas` output the helper already returns —
-		// per-CHILD-SA ESP counters + the IKE_AUTH-CFG_REPLY-assigned
-		// inner IP. Per-utun stats won't work on macOS swanctl:
-		// charon installs kernel SAs in XFRM-style policy mode
-		// without creating a dedicated utun, so the counters from the
-		// SA database are the canonical source.
-		client := NewHelperClient()
-		if !client.IsHelperReachable() {
-			return status
-		}
-		resp, err := client.SendCommand("status", map[string]string{
-			"protocol":  "ipsec",
-			"interface": i.connName,
-		})
-		if err == nil && resp.Success && strings.Contains(resp.Output, "ESTABLISHED") {
+		// macOS NEVPNManager: connected-state from NEVPNConnection.status.
+		// Apple's IKEv2 Personal-VPN exposes no public byte counters and
+		// no easy inner-IP accessor, so BytesRx/Tx stay 0 and LocalAddress
+		// stays empty (same limitation as the iOS IKEv2 path). The system
+		// VPN icon + System Settings show the live state.
+		if connected, vip := macosStatusNEVPN(i); connected {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
-			status.BytesRx, status.BytesTx = parseSwanctlBytes(resp.Output)
-			if vip := parseSwanctlVirtualIP(resp.Output); vip != "" {
+			if vip != "" {
 				i.localAddr = vip
 				status.LocalAddress = vip
-			}
-			// v0.9.14.90: defensive fallback for the wake-restart path.
-			// If the per-IKE-filtered query returned ESTABLISHED but
-			// zero bytes after we know traffic is flowing (the new
-			// CHILD SA's name might not exactly match cmd.Interface
-			// post-restart, or charon may report a freshly-rekeyed
-			// SA under a temporary alias), retry without the --ike
-			// filter so we sum every active CHILD SA on the daemon.
-			// Only kicks in when the filtered query showed no traffic
-			// at all — never overwrites a non-zero reading.
-			if status.BytesRx == 0 && status.BytesTx == 0 {
-				if resp2, err2 := client.SendCommand("status", map[string]string{
-					"protocol":  "ipsec",
-					"interface": "", // no --ike filter — sum everything
-				}); err2 == nil && resp2.Success &&
-					strings.Contains(resp2.Output, "ESTABLISHED") {
-					rx2, tx2 := parseSwanctlBytes(resp2.Output)
-					if rx2 > 0 || tx2 > 0 {
-						status.BytesRx = rx2
-						status.BytesTx = tx2
-					}
-				}
-			}
-			// v1.0.5.24: sticky-max so the counter never visibly goes
-			// backwards mid-session. Both the filtered + unfiltered
-			// queries can transiently return 0 (rekey, brief charon
-			// hiccup, fallback gap). User-perceived bug was "counter
-			// shows 50 MB then drops to 0 then climbs again".
-			if status.BytesRx > i.stickyMaxBytesRx {
-				i.stickyMaxBytesRx = status.BytesRx
-			} else {
-				status.BytesRx = i.stickyMaxBytesRx
-			}
-			if status.BytesTx > i.stickyMaxBytesTx {
-				i.stickyMaxBytesTx = status.BytesTx
-			} else {
-				status.BytesTx = i.stickyMaxBytesTx
 			}
 		}
 	case "windows":
@@ -480,50 +429,16 @@ func (i *IPSecProtocol) configureFromSSwan(cfg []byte) error {
 	case "linux":
 		return i.configureLinuxFromSSwan(&profile)
 	case "darwin":
-		// macOS: swanctl-via-Homebrew is the only path. The previous
-		// Apple-Stack approach (.mobileconfig + AppleScript-System-
-		// Events to drive connect) is fundamentally broken on Sequoia
-		// — Apple's security boundary forbids apps from controlling
-		// profile-installed VPNs (DTS-Forum 663468). The Mac-App-Store
-		// flavor will use NEVPNManager-cgo instead (separate build
-		// tag, follow-up tag).
-		//
-		// Pre-flight: ask the helper for the precise install state so
-		// we can surface a targeted hint ("install brew" vs "install
-		// strongswan" vs "start strongswan service") instead of the
-		// generic "swanctl not found".
-		if deps, err := CheckMacOSIPSecDependencies(); err == nil {
-			if !deps.BrewInstalled {
-				Notify(
-					"Homebrew required for IPSec",
-					"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install Homebrew first:\n\n    /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\nThen install strongSwan:\n\n    brew install strongswan\n\nReimport the profile — Privycs starts the daemon automatically.",
-					NotifyError,
-				)
-				return fmt.Errorf("Homebrew not installed — see notification for install steps")
-			}
-			if !deps.StrongswanInstalled {
-				Notify(
-					"strongSwan required for IPSec",
-					"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install via Terminal:\n\n    brew install strongswan\n\nReimport the profile afterwards — Privycs starts the daemon automatically. (Note: do NOT use `brew services start strongswan`, the formula has no service hook.)",
-					NotifyError,
-				)
-				return fmt.Errorf("strongSwan not installed — run `brew install strongswan`")
-			}
-			// charon-not-running is no longer a user-facing error: the
-			// privileged helper auto-runs `ipsec start` on demand
-			// during ipsec_configure (helperEnsureMacOSCharonRunning).
-			// We still log it so a stuck charon shows up in the helper
-			// log if the auto-start path itself fails.
-		} else if findStrongswanBinary("swanctl") == "" {
-			Notify(
-				"Homebrew strongSwan required",
-				"Privycs uses Homebrew strongSwan as the macOS IPSec backend. Install via Terminal:\n\n    brew install strongswan\n\nReimport the profile afterwards.",
-				NotifyError,
-			)
-			return fmt.Errorf("strongSwan not installed (or helper unreachable) — run `brew install strongswan`")
-		}
-		i.usingSwanctl = true
-		return i.configureMacOSFromSSwanViaSwanctl(&profile)
+		// macOS: NEVPNManager (Apple built-in IKEv2). The app creates
+		// the VPN config in-process and therefore owns it, so it can
+		// drive connect/disconnect programmatically — unlike the dead
+		// .mobileconfig+AppleScript path (DTS-Forum 663468) and without
+		// the Homebrew-strongSwan dependency the old swanctl path needed.
+		// .sswan cert + identifiers map straight onto NEVPNProtocolIKEv2
+		// (same mapping proven in the iOS port). Requires the Personal
+		// VPN entitlement (build/darwin/entitlements.plist).
+		i.usingSwanctl = false
+		return macosConfigureNEVPN(i, &profile)
 	default:
 		log.Printf("Platform %s: .sswan saved, manual configuration required", runtime.GOOS)
 		return nil
@@ -995,45 +910,15 @@ func (i *IPSecProtocol) downLinux(ctx context.Context) error {
 // ============================================================================
 
 func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
-	// macOS direct-distribution path: drive libcharon via swanctl.
-	// Configure-time already verified swanctl exists and the helper
-	// installed swanctl.conf + secrets. Pre-Up route snapshot for
-	// post-Up split-tunnel route install.
-	gw4, iface4, _ := defaultRouteIPv4()
-	gw6, _, _ := defaultRouteIPv6()
-
-	if err := i.upMacOSViaSwanctl(ctx); err != nil {
-		return err
-	}
-	i.connectedAt = time.Now()
-
-	// Post-Up split-tunnel CIDR bypass routes when the .sswan ships
-	// a split-tunneling list. charon doesn't drive route(8) for
-	// client-side bypass; we install via the helper after SA is up.
-	if len(i.splitTunneling) > 0 {
-		i.installMacOSSplitTunnelRoutes(gw4, iface4, gw6)
-	}
-	// v1.0.5.27: install default ::/0 v6 route via the utun so v6
-	// traffic actually leaves the tunnel. charon-libipsec on macOS
-	// brings the SA up (v6 vip + SPD policy) but installs NO routing
-	// entry for v6 — netstat shows no default via utun and v6 packets
-	// exit via the physical iface and fail. Done AFTER the bypass
-	// route install so any user-configured v6 bypass CIDRs are in
-	// the routing table first and BSD longest-prefix-match honors
-	// them over ::/0. Best-effort: failure leaves the tunnel up but
-	// without v6 — same as today's state, no regression.
-	i.installMacOSV6DefaultRoute()
-	return nil
+	// macOS: NEVPNManager drives the connect. Apple's IKEv2 stack
+	// installs its own routing (incl. the default route + DNS pushed
+	// in the IKE_AUTH CFG_REPLY), so the manual swanctl-era split-
+	// tunnel + v6-default-route helper calls are no longer needed.
+	return macosUpNEVPN(i, ctx)
 }
 
 func (i *IPSecProtocol) downMacOS(ctx context.Context) error {
-	// Remove bypass routes BEFORE the SA tear-down so route(8) calls
-	// still reference real interfaces. Reverse order races against
-	// the kernel SA teardown.
-	i.removeMacOSSplitTunnelRoutes()
-	err := i.downMacOSViaSwanctl(ctx)
-	i.connectedAt = time.Time{}
-	return err
+	return macosDownNEVPN(i, ctx)
 }
 
 // ============================================================================
