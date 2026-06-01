@@ -25,6 +25,7 @@ final class VPNTunnelManager: ObservableObject {
     private var activeConnectionID = ""
     private var activeProtocol: VpnProtocol?
     private var isPTPTunnel = false
+    private var onDemandEnabled = false
     /// Poll loop that pulls PTP stats from the App Group store while up.
     private var pollTask: Task<Void, Never>?
 
@@ -58,7 +59,11 @@ final class VPNTunnelManager: ObservableObject {
     /// installiert (oder reuses) ein NETunnelProviderManager-Profil,
     /// und startet den Tunnel. Wenn das active config IPSec ist,
     /// nimmt der NEVPNManager-IKEv2-Pfad statt PTP.
-    func connect(_ connection: SavedConnection) async throws {
+    /// `onDemand` = attach an NEOnDemandRule so iOS keeps the tunnel up /
+    /// auto-reconnects on network change AND shows the system On-Demand
+    /// toggle (Settings ▸ VPN ▸ (i)), like the WireGuard app. Gated by
+    /// the app's auto-tunnel master (networkRulesEnabled).
+    func connect(_ connection: SavedConnection, onDemand: Bool = false) async throws {
         guard let config = connection.protocols.first(where: { $0.id == connection.activeConfigID })
             ?? connection.protocols.first else {
             throw VPNError.noConfig
@@ -67,6 +72,7 @@ final class VPNTunnelManager: ObservableObject {
         activeConnectionID = connection.id
         activeProtocol = config.protocol
         isPTPTunnel = config.protocol != .ipsec
+        self.onDemandEnabled = onDemand
 
         if config.protocol == .ipsec {
             try await connectViaIKEv2(connection: connection, config: config)
@@ -76,17 +82,37 @@ final class VPNTunnelManager: ObservableObject {
         startPolling()
     }
 
+    /// Baseline on-demand rule set: connect on ANY interface when enabled.
+    /// The rule-aware per-SSID translation (connect/disconnect by network)
+    /// is a later batch; this is what makes the system toggle appear + the
+    /// tunnel auto-reconnect.
+    private func onDemandRuleSet() -> [NEOnDemandRule] {
+        let connectRule = NEOnDemandRuleConnect()
+        connectRule.interfaceTypeMatch = .any
+        return [connectRule]
+    }
+
     func disconnect() async {
         pollTask?.cancel()
         pollTask = nil
+        // Disable on-demand BEFORE stopping so iOS doesn't immediately
+        // reconnect the tunnel we're tearing down (the WireGuard-app
+        // behaviour: a manual disconnect turns off on-demand).
         let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         for m in managers {
+            if m.isOnDemandEnabled {
+                m.isOnDemandEnabled = false
+                try? await m.saveToPreferences()
+            }
             m.connection.stopVPNTunnel()
         }
-        // Personal-VPN (IPSec) — load + stop. loadFromPreferences returns Void;
-        // we only care it ran without throw so connection is fresh.
-        try? await NEVPNManager.shared().loadFromPreferences()
-        NEVPNManager.shared().connection.stopVPNTunnel()
+        let ike = NEVPNManager.shared()
+        try? await ike.loadFromPreferences()
+        if ike.isOnDemandEnabled {
+            ike.isOnDemandEnabled = false
+            try? await ike.saveToPreferences()
+        }
+        ike.connection.stopVPNTunnel()
         TunnelStatsStore.clear()
         activeProtocol = nil
         isPTPTunnel = false
@@ -124,6 +150,12 @@ final class VPNTunnelManager: ObservableObject {
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name
         mgr.isEnabled = true
+        if onDemandEnabled {
+            mgr.onDemandRules = onDemandRuleSet()
+            mgr.isOnDemandEnabled = true
+        } else {
+            mgr.isOnDemandEnabled = false
+        }
         try await mgr.saveToPreferences()
         try await mgr.loadFromPreferences()
         try mgr.connection.startVPNTunnel()
@@ -178,8 +210,12 @@ final class VPNTunnelManager: ObservableObject {
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name
         mgr.isEnabled = true
-        // On-demand stays off here; Session 4 wires NEOnDemandRule.
-        mgr.isOnDemandEnabled = false
+        if onDemandEnabled {
+            mgr.onDemandRules = onDemandRuleSet()
+            mgr.isOnDemandEnabled = true
+        } else {
+            mgr.isOnDemandEnabled = false
+        }
         try await mgr.saveToPreferences()
         try await mgr.loadFromPreferences()
         try mgr.connection.startVPNTunnel()

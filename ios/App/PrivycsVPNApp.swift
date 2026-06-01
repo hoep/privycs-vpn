@@ -120,7 +120,7 @@ final class AppState: ObservableObject {
             connecting = true
             defer { connecting = false }
             resetSpeedTracking()
-            do { try await tunnelManager.connect(conn) }
+            do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled) }
             catch { connectError = error.localizedDescription }
         }
     }
@@ -164,7 +164,7 @@ final class AppState: ObservableObject {
         nextRotationAt = updated.rotation?.nextRotationAt ?? 0
 
         do {
-            try await tunnelManager.connect(synthConnection(for: member, pool: updated))
+            try await tunnelManager.connect(synthConnection(for: member, pool: updated), onDemand: settings.networkRulesEnabled)
             scheduleRotationIfNeeded(updated)
         } catch {
             connectError = error.localizedDescription
@@ -221,7 +221,7 @@ final class AppState: ObservableObject {
         activePoolMember = member
         nextRotationAt = updated.rotation?.nextRotationAt ?? 0
         resetSpeedTracking()
-        try? await tunnelManager.connect(synthConnection(for: member, pool: updated))
+        try? await tunnelManager.connect(synthConnection(for: member, pool: updated), onDemand: settings.networkRulesEnabled)
     }
 
     // MARK: - Import + Gateway (Session 5)
@@ -309,7 +309,7 @@ final class AppState: ObservableObject {
                 self.connecting = true
                 defer { self.connecting = false }
                 self.resetSpeedTracking()
-                try? await self.tunnelManager.connect(conn)
+                try? await self.tunnelManager.connect(conn, onDemand: self.settings.networkRulesEnabled)
             }
 
         case .connectToPool(let id):
