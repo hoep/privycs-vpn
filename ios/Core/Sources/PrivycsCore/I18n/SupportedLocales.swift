@@ -47,6 +47,9 @@ public enum L10n {
     /// PrivycsCore-Bundle als Default — App-Layer überschreibt
     /// via String(localized: bundle:) wenn nötig.
     public static func t(_ key: String) -> String {
-        NSLocalizedString(key, bundle: .module, comment: "")
+        // Default to .main — the app target carries the xcstrings catalog.
+        // PrivycsCore Package.swift declares no resources so Bundle.module
+        // is not synthesized.
+        NSLocalizedString(key, comment: "")
     }
 }

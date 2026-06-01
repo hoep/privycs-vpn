@@ -118,8 +118,8 @@ public actor CrashReporter {
     // MARK: — install-UUID
 
     private func ensureInstallUUID() async -> String {
-        if let existing = try? await secretStore.get(KeychainKey.installUUID),
-           let existing, !existing.isEmpty {
+        if let stored = try? await secretStore.get(KeychainKey.installUUID),
+           let existing = stored, !existing.isEmpty {
             return existing
         }
         let fresh = UUID().uuidString.replacingOccurrences(of: "-", with: "")
@@ -131,12 +131,17 @@ public actor CrashReporter {
 
 #if canImport(Sentry)
     nonisolated static func redact(_ event: Event) {
-        event.message?.message = event.message?.message.map { redactString($0) }
-        event.message?.formatted = event.message?.formatted.map { redactString($0) }
+        if let msg = event.message?.message {
+            event.message?.message = redactString(msg)
+        }
+        // `formatted` is a get-only computed property derived from `message`
+        // + params — no manual redaction needed; redacting `message` propagates.
         event.exceptions?.forEach { ex in
             ex.value = redactString(ex.value)
-            ex.stacktrace?.frames?.forEach { f in
-                f.fileName = f.fileName.map { redactPath($0) }
+            ex.stacktrace?.frames.forEach { f in
+                if let path = f.fileName {
+                    f.fileName = redactPath(path)
+                }
             }
         }
         event.request = nil
