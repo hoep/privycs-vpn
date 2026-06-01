@@ -7,11 +7,15 @@ struct PoolDetailView: View {
     @State private var policy: PoolPolicy
     @State private var rotationInterval: Int = 0
     @State private var memberPickerShown = false
+    @State private var splitMode: PoolSplitTunnel.SplitTunnelMode
+    @State private var splitCidrText: String
 
     init(pool: Pool) {
         self.pool = pool
         self._policy = State(initialValue: pool.policy)
         self._rotationInterval = State(initialValue: pool.rotation?.intervalSeconds ?? 0)
+        self._splitMode = State(initialValue: pool.splitTunnel?.mode ?? .off)
+        self._splitCidrText = State(initialValue: (pool.splitTunnel?.cidrs ?? []).joined(separator: ", "))
     }
 
     var body: some View {
@@ -64,6 +68,30 @@ struct PoolDetailView: View {
                 .onChange(of: rotationInterval) { _, new in persistRotation(new) }
             }
 
+            Section {
+                Picker("Split tunnel", selection: $splitMode) {
+                    Text("Off").tag(PoolSplitTunnel.SplitTunnelMode.off)
+                    Text("Include only").tag(PoolSplitTunnel.SplitTunnelMode.includeOnly)
+                    Text("Exclude listed").tag(PoolSplitTunnel.SplitTunnelMode.excludeListed)
+                }
+                .onChange(of: splitMode) { _, _ in persistSplit() }
+                if splitMode != .off {
+                    TextField("CIDRs (comma-separated)", text: $splitCidrText, axis: .vertical)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 13, design: .monospaced))
+                        .onSubmit { persistSplit() }
+                }
+            } header: {
+                Text("Split tunnel")
+            } footer: {
+                Text(splitMode == .includeOnly
+                     ? "Only the listed networks route through the VPN."
+                     : splitMode == .excludeListed
+                       ? "All traffic routes through the VPN except the listed networks."
+                       : "All traffic routes through the VPN.")
+            }
+
             Section("Members (\(pool.members.count))") {
                 if let activeID = pool.activeMemberID.isEmpty ? nil : pool.activeMemberID,
                    let active = pool.members.first(where: { $0.id == activeID }) {
@@ -102,5 +130,18 @@ struct PoolDetailView: View {
             p.rotation = r
         }
         Task { try? await appState.poolRepo.save(p) }
+    }
+
+    private func persistSplit() {
+        var p = pool
+        let cidrs = splitCidrText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        p.splitTunnel = splitMode == .off ? nil : PoolSplitTunnel(mode: splitMode, cidrs: cidrs)
+        Task {
+            try? await appState.poolRepo.save(p)
+            appState.pools = (try? await appState.poolRepo.loadAll()) ?? appState.pools
+        }
     }
 }

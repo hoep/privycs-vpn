@@ -71,9 +71,11 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
                 try await bridge.start(providerConfig: providerConfig)
                 self.connectedAtEpoch = Int64(Date().timeIntervalSince1970)
                 self.startStatsReporting()
+                PrivycsLog.log("tunnel up — \(proto.rawValue)")
                 completionHandler(nil)
             } catch {
                 self.logger.error("PTP: bridge.start failed: \(error.localizedDescription)")
+                PrivycsLog.log("tunnel start failed (\(proto.rawValue)): \(error.localizedDescription)")
                 TunnelStatsStore.write(TunnelStatsSnapshot(
                     connected: false, protocolRaw: self.protocolRaw,
                     lastError: error.localizedDescription))
@@ -108,6 +110,7 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         logger.info("PTP stopTunnel reason=\(reason.rawValue)")
+        PrivycsLog.log("tunnel down — reason \(reason.rawValue)")
         statsTask?.cancel()
         statsTask = nil
         TunnelStatsStore.clear()

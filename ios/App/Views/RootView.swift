@@ -13,23 +13,23 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $tab) {
             ConnectionView()
-                .tabItem { Label("Connect", systemImage: "shield.checkered") }
+                .tabItem { Label("tab.connect", systemImage: "shield.checkered") }
                 .tag(Tab.connect)
 
             ConnectionsView()
-                .tabItem { Label("Configs", systemImage: "list.bullet") }
+                .tabItem { Label("tab.configs", systemImage: "list.bullet") }
                 .tag(Tab.connections)
 
             AddConnectionView()
-                .tabItem { Label("Add", systemImage: "plus.circle") }
+                .tabItem { Label("tab.add", systemImage: "plus.circle") }
                 .tag(Tab.add)
 
             SettingsView()
-                .tabItem { Label("Settings", systemImage: "gear") }
+                .tabItem { Label("tab.settings", systemImage: "gear") }
                 .tag(Tab.settings)
 
             HelpView()
-                .tabItem { Label("Help", systemImage: "questionmark.circle") }
+                .tabItem { Label("tab.help", systemImage: "questionmark.circle") }
                 .tag(Tab.help)
         }
     }

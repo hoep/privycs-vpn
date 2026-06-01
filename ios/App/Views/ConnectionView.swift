@@ -67,7 +67,7 @@ struct ConnectionView: View {
                     .frame(maxWidth: .infinity)
                 }
             }
-            .navigationTitle("Privycs VPN")
+            .navigationTitle("app.title")
             .navigationBarTitleDisplayMode(.inline)
         }
         .sheet(isPresented: $showConfigSheet) {

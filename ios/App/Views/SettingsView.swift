@@ -7,6 +7,12 @@ struct SettingsView: View {
     @State private var theme = "system"
     @State private var dnsOverride = ""
     @State private var killSwitch = true
+    @State private var appLanguage = ""
+
+    private let languages: [(code: String, label: String)] = [
+        ("", "System"), ("en", "English"), ("de", "Deutsch"),
+        ("es", "Español"), ("fr", "Français"), ("it", "Italiano"), ("pt", "Português"),
+    ]
 
     var body: some View {
         NavigationStack {
@@ -25,6 +31,13 @@ struct SettingsView: View {
                         TextField("1.1.1.1", text: $dnsOverride)
                             .multilineTextAlignment(.trailing)
                             .textInputAutocapitalization(.never)
+                            .onSubmit { persistDNS(dnsOverride) }
+                    }
+                    NavigationLink {
+                        GatewaySettingsView().environmentObject(appState)
+                    } label: {
+                        LabeledContent("Privycs Gateway",
+                            value: appState.settings.gatewayURL.isEmpty ? "Not set" : "Configured")
                     }
                 }
 
@@ -34,21 +47,29 @@ struct SettingsView: View {
                         Text("Dark").tag("dark")
                         Text("Light").tag("light")
                     }
-                    .onChange(of: theme) { _, new in
-                        persistTheme(new)
+                    .onChange(of: theme) { _, new in persistTheme(new) }
+
+                    Picker("Language", selection: $appLanguage) {
+                        ForEach(languages, id: \.code) { Text($0.label).tag($0.code) }
                     }
+                    .onChange(of: appLanguage) { _, new in persistLanguage(new) }
                 }
 
-                Section("Network Rules") {
-                    NavigationLink(destination: Text("Network Rules screen — Phase 3")) {
-                        Text("On-Demand & Network Rules")
-                    }
+                Section("Automation") {
+                    NavigationLink {
+                        NetworkRulesView().environmentObject(appState)
+                    } label: { Text("On-Demand & Network Rules") }
                 }
 
                 Section("Pro") {
-                    NavigationLink(destination: ProUpgradeView()) {
+                    NavigationLink(destination: ProUpgradeView().environmentObject(appState)) {
                         Text("Upgrade to Pro")
                     }
+                }
+
+                Section("Diagnostics") {
+                    NavigationLink { LogsView() } label: { Text("Logs") }
+                    NavigationLink { OssLicensesView() } label: { Text("Open Source Licenses") }
                 }
 
                 Section("About") {
@@ -63,8 +84,23 @@ struct SettingsView: View {
                 theme = appState.settings.theme
                 dnsOverride = appState.settings.dnsOverride
                 killSwitch = appState.settings.killSwitchEnabled
+                appLanguage = appState.settings.appLanguage
             }
         }
+    }
+
+    private func persistDNS(_ v: String) {
+        var s = appState.settings
+        s.dnsOverride = v
+        appState.settings = s
+        Task { try? await appState.settingsRepo.save(s) }
+    }
+
+    private func persistLanguage(_ v: String) {
+        var s = appState.settings
+        s.appLanguage = v
+        appState.settings = s
+        Task { try? await appState.settingsRepo.save(s) }
     }
 
     private func persistCrashReports(_ v: Bool) {
