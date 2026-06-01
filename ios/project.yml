@@ -23,7 +23,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.0.7"                  # synced with ios/latest_version.txt
-    CURRENT_PROJECT_VERSION: "21"
+    CURRENT_PROJECT_VERSION: "22"
   configs:
     Debug:
       SWIFT_OPTIMIZATION_LEVEL: -Onone
@@ -77,6 +77,9 @@ targets:
           Privycs uses your location only to read the current Wi-Fi
           name so On-Demand Network Rules can match against trusted
           SSIDs. No location coordinates are stored or transmitted.
+        NSCameraUsageDescription: >
+          Privycs uses the camera only to scan VPN-config QR codes you
+          provide. No images are stored or transmitted.
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes:
           - fetch
