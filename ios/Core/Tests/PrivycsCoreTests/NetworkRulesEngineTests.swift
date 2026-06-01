@@ -5,100 +5,79 @@ final class NetworkRulesEngineTests: XCTestCase {
     let engine = NetworkRulesEngine()
 
     func testMasterOffReturnsNoMatch() {
-        let rule = NetworkRule(
-            id: "r1",
-            match: NetworkRule.Match(networkType: .wifi),
-            action: .disconnect
-        )
+        let rule = NetworkRule(id: "r1", matchType: .networkType, matchValue: "wifi", action: .noVpn)
         let state = NetworkState(networkType: .wifi, ssid: "Home")
         let result = engine.evaluate(rules: [rule], state: state, masterEnabled: false)
         XCTAssertNil(result.matchedRule)
-        XCTAssertEqual(result.action, .keepAsIs)
     }
 
     func testFirstMatchingRuleWins() {
-        let r1 = NetworkRule(
-            id: "r1", name: "wifi any",
-            match: NetworkRule.Match(networkType: .wifi),
-            action: .connectToPool(poolID: "pool-eu")
-        )
-        let r2 = NetworkRule(
-            id: "r2", name: "always",
-            match: NetworkRule.Match(networkType: .any),
-            action: .disconnect
-        )
+        let r1 = NetworkRule(id: "r1", name: "wifi any", matchType: .networkType,
+                             matchValue: "wifi", action: .pool, targetId: "pool-eu")
+        let r2 = NetworkRule(id: "r2", name: "always", matchType: .any, action: .noVpn)
         let state = NetworkState(networkType: .wifi, ssid: "Cafe")
         let result = engine.evaluate(rules: [r1, r2], state: state, masterEnabled: true)
         XCTAssertEqual(result.matchedRule?.id, "r1")
-        XCTAssertEqual(result.action, .connectToPool(poolID: "pool-eu"))
+        XCTAssertEqual(result.matchedRule?.action, .pool)
+        XCTAssertEqual(result.matchedRule?.targetId, "pool-eu")
     }
 
-    func testSSIDOnlyMatchesListedSSID() {
-        let rule = NetworkRule(
-            id: "r1",
-            match: NetworkRule.Match(networkType: .wifi, ssidMode: .only, ssidList: ["Home", "Office"]),
-            action: .disconnect
-        )
+    func testSSIDExactMatches() {
+        let rule = NetworkRule(id: "r1", matchType: .ssidExact, matchValue: "Home", action: .noVpn)
         XCTAssertEqual(
-            engine.evaluate(
-                rules: [rule],
-                state: NetworkState(networkType: .wifi, ssid: "Home"),
-                masterEnabled: true
-            ).matchedRule?.id,
-            "r1"
-        )
+            engine.evaluate(rules: [rule],
+                            state: NetworkState(networkType: .wifi, ssid: "home"),  // case-insensitive
+                            masterEnabled: true).matchedRule?.id, "r1")
         XCTAssertNil(
-            engine.evaluate(
-                rules: [rule],
-                state: NetworkState(networkType: .wifi, ssid: "Cafe"),
-                masterEnabled: true
-            ).matchedRule
-        )
+            engine.evaluate(rules: [rule],
+                            state: NetworkState(networkType: .wifi, ssid: "Cafe"),
+                            masterEnabled: true).matchedRule)
     }
 
-    func testSSIDExceptDoesNOTMatchListedSSID() {
-        let rule = NetworkRule(
-            id: "r1",
-            match: NetworkRule.Match(networkType: .wifi, ssidMode: .except, ssidList: ["Trusted"]),
-            action: .keepAsIs
-        )
-        XCTAssertNil(
-            engine.evaluate(
-                rules: [rule],
-                state: NetworkState(networkType: .wifi, ssid: "Trusted"),
-                masterEnabled: true
-            ).matchedRule
-        )
+    func testSSIDPatternGlob() {
+        let rule = NetworkRule(id: "r1", matchType: .ssidPattern, matchValue: "Cafe*", action: .noVpn)
         XCTAssertEqual(
-            engine.evaluate(
-                rules: [rule],
-                state: NetworkState(networkType: .wifi, ssid: "Public"),
-                masterEnabled: true
-            ).matchedRule?.id,
-            "r1"
-        )
+            engine.evaluate(rules: [rule],
+                            state: NetworkState(networkType: .wifi, ssid: "Cafe-Guest"),
+                            masterEnabled: true).matchedRule?.id, "r1")
+        XCTAssertNil(
+            engine.evaluate(rules: [rule],
+                            state: NetworkState(networkType: .wifi, ssid: "Home"),
+                            masterEnabled: true).matchedRule)
+    }
+
+    func testNetworkTypeWifiMobileComposite() {
+        let rule = NetworkRule(id: "r1", matchType: .networkType, matchValue: "wifi_mobile", action: .connectActive)
+        XCTAssertNotNil(engine.evaluate(rules: [rule],
+                        state: NetworkState(networkType: .wifi), masterEnabled: true).matchedRule)
+        XCTAssertNotNil(engine.evaluate(rules: [rule],
+                        state: NetworkState(networkType: .mobile), masterEnabled: true).matchedRule)
+        XCTAssertNil(engine.evaluate(rules: [rule],
+                        state: NetworkState(networkType: .ethernet), masterEnabled: true).matchedRule)
+    }
+
+    func testBssidMatch() {
+        let rule = NetworkRule(id: "r1", matchType: .bssid, matchValue: "AA:BB:CC:DD:EE:FF", action: .noVpn)
+        XCTAssertEqual(
+            engine.evaluate(rules: [rule],
+                            state: NetworkState(networkType: .wifi, ssid: "x", bssid: "aa:bb:cc:dd:ee:ff"),
+                            masterEnabled: true).matchedRule?.id, "r1")
+        XCTAssertNil(
+            engine.evaluate(rules: [rule],
+                            state: NetworkState(networkType: .wifi, ssid: "x", bssid: ""),
+                            masterEnabled: true).matchedRule)
     }
 
     func testDisabledRuleSkipped() {
-        let rule = NetworkRule(
-            id: "r1",
-            match: NetworkRule.Match(networkType: .any),
-            action: .disconnect,
-            enabled: false
-        )
+        let rule = NetworkRule(id: "r1", matchType: .any, action: .noVpn, enabled: false)
         let state = NetworkState(networkType: .wifi, ssid: "x")
-        let result = engine.evaluate(rules: [rule], state: state, masterEnabled: true)
-        XCTAssertNil(result.matchedRule)
+        XCTAssertNil(engine.evaluate(rules: [rule], state: state, masterEnabled: true).matchedRule)
     }
 
-    func testNonWifiNetworkIgnoresSSIDMode() {
-        let rule = NetworkRule(
-            id: "r1",
-            match: NetworkRule.Match(networkType: .mobile, ssidMode: .only, ssidList: ["Home"]),
-            action: .disconnect
-        )
-        let state = NetworkState(networkType: .mobile, ssid: "")
-        let result = engine.evaluate(rules: [rule], state: state, masterEnabled: true)
-        XCTAssertEqual(result.matchedRule?.id, "r1")
+    func testAnyDoesNotMatchOffline() {
+        let rule = NetworkRule(id: "r1", matchType: .any, action: .connectActive)
+        XCTAssertNil(engine.evaluate(rules: [rule], state: .none, masterEnabled: true).matchedRule)
+        XCTAssertNotNil(engine.evaluate(rules: [rule],
+                        state: NetworkState(networkType: .mobile), masterEnabled: true).matchedRule)
     }
 }

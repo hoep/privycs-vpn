@@ -309,11 +309,9 @@ final class AppState: ObservableObject {
             state: networkState,
             masterEnabled: settings.networkRulesEnabled
         )
-        switch result.action {
-        case .keepAsIs:
-            return
-
-        case .disconnect:
+        guard let rule = result.matchedRule else { return }
+        switch rule.action {
+        case .noVpn:
             if status.connected {
                 // Rule-driven disconnect is NOT a manual disconnect — do
                 // not arm the manual cooldown (that would block the next
@@ -326,7 +324,8 @@ final class AppState: ObservableObject {
                 lastRuleTargetID = "disconnect"
             }
 
-        case .connectToConnection(let id):
+        case .connection:
+            let id = rule.targetId
             await ruleConnect(targetID: id) {
                 guard let conn = self.connections.first(where: { $0.id == id }) else { return }
                 self.selectedTargetID = id
@@ -336,11 +335,20 @@ final class AppState: ObservableObject {
                 try? await self.tunnelManager.connect(conn, onDemand: self.settings.networkRulesEnabled, dnsOverride: self.resolvedDNS(for: conn))
             }
 
-        case .connectToPool(let id):
+        case .pool:
+            let id = rule.targetId
             await ruleConnect(targetID: "pool:\(id)") {
                 guard let pool = self.pools.first(where: { $0.id == id }) else { return }
                 self.selectedTargetID = "pool:\(id)"
                 await self.connectPool(pool)
+            }
+
+        case .connectActive:
+            // Connect whatever the user currently has selected as active
+            // (not a pinned target) — Android CONNECT_ACTIVE semantics.
+            let key = selectedTargetID.isEmpty ? "active" : selectedTargetID
+            await ruleConnect(targetID: key) {
+                await self.connectSelected()
             }
         }
     }

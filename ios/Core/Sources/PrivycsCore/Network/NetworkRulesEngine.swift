@@ -8,56 +8,31 @@ public struct NetworkRulesEngine: Sendable {
 
     public init() {}
 
-    /// Ergebnis der Evaluation.
+    /// Evaluation result. `matchedRule == nil` = no rule matched → engine
+    /// takes no action (matches Android RuleResolution.NoMatch).
     public struct Result: Equatable, Sendable {
-        /// Erste matching rule, oder nil wenn keine Rule paßt.
         public let matchedRule: NetworkRule?
-        /// Die zu führende Action — entweder von der matched-rule,
-        /// oder `.keepAsIs` als Default wenn keine matched.
-        public let action: NetworkRule.Action
-
-        public static let noMatch = Result(matchedRule: nil, action: .keepAsIs)
+        public static let noMatch = Result(matchedRule: nil)
     }
 
+    /// First-match-wins in priority (list) order. Master toggle OFF = no action.
     public func evaluate(
         rules: [NetworkRule],
         state: NetworkState,
         masterEnabled: Bool
     ) -> Result {
-        if !masterEnabled {
-            // Master toggle OFF — engine takes no action regardless of
-            // matching rules. UI surfaces this as "Manual control only".
-            return .noMatch
-        }
+        if !masterEnabled { return .noMatch }
+        let nt = state.networkType.rawValue
         for rule in rules where rule.enabled {
-            if matches(rule: rule, state: state) {
-                return Result(matchedRule: rule, action: rule.action)
+            if rule.matches(networkType: nt, ssid: state.ssid, bssid: state.bssid) {
+                return Result(matchedRule: rule)
             }
         }
         return .noMatch
     }
 
     func matches(rule: NetworkRule, state: NetworkState) -> Bool {
-        let m = rule.match
-        // 1. Network-type-Gate
-        if m.networkType != .any && m.networkType != state.networkType {
-            return false
-        }
-        // 2. SSID-Gate (nur relevant bei wifi)
-        if state.networkType == .wifi {
-            switch m.ssidMode {
-            case .all:
-                return true
-            case .only:
-                if state.ssid.isEmpty { return false }
-                return m.ssidList.contains(state.ssid)
-            case .except:
-                if state.ssid.isEmpty { return true }
-                return !m.ssidList.contains(state.ssid)
-            }
-        }
-        // 3. Non-WiFi: SSID-Mode ignored
-        return true
+        rule.matches(networkType: state.networkType.rawValue, ssid: state.ssid, bssid: state.bssid)
     }
 }
 

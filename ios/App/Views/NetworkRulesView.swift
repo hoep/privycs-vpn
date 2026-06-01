@@ -63,7 +63,7 @@ struct NetworkRulesView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(ruleName(rule)).font(.body)
-                Text(actionLabel(rule.action)).font(.caption2).foregroundStyle(.secondary)
+                Text(actionLabel(rule)).font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
             Toggle("", isOn: Binding(
@@ -108,24 +108,28 @@ struct NetworkRulesView: View {
 
     private func ruleName(_ rule: NetworkRule) -> String {
         if !rule.name.isEmpty { return rule.name }
-        let m = rule.match
-        switch m.networkType {
-        case .wifi:
-            if m.ssidList.isEmpty { return "Wi-Fi (any)" }
-            return "Wi-Fi (\(m.ssidList.joined(separator: ", ")))"
-        case .mobile: return "Mobile"
-        case .ethernet: return "Ethernet"
-        case .none: return "Offline"
+        switch rule.matchType {
         case .any: return "Any network"
+        case .networkType:
+            switch rule.matchValue.lowercased() {
+            case "wifi": return "Wi-Fi"
+            case "mobile": return "Mobile"
+            case "ethernet": return "Ethernet"
+            case "wifi_mobile": return "Wi-Fi or Mobile"
+            default: return "Any (online)"
+            }
+        case .ssidExact: return "Wi-Fi “\(rule.matchValue)”"
+        case .ssidPattern: return "Wi-Fi like “\(rule.matchValue)”"
+        case .bssid: return "BSSID \(rule.matchValue)"
         }
     }
 
-    private func actionLabel(_ action: NetworkRule.Action) -> String {
-        switch action {
-        case .disconnect: return "→ Disconnect VPN"
-        case .keepAsIs: return "→ Keep as-is"
-        case .connectToConnection(let id): return "→ Connect to \(connectionName(id))"
-        case .connectToPool(let id): return "→ Activate pool \(poolName(id))"
+    private func actionLabel(_ rule: NetworkRule) -> String {
+        switch rule.action {
+        case .noVpn: return "→ Disconnect VPN"
+        case .connectActive: return "→ Connect active selection"
+        case .connection: return "→ Connect to \(connectionName(rule.targetId))"
+        case .pool: return "→ Activate pool \(poolName(rule.targetId))"
         }
     }
 

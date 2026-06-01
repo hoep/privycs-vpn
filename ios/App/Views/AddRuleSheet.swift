@@ -1,24 +1,19 @@
 import SwiftUI
 import PrivycsCore
 
-/// Modal-style Add/Edit-Sheet für eine NetworkRule.
+/// Add/Edit sheet for a NetworkRule — full parity with Android's rule
+/// editor: 5 match types (any / network-type / SSID exact / SSID glob /
+/// BSSID) and 4 actions (no-VPN / connect-active / connection / pool).
 struct AddRuleSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
     @State private var name = ""
-    @State private var networkType: NetworkRule.Match.NetworkType = .wifi
-    @State private var ssidMode: NetworkRule.Match.SSIDMode = .all
-    @State private var ssidListText = ""
-    @State private var actionPick: ActionPick = .disconnect
-    @State private var actionTargetID = ""
-
-    enum ActionPick: String, CaseIterable {
-        case disconnect = "Disconnect"
-        case keepAsIs = "Keep as-is"
-        case connectConnection = "Connect to connection"
-        case connectPool = "Activate pool"
-    }
+    @State private var matchType: RuleMatchType = .networkType
+    @State private var networkTypeValue = "wifi"     // for .networkType
+    @State private var matchValue = ""               // for ssid/bssid
+    @State private var action: RuleAction = .connectActive
+    @State private var targetID = ""
 
     var body: some View {
         NavigationStack {
@@ -27,41 +22,54 @@ struct AddRuleSheet: View {
                     TextField("Optional", text: $name)
                 }
                 Section("Match") {
-                    Picker("Network type", selection: $networkType) {
-                        Text("Any").tag(NetworkRule.Match.NetworkType.any)
-                        Text("Wi-Fi").tag(NetworkRule.Match.NetworkType.wifi)
-                        Text("Mobile").tag(NetworkRule.Match.NetworkType.mobile)
-                        Text("Ethernet").tag(NetworkRule.Match.NetworkType.ethernet)
-                        Text("Offline").tag(NetworkRule.Match.NetworkType.none)
+                    Picker("Condition", selection: $matchType) {
+                        Text("Any network").tag(RuleMatchType.any)
+                        Text("Network type").tag(RuleMatchType.networkType)
+                        Text("Wi-Fi name (exact)").tag(RuleMatchType.ssidExact)
+                        Text("Wi-Fi name (pattern)").tag(RuleMatchType.ssidPattern)
+                        Text("Wi-Fi BSSID (MAC)").tag(RuleMatchType.bssid)
                     }
-                    if networkType == .wifi {
-                        Picker("SSID", selection: $ssidMode) {
-                            Text("Any SSID").tag(NetworkRule.Match.SSIDMode.all)
-                            Text("Only listed").tag(NetworkRule.Match.SSIDMode.only)
-                            Text("Except listed").tag(NetworkRule.Match.SSIDMode.except)
+                    switch matchType {
+                    case .networkType:
+                        Picker("Type", selection: $networkTypeValue) {
+                            Text("Any (online)").tag("any")
+                            Text("Wi-Fi").tag("wifi")
+                            Text("Mobile").tag("mobile")
+                            Text("Ethernet").tag("ethernet")
+                            Text("Wi-Fi or Mobile").tag("wifi_mobile")
                         }
-                        if ssidMode != .all {
-                            TextField("SSIDs (comma-separated)", text: $ssidListText)
-                        }
+                    case .ssidExact:
+                        TextField("SSID", text: $matchValue)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    case .ssidPattern:
+                        TextField("Pattern (e.g. Cafe*)", text: $matchValue)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    case .bssid:
+                        TextField("MAC (AA:BB:CC:DD:EE:FF)", text: $matchValue)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    case .any:
+                        EmptyView()
+                    }
+                } footer: {
+                    if matchType == .ssidExact || matchType == .ssidPattern || matchType == .bssid {
+                        Text("Wi-Fi name/BSSID matching requires the Access-WiFi-Information capability; until that ships, these rules are stored but only network-type/any rules act.")
+                            .font(.caption2)
                     }
                 }
                 Section("Action") {
-                    Picker("When matched", selection: $actionPick) {
-                        ForEach(ActionPick.allCases, id: \.self) { p in
-                            Text(p.rawValue).tag(p)
-                        }
+                    Picker("When matched", selection: $action) {
+                        Text("Disconnect (no VPN)").tag(RuleAction.noVpn)
+                        Text("Connect active selection").tag(RuleAction.connectActive)
+                        Text("Connect to connection").tag(RuleAction.connection)
+                        Text("Activate pool").tag(RuleAction.pool)
                     }
-                    if actionPick == .connectConnection {
-                        Picker("Connection", selection: $actionTargetID) {
-                            ForEach(appState.connections) { c in
-                                Text(c.name).tag(c.id)
-                            }
+                    if action == .connection {
+                        Picker("Connection", selection: $targetID) {
+                            ForEach(appState.connections) { c in Text(c.name).tag(c.id) }
                         }
-                    } else if actionPick == .connectPool {
-                        Picker("Pool", selection: $actionTargetID) {
-                            ForEach(appState.pools) { p in
-                                Text(p.name).tag(p.id)
-                            }
+                    } else if action == .pool {
+                        Picker("Pool", selection: $targetID) {
+                            ForEach(appState.pools) { p in Text(p.name).tag(p.id) }
                         }
                     }
                 }
@@ -69,42 +77,34 @@ struct AddRuleSheet: View {
             .navigationTitle("New Rule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") { Task { await save() } }
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
+                ToolbarItem(placement: .topBarTrailing) { Button("Save") { Task { await save() } } }
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
             }
         }
     }
 
     private func save() async {
-        let action: NetworkRule.Action
-        switch actionPick {
-        case .disconnect: action = .disconnect
-        case .keepAsIs: action = .keepAsIs
-        case .connectConnection: action = .connectToConnection(connectionID: actionTargetID)
-        case .connectPool: action = .connectToPool(poolID: actionTargetID)
+        let value: String
+        switch matchType {
+        case .networkType: value = networkTypeValue
+        case .ssidExact, .ssidPattern, .bssid: value = matchValue.trimmingCharacters(in: .whitespaces)
+        case .any: value = ""
         }
-        let ssidList = ssidListText
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
         let rule = NetworkRule(
             id: UUID().uuidString,
-            name: name,
-            match: NetworkRule.Match(
-                networkType: networkType,
-                ssidMode: ssidMode,
-                ssidList: ssidList
-            ),
-            action: action
+            priority: appState.rules.count,
+            matchType: matchType,
+            matchValue: value,
+            action: action,
+            targetId: (action == .connection || action == .pool) ? targetID : "",
+            enabled: true,
+            name: name.trimmingCharacters(in: .whitespaces)
         )
         var rules = appState.rules
         rules.append(rule)
         appState.rules = rules
         try? await appState.rulesRepo.save(rules)
+        await appState.evaluateAndApplyRules()
         dismiss()
     }
 }

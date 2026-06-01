@@ -69,7 +69,7 @@ public actor NetworkMonitor {
         if path.status != .satisfied {
             return .none
         }
-        let networkType: NetworkRule.Match.NetworkType
+        let networkType: NetworkType
         if path.usesInterfaceType(.wifi) {
             networkType = .wifi
         } else if path.usesInterfaceType(.cellular) {

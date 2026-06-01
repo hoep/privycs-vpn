@@ -1,149 +1,147 @@
 import Foundation
 
-/// Eine einzelne Regel in der NetworkRules-Engine. Mirror der
-/// Android `NetworkRule` data class — gleiche Action+Match-Semantik.
-/// Reihenfolge in `NetworkRulesRegistry.rules` entscheidet welche
-/// Regel zuerst greift (top-down).
+/// Match type for a NetworkRule. Serialized values are byte-identical
+/// to Android `RuleMatchType` @SerialName so rules round-trip in backups.
+public enum RuleMatchType: String, Codable, CaseIterable, Hashable {
+    case ssidExact = "ssid_exact"
+    case ssidPattern = "ssid_pattern"
+    case networkType = "network_type"
+    case bssid = "bssid"
+    case any = "any"
+}
+
+/// Action a matched rule applies. Mirrors Android `RuleAction`.
+public enum RuleAction: String, Codable, CaseIterable, Hashable {
+    /// Disconnect if connected — the "trusted network" pattern.
+    case noVpn = "no_vpn"
+    /// Switch to the pool with id = targetId.
+    case pool = "pool"
+    /// Switch to the single connection with id = targetId.
+    case connection = "connection"
+    /// Connect whatever the user currently has selected as active
+    /// (not a pinned target).
+    case connectActive = "connect_active"
+}
+
+/// Live network transport class. rawValues match the strings Android's
+/// NetworkRule.matches expects.
+public enum NetworkType: String, Codable, CaseIterable, Hashable {
+    case any, wifi, mobile, ethernet, none
+}
+
+/// Per-network auto-tunnel routing rule — field-for-field port of the
+/// Android `NetworkRule` data class. The engine walks the list in
+/// priority order on every network event; the first matching rule wins.
 public struct NetworkRule: Codable, Identifiable, Equatable, Hashable {
     public let id: String
-    /// User-Display-Name. "" = automatisch aus Match-Bedingung
-    /// generiert (e.g. "WiFi \"Home\"" oder "Mobile").
-    public var name: String
-    /// Match-Bedingung: welche Netzwerk-Situation matcht diese Regel?
-    public var match: Match
-    /// Was tun wenn match? Connect-to-X / Disconnect / KeepAsIs.
-    public var action: Action
-    /// True = aktiv, False = vom User deaktiviert (nicht gelöscht).
+    public var priority: Int
+    public var matchType: RuleMatchType
+    public var matchValue: String
+    public var action: RuleAction
+    /// Target pool/connection id for `.pool` / `.connection` actions.
+    public var targetId: String
     public var enabled: Bool
+    public var name: String
 
     public init(
         id: String,
-        name: String = "",
-        match: Match,
-        action: Action,
-        enabled: Bool = true
+        priority: Int = 0,
+        matchType: RuleMatchType,
+        matchValue: String = "",
+        action: RuleAction,
+        targetId: String = "",
+        enabled: Bool = true,
+        name: String = ""
     ) {
         self.id = id
-        self.name = name
-        self.match = match
+        self.priority = priority
+        self.matchType = matchType
+        self.matchValue = matchValue
         self.action = action
+        self.targetId = targetId
         self.enabled = enabled
+        self.name = name
     }
 
-    /// Network-Situation gegen die gematcht wird.
-    public struct Match: Codable, Equatable, Hashable {
-        /// Netzwerk-Typ. "any" = jeder.
-        public var networkType: NetworkType
-        /// SSID-Matching. Nur relevant wenn networkType == wifi.
-        public var ssidMode: SSIDMode
-        /// SSID-Liste — Semantik abhängig von ssidMode.
-        public var ssidList: [String]
+    private enum CodingKeys: String, CodingKey {
+        case id, priority, action, enabled, name
+        case matchType = "match_type"
+        case matchValue = "match_value"
+        case targetId = "target_id"
+    }
 
-        public init(
-            networkType: NetworkType = .any,
-            ssidMode: SSIDMode = .all,
-            ssidList: [String] = []
-        ) {
-            self.networkType = networkType
-            self.ssidMode = ssidMode
-            self.ssidList = ssidList
-        }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        priority = try c.decodeIfPresent(Int.self, forKey: .priority) ?? 0
+        matchType = try c.decode(RuleMatchType.self, forKey: .matchType)
+        matchValue = try c.decodeIfPresent(String.self, forKey: .matchValue) ?? ""
+        action = try c.decode(RuleAction.self, forKey: .action)
+        targetId = try c.decodeIfPresent(String.self, forKey: .targetId) ?? ""
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+    }
 
-        public enum NetworkType: String, Codable, CaseIterable, Hashable {
-            case any
-            case wifi
-            case mobile
-            case ethernet
-            case none
-        }
-
-        public enum SSIDMode: String, Codable, CaseIterable, Hashable {
-            /// Jede SSID matcht (ssidList ignored).
-            case all
-            /// Nur SSIDs aus ssidList matchen.
-            case only
-            /// Alle SSIDs außer denen aus ssidList matchen.
-            case except
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case networkType = "network_type"
-            case ssidMode = "ssid_mode"
-            case ssidList = "ssid_list"
+    /// True if this rule matches the supplied network state. `networkType`
+    /// is one of "wifi"/"mobile"/"ethernet"/"none". Ported 1:1 from
+    /// Android NetworkRule.matches.
+    public func matches(networkType: String, ssid: String, bssid: String) -> Bool {
+        if !enabled { return false }
+        switch matchType {
+        case .ssidExact:
+            return networkType == "wifi" && ssid.caseInsensitiveCompare(matchValue) == .orderedSame
+        case .ssidPattern:
+            return networkType == "wifi" && !ssid.isEmpty && Self.globMatches(matchValue, ssid)
+        case .networkType:
+            switch matchValue.lowercased() {
+            case "any": return networkType != "none"
+            case "wifi": return networkType == "wifi"
+            case "mobile": return networkType == "mobile"
+            case "ethernet": return networkType == "ethernet"
+            case "wifi_mobile": return networkType == "wifi" || networkType == "mobile"
+            default: return false
+            }
+        case .bssid:
+            return networkType == "wifi" && !bssid.isEmpty && bssid.caseInsensitiveCompare(matchValue) == .orderedSame
+        case .any:
+            return networkType != "none"
         }
     }
 
-    /// Was tun wenn die Regel matcht.
-    public enum Action: Codable, Equatable, Hashable {
-        /// VPN trennen (oder verbunden lassen falls schon disconnected).
-        case disconnect
-        /// Aktuellen Zustand beibehalten — passt nichts an, übergibt
-        /// an die nächste matching Rule oder Default-Behaviour.
-        case keepAsIs
-        /// Eine bestimmte Verbindung connecten.
-        case connectToConnection(connectionID: String)
-        /// Einen bestimmten Pool aktivieren.
-        case connectToPool(poolID: String)
-
-        // Custom Codable: action ist tagged-union mit type+value.
-        private enum CodingKeys: String, CodingKey {
-            case type
-            case value
-        }
-
-        public init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            let type = try c.decode(String.self, forKey: .type)
-            switch type {
-            case "disconnect":
-                self = .disconnect
-            case "keep_as_is":
-                self = .keepAsIs
-            case "connect_to_connection":
-                let id = try c.decode(String.self, forKey: .value)
-                self = .connectToConnection(connectionID: id)
-            case "connect_to_pool":
-                let id = try c.decode(String.self, forKey: .value)
-                self = .connectToPool(poolID: id)
-            default:
-                throw DecodingError.dataCorrupted(.init(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Unknown NetworkRule.Action type: \(type)"
-                ))
+    /// Glob match: '*' = any substring, '?' = single char. Case-insensitive.
+    /// Mirrors Android NetworkRule.globMatches (literal-with-wildcards).
+    static func globMatches(_ pattern: String, _ input: String) -> Bool {
+        var regex = "^"
+        for ch in pattern {
+            switch ch {
+            case "*": regex += ".*"
+            case "?": regex += "."
+            case "\\", ".", "[", "]", "(", ")", "{", "}", "+", "|", "^", "$":
+                regex += "\\" + String(ch)
+            default: regex += String(ch)
             }
         }
-
-        public func encode(to encoder: Encoder) throws {
-            var c = encoder.container(keyedBy: CodingKeys.self)
-            switch self {
-            case .disconnect:
-                try c.encode("disconnect", forKey: .type)
-            case .keepAsIs:
-                try c.encode("keep_as_is", forKey: .type)
-            case .connectToConnection(let id):
-                try c.encode("connect_to_connection", forKey: .type)
-                try c.encode(id, forKey: .value)
-            case .connectToPool(let id):
-                try c.encode("connect_to_pool", forKey: .type)
-                try c.encode(id, forKey: .value)
-            }
-        }
+        regex += "$"
+        return input.range(of: regex, options: [.regularExpression, .caseInsensitive]) != nil
     }
 }
 
-/// Live-Snapshot der aktuellen Netzwerk-Situation für die
-/// Rules-Engine. Vom NetworkMonitor periodisch produziert.
+/// Live snapshot of the current network situation for the rules engine.
+/// Produced by NetworkMonitor.
 public struct NetworkState: Equatable, Hashable, Sendable {
-    public let networkType: NetworkRule.Match.NetworkType
-    /// SSID — leer wenn nicht WiFi oder wenn Location-Permission
-    /// nicht erteilt (iOS gibt SSID nur mit Permission + im
-    /// Foreground frei).
+    public let networkType: NetworkType
+    /// SSID — empty when not Wi-Fi or when the Access-WiFi-Information
+    /// entitlement / location permission isn't granted (iOS gates SSID).
     public let ssid: String
+    /// BSSID (access-point MAC) — empty unless the WiFi-info entitlement
+    /// is present and resolved.
+    public let bssid: String
 
-    public init(networkType: NetworkRule.Match.NetworkType, ssid: String) {
+    public init(networkType: NetworkType, ssid: String = "", bssid: String = "") {
         self.networkType = networkType
         self.ssid = ssid
+        self.bssid = bssid
     }
 
-    public static let none = NetworkState(networkType: .none, ssid: "")
+    public static let none = NetworkState(networkType: .none)
 }

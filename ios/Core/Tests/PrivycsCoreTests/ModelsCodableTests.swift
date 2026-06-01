@@ -47,24 +47,24 @@ final class ModelsCodableTests: XCTestCase {
         XCTAssertFalse(json.contains("\"activeConfigID\""), "camelCase key leaked: \(json)")
     }
 
-    func testNetworkRuleActionTaggedUnionRoundTrip() throws {
-        let cases: [NetworkRule.Action] = [
-            .disconnect,
-            .keepAsIs,
-            .connectToConnection(connectionID: "conn-42"),
-            .connectToPool(poolID: "pool-99"),
+    func testNetworkRuleRoundTrip() throws {
+        let rules: [NetworkRule] = [
+            NetworkRule(id: "r1", priority: 0, matchType: .any, action: .noVpn),
+            NetworkRule(id: "r2", priority: 1, matchType: .networkType, matchValue: "wifi_mobile", action: .connectActive),
+            NetworkRule(id: "r3", priority: 2, matchType: .ssidPattern, matchValue: "Cafe*", action: .connection, targetId: "conn-42", name: "cafes"),
+            NetworkRule(id: "r4", priority: 3, matchType: .bssid, matchValue: "AA:BB:CC:DD:EE:FF", action: .pool, targetId: "pool-99"),
         ]
-        for action in cases {
-            let rule = NetworkRule(
-                id: "r1",
-                name: "test",
-                match: NetworkRule.Match(networkType: .wifi, ssidMode: .all, ssidList: []),
-                action: action
-            )
+        for rule in rules {
             let data = try JSONEncoder().encode(rule)
             let decoded = try JSONDecoder().decode(NetworkRule.self, from: data)
-            XCTAssertEqual(decoded.action, action, "Round-trip mismatch for action: \(action)")
+            XCTAssertEqual(decoded, rule, "Round-trip mismatch for rule: \(rule.id)")
         }
+        // Wire-key check: the Android @SerialName keys must be present.
+        let data = try JSONEncoder().encode(rules[2])
+        let json = String(data: data, encoding: .utf8) ?? ""
+        XCTAssertTrue(json.contains("\"match_type\""))
+        XCTAssertTrue(json.contains("\"match_value\""))
+        XCTAssertTrue(json.contains("\"target_id\""))
     }
 
     func testPoolRoundTrip() throws {
