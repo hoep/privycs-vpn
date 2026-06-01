@@ -8,6 +8,7 @@ tied to a single provider.
 [![Latest release](https://img.shields.io/github/v/release/hoep/privycs-vpn?label=release&color=3DDC84)](https://github.com/hoep/privycs-vpn/releases/latest)
 [![Android CI](https://img.shields.io/github/actions/workflow/status/hoep/privycs-vpn/android-release.yml?label=Android%20build)](https://github.com/hoep/privycs-vpn/actions/workflows/android-release.yml)
 [![Desktop CI](https://img.shields.io/github/actions/workflow/status/hoep/privycs-vpn/desktop-release.yml?label=Desktop%20build)](https://github.com/hoep/privycs-vpn/actions/workflows/desktop-release.yml)
+[![iOS CI](https://img.shields.io/github/actions/workflow/status/hoep/privycs-vpn/ios-release.yml?label=iOS%20build)](https://github.com/hoep/privycs-vpn/actions/workflows/ios-release.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange)](LICENSE)
 
 <p align="center">

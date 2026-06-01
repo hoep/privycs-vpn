@@ -92,6 +92,7 @@ jobs:
             -project PrivycsVPN.xcodeproj \
             -scheme PrivycsVPN \
             -configuration Release \
+            -destination 'generic/platform=iOS' \
             -archivePath build/PrivycsVPN.xcarchive \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
             CODE_SIGN_STYLE=Manual \
