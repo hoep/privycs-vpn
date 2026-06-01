@@ -4,6 +4,13 @@ import PrivycsCore
 import os
 #if canImport(OpenVPNAdapter)
 import OpenVPNAdapter
+
+/// NEPacketTunnelFlow has the same two methods as the Objective-C
+/// protocol `OpenVPNAdapterPacketFlow` (read/write packets) — declaring
+/// the conformance here lets the adapter consume `provider.packetFlow`
+/// directly without a wrapper. This is the canonical hookup from the
+/// OpenVPNAdapter README.
+extension NEPacketTunnelFlow: OpenVPNAdapterPacketFlow {}
 #endif
 
 /// OpenVPN packet tunnel bridge via OpenVPNAdapter (Apache 2 via
