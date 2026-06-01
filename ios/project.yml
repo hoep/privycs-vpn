@@ -23,7 +23,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.0.7"                  # synced with ios/latest_version.txt
-    CURRENT_PROJECT_VERSION: "20"
+    CURRENT_PROJECT_VERSION: "21"
   configs:
     Debug:
       SWIFT_OPTIMIZATION_LEVEL: -Onone
@@ -146,6 +146,11 @@ targets:
         product: WireGuardKit
       - package: OpenVPNAdapter
         product: OpenVPNAdapter
+      # OpenVPNAdapter's openvpn::Reachability code uses
+      # SCNetworkReachability* APIs from SystemConfiguration. The
+      # upstream Package.swift doesn't declare this link, so we
+      # add it here at the Tunnel target level.
+      - sdk: SystemConfiguration.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.privycs.vpn.tunnel
