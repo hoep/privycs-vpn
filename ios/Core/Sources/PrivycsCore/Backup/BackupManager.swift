@@ -122,8 +122,8 @@ public enum BackupManager {
         let keyBytes = PBKDF2.deriveSHA256(password: password, salt: [UInt8](salt),
                                            iterations: iterations, keyLength: 32)
         let key = SymmetricKey(data: keyBytes)
-        let ct = blob.prefix(blob.count - tagLen)
-        let tag = blob.suffix(tagLen)
+        let ct = Data(blob.prefix(blob.count - tagLen))
+        let tag = Data(blob.suffix(tagLen))
         let plaintext: Data
         do {
             let box = try AES.GCM.SealedBox(nonce: try AES.GCM.Nonce(data: iv),
