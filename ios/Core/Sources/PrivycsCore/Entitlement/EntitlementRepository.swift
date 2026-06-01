@@ -40,7 +40,7 @@ public actor EntitlementRepository {
         }
         self.userDefaults = suite
         self.secretStore = secretStore ?? KeychainSecretStore(appGroup: appGroup)
-        self.licenseVerifier = licenseVerifier ?? (try? LicenseVerifier())!
+        self.licenseVerifier = licenseVerifier ?? LicenseVerifier()
     }
 
     /// Lädt persistierten State. Falls eine License-Key im Keychain
