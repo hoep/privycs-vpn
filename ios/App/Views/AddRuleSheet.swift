@@ -21,7 +21,7 @@ struct AddRuleSheet: View {
                 Section("Name") {
                     TextField("Optional", text: $name)
                 }
-                Section("Match") {
+                Section {
                     Picker("Condition", selection: $matchType) {
                         Text("Any network").tag(RuleMatchType.any)
                         Text("Network type").tag(RuleMatchType.networkType)
@@ -50,6 +50,8 @@ struct AddRuleSheet: View {
                     case .any:
                         EmptyView()
                     }
+                } header: {
+                    Text("Match")
                 } footer: {
                     if matchType == .ssidExact || matchType == .ssidPattern || matchType == .bssid {
                         Text("Wi-Fi name/BSSID matching requires the Access-WiFi-Information capability; until that ships, these rules are stored but only network-type/any rules act.")
