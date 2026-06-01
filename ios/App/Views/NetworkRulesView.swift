@@ -7,6 +7,7 @@ import PrivycsCore
 struct NetworkRulesView: View {
     @EnvironmentObject private var appState: AppState
     @State private var masterEnabled = true
+    @State private var showAddRule = false
 
     var body: some View {
         List {
@@ -17,6 +18,8 @@ struct NetworkRulesView: View {
                             var s = appState.settings
                             s.networkRulesEnabled = new
                             try? await appState.settingsRepo.save(s)
+                            appState.settings = s
+                            await appState.evaluateAndApplyRules()
                         }
                     }
             } footer: {
@@ -42,16 +45,43 @@ struct NetworkRulesView: View {
             }
         }
         .navigationTitle("On-Demand & Network Rules")
-        .toolbar { EditButton() }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) { EditButton() }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showAddRule = true } label: { Image(systemName: "plus") }
+            }
+        }
+        .sheet(isPresented: $showAddRule) {
+            AddRuleSheet().environmentObject(appState)
+        }
         .task {
             masterEnabled = appState.settings.networkRulesEnabled
         }
     }
 
     private func ruleRow(_ rule: NetworkRule) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(ruleName(rule)).font(.body)
-            Text(actionLabel(rule.action)).font(.caption2).foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ruleName(rule)).font(.body)
+                Text(actionLabel(rule.action)).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { rule.enabled },
+                set: { newVal in toggleRule(rule, enabled: newVal) }
+            ))
+            .labelsHidden()
+        }
+    }
+
+    private func toggleRule(_ rule: NetworkRule, enabled: Bool) {
+        var rules = appState.rules
+        guard let idx = rules.firstIndex(where: { $0.id == rule.id }) else { return }
+        rules[idx].enabled = enabled
+        appState.rules = rules
+        Task {
+            try? await appState.rulesRepo.save(rules)
+            await appState.evaluateAndApplyRules()
         }
     }
 

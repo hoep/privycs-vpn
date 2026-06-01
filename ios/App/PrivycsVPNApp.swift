@@ -53,6 +53,13 @@ final class AppState: ObservableObject {
     @Published var nextRotationAt: Int64 = 0
     private var rotationTimer: Task<Void, Never>?
     private let rotator = PoolRotator()
+    private let rulesEngine = NetworkRulesEngine()
+    /// Suppress rule-driven auto-connect after an explicit user
+    /// disconnect (mirrors Android's 30s manual-disconnect cooldown).
+    private var manualDisconnectUntil: Date?
+    /// Last rule-driven target we acted on, to avoid re-firing the same
+    /// connect every network tick.
+    private var lastRuleTargetID: String?
 
     // Live throughput derived from successive status byte samples.
     @Published var rxSpeed: Double = 0       // bytes/sec
@@ -121,6 +128,8 @@ final class AppState: ObservableObject {
     func disconnect() async {
         connecting = true
         defer { connecting = false }
+        manualDisconnectUntil = Date().addingTimeInterval(30)
+        lastRuleTargetID = nil
         rotationTimer?.cancel(); rotationTimer = nil
         await tunnelManager.disconnect()
         await poolRepo.setActivePoolID("")
@@ -215,6 +224,65 @@ final class AppState: ObservableObject {
         try? await tunnelManager.connect(synthConnection(for: member, pool: updated))
     }
 
+    // MARK: - Network-rules executor (Session 4)
+
+    /// Evaluate the rules against the current network and ACT — this is
+    /// what makes the engine output live (was previously computed for
+    /// display only). Honors the master toggle + manual-disconnect
+    /// cooldown, and de-dupes so the same connect doesn't re-fire on
+    /// every network tick.
+    func evaluateAndApplyRules() async {
+        let result = rulesEngine.evaluate(
+            rules: rules,
+            state: networkState,
+            masterEnabled: settings.networkRulesEnabled
+        )
+        switch result.action {
+        case .keepAsIs:
+            return
+
+        case .disconnect:
+            if status.connected {
+                // Rule-driven disconnect is NOT a manual disconnect — do
+                // not arm the manual cooldown (that would block the next
+                // rule connect). Disconnect directly.
+                rotationTimer?.cancel(); rotationTimer = nil
+                await tunnelManager.disconnect()
+                await poolRepo.setActivePoolID("")
+                activePool = nil; activePoolMember = nil; nextRotationAt = 0
+                resetSpeedTracking()
+                lastRuleTargetID = "disconnect"
+            }
+
+        case .connectToConnection(let id):
+            await ruleConnect(targetID: id) {
+                guard let conn = self.connections.first(where: { $0.id == id }) else { return }
+                self.selectedTargetID = id
+                self.connecting = true
+                defer { self.connecting = false }
+                self.resetSpeedTracking()
+                try? await self.tunnelManager.connect(conn)
+            }
+
+        case .connectToPool(let id):
+            await ruleConnect(targetID: "pool:\(id)") {
+                guard let pool = self.pools.first(where: { $0.id == id }) else { return }
+                self.selectedTargetID = "pool:\(id)"
+                await self.connectPool(pool)
+            }
+        }
+    }
+
+    /// Shared guard for rule-driven connects: respect manual cooldown +
+    /// don't re-fire the same target that's already active.
+    private func ruleConnect(targetID: String, _ body: () async -> Void) async {
+        if let until = manualDisconnectUntil, Date() < until { return }
+        if status.connected && status.connectionID == targetID { return }
+        if lastRuleTargetID == targetID && status.connected { return }
+        lastRuleTargetID = targetID
+        await body()
+    }
+
     private func resetSpeedTracking() {
         rxSpeed = 0; txSpeed = 0
         rxHistory = []; txHistory = []
@@ -281,6 +349,7 @@ final class AppState: ObservableObject {
         Task {
             for await ns in await networkMonitor.observe() {
                 self.networkState = ns
+                await self.evaluateAndApplyRules()
             }
         }
         Task {
