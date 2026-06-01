@@ -1,6 +1,9 @@
 #if canImport(Network)
 import Foundation
 import Network
+#if os(iOS)
+import NetworkExtension   // NEHotspotNetwork.fetchCurrent — needs Access-WiFi-Information
+#endif
 
 /// Live Netzwerk-State-Observer via NWPathMonitor. Produziert
 /// `NetworkState` snapshots in einem AsyncStream. Mirror der
@@ -33,7 +36,7 @@ public actor NetworkMonitor {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
             let state = NetworkMonitor.toState(path)
-            Task { await self.publish(state) }
+            Task { await self.publishEnriched(state) }
         }
         monitor.start(queue: queue)
     }
@@ -85,6 +88,28 @@ public actor NetworkMonitor {
         // ohne SSID, das ist OK weil iOS' OnDemandRule-Mechanismus
         // SSID-aware ist und parallel läuft.
         return NetworkState(networkType: networkType, ssid: "")
+    }
+
+    /// Enrich a Wi-Fi state with SSID/BSSID (Access-WiFi-Information +
+    /// foreground required on iOS) before publishing. Non-Wi-Fi states
+    /// publish as-is. This makes SSID_EXACT / SSID_PATTERN / BSSID rules
+    /// actually match (Android parity).
+    private func publishEnriched(_ base: NetworkState) async {
+        guard base.networkType == .wifi else { publish(base); return }
+        let wifi = await NetworkMonitor.fetchWifi()
+        publish(NetworkState(networkType: .wifi, ssid: wifi.ssid, bssid: wifi.bssid))
+    }
+
+    static func fetchWifi() async -> (ssid: String, bssid: String) {
+        #if os(iOS)
+        return await withCheckedContinuation { (cont: CheckedContinuation<(ssid: String, bssid: String), Never>) in
+            NEHotspotNetwork.fetchCurrent { net in
+                cont.resume(returning: (net?.ssid ?? "", net?.bssid ?? ""))
+            }
+        }
+        #else
+        return ("", "")
+        #endif
     }
 
     // MARK: — Private continuation registry

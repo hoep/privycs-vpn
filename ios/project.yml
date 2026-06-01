@@ -114,6 +114,7 @@ targets:
           - $(AppIdentifierPrefix)com.privycs.vpn
         com.apple.developer.networking.vpn.api:
           - allow-vpn
+        com.apple.developer.networking.wifi-info: true
     dependencies:
       - package: PrivycsCore
       # - package: Sentry        # temporarily removed, see packages: comment
