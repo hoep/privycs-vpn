@@ -28,6 +28,15 @@ public struct SavedConnection: Codable, Identifiable, Equatable, Hashable {
     /// Last time the connection was successfully established.
     /// Nil = never connected.
     public var lastConnectedAt: Date?
+    /// Legacy/compat: active protocol enum. Authoritative pick is
+    /// `activeConfigID`; this mirrors Android's `activeProtocol` field so
+    /// cross-platform backup round-trips without dropping it. Nil = derive
+    /// from activeConfigID.
+    public var activeProtocol: VpnProtocol?
+    /// RFC3339 creation timestamp (Android `created_at`). "" = unknown.
+    public var createdAt: String
+    /// Favorite flag (Android `is_favorite`).
+    public var isFavorite: Bool
 
     public init(
         id: String,
@@ -37,7 +46,10 @@ public struct SavedConnection: Codable, Identifiable, Equatable, Hashable {
         protocolFailoverOrder: [VpnProtocol] = [],
         dnsOverride: String = "",
         verified: Bool = false,
-        lastConnectedAt: Date? = nil
+        lastConnectedAt: Date? = nil,
+        activeProtocol: VpnProtocol? = nil,
+        createdAt: String = "",
+        isFavorite: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -47,6 +59,9 @@ public struct SavedConnection: Codable, Identifiable, Equatable, Hashable {
         self.dnsOverride = dnsOverride
         self.verified = verified
         self.lastConnectedAt = lastConnectedAt
+        self.activeProtocol = activeProtocol
+        self.createdAt = createdAt
+        self.isFavorite = isFavorite
     }
 
     // JSON keys match Android/Desktop wire format (snake_case).
@@ -59,6 +74,24 @@ public struct SavedConnection: Codable, Identifiable, Equatable, Hashable {
         case dnsOverride = "dns_override"
         case verified
         case lastConnectedAt = "last_connected_at"
+        case activeProtocol = "active_protocol"
+        case createdAt = "created_at"
+        case isFavorite = "is_favorite"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        protocols = try c.decode([ProtocolConfig].self, forKey: .protocols)
+        activeConfigID = try c.decodeIfPresent(String.self, forKey: .activeConfigID) ?? ""
+        protocolFailoverOrder = try c.decodeIfPresent([VpnProtocol].self, forKey: .protocolFailoverOrder) ?? []
+        dnsOverride = try c.decodeIfPresent(String.self, forKey: .dnsOverride) ?? ""
+        verified = try c.decodeIfPresent(Bool.self, forKey: .verified) ?? false
+        lastConnectedAt = try c.decodeIfPresent(Date.self, forKey: .lastConnectedAt)
+        activeProtocol = try c.decodeIfPresent(VpnProtocol.self, forKey: .activeProtocol)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+        isFavorite = try c.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
     }
 }
 
@@ -80,6 +113,12 @@ public struct ProtocolConfig: Codable, Identifiable, Equatable, Hashable {
     public var configContent: String
     /// Parsed remote endpoint. `host:port` form (IPv6 in brackets).
     public var serverAddress: String
+    /// Inner/tunnel IP cached from the last successful connect (Android
+    /// `local_address`). "" = unknown. Surfaced as "VPN IP" in the UI.
+    public var localAddress: String
+    /// RFC3339 timestamp this config was added (Android `added_at`).
+    /// Drives stable multi-config ordering. "" = unknown.
+    public var addedAt: String
 
     public init(
         id: String,
@@ -87,7 +126,9 @@ public struct ProtocolConfig: Codable, Identifiable, Equatable, Hashable {
         filename: String,
         nickname: String = "",
         configContent: String = "",
-        serverAddress: String = ""
+        serverAddress: String = "",
+        localAddress: String = "",
+        addedAt: String = ""
     ) {
         self.id = id
         self.protocol = `protocol`
@@ -95,6 +136,8 @@ public struct ProtocolConfig: Codable, Identifiable, Equatable, Hashable {
         self.nickname = nickname
         self.configContent = configContent
         self.serverAddress = serverAddress
+        self.localAddress = localAddress
+        self.addedAt = addedAt
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -104,6 +147,24 @@ public struct ProtocolConfig: Codable, Identifiable, Equatable, Hashable {
         case nickname
         case configContent = "config_content"
         case serverAddress = "server_address"
+        case localAddress = "local_address"
+        case addedAt = "added_at"
+    }
+
+    // Tolerant decoder — Swift's synthesized decoder THROWS on missing
+    // keys (it ignores default values), which would break loading older
+    // iOS data or Android backups lacking the newer optional keys. All
+    // non-identity fields fall back to their defaults when absent.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        `protocol` = try c.decode(VpnProtocol.self, forKey: .protocol)
+        filename = try c.decodeIfPresent(String.self, forKey: .filename) ?? ""
+        nickname = try c.decodeIfPresent(String.self, forKey: .nickname) ?? ""
+        configContent = try c.decodeIfPresent(String.self, forKey: .configContent) ?? ""
+        serverAddress = try c.decodeIfPresent(String.self, forKey: .serverAddress) ?? ""
+        localAddress = try c.decodeIfPresent(String.self, forKey: .localAddress) ?? ""
+        addedAt = try c.decodeIfPresent(String.self, forKey: .addedAt) ?? ""
     }
 }
 
