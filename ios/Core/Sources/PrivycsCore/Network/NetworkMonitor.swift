@@ -1,9 +1,9 @@
 #if canImport(Network)
 import Foundation
 import Network
-#if os(iOS)
-import NetworkExtension   // NEHotspotNetwork.fetchCurrent — needs Access-WiFi-Information
-#endif
+// NOTE: NEHotspotNetwork (SSID/BSSID) lives in WiFiInfo.swift — importing
+// NetworkExtension here makes Network's NWPath/NWInterface ambiguous because
+// NetworkExtension re-exports Network.
 
 /// Live Netzwerk-State-Observer via NWPathMonitor. Produziert
 /// `NetworkState` snapshots in einem AsyncStream. Mirror der
@@ -96,20 +96,8 @@ public actor NetworkMonitor {
     /// actually match (Android parity).
     private func publishEnriched(_ base: NetworkState) async {
         guard base.networkType == .wifi else { publish(base); return }
-        let wifi = await NetworkMonitor.fetchWifi()
+        let wifi = await WiFiInfo.current()
         publish(NetworkState(networkType: .wifi, ssid: wifi.ssid, bssid: wifi.bssid))
-    }
-
-    static func fetchWifi() async -> (ssid: String, bssid: String) {
-        #if os(iOS)
-        return await withCheckedContinuation { (cont: CheckedContinuation<(ssid: String, bssid: String), Never>) in
-            NEHotspotNetwork.fetchCurrent { net in
-                cont.resume(returning: (net?.ssid ?? "", net?.bssid ?? ""))
-            }
-        }
-        #else
-        return ("", "")
-        #endif
     }
 
     // MARK: — Private continuation registry
