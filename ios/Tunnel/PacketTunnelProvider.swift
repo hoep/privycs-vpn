@@ -64,7 +64,7 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
         activeBridge = bridge
-        protocolRaw = proto.rawValue
+        self.protocolRaw = proto.rawValue
 
         Task {
             do {
