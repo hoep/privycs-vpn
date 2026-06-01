@@ -39,6 +39,8 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.ios_changed == 'true'
     runs-on: macos-15
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -61,7 +63,7 @@ jobs:
       - name: Decode signing certificate
         env:
           P12_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERT_P12_BASE64 }}
-          P12_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERT_PASSWORD }}
+          P12_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERT_P12_PASSWORD }}
         run: |
           mkdir -p ~/keychain
           echo "$P12_BASE64" | base64 -d > ~/keychain/dist.p12
@@ -113,6 +115,13 @@ jobs:
             -exportOptionsPlist ExportOptions.plist \
             -exportPath build/IPA
 
+      - name: Rename IPA + generate checksum
+        run: |
+          cd ios/build/IPA
+          VERSION="${{ needs.check-changes.outputs.version }}"
+          mv PrivycsVPN.ipa "privycs-vpn-ios-${VERSION}.ipa"
+          shasum -a 256 "privycs-vpn-ios-${VERSION}.ipa" > "privycs-vpn-ios-${VERSION}.ipa.sha256"
+
       - name: Upload to TestFlight
         env:
           NOTARY_KEY_B64: ${{ secrets.APPLE_NOTARY_API_KEY_BASE64 }}
@@ -121,14 +130,122 @@ jobs:
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$NOTARY_KEY_B64" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_$NOTARY_KEY_ID.p8
+          VERSION="${{ needs.check-changes.outputs.version }}"
           xcrun altool --upload-app \
-            -f ios/build/IPA/PrivycsVPN.ipa \
+            -f "ios/build/IPA/privycs-vpn-ios-${VERSION}.ipa" \
             -t ios \
             --apiKey "$NOTARY_KEY_ID" \
             --apiIssuer "$NOTARY_ISSUER_ID"
 
-      - name: Upload artefacts
+      - name: Upload workflow artefact
         uses: actions/upload-artifact@v4
         with:
           name: ios-${{ needs.check-changes.outputs.version }}
-          path: ios/build/IPA/*.ipa
+          path: |
+            ios/build/IPA/*.ipa
+            ios/build/IPA/*.ipa.sha256
+
+      - name: Attach IPA to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Privycs VPN ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            ios/build/IPA/*.ipa
+            ios/build/IPA/*.ipa.sha256
+
+  propagate-previous-ios:
+    name: Propagate previous iOS IPA
+    needs: [check-changes, build-ios]
+    if: |
+      always() &&
+      needs.check-changes.outputs.ios_changed == 'false' &&
+      startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find previous tag with iOS IPA and re-attach
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Semver-sorted prior tag list (NOT creation-time ordered — avoids
+          # racing an in-flight numerically-earlier build).
+          TAGS=$(gh release list --repo "$REPO" --limit 50 --json tagName --jq '.[].tagName' \
+                 | grep -v "^${CURRENT_TAG}$" | sort -rV)
+          if [ -z "$TAGS" ]; then
+            echo "No prior releases — nothing to propagate."
+            exit 0
+          fi
+          IOS_RE='privycs-vpn-ios-.*\.ipa(\.sha256)?$'
+          # Poll for in-flight prior runs up to 35 min — matches android-release's
+          # wait_for_android_assets (a clean iOS archive + export + TestFlight upload
+          # comfortably fits in 35 min).
+          wait_for_ios_assets() {
+            local tag="$1"
+            local deadline=$(( $(date +%s) + 2100 ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              local count
+              count=$(gh release view "$tag" --repo "$REPO" --json assets \
+                      --jq ".assets[].name" 2>/dev/null \
+                      | grep -cE "$IOS_RE" || true)
+              if [ "$count" -gt 0 ]; then
+                return 0
+              fi
+              sleep 30
+            done
+            return 1
+          }
+          PREV_TAG=""
+          for tag in $TAGS; do
+            count=$(gh release view "$tag" --repo "$REPO" --json assets \
+                    --jq '.assets[].name' 2>/dev/null \
+                    | grep -cE "$IOS_RE" || true)
+            if [ "$count" -gt 0 ]; then
+              PREV_TAG="$tag"
+              break
+            fi
+            # In-flight check: if ios-release is still running on this tag, wait.
+            running=$(gh run list --repo "$REPO" --workflow=ios-release.yml \
+                      --json databaseId,status,headBranch \
+                      --jq ".[] | select(.headBranch==\"$tag\" and (.status==\"in_progress\" or .status==\"queued\")) | .databaseId" \
+                      | head -1)
+            if [ -n "$running" ]; then
+              echo "Tag $tag has an in-flight ios-release run — waiting up to 35 min for assets."
+              if wait_for_ios_assets "$tag"; then
+                PREV_TAG="$tag"
+                break
+              fi
+            fi
+          done
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous release with iOS IPA found — nothing to propagate."
+            exit 0
+          fi
+          echo "Propagating iOS assets from $PREV_TAG → $CURRENT_TAG"
+          mkdir -p /tmp/ios-assets
+          gh release download "$PREV_TAG" --repo "$REPO" --dir /tmp/ios-assets \
+            --pattern '*.ipa' --pattern '*.ipa.sha256'
+          # Ensure current release exists (race-tolerant — desktop/android may
+          # have already created it).
+          if ! gh release view "$CURRENT_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$CURRENT_TAG" --repo "$REPO" \
+              --title "Privycs VPN $CURRENT_TAG" \
+              --generate-notes \
+              || echo "Race: release was created by another job just now."
+          fi
+          shopt -s nullglob
+          ASSETS=(/tmp/ios-assets/*.ipa /tmp/ios-assets/*.ipa.sha256)
+          if [ "${#ASSETS[@]}" -gt 0 ]; then
+            gh release upload "$CURRENT_TAG" --repo "$REPO" --clobber "${ASSETS[@]}"
+            echo "Propagated ${#ASSETS[@]} iOS asset(s) from $PREV_TAG."
+          fi
