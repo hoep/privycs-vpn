@@ -2,13 +2,16 @@ import SwiftUI
 import UniformTypeIdentifiers
 import PrivycsCore
 
-/// Add-Screen — File-Import (wg-quick conf, .ovpn, .sswan,
-/// .mobileconfig), QR-scan, Gateway-pull. Phase 2-baseline: nur
-/// File-Import; QR + Gateway-pull kommen in Phase 3.
+/// Add screen — file import (.conf/.ovpn/.sswan/.mobileconfig),
+/// QR scan (raw WireGuard config or privycs:// enrollment), and
+/// gateway config pull. Port of Android's AddConnectionScreen.
 struct AddConnectionView: View {
     @EnvironmentObject private var appState: AppState
     @State private var showFileImporter = false
+    @State private var showQRScanner = false
+    @State private var showGatewaySheet = false
     @State private var importErrorMessage: String?
+    @State private var importedNote: String?
 
     var body: some View {
         NavigationStack {
@@ -20,99 +23,175 @@ struct AddConnectionView: View {
                         Label("Import from file", systemImage: "doc.badge.plus")
                     }
                     Button {
-                        // Phase 3: AVFoundation QR scanner
+                        showQRScanner = true
                     } label: {
                         Label("Scan QR code", systemImage: "qrcode.viewfinder")
                     }
-                    .disabled(true)
                     Button {
-                        // Phase 3: gateway-pull configs
+                        showGatewaySheet = true
                     } label: {
                         Label("Pull from Privycs Gateway", systemImage: "cloud.bolt")
                     }
-                    .disabled(true)
+                    .disabled(appState.gatewayClient == nil)
                 } footer: {
-                    Text("Supported formats: .conf (WireGuard/AmneziaWG), .ovpn (OpenVPN), .sswan / .mobileconfig (IPSec)")
+                    Text(appState.gatewayClient == nil
+                         ? "Supported: .conf (WireGuard/AmneziaWG), .ovpn (OpenVPN), .sswan / .mobileconfig (IPSec). Configure a gateway in Settings to pull remote configs."
+                         : "Supported: .conf, .ovpn, .sswan / .mobileconfig. Or pull your configs from the gateway.")
+                }
+                if let note = importedNote {
+                    Section { Label(note, systemImage: "checkmark.circle.fill").foregroundStyle(PrivycsColor.connected) }
                 }
                 if let err = importErrorMessage {
-                    Section {
-                        Text(err).foregroundStyle(.red).font(.caption)
-                    }
+                    Section { Text(err).foregroundStyle(.red).font(.caption) }
                 }
             }
             .navigationTitle("Add Config")
             .fileImporter(
                 isPresented: $showFileImporter,
-                allowedContentTypes: [
-                    UTType.data, // generic catch-all; we filter on extension
-                ],
+                allowedContentTypes: [UTType.data],
                 allowsMultipleSelection: true
             ) { result in
                 Task { await handleImport(result) }
+            }
+            .sheet(isPresented: $showQRScanner) {
+                QRScannerView { raw in
+                    showQRScanner = false
+                    Task { await handleQRScan(raw) }
+                }
+            }
+            .sheet(isPresented: $showGatewaySheet) {
+                GatewayConfigSheet().environmentObject(appState)
             }
         }
     }
 
     private func handleImport(_ result: Result<[URL], Error>) async {
-        importErrorMessage = nil
-        switch result {
-        case .failure(let err):
-            importErrorMessage = err.localizedDescription
-        case .success(let urls):
-            for url in urls {
-                guard url.startAccessingSecurityScopedResource() else { continue }
-                defer { url.stopAccessingSecurityScopedResource() }
-                do {
-                    let raw = try String(contentsOf: url, encoding: .utf8)
-                    let proto = detectProtocol(filename: url.lastPathComponent, content: raw)
-                    let conn = SavedConnection(
-                        id: UUID().uuidString,
-                        name: url.deletingPathExtension().lastPathComponent,
-                        protocols: [
-                            ProtocolConfig(
-                                id: UUID().uuidString,
-                                protocol: proto,
-                                filename: url.lastPathComponent,
-                                configContent: raw,
-                                serverAddress: extractServerAddress(content: raw, protocol: proto)
-                            ),
-                        ]
-                    )
-                    try await appState.connectionRepo.save(conn)
-                } catch {
-                    importErrorMessage = error.localizedDescription
+        importErrorMessage = nil; importedNote = nil
+        guard case .success(let urls) = result else {
+            if case .failure(let err) = result { importErrorMessage = err.localizedDescription }
+            return
+        }
+        var count = 0
+        for url in urls {
+            guard url.startAccessingSecurityScopedResource() else { continue }
+            defer { url.stopAccessingSecurityScopedResource() }
+            // Read via Data → String to avoid the deprecated
+            // String(contentsOf:encoding:) overload.
+            guard let data = try? Data(contentsOf: url),
+                  let raw = String(data: data, encoding: .utf8) else {
+                importErrorMessage = "Could not read \(url.lastPathComponent)"
+                continue
+            }
+            await appState.importConnection(
+                name: url.deletingPathExtension().lastPathComponent,
+                filename: url.lastPathComponent,
+                content: raw
+            )
+            count += 1
+        }
+        if count > 0 { importedNote = "\(count) config\(count == 1 ? "" : "s") imported" }
+    }
+
+    private func handleQRScan(_ raw: String) async {
+        importErrorMessage = nil; importedNote = nil
+        guard let payload = QRPayload.parse(raw) else {
+            importErrorMessage = "Unrecognized QR code"
+            return
+        }
+        switch payload {
+        case .wireguard(let text), .amneziawg(let text), .openvpn(let text):
+            await appState.importConnection(name: "Scanned config", filename: "qr.conf", content: text)
+            importedNote = "Imported from QR"
+        case .privycsEnrollment(let url, let apiKey):
+            await appState.applyGatewayEnrollment(url: url, apiKey: apiKey)
+            importedNote = "Gateway enrolled — pull your configs"
+            showGatewaySheet = true
+        }
+    }
+}
+
+/// Sheet listing the user's gateway configs (Pro "pull from gateway").
+/// Fetches /api/v1/connect/my-configs, downloads + imports on tap.
+struct GatewayConfigSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var entries: [RemoteConfigEntry] = []
+    @State private var loading = true
+    @State private var error: String?
+    @State private var importingID: Int?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if loading {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                } else if let error {
+                    Text(error).foregroundStyle(.red).font(.callout)
+                } else if entries.isEmpty {
+                    Text("No remote configs found.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(entries) { entry in
+                        Button {
+                            Task { await importEntry(entry) }
+                        } label: {
+                            HStack(spacing: 10) {
+                                ProtocolBadge(proto: entry.protocol)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(entry.name).font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(PrivycsColor.onSurface)
+                                    if !entry.serverAddress.isEmpty {
+                                        Text(entry.serverAddress).font(.system(size: 11))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                if importingID == entry.id {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "arrow.down.circle").foregroundStyle(PrivycsColor.teal)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
-            appState.connections = (try? await appState.connectionRepo.loadAll()) ?? []
+            .navigationTitle("Remote Configs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+            }
+            .task { await load() }
         }
     }
 
-    private func detectProtocol(filename: String, content: String) -> VpnProtocol {
-        let ext = (filename as NSString).pathExtension.lowercased()
-        switch ext {
-        case "ovpn": return .openvpn
-        case "sswan", "mobileconfig": return .ipsec
-        case "conf":
-            return content.contains("Jc =") || content.contains("S1 =") ? .amneziawg : .wireguard
-        default:
-            return .wireguard
+    private func load() async {
+        loading = true; error = nil
+        defer { loading = false }
+        guard let client = appState.gatewayClient else {
+            error = "Gateway not configured. Set it in Settings."
+            return
         }
+        do { entries = try await client.listMyConfigs() }
+        catch { self.error = error.localizedDescription }
     }
 
-    private func extractServerAddress(content: String, `protocol`: VpnProtocol) -> String {
-        // Quick-n-dirty extractor — proper parser kommt in Phase 3.
-        for line in content.split(separator: "\n") {
-            let l = line.trimmingCharacters(in: .whitespaces)
-            if l.lowercased().hasPrefix("endpoint") {
-                return String(l.split(separator: "=").last?.trimmingCharacters(in: .whitespaces) ?? "")
+    private func importEntry(_ entry: RemoteConfigEntry) async {
+        guard let client = appState.gatewayClient else { return }
+        importingID = entry.id
+        defer { importingID = nil }
+        do {
+            let raw = try await client.fetchConfig(entry: entry)
+            let ext: String
+            switch entry.protocol {
+            case .openvpn: ext = "ovpn"
+            case .ipsec: ext = "sswan"
+            default: ext = "conf"
             }
-            if l.lowercased().hasPrefix("remote") {
-                let parts = l.split(separator: " ", maxSplits: 2).map(String.init)
-                if parts.count >= 2 {
-                    return parts[1] + (parts.count > 2 ? ":\(parts[2])" : "")
-                }
-            }
+            await appState.importConnection(name: entry.name, filename: "\(entry.name).\(ext)", content: raw)
+        } catch {
+            self.error = error.localizedDescription
         }
-        return ""
     }
 }

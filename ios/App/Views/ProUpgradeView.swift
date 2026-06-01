@@ -7,6 +7,7 @@ struct ProUpgradeView: View {
     @State private var products: [Product] = []
     @State private var purchasing = false
     @State private var message: String?
+    @State private var showLicenseImport = false
 
     var body: some View {
         ScrollView {
@@ -42,7 +43,7 @@ struct ProUpgradeView: View {
                 .font(.callout)
 
                 Button("I have a license key") {
-                    // Phase 3: sheet zum License-Key paste/import
+                    showLicenseImport = true
                 }
                 .font(.callout)
 
@@ -51,6 +52,9 @@ struct ProUpgradeView: View {
                 }
             }
             .padding()
+        }
+        .sheet(isPresented: $showLicenseImport) {
+            LicenseKeyImportSheet().environmentObject(appState)
         }
         .task {
             await loadProducts()
@@ -76,6 +80,16 @@ struct ProUpgradeView: View {
                     try await appState.entitlementRepo.markStoreKitEntitled(product.id)
                     await transaction.finish()
                     message = "Pro unlocked! Thank you."
+                    // Best-effort cross-platform redeem: exchange the
+                    // signed transaction for an ed25519 license so the
+                    // same purchase unlocks the user's other devices via
+                    // the gateway. Never blocks the local unlock.
+                    if let client = appState.gatewayClient {
+                        let jws = verification.jwsRepresentation
+                        if let license = try? await client.redeemAppleReceipt(jws) {
+                            _ = try? await appState.entitlementRepo.importLicenseKey(license)
+                        }
+                    }
                 }
             case .userCancelled:
                 break

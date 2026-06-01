@@ -224,6 +224,32 @@ final class AppState: ObservableObject {
         try? await tunnelManager.connect(synthConnection(for: member, pool: updated))
     }
 
+    // MARK: - Import + Gateway (Session 5)
+
+    /// Import a raw config (file / QR / gateway) into a new connection.
+    func importConnection(name: String, filename: String, content: String) async {
+        let conn = ConfigImport.makeConnection(name: name, filename: filename, content: content)
+        try? await connectionRepo.save(conn)
+        connections = (try? await connectionRepo.loadAll()) ?? connections
+    }
+
+    /// Persist a gateway enrollment (URL + API key) from a QR scan.
+    func applyGatewayEnrollment(url: URL, apiKey: String) async {
+        var s = settings
+        s.gatewayURL = url.absoluteString
+        s.apiKey = apiKey
+        try? await settingsRepo.save(s)
+        settings = s
+    }
+
+    /// Gateway client built from the current settings, or nil when the
+    /// gateway isn't configured.
+    var gatewayClient: GatewayAPIClient? {
+        guard !settings.gatewayURL.isEmpty, !settings.apiKey.isEmpty,
+              let url = URL(string: settings.gatewayURL) else { return nil }
+        return GatewayAPIClient(gatewayURL: url, apiKey: settings.apiKey)
+    }
+
     // MARK: - Network-rules executor (Session 4)
 
     /// Evaluate the rules against the current network and ACT — this is
