@@ -47,7 +47,23 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
         // tunnel instead of leaking via the OS default v6 route.
         let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .openvpn)
         if v6.applied { PrivycsLog.log("OVPN: ipv6-killswitch appended route-ipv6 ::/0") }
-        let raw = v6.patched
+        var raw = v6.patched
+        // DNS override (3-tier resolved by the app, passed in providerConfig) —
+        // Android applies it for ALL protocols; iOS previously did WG/AWG only.
+        // Drop any server-pushed DNS and inject ours so the override wins
+        // (override semantics, matching Android's setDNS on the OVPN profile).
+        if let dns = providerConfig["dns_override"] as? String,
+           !dns.trimmingCharacters(in: .whitespaces).isEmpty {
+            let servers = dns.split(whereSeparator: { $0 == "," || $0 == " " })
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if !servers.isEmpty {
+                var lines = ["pull-filter ignore \"dhcp-option DNS\""]
+                lines += servers.map { "dhcp-option DNS \($0)" }
+                raw += "\n" + lines.joined(separator: "\n") + "\n"
+                PrivycsLog.log("OVPN: DNS override applied (\(servers.joined(separator: ", ")))")
+            }
+        }
         let preprocessed = OVPNCompatPreprocessor().preprocess(raw)
         if !preprocessed.warnings.isEmpty {
             for w in preprocessed.warnings {
