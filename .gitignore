@@ -53,3 +53,8 @@ Thumbs.db
 # UN-blurred originals (real server hostnames / IP addresses); the
 # blurred, repo-safe versions live in screenshots/.
 android/play-store/
+
+
+# iOS — pre-fetched + locally-patched WireGuardKit SPM dep, built by CI
+ios/.deps/
+ios/ThirdParty/AmneziaWG/

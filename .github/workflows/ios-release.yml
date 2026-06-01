@@ -64,8 +64,46 @@ jobs:
           xcodebuild -downloadPlatform iOS || true
           xcodebuild -showsdks | grep -i ios || true
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install XcodeGen + Go toolchain
+        run: |
+          brew install xcodegen
+          # Go is needed by the WireGuardKitGo Makefile (libwg-go.a)
+          if ! command -v go >/dev/null; then
+            brew install go
+          fi
+          go version
+
+      - name: Prepare WireGuardKit (clone + patch + build libwg-go.a)
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          # 1. Clone upstream zx2c4 wireguard-apple to ios/.deps/wireguard-apple
+          #    at a pinned revision so the build is reproducible.
+          PIN="2fec12a6e1f6e3460b6ee483aa00ad29cddadab1"
+          mkdir -p .deps
+          rm -rf .deps/wireguard-apple
+          git clone https://git.zx2c4.com/wireguard-apple .deps/wireguard-apple
+          (cd .deps/wireguard-apple && git checkout "$PIN")
+
+          # 2. Patch Package.swift swift-tools-version from 5.3 to 5.5.
+          #    Upstream declares 5.3 but uses .macOS(.v12) / .iOS(.v15)
+          #    which need PackageDescription 5.5+ — manifest fails to
+          #    compile otherwise.
+          sed -i '' '1s|.*|// swift-tools-version:5.5|' .deps/wireguard-apple/Package.swift
+          echo "Patched Package.swift first line:"
+          head -1 .deps/wireguard-apple/Package.swift
+
+          # 3. Build libwg-go.a for iOS arm64.
+          #    Makefile reads PLATFORM_NAME + ARCHS + DESTDIR from env.
+          mkdir -p /tmp/wg-out
+          cd .deps/wireguard-apple/Sources/WireGuardKitGo
+          PLATFORM_NAME=iphoneos ARCHS=arm64 \
+            DESTDIR=/tmp/wg-out \
+            CONFIGURATION_BUILD_DIR=/tmp/wg-out \
+            CONFIGURATION_TEMP_DIR=/tmp/wg-out/tmp \
+            make build
+          echo "libwg-go.a built:"
+          ls -la /tmp/wg-out/libwg-go.a
 
       - name: Generate .xcodeproj
         working-directory: ios
@@ -113,6 +151,7 @@ jobs:
             -archivePath build/PrivycsVPN.xcarchive \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
             CODE_SIGN_STYLE=Manual \
+            LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out' \
             -allowProvisioningUpdates
 
       - name: Export IPA

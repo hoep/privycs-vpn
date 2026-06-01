@@ -23,7 +23,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.0.7"                  # synced with ios/latest_version.txt
-    CURRENT_PROJECT_VERSION: "10"
+    CURRENT_PROJECT_VERSION: "11"
   configs:
     Debug:
       SWIFT_OPTIMIZATION_LEVEL: -Onone
@@ -36,14 +36,20 @@ packages:
   PrivycsCore:
     path: Core
   WireGuardKit:
-    # Upstream zx2c4/wireguard-apple ships a broken Package.swift
-    # (`// swift-tools-version:5.3` but uses .macOS(.v12) / .iOS(.v15)
-    # which need PackageDescription 5.5+). Mullvad's fork has the
-    # tooling-version bumped to 5.5; it's the canonical fork used by
-    # the major Mac/iOS VPN consumers and stays in lock-step with
-    # upstream commits.
-    url: https://github.com/mullvad/wireguard-apple
-    revision: 3cf9a523bb4bdb46fcba08566a8c587de6f6d0b0
+    # Upstream zx2c4/wireguard-apple cloned + patched locally by the
+    # CI workflow (.github/workflows/ios-release.yml step "Prepare
+    # WireGuardKit"). Two reasons for not consuming via URL:
+    #   1. Upstream Package.swift declares `// swift-tools-version:5.3`
+    #      but uses .macOS(.v12) / .iOS(.v15) — needs PackageDescription
+    #      5.5. The pre-clone step patches the first line to 5.5.
+    #   2. WireGuardKitGo .linkedLibrary("wg-go") expects libwg-go.a to
+    #      exist on the linker search path. SPM cannot build it (Go
+    #      toolchain not part of SPM build plugins). CI builds it via
+    #      upstream's WireGuardKitGo/Makefile to /tmp/wg-out/.
+    # Mullvad's fork was tried and rejected — it pulls maybenot + daita
+    # (Mullvad-proprietary obfuscation libs) which need a Rust toolchain
+    # and don't apply to our use case.
+    path: .deps/wireguard-apple
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
     from: 8.36.0
