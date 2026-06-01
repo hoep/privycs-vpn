@@ -30,7 +30,7 @@ struct AddPoolView: View {
                     Button {
                         fileImporterShown = true
                     } label: {
-                        Label("Select config files (.conf / .ovpn)", systemImage: "doc.badge.plus")
+                        Label("Select configs or a .zip", systemImage: "doc.badge.plus")
                     }
                     if !pickedFiles.isEmpty {
                         ForEach(pickedFiles, id: \.self) { url in
@@ -38,7 +38,7 @@ struct AddPoolView: View {
                         }
                     }
                 } footer: {
-                    Text("Select 2 or more config files to populate the pool. Country + region are parsed from each filename when possible.")
+                    Text("Pick individual .conf/.ovpn/.sswan files, or a single .zip archive from your provider — all configs inside it become pool members. Country is parsed from each filename when possible.")
                 }
                 if let msg = errorMessage {
                     Section {
@@ -53,7 +53,7 @@ struct AddPoolView: View {
                     Button("Save") {
                         Task { await save() }
                     }
-                    .disabled(name.isEmpty || pickedFiles.count < 2)
+                    .disabled(name.isEmpty || pickedFiles.isEmpty)
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
@@ -61,7 +61,7 @@ struct AddPoolView: View {
             }
             .fileImporter(
                 isPresented: $fileImporterShown,
-                allowedContentTypes: [UTType.data],
+                allowedContentTypes: [UTType.zip, UTType.data],
                 allowsMultipleSelection: true
             ) { result in
                 if case .success(let urls) = result {
@@ -72,26 +72,27 @@ struct AddPoolView: View {
     }
 
     private func save() async {
-        let id = UUID().uuidString
-        var members: [PoolMember] = []
-        for (idx, url) in pickedFiles.enumerated() {
+        // Collect configs from every picked file — a .zip is expanded into
+        // all its member configs (Android PoolImporter parity), loose files
+        // are taken as-is.
+        var configs: [PoolImporter.ExtractedConfig] = []
+        for url in pickedFiles {
             guard url.startAccessingSecurityScopedResource() else { continue }
             defer { url.stopAccessingSecurityScopedResource() }
-            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let proto = detectProtocol(filename: url.lastPathComponent, content: raw)
-            let mem = PoolMember(
-                id: UUID().uuidString,
-                name: url.deletingPathExtension().lastPathComponent,
-                country: parseCountry(from: url.lastPathComponent),
-                region: "",
-                index: idx,
-                protocol: proto,
-                configContent: raw,
-                serverAddress: ""
-            )
-            members.append(mem)
+            guard let data = try? Data(contentsOf: url) else { continue }
+            if url.pathExtension.lowercased() == "zip" {
+                configs += PoolImporter.extractZip(data)
+            } else if let raw = String(data: data, encoding: .utf8),
+                      PoolImporter.isConfigFile(url.lastPathComponent) {
+                configs.append(.init(filename: url.lastPathComponent, content: raw))
+            }
         }
-        let pool = Pool(id: id, name: name, policy: policy, members: members)
+        let members = PoolImporter.makeMembers(configs)
+        guard members.count >= 1 else {
+            errorMessage = "No valid config files found in the selection."
+            return
+        }
+        let pool = Pool(id: UUID().uuidString, name: name, policy: policy, members: members)
         do {
             try await appState.poolRepo.save(pool)
             appState.pools = (try? await appState.poolRepo.loadAll()) ?? []
@@ -99,24 +100,5 @@ struct AddPoolView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-
-    private func detectProtocol(filename: String, content: String) -> VpnProtocol {
-        let ext = (filename as NSString).pathExtension.lowercased()
-        switch ext {
-        case "ovpn": return .openvpn
-        case "sswan", "mobileconfig": return .ipsec
-        case "conf":
-            return content.contains("Jc =") || content.contains("S1 =") ? .amneziawg : .wireguard
-        default:
-            return .wireguard
-        }
-    }
-
-    private func parseCountry(from filename: String) -> String {
-        // Heuristik: filename "DE-Frankfurt-01.conf" → "DE"
-        let stem = (filename as NSString).deletingPathExtension
-        let head = stem.split(separator: "-").first.map(String.init) ?? ""
-        return head.count == 2 ? head.uppercased() : ""
     }
 }

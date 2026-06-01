@@ -40,6 +40,11 @@ let package = Package(
 
         // Apple swift-collections for OrderedSet (used in PoolRotator).
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
+
+        // ZIPFoundation for bulk pool import from provider .zip archives
+        // (Android PoolImporter parity). Pure-Swift + zlib, Linux-buildable
+        // so PoolImporter stays unit-testable.
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.0"),
     ],
     targets: [
         .target(
@@ -49,6 +54,7 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
                 // .product(name: "Sentry", package: "sentry-cocoa"),  // see comment above
                 .product(name: "Collections", package: "swift-collections"),
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
             path: "Sources/PrivycsCore",
             resources: [
