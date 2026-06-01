@@ -52,6 +52,10 @@ final class AppState: ObservableObject {
     /// UNIX epoch of the next scheduled rotation (0 = none).
     @Published var nextRotationAt: Int64 = 0
     private var rotationTimer: Task<Void, Never>?
+    /// Live tunnel health (nil = inactive/hidden). Driven by the
+    /// reachability monitor in TunnelHealthService.
+    @Published var tunnelHealth: TunnelHealthPill.Health?
+    var healthTask: Task<Void, Never>?
     private let rotator = PoolRotator()
     private let rulesEngine = NetworkRulesEngine()
     /// Suppress rule-driven auto-connect after an explicit user
@@ -394,6 +398,7 @@ final class AppState: ObservableObject {
 
     func bootstrap() async {
         await networkMonitor.start()
+        startHealthMonitor()
 
         // Initial load
         if let s = try? await settingsRepo.current() {

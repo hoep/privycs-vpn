@@ -63,12 +63,12 @@ struct ConnectionView: View {
                                 locationLine
                                 statsRow
                                 connectionDetails
-                                // NOTE: the hardcoded TunnelHealthPill(.healthy)
-                                // was removed — it always rendered "healthy"
-                                // regardless of real tunnel state (no health
-                                // monitor on iOS yet). A real ICMP health monitor
-                                // is a tracked follow-up; showing a fake-green pill
-                                // was worse than showing none.
+                                // Real tunnel-health pill — driven by the
+                                // reachability monitor (TunnelHealthService),
+                                // nil while probing/disabled so it stays hidden.
+                                if let health = appState.tunnelHealth {
+                                    TunnelHealthPill(health: health)
+                                }
                             }
 
                             if let err = appState.connectError ?? (status.error.isEmpty ? nil : status.error) {
