@@ -14,6 +14,10 @@ struct ProtocolBadge: View {
     var endpoint: String? = nil
     var active: Bool = true
     var compact: Bool = false
+    /// Number of configs of this protocol in the connection. >1 shows a
+    /// "×N" count (Android parity — a connection can hold N same-protocol
+    /// endpoints as a failover bag).
+    var count: Int = 1
 
     private var tint: Color { active ? proto.brandColor : PrivycsColor.onSurfaceVariant }
     private var bg: Color { active ? proto.brandColor.opacity(0.2) : PrivycsColor.surfaceVariant }
@@ -28,6 +32,11 @@ struct ProtocolBadge: View {
             if !compact {
                 Text(proto.shortLabel)
                     .font(.system(size: 12, weight: .semibold))
+            }
+            if count > 1 {
+                Text("×\(count)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(tint.opacity(0.85))
             }
             if let endpoint, !endpoint.isEmpty, !compact {
                 Text(endpoint)

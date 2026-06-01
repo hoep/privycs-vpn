@@ -88,29 +88,42 @@ struct ConnectionsView: View {
             }
             // Tappable protocol badges — tap to switch the active config
             // (per-protocol connect, like Android's ProtocolBadges).
+            // One pill PER PROTOCOL with an ×N count when a protocol has
+            // multiple configs (Android parity — a connection is a failover
+            // bag of same-protocol endpoints). Tap switches the active config
+            // to that protocol; if connected, setActiveConfig reconnects.
             FlowRow(spacing: 6) {
-                ForEach(conn.protocols) { cfg in
+                ForEach(groupedProtocols(conn), id: \.self) { proto in
+                    let cfgs = conn.protocols.filter { $0.protocol == proto }
                     Button {
-                        Task { await appState.setActiveConfig(connectionID: conn.id, configID: cfg.id) }
+                        let target = cfgs.first(where: { $0.id == conn.activeConfigID }) ?? cfgs.first
+                        if let target {
+                            Task { await appState.setActiveConfig(connectionID: conn.id, configID: target.id) }
+                        }
                     } label: {
-                        ProtocolBadge(proto: cfg.protocol, endpoint: endpointHost(cfg.serverAddress),
-                                      active: cfg.id == conn.activeConfigID)
+                        ProtocolBadge(
+                            proto: proto,
+                            endpoint: cfgs.count == 1 ? endpointHost(cfgs[0].serverAddress) : nil,
+                            active: cfgs.contains { $0.id == conn.activeConfigID },
+                            count: cfgs.count
+                        )
                     }
-                    // .borderless (not .plain) so each pill is an
-                    // independent tap target inside the List row — .plain
-                    // made the whole row swallow the tap ("pills do nothing").
+                    // .borderless (not .plain) so each pill is an independent
+                    // tap target inside the List row.
                     .buttonStyle(.borderless)
                     .contextMenu {
-                        // Raw-config editing only for text formats (IPSec is a
-                        // binary .mobileconfig — no in-app editor, like Android).
-                        if cfg.protocol == .wireguard || cfg.protocol == .amneziawg || cfg.protocol == .openvpn {
-                            Button {
-                                editConfigFor = EditConfigTarget(connectionID: conn.id, config: cfg)
-                            } label: { Label("Edit config", systemImage: "pencil") }
+                        ForEach(cfgs) { cfg in
+                            if cfg.protocol == .wireguard || cfg.protocol == .amneziawg || cfg.protocol == .openvpn {
+                                Button {
+                                    editConfigFor = EditConfigTarget(connectionID: conn.id, config: cfg)
+                                } label: { Label("Edit \(configLabel(cfg))", systemImage: "pencil") }
+                            }
                         }
-                        Button(role: .destructive) {
-                            Task { await appState.removeConfig(connectionID: conn.id, configID: cfg.id) }
-                        } label: { Label("Remove \(cfg.protocol.shortLabel)", systemImage: "trash") }
+                        ForEach(cfgs) { cfg in
+                            Button(role: .destructive) {
+                                Task { await appState.removeConfig(connectionID: conn.id, configID: cfg.id) }
+                            } label: { Label("Remove \(configLabel(cfg))", systemImage: "trash") }
+                        }
                     }
                 }
                 Button { addProtocolFor = conn } label: {
@@ -128,6 +141,21 @@ struct ConnectionsView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// Distinct protocols of a connection, in order of first appearance.
+    private func groupedProtocols(_ conn: SavedConnection) -> [VpnProtocol] {
+        var seen = Set<VpnProtocol>()
+        var out: [VpnProtocol] = []
+        for c in conn.protocols where seen.insert(c.protocol).inserted { out.append(c.protocol) }
+        return out
+    }
+
+    /// Human label for a config in context menus (nickname → filename → proto).
+    private func configLabel(_ cfg: ProtocolConfig) -> String {
+        if !cfg.nickname.isEmpty { return cfg.nickname }
+        if !cfg.filename.isEmpty { return cfg.filename }
+        return cfg.protocol.shortLabel
     }
 
     /// Strip the port for a compact endpoint display in the badge.

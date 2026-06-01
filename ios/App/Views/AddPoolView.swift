@@ -77,17 +77,27 @@ struct AddPoolView: View {
         // are taken as-is.
         var configs: [PoolImporter.ExtractedConfig] = []
         for url in pickedFiles {
-            guard url.startAccessingSecurityScopedResource() else { continue }
-            defer { url.stopAccessingSecurityScopedResource() }
-            guard let data = try? Data(contentsOf: url) else { continue }
+            // Read regardless of the access-grant result — for fileImporter
+            // URLs startAccessing often returns false yet the file IS readable;
+            // a hard `continue` here silently dropped every file → "0 configs"
+            // (the reported "pools can't even be imported" bug).
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                PrivycsLog.log("Pool import: could not read \(url.lastPathComponent)")
+                continue
+            }
             if url.pathExtension.lowercased() == "zip" {
-                configs += PoolImporter.extractZip(data)
+                let extracted = PoolImporter.extractZip(data)
+                PrivycsLog.log("Pool import: zip \(url.lastPathComponent) → \(extracted.count) config(s)")
+                configs += extracted
             } else if let raw = String(data: data, encoding: .utf8),
                       PoolImporter.isConfigFile(url.lastPathComponent) {
                 configs.append(.init(filename: url.lastPathComponent, content: raw))
             }
         }
         let members = PoolImporter.makeMembers(configs)
+        PrivycsLog.log("Pool import: \(pickedFiles.count) file(s) → \(configs.count) config(s) → \(members.count) member(s)")
         guard members.count >= 1 else {
             errorMessage = "No valid config files found in the selection."
             return
