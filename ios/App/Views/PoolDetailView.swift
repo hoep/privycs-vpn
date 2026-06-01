@@ -16,6 +16,33 @@ struct PoolDetailView: View {
 
     var body: some View {
         Form {
+            Section {
+                Button {
+                    Task {
+                        appState.selectedTargetID = "pool:\(pool.id)"
+                        await appState.connectPool(pool)
+                    }
+                } label: {
+                    Label(
+                        appState.activePool?.id == pool.id && appState.status.connected
+                            ? "Pool active" : "Activate pool",
+                        systemImage: appState.activePool?.id == pool.id && appState.status.connected
+                            ? "checkmark.circle.fill" : "bolt.circle"
+                    )
+                    .foregroundStyle(PrivycsColor.teal)
+                }
+                .disabled(pool.members.isEmpty)
+
+                if let mem = appState.activePoolMember, appState.activePool?.id == pool.id {
+                    HStack {
+                        Text("Current member").foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(mem.name) \(mem.country.uppercased())")
+                            .font(.system(size: 13))
+                    }
+                }
+            }
+
             Section("Policy") {
                 Picker("Selection policy", selection: $policy) {
                     ForEach(PoolPolicy.allCases) { p in

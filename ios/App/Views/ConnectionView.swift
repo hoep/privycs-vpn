@@ -41,14 +41,24 @@ struct ConnectionView: View {
                             .padding(.vertical, 4)
 
                             if status.connected {
+                                if let pool = appState.activePool {
+                                    PoolIndicatorCard(
+                                        poolName: pool.name,
+                                        policy: pool.policy,
+                                        memberName: appState.activePoolMember?.name ?? "",
+                                        memberCountry: appState.activePoolMember?.country ?? "",
+                                        nextRotationAt: appState.nextRotationAt,
+                                        onRotateNow: { Task { await appState.rotatePool() } }
+                                    )
+                                }
                                 if hasMultipleConfigs { protocolBadgeRow }
                                 statsRow
                                 connectionDetails
                                 TunnelHealthPill(health: .healthy)
                             }
 
-                            if !status.error.isEmpty {
-                                errorCard(status.error)
+                            if let err = appState.connectError ?? (status.error.isEmpty ? nil : status.error) {
+                                errorCard(err)
                             }
                         }
                         Spacer(minLength: 12)

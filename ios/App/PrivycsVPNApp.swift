@@ -44,6 +44,15 @@ final class AppState: ObservableObject {
     /// yet (defaults to the first connection).
     @Published var selectedTargetID: String = ""
     @Published var connecting: Bool = false
+    @Published var connectError: String?
+
+    // Active pool context (nil when a single connection is active).
+    @Published var activePool: Pool?
+    @Published var activePoolMember: PoolMember?
+    /// UNIX epoch of the next scheduled rotation (0 = none).
+    @Published var nextRotationAt: Int64 = 0
+    private var rotationTimer: Task<Void, Never>?
+    private let rotator = PoolRotator()
 
     // Live throughput derived from successive status byte samples.
     @Published var rxSpeed: Double = 0       // bytes/sec
@@ -97,18 +106,113 @@ final class AppState: ObservableObject {
     }
 
     func connectSelected() async {
-        guard let conn = selectedConnection else { return }
-        connecting = true
-        defer { connecting = false }
-        resetSpeedTracking()
-        try? await tunnelManager.connect(conn)
+        connectError = nil
+        if let pool = selectedPool {
+            await connectPool(pool)
+        } else if let conn = selectedConnection {
+            connecting = true
+            defer { connecting = false }
+            resetSpeedTracking()
+            do { try await tunnelManager.connect(conn) }
+            catch { connectError = error.localizedDescription }
+        }
     }
 
     func disconnect() async {
         connecting = true
         defer { connecting = false }
+        rotationTimer?.cancel(); rotationTimer = nil
         await tunnelManager.disconnect()
+        await poolRepo.setActivePoolID("")
+        activePool = nil
+        activePoolMember = nil
+        nextRotationAt = 0
         resetSpeedTracking()
+    }
+
+    // MARK: - Pool connect + rotation (Session 3)
+
+    /// Detected user country for Geo-Nearest. Locale region is a
+    /// reasonable proxy until a bundled MMDB + self-IP lookup lands.
+    private var userCountry: String {
+        if #available(iOS 16, *) { return Locale.current.region?.identifier ?? "" }
+        return Locale.current.regionCode ?? ""
+    }
+
+    func connectPool(_ pool: Pool) async {
+        guard let (member, updated) = rotator.pick(from: pool, userCountry: userCountry) else {
+            connectError = "Pool has no reachable members"
+            return
+        }
+        connecting = true
+        defer { connecting = false }
+        resetSpeedTracking()
+        // Persist active member + next-rotation timestamp.
+        try? await poolRepo.save(updated)
+        await poolRepo.setActivePoolID(pool.id)
+        activePool = updated
+        activePoolMember = member
+        nextRotationAt = updated.rotation?.nextRotationAt ?? 0
+
+        do {
+            try await tunnelManager.connect(synthConnection(for: member, pool: updated))
+            scheduleRotationIfNeeded(updated)
+        } catch {
+            connectError = error.localizedDescription
+        }
+    }
+
+    /// Build a transient SavedConnection wrapping one pool member so we
+    /// can reuse the standard connect path. ID carries the pool prefix
+    /// so status/UI can tell it's pool-driven.
+    private func synthConnection(for member: PoolMember, pool: Pool) -> SavedConnection {
+        let cfg = ProtocolConfig(
+            id: member.id,
+            protocol: member.protocol,
+            filename: member.name,
+            configContent: member.configContent,
+            serverAddress: member.serverAddress
+        )
+        return SavedConnection(
+            id: "pool:\(pool.id)",
+            name: pool.name,
+            protocols: [cfg],
+            activeConfigID: member.id,
+            dnsOverride: pool.dnsOverride
+        )
+    }
+
+    /// Foreground rotation scheduler — while the app is open and a
+    /// rotating pool is connected, fire a rotation at nextRotationAt.
+    /// Background/Doze-surviving rotation (BGTaskScheduler) is a known
+    /// follow-up; iOS NE background budget is tight.
+    private func scheduleRotationIfNeeded(_ pool: Pool) {
+        rotationTimer?.cancel()
+        guard let rot = pool.rotation, rot.intervalSeconds > 0 else { return }
+        rotationTimer = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s tick
+                guard let self else { return }
+                let due = await MainActor.run { () -> Bool in
+                    guard self.status.connected, self.activePool != nil else { return false }
+                    let now = Int64(Date().timeIntervalSince1970)
+                    return self.nextRotationAt > 0 && now >= self.nextRotationAt
+                }
+                if due { await self.rotatePool() }
+            }
+        }
+    }
+
+    /// Rotate to the next member of the active pool (manual or timer).
+    func rotatePool() async {
+        guard let pool = activePool else { return }
+        guard let (member, updated) = rotator.pick(from: pool, userCountry: userCountry) else { return }
+        try? await poolRepo.save(updated)
+        activePool = updated
+        activePoolMember = member
+        nextRotationAt = updated.rotation?.nextRotationAt ?? 0
+        resetSpeedTracking()
+        try? await tunnelManager.connect(synthConnection(for: member, pool: updated))
     }
 
     private func resetSpeedTracking() {
@@ -154,6 +258,15 @@ final class AppState: ObservableObject {
         self.connections = (try? await connectionRepo.loadAll()) ?? []
         self.pools = (try? await poolRepo.loadAll()) ?? []
         self.rules = (try? await rulesRepo.loadAll()) ?? []
+
+        // Restore active-pool selection across app restarts.
+        let activeID = await poolRepo.activePoolID()
+        if !activeID.isEmpty, let p = pools.first(where: { $0.id == activeID }) {
+            self.activePool = p
+            self.selectedTargetID = "pool:\(p.id)"
+            self.activePoolMember = p.members.first(where: { $0.id == p.activeMemberID })
+            self.nextRotationAt = p.rotation?.nextRotationAt ?? 0
+        }
 
         // Observe transitions
         Task {
