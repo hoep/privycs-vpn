@@ -526,6 +526,12 @@ jobs:
         with:
           name: Privycs VPN ${{ github.ref_name }}
           draft: false
+          # Dash in the tag (e.g. v1.0.7-alpha.4) => prerelease.
+          # Mirrors the android-release.yml + ios-release.yml setting
+          # so the first-to-create-the-release Workflow doesn't strand
+          # the GH release with prerelease=false when later workflows
+          # would have set it to true.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
             artifacts/privycs-vpn-linux-amd64/*
