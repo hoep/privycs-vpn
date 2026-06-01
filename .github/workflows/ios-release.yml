@@ -45,7 +45,24 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.app
+        run: |
+          # macos-15 runner ships several Xcode 16.x; pick the highest installed
+          XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            XCODE=/Applications/Xcode_16.app
+          fi
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Ensure iOS SDK is installed
+        run: |
+          # Xcode 16.0 on GitHub macos-15 sometimes ships without the iOS
+          # device platform SDK, only the simulator runtime. `-downloadPlatform`
+          # is the canonical fix; if everything is already there it no-ops.
+          sudo xcodebuild -runFirstLaunch || true
+          xcodebuild -downloadPlatform iOS || true
+          xcodebuild -showsdks | grep -i ios || true
 
       - name: Install XcodeGen
         run: brew install xcodegen
