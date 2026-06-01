@@ -131,7 +131,7 @@ jobs:
           PLATFORM_NAME=iphoneos \
             ARCHS=arm64 \
             IPHONEOS_DEPLOYMENT_TARGET=17.0 \
-            DEPLOYMENT_TARGET_CLANG_FLAG_NAME=ios_version_min \
+            DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mios-version-min \
             DEPLOYMENT_TARGET_CLANG_ENV_NAME=IPHONEOS_DEPLOYMENT_TARGET \
             SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \
             DESTDIR=/tmp/wg-out \
