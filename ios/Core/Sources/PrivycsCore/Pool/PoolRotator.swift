@@ -31,16 +31,20 @@ public struct PoolRotator: Sendable {
 
         let chosen: PoolMember
         switch pool.policy {
-        case .firstAvailable:
-            chosen = eligible.first!
-
         case .random:
             chosen = eligible.randomElement()!
 
         case .roundRobin:
-            let prev = pool.rotation?.lastUsedIndex ?? -1
-            let nextIdx = (prev + 1) % eligible.count
-            chosen = eligible[nextIdx]
+            // Member-id cursor (Android per-region semantics): sort by id
+            // for a stable ring, advance past the last-used member. Robust
+            // to member add/remove (unlike a positional index).
+            let ring = eligible.sorted { $0.id < $1.id }
+            let lastID = pool.rotation?.lastUsedMemberID ?? ""
+            if let prevIdx = ring.firstIndex(where: { $0.id == lastID }) {
+                chosen = ring[(prevIdx + 1) % ring.count]
+            } else {
+                chosen = ring[0]
+            }
 
         case .geoNearest:
             chosen = GeoNearestPicker.pick(
@@ -51,17 +55,15 @@ public struct PoolRotator: Sendable {
         }
 
         var updated = pool
-        if let chosenIndex = eligible.firstIndex(where: { $0.id == chosen.id }) {
-            var rotation = updated.rotation ?? PoolRotation()
-            rotation.lastUsedIndex = chosenIndex
-            if rotation.intervalSeconds > 0 {
-                rotation.nextRotationAt = Int64(
-                    now.addingTimeInterval(TimeInterval(rotation.intervalSeconds))
-                        .timeIntervalSince1970
-                )
-            }
-            updated.rotation = rotation
+        var rotation = updated.rotation ?? PoolRotation()
+        rotation.lastUsedMemberID = chosen.id
+        if rotation.intervalSeconds > 0 {
+            rotation.nextRotationAt = Int64(
+                now.addingTimeInterval(TimeInterval(rotation.intervalSeconds))
+                    .timeIntervalSince1970
+            )
         }
+        updated.rotation = rotation
         updated.activeMemberID = chosen.id
         return (chosen, updated)
     }

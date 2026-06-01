@@ -4,16 +4,17 @@ import XCTest
 final class PoolRotatorTests: XCTestCase {
 
     let de = PoolMember(id: "m1", name: "DE-Frankfurt", country: "DE", region: "Frankfurt",
-                        latitude: 50.11, longitude: 8.68, index: 0, protocol: .wireguard)
+                        index: 0, protocol: .wireguard)
     let at = PoolMember(id: "m2", name: "AT-Vienna", country: "AT", region: "Vienna",
-                        latitude: 48.2, longitude: 16.4, index: 1, protocol: .wireguard)
+                        index: 1, protocol: .wireguard)
     let us = PoolMember(id: "m3", name: "US-NYC", country: "US", region: "NYC",
-                        latitude: 40.71, longitude: -74.0, index: 2, protocol: .wireguard)
+                        index: 2, protocol: .wireguard)
     let jp = PoolMember(id: "m4", name: "JP-Tokyo", country: "JP", region: "Tokyo",
-                        latitude: 35.68, longitude: 139.69, index: 3, protocol: .wireguard)
+                        index: 3, protocol: .wireguard)
 
-    func testFirstAvailablePicksFirstMember() {
-        let pool = Pool(id: "p", name: "test", policy: .firstAvailable, members: [de, at, us])
+    func testRoundRobinFirstPickIsLowestId() {
+        // No cursor yet → the id-sorted ring starts at the lowest id.
+        let pool = Pool(id: "p", name: "test", policy: .roundRobin, members: [us, at, de])
         let r = PoolRotator()
         let result = r.pick(from: pool)
         XCTAssertEqual(result?.member.id, "m1")
@@ -48,7 +49,7 @@ final class PoolRotatorTests: XCTestCase {
     }
 
     func testGeoNearestFallbackToContinent() {
-        // No DE-member; user from DE → expect EU country (AT)
+        // No DE-member; user from DE → expect an EU country (AT)
         let pool = Pool(id: "p", name: "test", policy: .geoNearest, members: [us, jp, at])
         let r = PoolRotator()
         let result = r.pick(from: pool, userCountry: "DE")
@@ -60,7 +61,7 @@ final class PoolRotatorTests: XCTestCase {
         let pool = Pool(
             id: "p",
             name: "test",
-            policy: .firstAvailable,
+            policy: .roundRobin,
             members: [us, jp, de],
             restrictRegions: ["DE"]
         )
@@ -70,20 +71,20 @@ final class PoolRotatorTests: XCTestCase {
     }
 
     func testEmptyPoolReturnsNil() {
-        let pool = Pool(id: "p", name: "empty", policy: .firstAvailable, members: [])
+        let pool = Pool(id: "p", name: "empty", policy: .random, members: [])
         let r = PoolRotator()
         XCTAssertNil(r.pick(from: pool))
     }
 
-    func testRotationStateUpdatesLastUsedIndex() {
+    func testRotationStateUpdatesCursor() {
         var pool = Pool(
             id: "p", name: "test", policy: .roundRobin, members: [de, at],
-            rotation: PoolRotation(intervalSeconds: 0, lastUsedIndex: -1, nextRotationAt: 0)
+            rotation: PoolRotation(intervalSeconds: 0, nextRotationAt: 0)
         )
         let r = PoolRotator()
         let first = r.pick(from: pool)!
         pool = first.updatedPool
-        XCTAssertEqual(pool.rotation?.lastUsedIndex, 0)
+        XCTAssertEqual(pool.rotation?.lastUsedMemberID, "m1")
         XCTAssertEqual(pool.activeMemberID, "m1")
     }
 }

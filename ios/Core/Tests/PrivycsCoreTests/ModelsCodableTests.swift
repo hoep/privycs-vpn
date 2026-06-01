@@ -78,8 +78,6 @@ final class ModelsCodableTests: XCTestCase {
                     name: "DE-Frankfurt",
                     country: "DE",
                     region: "Frankfurt",
-                    latitude: 50.11,
-                    longitude: 8.68,
                     index: 0,
                     protocol: .wireguard,
                     configContent: "",

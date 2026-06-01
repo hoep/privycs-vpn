@@ -1,92 +1,46 @@
 import Foundation
 
-/// Geo-Nearest Member-Picker. Heuristik (gleiche Reihenfolge wie
-/// Android `GeoNearest`):
+/// Geo-Nearest member picker — Android `PoolPicker.pickGeoNearest`
+/// semantics (region-based, no coordinates):
 ///
-/// 1. Member im gleichen Country wie User → pick erstes oder
-///    distance-sortiert wenn LatLon verfügbar.
-/// 2. Sonst Member auf gleichem Kontinent (via ISO-Continent-Lookup).
-/// 3. Sonst kürzeste Great-Circle-Distance wenn LatLon verfügbar.
-/// 4. Sonst alphabetisch erstes Country-Member (Stable Fallback).
+/// 1. Members in the user's exact country → pick a RANDOM one.
+/// 2. Else members on the user's continent → pick a RANDOM one.
+/// 3. Else any eligible member at random.
+///
+/// Random tie-break within each cohort matches Android (SecureRandom),
+/// so the same user in the same country spreads load instead of always
+/// hitting member[0]. (Android `PoolMember` carries no lat/lon, so the
+/// earlier iOS haversine path was a divergence — removed for parity.)
 public enum GeoNearestPicker {
 
     public static func pick(
         from members: [PoolMember],
         userCountry: String,
-        userLatLon: (Double, Double)?
+        userLatLon: (Double, Double)? = nil   // accepted for source compat; unused (region-based)
     ) -> PoolMember? {
         guard !members.isEmpty else { return nil }
 
-        // 1. Same country
         let uc = userCountry.uppercased()
+
+        // 1. Same country → random within cohort.
         if !uc.isEmpty {
             let same = members.filter { $0.country.uppercased() == uc }
-            if !same.isEmpty {
-                if let userLatLon, let m = closest(in: same, to: userLatLon) {
-                    return m
-                }
-                return same[0]
-            }
+            if let m = same.randomElement() { return m }
         }
 
-        // 2. Same continent
+        // 2. Same continent → random within cohort.
         if !uc.isEmpty, let continent = ContinentLookup.continent(of: uc) {
-            let sameContinent = members.filter { mem in
+            let cohort = members.filter { mem in
                 guard !mem.country.isEmpty,
                       let c = ContinentLookup.continent(of: mem.country.uppercased())
                 else { return false }
                 return c == continent
             }
-            if !sameContinent.isEmpty {
-                if let userLatLon, let m = closest(in: sameContinent, to: userLatLon) {
-                    return m
-                }
-                return sameContinent[0]
-            }
+            if let m = cohort.randomElement() { return m }
         }
 
-        // 3. Globally closest by distance
-        if let userLatLon, let m = closest(in: members, to: userLatLon) {
-            return m
-        }
-
-        // 4. Alphabetical fallback (stable, deterministic)
-        return members.sorted { $0.country.localizedCompare($1.country) == .orderedAscending }.first
-    }
-
-    /// Great-Circle-Distanz (Haversine). Members ohne valid
-    /// LatLon werden ausgeschlossen.
-    private static func closest(
-        in members: [PoolMember],
-        to userLatLon: (Double, Double)
-    ) -> PoolMember? {
-        let withCoords = members.filter { !$0.latitude.isNaN && !$0.longitude.isNaN }
-        guard !withCoords.isEmpty else { return nil }
-        return withCoords.min { a, b in
-            let da = haversineKm(
-                lat1: userLatLon.0, lon1: userLatLon.1,
-                lat2: a.latitude, lon2: a.longitude
-            )
-            let db = haversineKm(
-                lat1: userLatLon.0, lon1: userLatLon.1,
-                lat2: b.latitude, lon2: b.longitude
-            )
-            return da < db
-        }
-    }
-
-    private static func haversineKm(
-        lat1: Double, lon1: Double,
-        lat2: Double, lon2: Double
-    ) -> Double {
-        let R = 6371.0
-        let dLat = (lat2 - lat1) * .pi / 180
-        let dLon = (lon2 - lon1) * .pi / 180
-        let a = sin(dLat / 2) * sin(dLat / 2)
-            + cos(lat1 * .pi / 180) * cos(lat2 * .pi / 180)
-            * sin(dLon / 2) * sin(dLon / 2)
-        let c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        return R * c
+        // 3. Any eligible member at random.
+        return members.randomElement()
     }
 }
 

@@ -84,7 +84,6 @@ struct AddPoolView: View {
                 name: url.deletingPathExtension().lastPathComponent,
                 country: parseCountry(from: url.lastPathComponent),
                 region: "",
-                latitude: .nan, longitude: .nan,
                 index: idx,
                 protocol: proto,
                 configContent: raw,
