@@ -6,6 +6,11 @@ struct PrivycsVPNApp: App {
 
     @StateObject private var appState = AppState()
 
+    init() {
+        // BGTaskScheduler handlers must be registered during launch.
+        BackgroundRotation.register()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -136,6 +141,7 @@ final class AppState: ObservableObject {
         manualDisconnectUntil = Date().addingTimeInterval(30)
         lastRuleTargetID = nil
         rotationTimer?.cancel(); rotationTimer = nil
+        BackgroundRotation.cancel()
         await tunnelManager.disconnect()
         await poolRepo.setActivePoolID("")
         activePool = nil
@@ -242,13 +248,18 @@ final class AppState: ObservableObject {
         )
     }
 
-    /// Foreground rotation scheduler — while the app is open and a
-    /// rotating pool is connected, fire a rotation at nextRotationAt.
-    /// Background/Doze-surviving rotation (BGTaskScheduler) is a known
-    /// follow-up; iOS NE background budget is tight.
+    /// Rotation scheduler — a foreground timer fires at nextRotationAt while
+    /// the app is open, and a BGTaskScheduler request covers the backgrounded
+    /// case (best-effort; iOS runs it opportunistically, not precisely).
     private func scheduleRotationIfNeeded(_ pool: Pool) {
         rotationTimer?.cancel()
-        guard let rot = pool.rotation, rot.intervalSeconds > 0 else { return }
+        guard let rot = pool.rotation, rot.intervalSeconds > 0 else {
+            BackgroundRotation.cancel()
+            return
+        }
+        if nextRotationAt > 0 {
+            BackgroundRotation.schedule(at: Date(timeIntervalSince1970: TimeInterval(nextRotationAt)))
+        }
         rotationTimer = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s tick
@@ -441,6 +452,9 @@ final class AppState: ObservableObject {
     func bootstrap() async {
         await networkMonitor.start()
         startHealthMonitor()
+        // Background pool rotation handler (best-effort; foreground timer is
+        // the primary path). Captures self weakly; runs on the OS task queue.
+        BackgroundRotation.onRotate = { [weak self] in await self?.rotatePool() }
 
         // Initial load
         if let s = try? await settingsRepo.current() {

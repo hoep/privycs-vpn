@@ -87,6 +87,9 @@ targets:
         LicensePublicKeyHex: "$(LICENSE_PUBLIC_KEY_HEX)"
         UIBackgroundModes:
           - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.privycs.vpn.poolrotate
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
