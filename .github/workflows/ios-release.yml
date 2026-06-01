@@ -38,7 +38,11 @@ jobs:
   build-ios:
     needs: check-changes
     if: needs.check-changes.outputs.ios_changed == 'true'
-    runs-on: macos-15
+    # macos-26 carries Xcode 26 + iOS 26 SDK — Apple has been enforcing
+    # iOS 26 SDK as the minimum for App Store / TestFlight uploads since
+    # April 2026. macos-15 only has Xcode 16 + iOS 18 SDK which Apple
+    # now rejects in altool validation.
+    runs-on: macos-26
     permissions:
       contents: write
     steps:
@@ -46,10 +50,10 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # macos-15 runner ships several Xcode 16.x; pick the highest installed
-          XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          # macos-26 runner ships Xcode 26.x; pick the highest installed.
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
           if [ -z "$XCODE" ]; then
-            XCODE=/Applications/Xcode_16.app
+            XCODE=/Applications/Xcode_26.app
           fi
           echo "Selecting $XCODE"
           sudo xcode-select -s "$XCODE"
