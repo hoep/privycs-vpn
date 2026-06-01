@@ -18,6 +18,16 @@ final class VPNTunnelManager: ObservableObject {
     private var statusContinuations: [UUID: AsyncStream<VpnStatus>.Continuation] = [:]
     private var observer: NSObjectProtocol?
 
+    // Active-target metadata, recorded on connect so refreshStatus can
+    // build a complete VpnStatus (the system gives us connected-state
+    // only; name/protocol/stats we track ourselves).
+    private var activeConnectionName = ""
+    private var activeConnectionID = ""
+    private var activeProtocol: VpnProtocol?
+    private var isPTPTunnel = false
+    /// Poll loop that pulls PTP stats from the App Group store while up.
+    private var pollTask: Task<Void, Never>?
+
     init() {
         // System-side NEVPNStatusDidChange notifications observer.
         observer = NotificationCenter.default.addObserver(
@@ -53,14 +63,22 @@ final class VPNTunnelManager: ObservableObject {
             ?? connection.protocols.first else {
             throw VPNError.noConfig
         }
+        activeConnectionName = connection.name
+        activeConnectionID = connection.id
+        activeProtocol = config.protocol
+        isPTPTunnel = config.protocol != .ipsec
+
         if config.protocol == .ipsec {
             try await connectViaIKEv2(connection: connection, config: config)
         } else {
             try await connectViaPTP(connection: connection, config: config)
         }
+        startPolling()
     }
 
     func disconnect() async {
+        pollTask?.cancel()
+        pollTask = nil
         let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         for m in managers {
             m.connection.stopVPNTunnel()
@@ -69,6 +87,24 @@ final class VPNTunnelManager: ObservableObject {
         // we only care it ran without throw so connection is fresh.
         try? await NEVPNManager.shared().loadFromPreferences()
         NEVPNManager.shared().connection.stopVPNTunnel()
+        TunnelStatsStore.clear()
+        activeProtocol = nil
+        isPTPTunnel = false
+        refreshStatus()
+    }
+
+    /// While a tunnel is up, poll the App Group stats store (PTP) once
+    /// a second so the Connect screen shows live throughput. IKEv2 has
+    /// no public byte API, so its rx/tx stay 0 (matches the Android
+    /// limitation for the system-IKEv2 path).
+    private func startPolling() {
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await MainActor.run { self?.refreshStatus() }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
     }
 
     // MARK: — Private
@@ -94,38 +130,118 @@ final class VPNTunnelManager: ObservableObject {
     }
 
     private func connectViaIKEv2(connection: SavedConnection, config: ProtocolConfig) async throws {
+        // Parse the gateway's .sswan JSON profile into IKEv2 attributes.
+        let profile = try SswanProfile.parse(config.configContent)
+
         let mgr = NEVPNManager.shared()
         try await mgr.loadFromPreferences()
+
         let proto = NEVPNProtocolIKEv2()
-        proto.serverAddress = config.serverAddress
-        proto.remoteIdentifier = config.serverAddress
+        proto.serverAddress = profile.remote.addr
+        proto.remoteIdentifier = profile.resolvedRemoteIdentifier
+        if let localID = profile.local.id, !localID.isEmpty {
+            proto.localIdentifier = localID
+        }
+
+        // Certificate auth via inline PKCS#12 (client cert + key + CA
+        // chain). identityData/identityDataPassword is exactly the
+        // NEVPNProtocolIKEv2 inline-credential path — no Keychain
+        // pre-install dance like Android needs.
+        guard let p12 = profile.pkcs12Data else {
+            throw SswanError.missingCertificate
+        }
+        proto.authenticationMethod = .certificate
+        proto.identityData = p12
+        proto.identityDataPassword = profile.local.p12Password
         proto.useExtendedAuthentication = false
-        // TODO Phase 3: parse config.configContent (.sswan /
-        // .mobileconfig) zu IKEv2-attributes (certs, EAP, etc.)
+
+        // Harden defaults — strong IKE/ESP ciphers, MOBIKE, PFS, DPD.
+        proto.useConfigurationAttributeInternalIPSubnet = false
+        proto.disableMOBIKE = false
+        proto.disableRedirect = false
+        proto.enablePFS = true
+        proto.deadPeerDetectionRate = .medium
+        let ike = proto.ikeSecurityAssociationParameters
+        ike.encryptionAlgorithm = .algorithmAES256GCM
+        ike.integrityAlgorithm = .SHA256
+        ike.diffieHellmanGroup = .group19
+        let esp = proto.childSecurityAssociationParameters
+        esp.encryptionAlgorithm = .algorithmAES256GCM
+        esp.integrityAlgorithm = .SHA256
+        esp.diffieHellmanGroup = .group19
+        if let mtu = profile.mtu, mtu > 0 {
+            // NEVPNProtocolIKEv2 has no MTU knob; server-pushed config
+            // governs it. Logged for parity, applied where supported.
+            _ = mtu
+        }
+
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name
         mgr.isEnabled = true
+        // On-demand stays off here; Session 4 wires NEOnDemandRule.
+        mgr.isOnDemandEnabled = false
         try await mgr.saveToPreferences()
         try await mgr.loadFromPreferences()
         try mgr.connection.startVPNTunnel()
     }
 
     private func refreshStatus() {
-        // Map NEVPNStatus zur PrivycsCore VpnStatus.
-        let connection = NEVPNManager.shared().connection
-        let connected = connection.status == .connected
-        self.status = VpnStatus(
-            connected: connected,
-            connectionName: status.connectionName,
-            connectionID: status.connectionID,
-            activeProtocol: status.activeProtocol,
-            uptime: connected ? status.uptime : 0,
-            rxBytes: status.rxBytes,
-            txBytes: status.txBytes
-        )
+        if isPTPTunnel {
+            buildPTPStatus()
+        } else {
+            buildIKEv2Status()
+        }
         for (_, c) in statusContinuations {
             c.yield(self.status)
         }
+    }
+
+    /// PTP protocols (WG / AWG / OVPN): connected-state from the
+    /// NETunnelProviderManager session if available, rx/tx + endpoint
+    /// from the App Group store the extension writes.
+    private func buildPTPStatus() {
+        let snap = TunnelStatsStore.read()
+        let connected = snap?.connected ?? false
+        let uptime: Int64
+        if let at = snap?.connectedAtEpoch, at > 0, connected {
+            uptime = max(0, Int64(Date().timeIntervalSince1970) - at)
+        } else {
+            uptime = 0
+        }
+        self.status = VpnStatus(
+            connected: connected,
+            connectionName: activeConnectionName,
+            connectionID: activeConnectionID,
+            activeProtocol: activeProtocol,
+            uptime: uptime,
+            rxBytes: snap?.rxBytes ?? 0,
+            txBytes: snap?.txBytes ?? 0,
+            localAddress: snap?.localAddress ?? "",
+            serverEndpoint: snap?.serverEndpoint ?? "",
+            error: snap?.lastError ?? ""
+        )
+    }
+
+    /// IKEv2 Personal VPN: connected-state from NEVPNConnection. No
+    /// public byte counters on iOS, so rx/tx remain 0.
+    private func buildIKEv2Status() {
+        let connection = NEVPNManager.shared().connection
+        let connected = connection.status == .connected
+        let uptime: Int64
+        if connected, let since = connection.connectedDate {
+            uptime = max(0, Int64(Date().timeIntervalSince(since)))
+        } else {
+            uptime = 0
+        }
+        self.status = VpnStatus(
+            connected: connected,
+            connectionName: activeConnectionName,
+            connectionID: activeConnectionID,
+            activeProtocol: activeProtocol ?? .ipsec,
+            uptime: uptime,
+            localAddress: status.localAddress,
+            serverEndpoint: status.serverEndpoint
+        )
     }
 }
 

@@ -21,6 +21,13 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
     /// subsystem com.privycs.vpn.tunnel.
     private let logger = Logger(subsystem: "com.privycs.vpn.tunnel", category: "PTP")
 
+    /// Periodic stats reporter — publishes rx/tx + endpoint to the
+    /// App Group store so the main app's Connect screen can render
+    /// live throughput. Cancelled on stop.
+    private var statsTask: Task<Void, Never>?
+    private var protocolRaw: String = ""
+    private var connectedAtEpoch: Int64 = 0
+
     // MARK: — NEPacketTunnelProvider override
 
     public override func startTunnel(
@@ -57,14 +64,41 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
         activeBridge = bridge
+        protocolRaw = proto.rawValue
 
         Task {
             do {
                 try await bridge.start(providerConfig: providerConfig)
+                self.connectedAtEpoch = Int64(Date().timeIntervalSince1970)
+                self.startStatsReporting()
                 completionHandler(nil)
             } catch {
                 self.logger.error("PTP: bridge.start failed: \(error.localizedDescription)")
+                TunnelStatsStore.write(TunnelStatsSnapshot(
+                    connected: false, protocolRaw: self.protocolRaw,
+                    lastError: error.localizedDescription))
                 completionHandler(error)
+            }
+        }
+    }
+
+    /// 1s loop publishing the bridge's live stats to the App Group.
+    private func startStatsReporting() {
+        statsTask?.cancel()
+        statsTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let bridge = self.activeBridge else { break }
+                let s = await bridge.currentStats()
+                TunnelStatsStore.write(TunnelStatsSnapshot(
+                    connected: true,
+                    rxBytes: s.rx,
+                    txBytes: s.tx,
+                    localAddress: s.localAddress,
+                    serverEndpoint: s.serverEndpoint,
+                    protocolRaw: self.protocolRaw,
+                    connectedAtEpoch: self.connectedAtEpoch
+                ))
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
     }
@@ -74,6 +108,9 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         logger.info("PTP stopTunnel reason=\(reason.rawValue)")
+        statsTask?.cancel()
+        statsTask = nil
+        TunnelStatsStore.clear()
         Task {
             await activeBridge?.stop(reason: reason)
             activeBridge = nil
@@ -97,6 +134,28 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
 public protocol TunnelProtocolBridge: AnyObject, Sendable {
     func start(providerConfig: [String: Any]) async throws
     func stop(reason: NEProviderStopReason) async
+    /// Live throughput + tunnel info for the App-Group stats channel.
+    /// Default returns zeros; bridges override where the backend
+    /// exposes counters.
+    func currentStats() async -> BridgeStats
+}
+
+public extension TunnelProtocolBridge {
+    func currentStats() async -> BridgeStats { BridgeStats() }
+}
+
+/// Per-poll stats contribution from a bridge.
+public struct BridgeStats: Sendable {
+    public var rx: Int64
+    public var tx: Int64
+    public var localAddress: String
+    public var serverEndpoint: String
+    public init(rx: Int64 = 0, tx: Int64 = 0, localAddress: String = "", serverEndpoint: String = "") {
+        self.rx = rx
+        self.tx = tx
+        self.localAddress = localAddress
+        self.serverEndpoint = serverEndpoint
+    }
 }
 
 public enum TunnelError: LocalizedError {
