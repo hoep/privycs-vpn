@@ -29,11 +29,14 @@ let package = Package(
 
         // Sentry for crash reporting → self-hosted Bugsink at
         // crashes.privycs.com. Default OFF, opt-in via Settings UI.
-        // Sentry 8.57.0+ is the first version built with Xcode 26 /
-        // Swift 6 so Xcode-26 archive doesn't fail with
-        // "this SDK is not supported by the compiler" on the older
-        // Sentry framework binaries.
-        .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.0"),
+        // Sentry temporarily REMOVED for the iOS Xcode-26 alpha track.
+        // Sentry 8.x binary xcframeworks are built with Swift 5.9 and
+        // can't load under Xcode 26's Swift 6.3 compiler. Sentry 9.x
+        // is Xcode-26-compatible but has breaking API changes
+        // (Event.message, Exception.stacktrace etc.) — migration is
+        // tracked separately. CrashReporter.swift has `#if
+        // canImport(Sentry)` guards, so removing the dep is inert.
+        // .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "9.15.0"),
 
         // Apple swift-collections for OrderedSet (used in PoolRotator).
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
@@ -44,7 +47,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "GRDB", package: "GRDB.swift"),
-                .product(name: "Sentry", package: "sentry-cocoa"),
+                // .product(name: "Sentry", package: "sentry-cocoa"),  // see comment above
                 .product(name: "Collections", package: "swift-collections"),
             ],
             path: "Sources/PrivycsCore",
