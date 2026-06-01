@@ -23,7 +23,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.0.7"                  # synced with ios/latest_version.txt
-    CURRENT_PROJECT_VERSION: "16"
+    CURRENT_PROJECT_VERSION: "17"
   configs:
     Debug:
       SWIFT_OPTIMIZATION_LEVEL: -Onone
@@ -52,7 +52,7 @@ packages:
     path: .deps/wireguard-apple
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
-    from: 8.36.0
+    from: 8.57.0
   OpenVPNAdapter:
     url: https://github.com/ss-abramchuk/OpenVPNAdapter
     from: 0.8.0

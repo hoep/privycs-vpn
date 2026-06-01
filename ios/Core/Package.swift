@@ -29,7 +29,11 @@ let package = Package(
 
         // Sentry for crash reporting → self-hosted Bugsink at
         // crashes.privycs.com. Default OFF, opt-in via Settings UI.
-        .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.36.0"),
+        // Sentry 8.57.0+ is the first version built with Xcode 26 /
+        // Swift 6 so Xcode-26 archive doesn't fail with
+        // "this SDK is not supported by the compiler" on the older
+        // Sentry framework binaries.
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.0"),
 
         // Apple swift-collections for OrderedSet (used in PoolRotator).
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
