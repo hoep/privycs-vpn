@@ -27,6 +27,7 @@ final class AppState: ObservableObject {
     let settingsRepo = SettingsRepository()
     let poolRepo = PoolRepository()
     let rulesRepo = NetworkRulesRepository()
+    let poolHealth = PoolHealthStore()
     let entitlementRepo = EntitlementRepository()
     let networkMonitor = NetworkMonitor()
     let crashReporter = CrashReporter()
@@ -153,27 +154,65 @@ final class AppState: ObservableObject {
     }
 
     func connectPool(_ pool: Pool) async {
-        guard let (member, updated) = rotator.pick(from: pool, userCountry: userCountry) else {
-            connectError = "Pool has no reachable members"
-            return
-        }
         connecting = true
         defer { connecting = false }
-        resetSpeedTracking()
-        // Persist active member + next-rotation timestamp.
-        try? await poolRepo.save(updated)
-        await poolRepo.setActivePoolID(pool.id)
-        activePool = updated
-        activePoolMember = member
-        nextRotationAt = updated.rotation?.nextRotationAt ?? 0
 
-        do {
-            let synth = synthConnection(for: member, pool: updated)
-            try await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: synth))
+        // Resilient connect (Android PoolConnector parity): up to 3 attempts,
+        // excluding members that recently failed (unreachable TTL) and ones
+        // tried this round; verify the tunnel actually passes traffic before
+        // declaring success; mark dead members unreachable and move on.
+        let unreachable = await poolHealth.unreachableMembers(pool: pool.id)
+        var tried = Set<String>()
+        var lastError: String?
+
+        for _ in 0..<3 {
+            guard let (member, updated) = rotator.pick(
+                from: pool, userCountry: userCountry,
+                excludingMemberIDs: unreachable.union(tried)
+            ) else { break }
+            tried.insert(member.id)
+            resetSpeedTracking()
+            try? await poolRepo.save(updated)
+            await poolRepo.setActivePoolID(pool.id)
+            activePool = updated
+            activePoolMember = member
+            nextRotationAt = updated.rotation?.nextRotationAt ?? 0
+
+            do {
+                let synth = synthConnection(for: member, pool: updated)
+                try await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled,
+                                                dnsOverride: resolvedDNS(for: synth))
+            } catch {
+                lastError = error.localizedDescription
+                await poolHealth.markUnreachable(pool: pool.id, member: member.id)
+                continue
+            }
+
+            // Post-up health probe — WG/AWG expose rx counters via the App
+            // Group snapshot; if no traffic arrives within the window the
+            // member is dead-on-arrival, mark it and try the next.
+            if member.protocol == .wireguard || member.protocol == .amneziawg {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                let snap = TunnelStatsStore.read()
+                if snap?.connected != true || (snap?.rxBytes ?? 0) == 0 {
+                    await poolHealth.markUnreachable(pool: pool.id, member: member.id)
+                    lastError = "\(member.name) did not pass traffic"
+                    continue
+                }
+            }
+
             scheduleRotationIfNeeded(updated)
-        } catch {
-            connectError = error.localizedDescription
+            connectError = nil
+            return
         }
+
+        // Every candidate failed. If the device clearly has internet, the
+        // marks are likely stale (provider rotated IPs) — clear them so the
+        // next attempt starts fresh instead of a permanently-dead pool.
+        if await AppState.reachable(host: "1.1.1.1", timeout: 4) {
+            await poolHealth.clear(pool: pool.id)
+        }
+        connectError = lastError ?? "Pool has no reachable members"
     }
 
     /// 3-tier DNS override: the connection's own override (pool members
@@ -227,7 +266,10 @@ final class AppState: ObservableObject {
     /// Rotate to the next member of the active pool (manual or timer).
     func rotatePool() async {
         guard let pool = activePool else { return }
-        guard let (member, updated) = rotator.pick(from: pool, userCountry: userCountry) else { return }
+        let unreachable = await poolHealth.unreachableMembers(pool: pool.id)
+        guard let (member, updated) = rotator.pick(
+            from: pool, userCountry: userCountry, excludingMemberIDs: unreachable
+        ) else { return }
         try? await poolRepo.save(updated)
         activePool = updated
         activePoolMember = member

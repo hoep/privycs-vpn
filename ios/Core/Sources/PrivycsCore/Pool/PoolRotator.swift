@@ -24,9 +24,10 @@ public struct PoolRotator: Sendable {
         from pool: Pool,
         userCountry: String = "",
         userLatLon: (Double, Double)? = nil,
-        now: Date = Date()
+        now: Date = Date(),
+        excludingMemberIDs: Set<String> = []
     ) -> (member: PoolMember, updatedPool: Pool)? {
-        let eligible = filterEligible(pool: pool)
+        let eligible = filterEligible(pool: pool).filter { !excludingMemberIDs.contains($0.id) }
         guard !eligible.isEmpty else { return nil }
 
         let chosen: PoolMember
