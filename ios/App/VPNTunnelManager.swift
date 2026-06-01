@@ -65,8 +65,9 @@ final class VPNTunnelManager: ObservableObject {
         for m in managers {
             m.connection.stopVPNTunnel()
         }
-        let vpnManagers = (try? await NEVPNManager.shared().loadFromPreferences()) ?? ()
-        _ = vpnManagers
+        // Personal-VPN (IPSec) — load + stop. loadFromPreferences returns Void;
+        // we only care it ran without throw so connection is fresh.
+        try? await NEVPNManager.shared().loadFromPreferences()
         NEVPNManager.shared().connection.stopVPNTunnel()
     }
 

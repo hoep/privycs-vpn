@@ -10,7 +10,12 @@ import OpenVPNAdapter
 /// the conformance here lets the adapter consume `provider.packetFlow`
 /// directly without a wrapper. This is the canonical hookup from the
 /// OpenVPNAdapter README.
-extension NEPacketTunnelFlow: OpenVPNAdapterPacketFlow {}
+///
+/// Both types live in external modules (NetworkExtension + OpenVPNAdapter),
+/// so this is a retroactive conformance. Swift 6 emits an error without
+/// `@retroactive`. Single-app monopoly is fine here — no library will
+/// ship a conflicting conformance.
+extension NEPacketTunnelFlow: @retroactive OpenVPNAdapterPacketFlow {}
 #endif
 
 /// OpenVPN packet tunnel bridge via OpenVPNAdapter (Apache 2 via

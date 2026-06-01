@@ -100,11 +100,11 @@ struct NetworkRulesView: View {
     }
 
     private func connectionName(_ id: String) -> String {
-        appState.connections.first { $0.id == id }?.name ?? id.prefix(8) + ""
+        appState.connections.first { $0.id == id }?.name ?? String(id.prefix(8))
     }
 
     private func poolName(_ id: String) -> String {
-        appState.pools.first { $0.id == id }?.name ?? id.prefix(8) + ""
+        appState.pools.first { $0.id == id }?.name ?? String(id.prefix(8))
     }
 
     private func networkLabel(_ state: NetworkState) -> String {
