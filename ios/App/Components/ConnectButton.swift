@@ -41,6 +41,26 @@ struct ConnectButton: View {
         return "shield"
     }
 
+    /// Center content — the active protocol's REAL brand logo (template-
+    /// tinted), matching Android's connect button. Falls back to a shield
+    /// SF Symbol when idle / no protocol picked / sinkhole.
+    @ViewBuilder private var centerContent: some View {
+        if connecting {
+            ProgressView().controlSize(.large).tint(PrivycsColor.teal)
+        } else if !sinkhole, let proto = activeProtocol {
+            Image(proto.assetName)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 68, height: 68)
+                .foregroundStyle(ringColor)
+        } else {
+            Image(systemName: centerIcon)
+                .font(.system(size: 72, weight: .light))
+                .foregroundStyle(ringColor)
+        }
+    }
+
     var body: some View {
         Button(action: { if !sinkhole { onTap() } }) {
             ZStack {
@@ -57,15 +77,7 @@ struct ConnectButton: View {
                     .overlay(Circle().stroke(ringColor.opacity(0.6), lineWidth: 2))
                     .shadow(color: ringColor.opacity(connected ? 0.45 : 0.0), radius: 24)
 
-                if connecting {
-                    ProgressView()
-                        .controlSize(.large)
-                        .tint(PrivycsColor.teal)
-                } else {
-                    Image(systemName: centerIcon)
-                        .font(.system(size: 72, weight: .light))
-                        .foregroundStyle(ringColor)
-                }
+                centerContent
             }
         }
         .buttonStyle(.plain)

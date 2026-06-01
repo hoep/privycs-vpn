@@ -82,15 +82,13 @@ struct ConnectionsView: View {
                     Button {
                         Task { await appState.setActiveConfig(connectionID: conn.id, configID: cfg.id) }
                     } label: {
-                        ProtocolBadge(proto: cfg.protocol, endpoint: cfg.serverAddress)
-                            .overlay(alignment: .topTrailing) {
-                                if cfg.id == conn.activeConfigID {
-                                    Circle().fill(PrivycsColor.connected).frame(width: 6, height: 6).offset(x: 3, y: -3)
-                                }
-                            }
-                            .opacity(cfg.id == conn.activeConfigID ? 1.0 : 0.55)
+                        ProtocolBadge(proto: cfg.protocol, endpoint: cfg.serverAddress,
+                                      active: cfg.id == conn.activeConfigID)
                     }
-                    .buttonStyle(.plain)
+                    // .borderless (not .plain) so each pill is an
+                    // independent tap target inside the List row — .plain
+                    // made the whole row swallow the tap ("pills do nothing").
+                    .buttonStyle(.borderless)
                     .contextMenu {
                         Button(role: .destructive) {
                             Task { await appState.removeConfig(connectionID: conn.id, configID: cfg.id) }
@@ -100,7 +98,7 @@ struct ConnectionsView: View {
                 Button { addProtocolFor = conn } label: {
                     Image(systemName: "plus.circle").font(.system(size: 16)).foregroundStyle(PrivycsColor.teal)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
             }
         }
         .padding(.vertical, 2)

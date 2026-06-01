@@ -42,13 +42,19 @@ public final class WireGuardBridge: TunnelProtocolBridge, @unchecked Sendable {
             .map { "\($0.address)" }.joined(separator: ", ")
         self.serverEndpoint = tunnelConfig.peers.first?.endpoint.map { "\($0)" } ?? ""
 
-        let adapter = WireGuardAdapter(with: provider) { [weak self] _, message in
+        let adapter = WireGuardAdapter(with: provider) { [weak self] level, message in
+            // Route the WireGuard backend's verbose log (handshakes,
+            // endpoint resolution, errors) into BOTH os_log AND the
+            // shared file the in-app Logs viewer reads.
             self?.logger.info("WG: \(message, privacy: .public)")
+            PrivycsLog.log("WG[\(level.rawValue)] \(message)")
         }
         self.adapter = adapter
+        PrivycsLog.log("WireGuard starting — endpoint \(serverEndpoint), addr \(localAddress)")
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             adapter.start(tunnelConfiguration: tunnelConfig) { error in
                 if let error {
+                    PrivycsLog.log("WireGuard start FAILED: \(error)")
                     cont.resume(throwing: TunnelError.nativeFault("WireGuard start: \(error)"))
                 } else {
                     cont.resume(returning: ())

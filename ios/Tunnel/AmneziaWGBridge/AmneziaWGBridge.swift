@@ -50,13 +50,25 @@ public final class AmneziaWGBridge: TunnelProtocolBridge, @unchecked Sendable {
             .map { "\($0.address)" }.joined(separator: ", ")
         self.serverEndpoint = tunnelConfig.peers.first?.endpoint.map { "\($0)" } ?? ""
 
-        let adapter = WireGuardAdapter(with: provider) { [weak self] _, message in
+        // Diagnostic: log whether the config actually carries IPv6 — the
+        // "AWG works on v4 but not v6" question is usually answered here
+        // (no fd00::/AAAA address or no ::/0 in AllowedIPs = no v6 tunnel).
+        let allowed = tunnelConfig.peers.flatMap { $0.allowedIPs }.map { "\($0)" }.joined(separator: ", ")
+        PrivycsLog.log("AmneziaWG starting — endpoint \(serverEndpoint)")
+        PrivycsLog.log("AWG addresses: \(localAddress)")
+        PrivycsLog.log("AWG allowedIPs: \(allowed)")
+        if !localAddress.contains(":") { PrivycsLog.log("AWG: no IPv6 interface address in config") }
+        if !allowed.contains("::/0") && !allowed.contains(":") { PrivycsLog.log("AWG: no IPv6 route (::/0) in AllowedIPs") }
+
+        let adapter = WireGuardAdapter(with: provider) { [weak self] level, message in
             self?.logger.info("AWG: \(message, privacy: .public)")
+            PrivycsLog.log("AWG[\(level.rawValue)] \(message)")
         }
         self.adapter = adapter
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             adapter.start(tunnelConfiguration: tunnelConfig) { error in
                 if let error {
+                    PrivycsLog.log("AmneziaWG start FAILED: \(error)")
                     cont.resume(throwing: TunnelError.nativeFault("AmneziaWG start: \(error)"))
                 } else {
                     cont.resume(returning: ())

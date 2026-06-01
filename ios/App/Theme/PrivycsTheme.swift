@@ -60,7 +60,19 @@ extension VpnProtocol {
         }
     }
 
-    /// SF Symbol approximating the Android per-protocol glyph.
+    /// Asset-catalog name of the real Android protocol logo (ported
+    /// VectorDrawable→SVG / mono PNG, template-tinted). Used instead of
+    /// SF Symbols so iOS matches the Android brand iconography 1:1.
+    var assetName: String {
+        switch self {
+        case .wireguard: return "ic_protocol_wireguard"
+        case .openvpn:   return "ic_protocol_openvpn"
+        case .ipsec:     return "ic_protocol_strongswan"
+        case .amneziawg: return "ic_protocol_amneziawg"
+        }
+    }
+
+    /// SF Symbol fallback (used only if an asset is missing).
     var sfSymbol: String {
         switch self {
         case .wireguard: return "bolt.shield"

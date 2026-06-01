@@ -275,9 +275,10 @@ struct ConnectionView: View {
 
     private var welcomeView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "shield.lefthalf.filled")
-                .font(.system(size: 64, weight: .light))
-                .foregroundStyle(PrivycsColor.teal)
+            Image("ic_privycs_logo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 96, height: 96)
             Text("Welcome to Privycs VPN")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(PrivycsColor.onSurface)
