@@ -23,7 +23,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.0.7"                  # synced with ios/latest_version.txt
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "2"
   configs:
     Debug:
       SWIFT_OPTIMIZATION_LEVEL: -Onone
@@ -37,7 +37,7 @@ packages:
     path: Core
   WireGuardKit:
     url: https://git.zx2c4.com/wireguard-apple
-    from: 1.0.16-26-g15ed3ee
+    revision: 2fec12a6e1f6e3460b6ee483aa00ad29cddadab1
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
     from: 8.36.0
