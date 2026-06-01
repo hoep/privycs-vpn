@@ -41,6 +41,14 @@ struct ConnectionView: View {
                             .padding(.vertical, 4)
 
                             if status.connected {
+                                // Uptime — monospace line right under the button,
+                                // analog Android ConnectScreen (not buried in the
+                                // detail panel).
+                                if status.uptime > 0 {
+                                    Text(formatUptime(status.uptime))
+                                        .font(.system(size: 16, weight: .medium).monospacedDigit())
+                                        .foregroundStyle(PrivycsColor.onSurface)
+                                }
                                 if let pool = appState.activePool {
                                     PoolIndicatorCard(
                                         poolName: pool.name,
@@ -54,7 +62,12 @@ struct ConnectionView: View {
                                 if hasMultipleConfigs { protocolBadgeRow }
                                 statsRow
                                 connectionDetails
-                                TunnelHealthPill(health: .healthy)
+                                // NOTE: the hardcoded TunnelHealthPill(.healthy)
+                                // was removed — it always rendered "healthy"
+                                // regardless of real tunnel state (no health
+                                // monitor on iOS yet). A real ICMP health monitor
+                                // is a tracked follow-up; showing a fake-green pill
+                                // was worse than showing none.
                             }
 
                             if let err = appState.connectError ?? (status.error.isEmpty ? nil : status.error) {
@@ -222,29 +235,31 @@ struct ConnectionView: View {
             TransferStatsCard(
                 title: "Download", icon: "arrow.down",
                 totalBytes: status.rxBytes, speedBytesPerSec: appState.rxSpeed,
-                history: appState.rxHistory, tint: PrivycsColor.teal
+                history: appState.rxHistory, tint: Color(hex: 0x22C55E)   // green-500 (Android parity)
             )
             TransferStatsCard(
                 title: "Upload", icon: "arrow.up",
                 totalBytes: status.txBytes, speedBytesPerSec: appState.txSpeed,
-                history: appState.txHistory, tint: PrivycsColor.amneziaWG
+                history: appState.txHistory, tint: Color(hex: 0x3B82F6)   // blue-500 (Android parity)
             )
         }
     }
 
+    // Detail panel — analog Android ConnectionDetails: exactly VPN IP /
+    // Endpoint / Last handshake, each conditional on a non-blank value,
+    // monospace, comma-separated values split onto separate lines.
+    // (Dropped the iOS-only "Protocol" + "Uptime" rows — Protocol is
+    // already shown by the badges, uptime now has its own line.)
     private var connectionDetails: some View {
         VStack(spacing: 0) {
-            if !status.serverEndpoint.isEmpty {
-                detailRow("Server", value: status.serverEndpoint)
-            }
             if !status.localAddress.isEmpty {
-                detailRow("Tunnel IP", value: status.localAddress)
+                detailRow("VPN IP", value: status.localAddress)
             }
-            if let proto = status.activeProtocol {
-                detailRow("Protocol", value: proto.displayName)
+            if !status.serverEndpoint.isEmpty {
+                detailRow("Endpoint", value: status.serverEndpoint)
             }
-            if status.uptime > 0 {
-                detailRow("Uptime", value: formatUptime(status.uptime))
+            if !status.lastHandshake.isEmpty {
+                detailRow("Last handshake", value: status.lastHandshake)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 6)
@@ -253,12 +268,21 @@ struct ConnectionView: View {
     }
 
     private func detailRow(_ label: String, value: String) -> some View {
-        HStack {
+        // Split comma-separated values (e.g. "10.0.0.2/32, fd00::2/128")
+        // onto separate right-aligned lines — Android DetailRow behavior.
+        let parts = value.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return HStack(alignment: .top) {
             Text(label).font(.system(size: 13)).foregroundStyle(.secondary)
             Spacer()
-            Text(value).font(.system(size: 13)).fontDesign(.monospaced)
-                .foregroundStyle(PrivycsColor.onSurface)
-                .lineLimit(1).truncationMode(.middle)
+            VStack(alignment: .trailing, spacing: 2) {
+                ForEach(parts, id: \.self) { part in
+                    Text(part).font(.system(size: 13)).fontDesign(.monospaced)
+                        .foregroundStyle(PrivycsColor.onSurface)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+            }
         }
         .padding(.vertical, 8)
     }

@@ -34,6 +34,12 @@ public struct VpnStatus: Equatable, Sendable {
     /// Server-Endpoint (host:port).
     public let serverEndpoint: String
 
+    /// Letzter erfolgreicher WireGuard/AmneziaWG-Handshake als
+    /// menschenlesbare "vor X" Zeichenkette ("" wenn unbekannt oder
+    /// Protokoll ohne Handshake-Tracking — OpenVPN/IPSec). Analog
+    /// Android VpnStatus.lastHandshake.
+    public let lastHandshake: String
+
     /// Server-Country (ISO 3166-1 Alpha-2). Aus Pool-Member oder
     /// Hostname-Pattern.
     public let serverCountryCode: String
@@ -67,6 +73,7 @@ public struct VpnStatus: Equatable, Sendable {
         txBytes: Int64 = 0,
         localAddress: String = "",
         serverEndpoint: String = "",
+        lastHandshake: String = "",
         serverCountryCode: String = "",
         error: String = "",
         poolID: String = "",
@@ -88,6 +95,7 @@ public struct VpnStatus: Equatable, Sendable {
         self.txBytes = txBytes
         self.localAddress = localAddress
         self.serverEndpoint = serverEndpoint
+        self.lastHandshake = lastHandshake
         self.serverCountryCode = serverCountryCode
         self.error = error
         self.poolID = poolID
