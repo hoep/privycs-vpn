@@ -61,6 +61,12 @@ struct SettingsView: View {
                     } label: { Text("On-Demand & Network Rules") }
                 }
 
+                Section("Backup") {
+                    NavigationLink {
+                        BackupView().environmentObject(appState)
+                    } label: { Text("Backup & Restore") }
+                }
+
                 Section("Pro") {
                     NavigationLink(destination: ProUpgradeView().environmentObject(appState)) {
                         Text("Upgrade to Pro")
