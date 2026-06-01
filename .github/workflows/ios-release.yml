@@ -81,18 +81,21 @@ jobs:
         working-directory: ios
         run: |
           set -euo pipefail
-          # 1. Clone upstream zx2c4 wireguard-apple to ios/.deps/wireguard-apple
-          #    at a pinned revision so the build is reproducible.
-          PIN="2fec12a6e1f6e3460b6ee483aa00ad29cddadab1"
+          # 1. Clone amnezia-vpn/amneziawg-apple to ios/.deps/wireguard-apple.
+          #    This fork exposes the SAME `WireGuardKit` module + WireGuardAdapter
+          #    as upstream zx2c4, but its libwg-go.a is built from amneziawg-go,
+          #    so the one backend runs BOTH vanilla WireGuard (no AWG keys) AND
+          #    AmneziaWG (Jc/Jmin/Jmax/S1-4/H1-4/I1-5 obfuscation). Mirrors
+          #    Android's unified amneziawg GoBackend — both iOS bridges use it.
+          PIN="5cbc86f38466ff763e24167bebc2640d6c30e7fe"
           mkdir -p .deps
           rm -rf .deps/wireguard-apple
-          git clone https://git.zx2c4.com/wireguard-apple .deps/wireguard-apple
+          git clone https://github.com/amnezia-vpn/amneziawg-apple .deps/wireguard-apple
           (cd .deps/wireguard-apple && git checkout "$PIN")
 
-          # 2a. Patch Package.swift swift-tools-version from 5.3 to 5.5.
-          #     Upstream declares 5.3 but uses .macOS(.v12) / .iOS(.v15)
-          #     which need PackageDescription 5.5+ — manifest fails to
-          #     compile otherwise.
+          # 2a. Normalise Package.swift swift-tools-version to 5.5 (the
+          #     amnezia fork is already 5.5; this is a harmless no-op kept
+          #     for robustness if a future pin regresses).
           sed -i '' '1s|.*|// swift-tools-version:5.5|' .deps/wireguard-apple/Package.swift
           echo "Patched Package.swift first line:"
           head -1 .deps/wireguard-apple/Package.swift
