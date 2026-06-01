@@ -91,17 +91,20 @@ public final class WireGuardBridge: TunnelProtocolBridge, @unchecked Sendable {
         let uapi: String? = await withCheckedContinuation { cont in
             adapter.getRuntimeConfiguration { cont.resume(returning: $0) }
         }
-        var rx: Int64 = 0, tx: Int64 = 0
+        var rx: Int64 = 0, tx: Int64 = 0, hs: Int64 = 0
         if let uapi {
             for line in uapi.split(separator: "\n") {
                 if line.hasPrefix("rx_bytes=") {
                     rx += Int64(line.dropFirst("rx_bytes=".count)) ?? 0
                 } else if line.hasPrefix("tx_bytes=") {
                     tx += Int64(line.dropFirst("tx_bytes=".count)) ?? 0
+                } else if line.hasPrefix("last_handshake_time_sec=") {
+                    hs = max(hs, Int64(line.dropFirst("last_handshake_time_sec=".count)) ?? 0)
                 }
             }
         }
-        return BridgeStats(rx: rx, tx: tx, localAddress: localAddress, serverEndpoint: serverEndpoint)
+        return BridgeStats(rx: rx, tx: tx, localAddress: localAddress,
+                           serverEndpoint: serverEndpoint, lastHandshakeEpoch: hs)
 #else
         return BridgeStats(localAddress: localAddress, serverEndpoint: serverEndpoint)
 #endif

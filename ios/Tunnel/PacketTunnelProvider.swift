@@ -98,7 +98,8 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
                     localAddress: s.localAddress,
                     serverEndpoint: s.serverEndpoint,
                     protocolRaw: self.protocolRaw,
-                    connectedAtEpoch: self.connectedAtEpoch
+                    connectedAtEpoch: self.connectedAtEpoch,
+                    lastHandshakeEpoch: s.lastHandshakeEpoch
                 ))
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
@@ -153,11 +154,16 @@ public struct BridgeStats: Sendable {
     public var tx: Int64
     public var localAddress: String
     public var serverEndpoint: String
-    public init(rx: Int64 = 0, tx: Int64 = 0, localAddress: String = "", serverEndpoint: String = "") {
+    /// UNIX epoch (seconds) of the last successful WireGuard/AmneziaWG
+    /// handshake. 0 = none yet / protocol without handshake tracking.
+    public var lastHandshakeEpoch: Int64
+    public init(rx: Int64 = 0, tx: Int64 = 0, localAddress: String = "",
+                serverEndpoint: String = "", lastHandshakeEpoch: Int64 = 0) {
         self.rx = rx
         self.tx = tx
         self.localAddress = localAddress
         self.serverEndpoint = serverEndpoint
+        self.lastHandshakeEpoch = lastHandshakeEpoch
     }
 }
 

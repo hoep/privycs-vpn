@@ -257,8 +257,23 @@ final class VPNTunnelManager: ObservableObject {
             txBytes: snap?.txBytes ?? 0,
             localAddress: snap?.localAddress ?? "",
             serverEndpoint: snap?.serverEndpoint ?? "",
+            lastHandshake: Self.formatHandshakeAge(snap?.lastHandshakeEpoch ?? 0),
             error: snap?.lastError ?? ""
         )
+    }
+
+    /// Format a last-handshake epoch as a human "x ago" string (WG/AWG
+    /// only; "" when unknown). Mirrors Android's lastHandshake display.
+    static func formatHandshakeAge(_ epoch: Int64) -> String {
+        guard epoch > 0 else { return "" }
+        let age = Int64(Date().timeIntervalSince1970) - epoch
+        if age < 0 { return "just now" }
+        if age < 2 { return "1 second ago" }
+        if age < 60 { return "\(age) seconds ago" }
+        if age < 120 { return "1 minute ago" }
+        if age < 3600 { return "\(age / 60) minutes ago" }
+        if age < 7200 { return "1 hour ago" }
+        return "\(age / 3600) hours ago"
     }
 
     /// IKEv2 Personal VPN: connected-state from NEVPNConnection. No
