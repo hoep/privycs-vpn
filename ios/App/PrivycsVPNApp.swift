@@ -120,7 +120,7 @@ final class AppState: ObservableObject {
             connecting = true
             defer { connecting = false }
             resetSpeedTracking()
-            do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled) }
+            do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: conn)) }
             catch { connectError = error.localizedDescription }
         }
     }
@@ -164,11 +164,19 @@ final class AppState: ObservableObject {
         nextRotationAt = updated.rotation?.nextRotationAt ?? 0
 
         do {
-            try await tunnelManager.connect(synthConnection(for: member, pool: updated), onDemand: settings.networkRulesEnabled)
+            let synth = synthConnection(for: member, pool: updated)
+            try await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: synth))
             scheduleRotationIfNeeded(updated)
         } catch {
             connectError = error.localizedDescription
         }
+    }
+
+    /// 3-tier DNS override: the connection's own override (pool members
+    /// carry the pool's), else the global setting. Mirrors Android's
+    /// resolveDnsOverrideServers precedence (pool→connection→global).
+    private func resolvedDNS(for conn: SavedConnection) -> String {
+        conn.dnsOverride.isEmpty ? settings.dnsOverride : conn.dnsOverride
     }
 
     /// Build a transient SavedConnection wrapping one pool member so we
@@ -221,7 +229,8 @@ final class AppState: ObservableObject {
         activePoolMember = member
         nextRotationAt = updated.rotation?.nextRotationAt ?? 0
         resetSpeedTracking()
-        try? await tunnelManager.connect(synthConnection(for: member, pool: updated), onDemand: settings.networkRulesEnabled)
+        let synth = synthConnection(for: member, pool: updated)
+        try? await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: synth))
     }
 
     // MARK: - Import + Gateway (Session 5)
@@ -309,7 +318,7 @@ final class AppState: ObservableObject {
                 self.connecting = true
                 defer { self.connecting = false }
                 self.resetSpeedTracking()
-                try? await self.tunnelManager.connect(conn, onDemand: self.settings.networkRulesEnabled)
+                try? await self.tunnelManager.connect(conn, onDemand: self.settings.networkRulesEnabled, dnsOverride: self.resolvedDNS(for: conn))
             }
 
         case .connectToPool(let id):

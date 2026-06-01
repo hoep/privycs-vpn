@@ -26,6 +26,7 @@ final class VPNTunnelManager: ObservableObject {
     private var activeProtocol: VpnProtocol?
     private var isPTPTunnel = false
     private var onDemandEnabled = false
+    private var dnsOverride = ""
     /// Poll loop that pulls PTP stats from the App Group store while up.
     private var pollTask: Task<Void, Never>?
 
@@ -63,7 +64,7 @@ final class VPNTunnelManager: ObservableObject {
     /// auto-reconnects on network change AND shows the system On-Demand
     /// toggle (Settings ▸ VPN ▸ (i)), like the WireGuard app. Gated by
     /// the app's auto-tunnel master (networkRulesEnabled).
-    func connect(_ connection: SavedConnection, onDemand: Bool = false) async throws {
+    func connect(_ connection: SavedConnection, onDemand: Bool = false, dnsOverride: String = "") async throws {
         guard let config = connection.protocols.first(where: { $0.id == connection.activeConfigID })
             ?? connection.protocols.first else {
             throw VPNError.noConfig
@@ -73,6 +74,7 @@ final class VPNTunnelManager: ObservableObject {
         activeProtocol = config.protocol
         isPTPTunnel = config.protocol != .ipsec
         self.onDemandEnabled = onDemand
+        self.dnsOverride = dnsOverride
 
         if config.protocol == .ipsec {
             try await connectViaIKEv2(connection: connection, config: config)
@@ -146,6 +148,7 @@ final class VPNTunnelManager: ObservableObject {
             "config_content": config.configContent,
             "connection_id": connection.id,
             "config_id": config.id,
+            "dns_override": dnsOverride,
         ]
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name

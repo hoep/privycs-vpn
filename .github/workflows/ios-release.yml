@@ -181,6 +181,8 @@ jobs:
 
       - name: Archive
         working-directory: ios
+        env:
+          LICENSE_PUBLIC_KEY_HEX: ${{ secrets.LICENSE_PUBLIC_KEY_HEX }}
         run: |
           xcodebuild archive \
             -project PrivycsVPN.xcodeproj \
@@ -191,6 +193,7 @@ jobs:
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
             CODE_SIGN_STYLE=Manual \
             LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out' \
+            LICENSE_PUBLIC_KEY_HEX="${LICENSE_PUBLIC_KEY_HEX}" \
             -allowProvisioningUpdates
 
       - name: Export IPA

@@ -32,9 +32,11 @@ public final class WireGuardBridge: TunnelProtocolBridge, @unchecked Sendable {
             throw TunnelError.missingProviderConfig
         }
         // Parse via WireGuardKit's standard ini-config parser.
-        guard let tunnelConfig = try? TunnelConfiguration(fromWgQuickConfig: raw, called: "privycs") else {
+        guard var tunnelConfig = try? TunnelConfiguration(fromWgQuickConfig: raw, called: "privycs") else {
             throw TunnelError.nativeFault("WireGuard config parse failed")
         }
+        // 3-tier DNS override (pool→connection→global) applied by the app.
+        applyDNSOverride(providerConfig, to: &tunnelConfig)
         // Stash interface address + peer endpoint for the stats channel.
         self.localAddress = tunnelConfig.interface.addresses
             .map { "\($0.address)" }.joined(separator: ", ")
@@ -93,3 +95,19 @@ public final class WireGuardBridge: TunnelProtocolBridge, @unchecked Sendable {
 #endif
     }
 }
+
+#if canImport(WireGuardKit)
+/// Apply the app-resolved 3-tier DNS override (pool→connection→global)
+/// onto a parsed WireGuard/AmneziaWG config — WireGuardAdapter then
+/// pushes these as the tunnel's NEDNSSettings. Shared by both bridges.
+/// No-op when the override is empty (keeps the config's own DNS).
+func applyDNSOverride(_ providerConfig: [String: Any], to config: inout TunnelConfiguration) {
+    guard let dns = providerConfig["dns_override"] as? String, !dns.isEmpty else { return }
+    let servers = dns
+        .split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\n" })
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+        .compactMap { DNSServer(from: $0) }
+    if !servers.isEmpty { config.interface.dns = servers }
+}
+#endif

@@ -42,9 +42,10 @@ public final class AmneziaWGBridge: TunnelProtocolBridge, @unchecked Sendable {
         }
         // The amnezia fork's parser keeps the AWG obfuscation keys; a
         // config without them parses as plain WireGuard.
-        guard let tunnelConfig = try? TunnelConfiguration(fromWgQuickConfig: raw, called: "privycs-awg") else {
+        guard var tunnelConfig = try? TunnelConfiguration(fromWgQuickConfig: raw, called: "privycs-awg") else {
             throw TunnelError.nativeFault("AmneziaWG config parse failed")
         }
+        applyDNSOverride(providerConfig, to: &tunnelConfig)
         self.localAddress = tunnelConfig.interface.addresses
             .map { "\($0.address)" }.joined(separator: ", ")
         self.serverEndpoint = tunnelConfig.peers.first?.endpoint.map { "\($0)" } ?? ""
