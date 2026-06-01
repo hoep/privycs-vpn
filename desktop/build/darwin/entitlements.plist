@@ -47,16 +47,26 @@
       .mobileconfig+AppleScript path and the Homebrew-strongSwan/swanctl
       backend). See nevpn_macos.go.
 
-      NOTE: on Developer-ID (non-App-Store) distribution this managed
-      entitlement may additionally require an embedded provisioning
-      profile generated from a macOS App ID carrying the Personal VPN
-      capability (created on developer.apple.com, analogous to the iOS
-      profiles). The first signed+notarized build reveals whether the
-      runtime grants it without one; if not, add the profile to CI.
+      CONFIRMED (v1.0.7.7/.8 crashed): this is a restricted/managed
+      entitlement. On Developer-ID (non-App-Store) distribution AMFI
+      SIGKILLs the app at launch ("CODESIGNING Taskgated Invalid
+      Signature") unless an embedded provisioning profile authorizes it —
+      even though Gatekeeper/notarization accept the app (spctl: accepted).
+      The CI build embeds Contents/embedded.provisionprofile (macOS
+      Developer ID profile for App ID com.privycs.vpn with the Personal
+      VPN capability) BEFORE codesign; see desktop-release.yml. The three
+      entitlements below (vpn.api + application-identifier +
+      team-identifier) must be a subset of that profile's entitlements.
+      The helper runs from inside the .app bundle (getHelperBinaryPath →
+      os.Executable), so it finds the same embedded profile.
     -->
     <key>com.apple.developer.networking.vpn.api</key>
     <array>
         <string>allow-vpn</string>
     </array>
+    <key>com.apple.application-identifier</key>
+    <string>LDGP24V3Q8.com.privycs.vpn</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>LDGP24V3Q8</string>
 </dict>
 </plist>
