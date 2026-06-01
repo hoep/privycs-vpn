@@ -401,6 +401,24 @@ jobs:
           shasum -a 256 "$DMG" > "${DMG}.sha256"
           rm -f "$HOME/private_keys/AuthKey_${API_KEY_ID}.p8"
 
+      - name: Staple app + re-package zip (notarized)
+        if: steps.signing-detect.outputs.has_notary == 'true'
+        run: |
+          set -euo pipefail
+          cd desktop/build/bin
+          # The DMG notarization covers the .app inside it (same CDHash), so
+          # the app itself is now notarized and can be stapled standalone.
+          # Staple it and REBUILD the .zip from the stapled app — otherwise
+          # the .zip download carries a signed-but-unstapled app, and a
+          # quarantined first launch gets SIGKILL'd ("Taskgated Invalid
+          # Signature") on machines doing an offline Gatekeeper check. With
+          # the ticket stapled, both the .dmg and the .zip pass offline.
+          xcrun stapler staple privycs-vpn.app
+          ARCHIVE="privycs-vpn-darwin-${{ matrix.arch }}.zip"
+          rm -f "$ARCHIVE" "${ARCHIVE}.sha256"
+          ditto -c -k --keepParent privycs-vpn.app "$ARCHIVE"
+          shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

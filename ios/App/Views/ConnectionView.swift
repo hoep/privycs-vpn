@@ -351,10 +351,10 @@ struct MultiConfigPickerSheet: View {
     }
 
     private func selectConfig(_ cfg: ProtocolConfig, in c: SavedConnection) async {
-        var updated = c
-        updated.activeConfigID = cfg.id
-        try? await appState.connectionRepo.save(updated)
-        appState.connections = (try? await appState.connectionRepo.loadAll()) ?? appState.connections
+        // Route through setActiveConfig so that picking a protocol on the
+        // CONNECTED connection reconnects live with it (Android parity) —
+        // not just persists the flag.
+        await appState.setActiveConfig(connectionID: c.id, configID: cfg.id)
         dismiss()
     }
 }

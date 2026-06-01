@@ -39,9 +39,15 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
 
     public func start(providerConfig: [String: Any]) async throws {
 #if canImport(OpenVPNAdapter)
-        guard let raw = providerConfig["config_content"] as? String, !raw.isEmpty else {
+        guard let rawIn = providerConfig["config_content"] as? String, !rawIn.isEmpty else {
             throw TunnelError.missingProviderConfig
         }
+        // IPv6 leak killswitch — always-on, matching Android: append
+        // `route-ipv6 ::/0` + `redirect-gateway ipv6` so v6 routes into the
+        // tunnel instead of leaking via the OS default v6 route.
+        let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .openvpn)
+        if v6.applied { PrivycsLog.log("OVPN: ipv6-killswitch appended route-ipv6 ::/0") }
+        let raw = v6.patched
         let preprocessed = OVPNCompatPreprocessor().preprocess(raw)
         if !preprocessed.warnings.isEmpty {
             for w in preprocessed.warnings {

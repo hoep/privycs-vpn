@@ -37,9 +37,18 @@ public final class AmneziaWGBridge: TunnelProtocolBridge, @unchecked Sendable {
 
     public func start(providerConfig: [String: Any]) async throws {
 #if canImport(WireGuardKit)
-        guard let raw = providerConfig["config_content"] as? String, !raw.isEmpty else {
+        guard let rawIn = providerConfig["config_content"] as? String, !rawIn.isEmpty else {
             throw TunnelError.missingProviderConfig
         }
+        // IPv6 leak killswitch — always-on, exactly like Android's
+        // PrivycsVpnService. Re-adds `::/0` to AllowedIPs when the gateway
+        // sent a v4-only config, so v6 enters the tunnel instead of leaking
+        // via the OS default v6 route. THIS is the fix for "AmneziaWG has
+        // no IPv6": iOS previously kept the v4-only AllowedIPs verbatim.
+        let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .amneziawg)
+        if v6.applied { PrivycsLog.log("AWG: ipv6-killswitch injected ::/0 into AllowedIPs") }
+        else { PrivycsLog.log("AWG: ipv6-killswitch skipped (\(v6.skippedReason ?? "?"))") }
+        let raw = v6.patched
         // The amnezia fork's parser keeps the AWG obfuscation keys; a
         // config without them parses as plain WireGuard.
         guard var tunnelConfig = try? TunnelConfiguration(fromWgQuickConfig: raw, called: "privycs-awg") else {

@@ -256,6 +256,21 @@ final class AppState: ObservableObject {
     func setActiveConfig(connectionID: String, configID: String) async {
         try? await connectionRepo.setActiveConfig(connectionID: connectionID, configID: configID)
         connections = (try? await connectionRepo.loadAll()) ?? connections
+        // Android parity: switching the active protocol of the CURRENTLY
+        // CONNECTED connection reconnects live with the new protocol — tap a
+        // pill → tear down the old bridge, bring up the new one. Without this
+        // the pill only flipped a stored flag and the tunnel kept running the
+        // old protocol ("pill switch does nothing"). A protocol switch can
+        // cross bridge types (WG/AWG/OVPN PTP ↔ IPSec NEVPNManager), so we do
+        // a clean disconnect before reconnecting rather than reconfigure live.
+        guard status.connected, status.connectionID == connectionID,
+              let conn = connections.first(where: { $0.id == connectionID }) else { return }
+        connecting = true
+        defer { connecting = false }
+        await tunnelManager.disconnect()
+        resetSpeedTracking()
+        do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: conn)) }
+        catch { connectError = error.localizedDescription }
     }
 
     /// Remove one protocol config from a connection.

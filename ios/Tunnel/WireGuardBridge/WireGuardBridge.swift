@@ -28,9 +28,15 @@ public final class WireGuardBridge: TunnelProtocolBridge, @unchecked Sendable {
 
     public func start(providerConfig: [String: Any]) async throws {
 #if canImport(WireGuardKit)
-        guard let raw = providerConfig["config_content"] as? String, !raw.isEmpty else {
+        guard let rawIn = providerConfig["config_content"] as? String, !rawIn.isEmpty else {
             throw TunnelError.missingProviderConfig
         }
+        // IPv6 leak killswitch — always-on, matching Android. Re-adds `::/0`
+        // to AllowedIPs for v4-only gateway configs so v6 routes into the
+        // tunnel instead of leaking via the OS default v6 route.
+        let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .wireguard)
+        if v6.applied { PrivycsLog.log("WG: ipv6-killswitch injected ::/0 into AllowedIPs") }
+        let raw = v6.patched
         // Parse via WireGuardKit's standard ini-config parser.
         guard var tunnelConfig = try? TunnelConfiguration(fromWgQuickConfig: raw, called: "privycs") else {
             throw TunnelError.nativeFault("WireGuard config parse failed")
