@@ -1,3 +1,5 @@
+import Foundation
+
 /// PrivycsCore — Shared business logic für Privycs VPN iOS App
 /// und PacketTunnelProvider Network Extension.
 ///
@@ -26,6 +28,14 @@
 /// dem gleichen identifier und müssen das gleiche Provisioning-
 /// Profile mit `keychain-access-groups` entitlement haben.
 public enum PrivycsCoreInfo {
-    public static let version = "1.0.7-alpha"
+    public static let version = "1.0.8"
     public static let appGroupIdentifier = KeychainSecretStore.defaultAppGroup
+
+    /// ed25519 license public-key hex, injected at build time via the
+    /// app Info.plist key `LicensePublicKeyHex` (← `$(LICENSE_PUBLIC_KEY_HEX)`
+    /// CI secret — the SAME key Android/Desktop embed). Empty when the
+    /// secret isn't set, in which case the verifier fails closed.
+    public static var licensePublicKeyHex: String {
+        (Bundle.main.object(forInfoDictionaryKey: "LicensePublicKeyHex") as? String) ?? ""
+    }
 }

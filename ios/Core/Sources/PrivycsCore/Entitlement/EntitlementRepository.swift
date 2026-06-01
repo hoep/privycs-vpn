@@ -35,7 +35,7 @@ public actor EntitlementRepository {
         guard let suite = UserDefaults(suiteName: appGroup) else {
             self.userDefaults = .standard
             self.secretStore = secretStore ?? KeychainSecretStore(appGroup: appGroup)
-            self.licenseVerifier = licenseVerifier ?? (try? LicenseVerifier())!
+            self.licenseVerifier = licenseVerifier ?? LicenseVerifier()
             return
         }
         self.userDefaults = suite
@@ -62,8 +62,8 @@ public actor EntitlementRepository {
             do {
                 let payload = try licenseVerifier.verify(key)
                 if LicenseVerifier.unlocksIOS(payload) {
-                    state.licenseTier = payload.tier
-                    state.licenseEmail = payload.email
+                    state.licenseSku = payload.sku
+                    state.licenseEmailHash = payload.buyerEmailHash ?? ""
                     state.licenseValid = true
                 } else {
                     state.licenseValid = false
@@ -103,11 +103,11 @@ public actor EntitlementRepository {
     public func importLicenseKey(_ key: String) async throws -> LicensePayload {
         let payload = try licenseVerifier.verify(key)
         guard LicenseVerifier.unlocksIOS(payload) else {
-            throw EntitlementError.tierDoesNotUnlockIOS(payload.tier)
+            throw EntitlementError.tierDoesNotUnlockIOS(payload.sku)
         }
         var state = (try? await currentState()) ?? EntitlementState()
-        state.licenseTier = payload.tier
-        state.licenseEmail = payload.email
+        state.licenseSku = payload.sku
+        state.licenseEmailHash = payload.buyerEmailHash ?? ""
         state.licenseValid = true
         state.licenseImportedAt = Int64(Date().timeIntervalSince1970)
         try await setState(state, licenseKey: key)
@@ -136,8 +136,11 @@ public struct EntitlementState: Codable, Equatable, Sendable {
     public var storeKitProductID: String
     public var storeKitEntitled: Bool
     public var storeKitEntitledAt: Int64
-    public var licenseTier: LicensePayload.Tier?
-    public var licenseEmail: String
+    /// SKU of the imported license (privycs_pro_desktop | privycs_pro_bundle_all).
+    public var licenseSku: String
+    /// SHA-256 hash of the buyer email (the signer never ships the raw
+    /// email — only its hash). Display-only.
+    public var licenseEmailHash: String
     public var licenseValid: Bool
     public var licenseImportedAt: Int64
 
@@ -145,16 +148,16 @@ public struct EntitlementState: Codable, Equatable, Sendable {
         storeKitProductID: String = "",
         storeKitEntitled: Bool = false,
         storeKitEntitledAt: Int64 = 0,
-        licenseTier: LicensePayload.Tier? = nil,
-        licenseEmail: String = "",
+        licenseSku: String = "",
+        licenseEmailHash: String = "",
         licenseValid: Bool = false,
         licenseImportedAt: Int64 = 0
     ) {
         self.storeKitProductID = storeKitProductID
         self.storeKitEntitled = storeKitEntitled
         self.storeKitEntitledAt = storeKitEntitledAt
-        self.licenseTier = licenseTier
-        self.licenseEmail = licenseEmail
+        self.licenseSku = licenseSku
+        self.licenseEmailHash = licenseEmailHash
         self.licenseValid = licenseValid
         self.licenseImportedAt = licenseImportedAt
     }
@@ -169,20 +172,20 @@ public struct EntitlementState: Codable, Equatable, Sendable {
         case storeKitProductID = "store_kit_product_id"
         case storeKitEntitled = "store_kit_entitled"
         case storeKitEntitledAt = "store_kit_entitled_at"
-        case licenseTier = "license_tier"
-        case licenseEmail = "license_email"
+        case licenseSku = "license_sku"
+        case licenseEmailHash = "license_email_hash"
         case licenseValid = "license_valid"
         case licenseImportedAt = "license_imported_at"
     }
 }
 
 public enum EntitlementError: Error, Equatable {
-    case tierDoesNotUnlockIOS(LicensePayload.Tier)
+    case tierDoesNotUnlockIOS(String)
 
     public var localizedDescription: String {
         switch self {
-        case .tierDoesNotUnlockIOS(let tier):
-            return "License tier '\(tier.rawValue)' does not unlock iOS Pro features. Need 'single_ios' or 'cross_platform_bundle'."
+        case .tierDoesNotUnlockIOS(let sku):
+            return "License '\(sku)' does not include iOS. Need the cross-platform bundle."
         }
     }
 }

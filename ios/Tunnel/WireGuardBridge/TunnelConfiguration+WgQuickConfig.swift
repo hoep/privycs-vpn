@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright © 2018-2023 WireGuard LLC. All Rights Reserved.
+//
+// Vendored from amnezia-vpn/amneziawg-apple (Sources/Shared/Model) — the
+// AWG-aware wg-quick parser (Jc/Jmin/Jmax/S1-4/H1-4/I1-5 → the public
+// InterfaceConfiguration AWG fields). The parser lives in the fork's
+// app-internal Shared module, not the WireGuardKit product, so we vendor
+// it; `import WireGuardKit` brings TunnelConfiguration / InterfaceConfiguration
+// / PeerConfiguration / PublicKey into scope.
 
 import Foundation
+import WireGuardKit
 
 extension TunnelConfiguration {
 
