@@ -391,7 +391,7 @@ jobs:
             --key-id "$API_KEY_ID" \
             --issuer "$API_ISSUER_ID" \
             --wait \
-            --timeout 30m
+            --timeout 55m
           # Staple the notarization ticket directly into the DMG so Gatekeeper
           # can verify offline — without this, first-run on a machine that's
           # never seen the binary would require a network round-trip to Apple.
