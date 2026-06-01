@@ -116,10 +116,15 @@ struct GatewayConfigSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
+    /// When set, imported configs are added to this existing connection
+    /// (add-protocol flow); nil = each import becomes a new connection.
+    var targetConnectionID: String? = nil
+
     @State private var entries: [RemoteConfigEntry] = []
     @State private var loading = true
     @State private var error: String?
     @State private var importingID: Int?
+    @State private var importedNames: [String] = []
 
     var body: some View {
         NavigationStack {
@@ -148,12 +153,22 @@ struct GatewayConfigSheet: View {
                                 Spacer()
                                 if importingID == entry.id {
                                     ProgressView()
+                                } else if importedNames.contains(entry.name) {
+                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(PrivycsColor.connected)
                                 } else {
                                     Image(systemName: "arrow.down.circle").foregroundStyle(PrivycsColor.teal)
                                 }
                             }
                         }
                         .buttonStyle(.plain)
+                    }
+                }
+
+                if !importedNames.isEmpty {
+                    Section {
+                        Label("Imported \(importedNames.count) config\(importedNames.count == 1 ? "" : "s") — closing…",
+                              systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(PrivycsColor.connected)
                     }
                 }
             }
@@ -189,7 +204,18 @@ struct GatewayConfigSheet: View {
             case .ipsec: ext = "sswan"
             default: ext = "conf"
             }
-            await appState.importConnection(name: entry.name, filename: "\(entry.name).\(ext)", content: raw)
+            await appState.importConnection(
+                name: entry.name,
+                filename: "\(entry.name).\(ext)",
+                content: raw,
+                intoConnectionID: targetConnectionID
+            )
+            // Visible feedback (the import used to silently sit there).
+            if !importedNames.contains(entry.name) { importedNames.append(entry.name) }
+            // Auto-close so the user lands back on the connections list
+            // and sees the freshly-imported config.
+            try? await Task.sleep(for: .seconds(1.0))
+            dismiss()
         } catch {
             self.error = error.localizedDescription
         }

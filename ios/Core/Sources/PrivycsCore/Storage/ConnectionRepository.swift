@@ -81,6 +81,72 @@ public actor ConnectionRepository {
         try saveConnectionsRaw(all)
     }
 
+    /// Add a protocol config to an EXISTING connection, or create a new
+    /// connection when `connectionID` is nil. Mirror of Android
+    /// `ConnectionRepository.addOrUpdate`: a config matching the same
+    /// protocol+filename is updated in place (keeping its id), otherwise
+    /// it is appended — so multi-config-per-protocol works and re-import
+    /// of the same file doesn't duplicate.
+    @discardableResult
+    public func addOrUpdate(connectionID: String?, name: String, config: ProtocolConfig) async throws -> SavedConnection {
+        let all = try await loadAll()
+        if let cid = connectionID, var conn = all.first(where: { $0.id == cid }) {
+            if let idx = conn.protocols.firstIndex(where: {
+                $0.protocol == config.protocol && $0.filename == config.filename
+            }) {
+                // Update in place, preserve the existing config id.
+                let existingID = conn.protocols[idx].id
+                conn.protocols[idx] = ProtocolConfig(
+                    id: existingID,
+                    protocol: config.protocol,
+                    filename: config.filename,
+                    nickname: config.nickname,
+                    configContent: config.configContent,
+                    serverAddress: config.serverAddress
+                )
+            } else {
+                conn.protocols.append(config)
+            }
+            if conn.activeConfigID.isEmpty { conn.activeConfigID = config.id }
+            try await save(conn)
+            return conn
+        }
+        let conn = SavedConnection(
+            id: UUID().uuidString,
+            name: name,
+            protocols: [config],
+            activeConfigID: config.id
+        )
+        try await save(conn)
+        return conn
+    }
+
+    /// Remove one protocol config from a connection (Android removeConfig).
+    /// Deletes the whole connection if it was the last config.
+    public func removeConfig(connectionID: String, configID: String) async throws {
+        let all = try await loadAll()
+        guard var conn = all.first(where: { $0.id == connectionID }) else { return }
+        conn.protocols.removeAll { $0.id == configID }
+        if conn.protocols.isEmpty {
+            try await delete(connectionID)
+            return
+        }
+        if conn.activeConfigID == configID {
+            conn.activeConfigID = conn.protocols.first?.id ?? ""
+        }
+        try await secretStore.delete(KeychainKey.protocolConfig(connectionID: connectionID, configID: configID))
+        try await save(conn)
+    }
+
+    /// Set the active ProtocolConfig (per-protocol switch on Connect).
+    public func setActiveConfig(connectionID: String, configID: String) async throws {
+        let all = try await loadAll()
+        guard var conn = all.first(where: { $0.id == connectionID }),
+              conn.protocols.contains(where: { $0.id == configID }) else { return }
+        conn.activeConfigID = configID
+        try await save(conn)
+    }
+
     /// Löscht eine Connection inkl. aller zugehörigen Keychain-Items.
     public func delete(_ connectionID: String) async throws {
         var all = (try? loadConnectionsRaw()) ?? []

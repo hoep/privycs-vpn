@@ -226,10 +226,32 @@ final class AppState: ObservableObject {
 
     // MARK: - Import + Gateway (Session 5)
 
-    /// Import a raw config (file / QR / gateway) into a new connection.
-    func importConnection(name: String, filename: String, content: String) async {
-        let conn = ConfigImport.makeConnection(name: name, filename: filename, content: content)
-        try? await connectionRepo.save(conn)
+    /// Import a raw config (file / QR / gateway). `intoConnectionID` nil
+    /// = new connection; non-nil = add this protocol to that existing
+    /// connection (Android addOrUpdate semantics).
+    func importConnection(name: String, filename: String, content: String, intoConnectionID: String? = nil) async {
+        let proto = ConfigImport.detectProtocol(filename: filename, content: content)
+        let cfg = ProtocolConfig(
+            id: UUID().uuidString,
+            protocol: proto,
+            filename: filename,
+            configContent: content,
+            serverAddress: ConfigImport.extractServerAddress(content, proto)
+        )
+        _ = try? await connectionRepo.addOrUpdate(connectionID: intoConnectionID, name: name, config: cfg)
+        connections = (try? await connectionRepo.loadAll()) ?? connections
+    }
+
+    /// Switch the active protocol config of a connection (per-protocol
+    /// connect, like Android's ProtocolBadges switchConfig).
+    func setActiveConfig(connectionID: String, configID: String) async {
+        try? await connectionRepo.setActiveConfig(connectionID: connectionID, configID: configID)
+        connections = (try? await connectionRepo.loadAll()) ?? connections
+    }
+
+    /// Remove one protocol config from a connection.
+    func removeConfig(connectionID: String, configID: String) async {
+        try? await connectionRepo.removeConfig(connectionID: connectionID, configID: configID)
         connections = (try? await connectionRepo.loadAll()) ?? connections
     }
 
