@@ -45,6 +45,9 @@ final class AppState: ObservableObject {
     @Published var settings: AppSettings = .default
     @Published var connections: [SavedConnection] = []
     @Published var pools: [Pool] = []
+    /// Resolved ISO country per connection-endpoint host (for flags). Filled
+    /// in the background from the bundled IP→country DB; empty until resolved.
+    @Published var endpointCountries: [String: String] = [:]
     @Published var rules: [NetworkRule] = []
     @Published var status: VpnStatus = .disconnected
     @Published var networkState: NetworkState = .none
@@ -407,6 +410,33 @@ final class AppState: ObservableObject {
         )
         _ = try? await connectionRepo.addOrUpdate(connectionID: intoConnectionID, name: name, config: cfg)
         connections = (try? await connectionRepo.loadAll()) ?? connections
+        await refreshEndpointCountries()
+    }
+
+    /// Resolve the ISO country for every connection-endpoint host (IP→country
+    /// via the bundled DB, DNS-resolving hostnames first) and cache it for the
+    /// flag badges. Mirrors the pool-member geo enrichment, but for single
+    /// connections (whose ProtocolConfig has no stored country field).
+    func refreshEndpointCountries() async {
+        guard let mmdb = MmdbCountryResolver.shared else { return }
+        var hosts = Set<String>()
+        for c in connections {
+            for p in c.protocols {
+                let h = PoolImporter.endpointHost(p.serverAddress)
+                if !h.isEmpty, endpointCountries[h] == nil { hosts.insert(h) }
+            }
+        }
+        for h in hosts {
+            if let ip = await PoolImporter.firstIP(h), let cc = mmdb.country(forIP: ip) {
+                endpointCountries[h] = cc
+            }
+        }
+    }
+
+    /// Flag emoji for a connection-endpoint host (empty until resolved).
+    func endpointFlag(_ serverAddress: String) -> String {
+        let cc = endpointCountries[PoolImporter.endpointHost(serverAddress)] ?? ""
+        return PoolHostnameLabels.flagEmoji(cc)
     }
 
     /// Switch the active protocol config of a connection (per-protocol
@@ -581,6 +611,8 @@ final class AppState: ObservableObject {
         self.connections = (try? await connectionRepo.loadAll()) ?? []
         self.pools = (try? await poolRepo.loadAll()) ?? []
         self.rules = (try? await rulesRepo.loadAll()) ?? []
+        // Resolve endpoint country flags in the background (DNS + IP→country).
+        Task { await refreshEndpointCountries() }
 
         // Restore active-pool selection across app restarts.
         let activeID = await poolRepo.activePoolID()

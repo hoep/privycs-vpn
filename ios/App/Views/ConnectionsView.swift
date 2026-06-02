@@ -103,7 +103,7 @@ struct ConnectionsView: View {
                         } label: {
                             ProtocolBadge(
                                 proto: cfg.protocol,
-                                endpoint: endpointHost(cfg.serverAddress),
+                                endpoint: endpointLabel(cfg),
                                 active: cfg.id == conn.activeConfigID,
                                 count: 1
                             )
@@ -152,6 +152,14 @@ struct ConnectionsView: View {
         if !cfg.nickname.isEmpty { return cfg.nickname }
         if !cfg.filename.isEmpty { return cfg.filename }
         return cfg.protocol.shortLabel
+    }
+
+    /// Endpoint label for a config badge: country flag (once resolved) +
+    /// host (port stripped). Flag fills in asynchronously via the IP→country DB.
+    private func endpointLabel(_ cfg: ProtocolConfig) -> String {
+        let host = endpointHost(cfg.serverAddress)
+        let flag = appState.endpointFlag(cfg.serverAddress)
+        return flag.isEmpty ? host : "\(flag) \(host)"
     }
 
     /// Strip the port for a compact endpoint display in the badge.

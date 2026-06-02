@@ -280,6 +280,15 @@ struct ConnectionView: View {
         appState.selectedConnection?.protocols.filter { $0.protocol == p }.count ?? 1
     }
 
+    /// Resolved ISO country for the active single-connection endpoint (""
+    /// for pools or until resolved by the background IP→country lookup).
+    private var singleConnectionCC: String {
+        guard appState.activePool == nil, let c = appState.selectedConnection,
+              let cfg = c.protocols.first(where: { $0.id == c.activeConfigID }) ?? c.protocols.first
+        else { return "" }
+        return appState.endpointCountries[PoolImporter.endpointHost(cfg.serverAddress)] ?? ""
+    }
+
     /// Distinct protocols a connection holds, in first-seen order.
     private func distinctProtocols(_ c: SavedConnection) -> [VpnProtocol] {
         var seen = Set<VpnProtocol>()
@@ -307,7 +316,9 @@ struct ConnectionView: View {
     // broadcast member country/name; single-connection path falls back to
     // the server country code + connection name (often "<cc>-<city3>-…").
     @ViewBuilder private var locationLine: some View {
-        let cc = status.activeMemberCountry.isEmpty ? status.serverCountryCode : status.activeMemberCountry
+        let poolCC = status.activeMemberCountry.isEmpty ? status.serverCountryCode : status.activeMemberCountry
+        // Single connection: fall back to the resolved endpoint country (IP→DB).
+        let cc = poolCC.isEmpty ? singleConnectionCC : poolCC
         let labelName = status.activeMemberName.isEmpty ? status.connectionName : status.activeMemberName
         let flag = PoolHostnameLabels.flagEmoji(cc)
         let city = PoolHostnameLabels.cityFromHostname(labelName)

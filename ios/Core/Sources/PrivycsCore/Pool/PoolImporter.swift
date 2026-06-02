@@ -85,7 +85,7 @@ public enum PoolImporter {
     }
 
     /// Host part of a "host:port" / "[v6]:port" endpoint.
-    static func endpointHost(_ s: String) -> String {
+    public static func endpointHost(_ s: String) -> String {
         let t = s.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("[") {
             if let close = t.firstIndex(of: "]") { return String(t[t.index(after: t.startIndex)..<close]) }
@@ -96,7 +96,7 @@ public enum PoolImporter {
     }
 
     /// Resolve a host (an IP literal returns itself) to its first numeric IP.
-    static func firstIP(_ host: String) async -> String? {
+    public static func firstIP(_ host: String) async -> String? {
         await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
             DispatchQueue.global().async {
                 var res: UnsafeMutablePointer<addrinfo>?
