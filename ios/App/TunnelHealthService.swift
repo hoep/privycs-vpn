@@ -26,22 +26,45 @@ extension AppState {
                     // is suspended, so a probe would spuriously fail). Hold the
                     // last state; onScenePhase restarts us fresh on resume.
                 } else {
-                    let target = self.settings.tunnelHealthTarget.isEmpty
-                        ? "1.1.1.1" : self.settings.tunnelHealthTarget
+                    let target = AppState.healthHost(self.settings.tunnelHealthTarget)
                     let dead = self.settings.tunnelHealthDeadThreshold > 0
                         ? self.settings.tunnelHealthDeadThreshold : 3
                     let ok = await AppState.reachable(host: target, timeout: 4)
-                    fails = ok ? 0 : fails + 1
+                    // Live tunnel traffic is itself a positive health signal:
+                    // don't report "recovering" while the tunnel is actively
+                    // passing bytes just because an external probe target is
+                    // unreachable (a wrong/blocked ping target was making the
+                    // pill stick on "recovering").
+                    let live = self.rxSpeed > 0 || self.txSpeed > 0
+                    fails = (ok || live) ? 0 : fails + 1
                     // Grace: a single missed probe stays "healthy" (transient
                     // blips are common); 2+ misses → degraded; dead → recovering.
                     self.tunnelHealth = fails <= 1 ? .healthy
                         : (fails >= dead ? .recovering : .degraded)
+                    PrivycsLog.log("health: probe \(target):443 ok=\(ok) live=\(live) fails=\(fails)")
                 }
                 let interval = self.settings.tunnelHealthPingIntervalSec > 0
                     ? self.settings.tunnelHealthPingIntervalSec : 10
                 try? await Task.sleep(nanoseconds: UInt64(interval) * 1_000_000_000)
             }
         }
+    }
+
+    /// Host portion of a health-probe target: strips any `:port` (and
+    /// `[IPv6]:port` brackets) and defaults to 1.1.1.1 when empty. A wrong
+    /// target (e.g. "host:51820" or a bare gateway) used to make every probe
+    /// fail → the pill stuck on "recovering".
+    nonisolated static func healthHost(_ raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespaces)
+        if t.isEmpty { return "1.1.1.1" }
+        if t.hasPrefix("[") {                       // [IPv6]:port
+            if let close = t.firstIndex(of: "]") {
+                return String(t[t.index(after: t.startIndex)..<close])
+            }
+            return t
+        }
+        let parts = t.split(separator: ":")
+        return parts.count == 2 ? String(parts[0]) : t   // host:port → host; bare IPv6 untouched
     }
 
     /// TCP-connect reachability probe (no raw-ICMP entitlement needed):

@@ -93,29 +93,40 @@ struct ConnectionsView: View {
             // ×N grouped count lives only on the Connect screen.
             FlowRow(spacing: 6) {
                 ForEach(conn.protocols) { cfg in
-                    Button {
-                        Task { await appState.setActiveConfig(connectionID: conn.id, configID: cfg.id) }
-                    } label: {
-                        ProtocolBadge(
-                            proto: cfg.protocol,
-                            endpoint: endpointHost(cfg.serverAddress),
-                            active: cfg.id == conn.activeConfigID,
-                            count: 1
-                        )
-                    }
-                    // .borderless (not .plain) so each pill is an independent
-                    // tap target inside the List row.
-                    .buttonStyle(.borderless)
-                    .contextMenu {
-                        if cfg.protocol == .wireguard || cfg.protocol == .amneziawg || cfg.protocol == .openvpn {
-                            Button {
-                                editConfigFor = EditConfigTarget(connectionID: conn.id, config: cfg)
-                            } label: { Label("Edit \(configLabel(cfg))", systemImage: "pencil") }
+                    // Badge + an explicit delete (×) button, grouped so they
+                    // wrap together. The badge taps to switch the active
+                    // config; the × removes that config (shown only when the
+                    // connection has more than one — never delete the last).
+                    HStack(spacing: 3) {
+                        Button {
+                            Task { await appState.setActiveConfig(connectionID: conn.id, configID: cfg.id) }
+                        } label: {
+                            ProtocolBadge(
+                                proto: cfg.protocol,
+                                endpoint: endpointHost(cfg.serverAddress),
+                                active: cfg.id == conn.activeConfigID,
+                                count: 1
+                            )
+                        }
+                        // .borderless (not .plain) so each control is an
+                        // independent tap target inside the List row.
+                        .buttonStyle(.borderless)
+                        .contextMenu {
+                            if cfg.protocol == .wireguard || cfg.protocol == .amneziawg || cfg.protocol == .openvpn {
+                                Button {
+                                    editConfigFor = EditConfigTarget(connectionID: conn.id, config: cfg)
+                                } label: { Label("Edit \(configLabel(cfg))", systemImage: "pencil") }
+                            }
                         }
                         if conn.protocols.count > 1 {
                             Button(role: .destructive) {
                                 Task { await appState.removeConfig(connectionID: conn.id, configID: cfg.id) }
-                            } label: { Label("Remove \(configLabel(cfg))", systemImage: "trash") }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(PrivycsColor.error.opacity(0.85))
+                            }
+                            .buttonStyle(.borderless)
                         }
                     }
                 }

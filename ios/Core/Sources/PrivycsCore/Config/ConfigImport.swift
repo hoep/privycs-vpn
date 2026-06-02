@@ -5,6 +5,29 @@ import Foundation
 /// `ConfigParser` heuristics.
 public enum ConfigImport {
 
+    /// Human connection name from a filename — 1:1 port of Android
+    /// `ConfigParser.deriveConnectionName`: strip the extension, turn
+    /// `_`/`-` runs into spaces, reject content that looks like a raw
+    /// config body, cap at 64 chars. Falls back to "VPN Connection".
+    public static func deriveConnectionName(_ filename: String) -> String {
+        let raw = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.isEmpty { return "VPN Connection" }
+        if raw.count > 256
+            || raw.hasPrefix("{") || raw.hasPrefix("[")
+            || raw.hasPrefix("<") || raw.hasPrefix("-----")
+            || raw.contains("\n") || raw.contains("\r") {
+            return "VPN Connection"
+        }
+        var cleaned = raw
+        if let dot = cleaned.lastIndex(of: ".") { cleaned = String(cleaned[..<dot]) }
+        cleaned = cleaned.replacingOccurrences(of: "[_-]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        if cleaned.isEmpty || (cleaned.count == 1 && !(cleaned.first?.isLetter ?? false) && !(cleaned.first?.isNumber ?? false)) {
+            return "VPN Connection"
+        }
+        return cleaned.count > 64 ? String(cleaned.prefix(64)) : cleaned
+    }
+
     /// Detect the protocol from filename extension first, then content.
     public static func detectProtocol(filename: String, content: String) -> VpnProtocol {
         let ext = (filename as NSString).pathExtension.lowercased()

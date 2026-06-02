@@ -45,8 +45,11 @@ struct SettingsView: View {
                     NavigationLink {
                         GatewaySettingsView().environmentObject(appState)
                     } label: {
-                        LabeledContent("Privycs Gateway",
-                            value: appState.settings.gatewayURL.isEmpty ? "Not set" : "Configured")
+                        LabeledContent("Privycs Gateway") {
+                            // Text(LocalizedStringKey) localizes; the value:
+                            // String overload was shown verbatim (English).
+                            Text(appState.settings.gatewayURL.isEmpty ? "Not set" : "Configured")
+                        }
                     }
                 } header: {
                     Text("Connection")
@@ -67,6 +70,9 @@ struct SettingsView: View {
                                 .multilineTextAlignment(.trailing)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
+                                // Persist on every change (not just on Return)
+                                // — typing then navigating away used to drop it.
+                                .onChange(of: tunnelHealthTarget) { _, _ in persistHealth() }
                                 .onSubmit { persistHealth() }
                         }
                         Picker("Check interval", selection: $tunnelHealthInterval) {

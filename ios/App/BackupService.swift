@@ -30,20 +30,19 @@ extension AppState {
         -> (connections: Int, pools: Int, rules: Int) {
         let payload = try BackupManager.decrypt(data, password: password)
 
-        let existingConnIDs = Set(((try? await connectionRepo.loadAll()) ?? []).map { $0.id })
-        var addedConns = 0
-        for c in payload.connections.connections where !existingConnIDs.contains(c.id) {
+        // UPSERT by id (the repos replace-by-id) so a restore re-establishes
+        // the saved state even when entries already exist, and report the
+        // TOTALS present in the backup — the previous skip-existing logic
+        // reported "0 restored" when restoring onto data already on the device.
+        for c in payload.connections.connections {
             try? await connectionRepo.save(c)
-            addedConns += 1
         }
+        let restoredConns = payload.connections.connections.count
 
-        var addedPools = 0
+        var restoredPools = 0
         if let pf = payload.pools {
-            let existingPoolIDs = Set(((try? await poolRepo.loadAll()) ?? []).map { $0.id })
-            for p in pf.pools where !existingPoolIDs.contains(p.id) {
-                try? await poolRepo.save(p)
-                addedPools += 1
-            }
+            for p in pf.pools { try? await poolRepo.save(p) }
+            restoredPools = pf.pools.count
         }
 
         // Network rules replace wholesale (preserves priority order) — only
@@ -60,7 +59,8 @@ extension AppState {
         pools = (try? await poolRepo.loadAll()) ?? pools
         rules = (try? await rulesRepo.loadAll()) ?? rules
         settings = payload.settings
+        if !settings.appLanguage.isEmpty { LanguageManager.shared.set(settings.appLanguage) }
 
-        return (addedConns, addedPools, payload.networkRules.count)
+        return (restoredConns, restoredPools, payload.networkRules.count)
     }
 }

@@ -145,11 +145,11 @@ struct ConnectionView: View {
                     }
                 } else if let c = appState.selectedConnection {
                     Image(systemName: "shield.lefthalf.filled").foregroundStyle(PrivycsColor.teal)
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(c.name).font(.system(size: 15, weight: .semibold))
-                        if let proto = activeProto(c) {
-                            Text(proto.displayName).font(.system(size: 11)).foregroundStyle(.secondary)
-                        }
+                        // All protocols this connection holds (not just the
+                        // active one) — small brand-tinted logos.
+                        protocolLogos(for: c)
                     }
                 } else {
                     Text("Select connection").font(.system(size: 15))
@@ -185,7 +185,7 @@ struct ConnectionView: View {
                     ForEach(appState.connections) { c in
                         pickerRow(
                             title: c.name,
-                            subtitle: activeProto(c)?.displayName ?? "",
+                            subtitle: distinctProtocols(c).map { $0.displayName }.joined(separator: " · "),
                             selected: appState.selectedTargetID == c.id
                                 || (appState.selectedTargetID.isEmpty && appState.connections.first?.id == c.id),
                             accent: activeProto(c)?.brandColor ?? PrivycsColor.teal
@@ -278,6 +278,27 @@ struct ConnectionView: View {
     /// Number of same-protocol configs in the selected connection.
     private func configCount(_ p: VpnProtocol) -> Int {
         appState.selectedConnection?.protocols.filter { $0.protocol == p }.count ?? 1
+    }
+
+    /// Distinct protocols a connection holds, in first-seen order.
+    private func distinctProtocols(_ c: SavedConnection) -> [VpnProtocol] {
+        var seen = Set<VpnProtocol>()
+        var out: [VpnProtocol] = []
+        for cfg in c.protocols where seen.insert(cfg.protocol).inserted { out.append(cfg.protocol) }
+        return out
+    }
+
+    /// Row of small brand-tinted logos for every protocol in a connection.
+    private func protocolLogos(for c: SavedConnection) -> some View {
+        HStack(spacing: 5) {
+            ForEach(distinctProtocols(c), id: \.self) { p in
+                Image(p.assetName)
+                    .renderingMode(.template)
+                    .resizable().scaledToFit()
+                    .frame(width: 13, height: 13)
+                    .foregroundStyle(p.brandColor)
+            }
+        }
     }
 
     // MARK: Stats

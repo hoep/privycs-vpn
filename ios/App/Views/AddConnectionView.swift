@@ -100,7 +100,7 @@ struct AddConnectionView: View {
                 continue
             }
             await appState.importConnection(
-                name: url.deletingPathExtension().lastPathComponent,
+                name: ConfigImport.deriveConnectionName(url.lastPathComponent),
                 filename: url.lastPathComponent,
                 content: raw
             )
@@ -162,8 +162,11 @@ struct GatewayConfigSheet: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(entry.name).font(.system(size: 14, weight: .medium))
                                         .foregroundStyle(PrivycsColor.onSurface)
-                                    if !entry.serverAddress.isEmpty {
-                                        Text(entry.serverAddress).font(.system(size: 11))
+                                    // Interface + assigned VPN IP (Android parity).
+                                    let detail = [entry.interfaceName, entry.vpnIP]
+                                        .filter { !$0.isEmpty }.joined(separator: " · ")
+                                    if !detail.isEmpty {
+                                        Text(detail).font(.system(size: 11))
                                             .foregroundStyle(.secondary)
                                     }
                                 }
