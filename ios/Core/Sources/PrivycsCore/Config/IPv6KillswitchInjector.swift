@@ -68,11 +68,54 @@ public enum IPv6KillswitchInjector {
             lines[i] = "AllowedIPs = " + newAllowed.joined(separator: ", ")
             patched = true
         }
+        // If we just added the v6 catch-all ROUTE but the [Interface] Address
+        // is v4-only, iOS builds NEIPv6Settings with NO source address and
+        // refuses to originate IPv6 (Android's GoBackend tun does not need a
+        // v6 source — that is the iOS-vs-Android divergence behind "AmneziaWG
+        // has no IPv6"). Add a deterministic ULA v6 source so iOS routes v6
+        // into the tunnel. No-op when the config already carries a v6 address.
+        var v6AddrInjected = false
+        if patched {
+            var inInterface = false
+            for i in lines.indices {
+                let t = lines[i].trimmingCharacters(in: .whitespaces)
+                if t.hasPrefix("[") {
+                    inInterface = t.caseInsensitiveCompare("[Interface]") == .orderedSame
+                    continue
+                }
+                guard inInterface, t.lowercased().hasPrefix("address"),
+                      let eq = t.firstIndex(of: "=") else { continue }
+                let addrs = t[t.index(after: eq)...]
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                if addrs.contains(where: { $0.contains(":") }) { break }   // already has v6
+                if let v4 = addrs.first(where: { $0.contains(".") }) {
+                    lines[i] = "Address = " + (addrs + [Self.deriveULA(fromV4: v4)]).joined(separator: ", ")
+                    v6AddrInjected = true
+                }
+                break
+            }
+        }
         return Result(
             patched: lines.joined(separator: "\n"),
             applied: patched,
-            skippedReason: patched ? nil : "AllowedIPs already covers v6 or not found"
+            skippedReason: patched
+                ? (v6AddrInjected ? "added ::/0 route + ULA v6 interface address" : "added ::/0 route (config already has a v6 interface address)")
+                : "AllowedIPs already covers v6 or not found"
         )
+    }
+
+    /// Deterministic ULA /128 derived from a v4 host (e.g. 10.100.110.5/32 →
+    /// fd00::a64:6e05/128). Stable per peer so the same source is used each
+    /// connect; works only if the server accepts v6 from this peer.
+    private static func deriveULA(fromV4 v4: String) -> String {
+        let host = v4.split(separator: "/").first.map(String.init) ?? v4
+        let octets = host.split(separator: ".").compactMap { UInt16($0) }
+        guard octets.count == 4 else { return "fd00::1/128" }
+        let hi = (octets[0] << 8) | octets[1]
+        let lo = (octets[2] << 8) | octets[3]
+        return String(format: "fd00::%x:%x/128", hi, lo)
     }
 
     // MARK: OpenVPN

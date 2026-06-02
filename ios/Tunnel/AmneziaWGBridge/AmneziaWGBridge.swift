@@ -50,8 +50,7 @@ public final class AmneziaWGBridge: TunnelProtocolBridge, @unchecked Sendable {
         let raw: String
         if killSwitch {
             let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .amneziawg)
-            if v6.applied { PrivycsLog.log("AWG: ipv6-killswitch injected ::/0 into AllowedIPs") }
-            else { PrivycsLog.log("AWG: ipv6-killswitch skipped (\(v6.skippedReason ?? "?"))") }
+            PrivycsLog.log("AWG: ipv6-killswitch \(v6.applied ? "applied" : "skipped") — \(v6.skippedReason ?? "?")")
             raw = v6.patched
         } else {
             PrivycsLog.log("AWG: ipv6-killswitch disabled (kill switch off)")
@@ -65,6 +64,11 @@ public final class AmneziaWGBridge: TunnelProtocolBridge, @unchecked Sendable {
         applyDNSOverride(providerConfig, to: &tunnelConfig)
         self.localAddress = tunnelConfig.interface.addresses
             .map { "\($0.address)" }.joined(separator: ", ")
+        // Diagnostic: surface whether the tunnel actually has a v6 interface
+        // address + a v6 route, which is what decides if iOS originates IPv6.
+        let ifaceHasV6 = tunnelConfig.interface.addresses.contains { "\($0.address)".contains(":") }
+        let peerHasV6Route = tunnelConfig.peers.first?.allowedIPs.contains { "\($0.address)".contains(":") } ?? false
+        PrivycsLog.log("AWG: iface=[\(self.localAddress)] v6-iface-addr=\(ifaceHasV6) v6-route=\(peerHasV6Route)")
         // .stringRepresentation → "host:port" (not the struct description).
         self.serverEndpoint = tunnelConfig.peers.first?.endpoint?.stringRepresentation ?? ""
 

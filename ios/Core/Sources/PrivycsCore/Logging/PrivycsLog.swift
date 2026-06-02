@@ -12,6 +12,14 @@ public enum PrivycsLog {
     private static let maxBytes = 256 * 1024   // 256 KB ring cap
     private static let logger = Logger(subsystem: "com.privycs.vpn", category: "app")
     private static let queue = DispatchQueue(label: "com.privycs.vpn.log", qos: .utility)
+    /// Device-LOCAL timestamp formatter. A default ISO8601DateFormatter
+    /// emits UTC/GMT; `.current` stamps log lines in the device's own zone
+    /// (the offset is kept in the string so it stays unambiguous).
+    private static let tsFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.timeZone = .current
+        return f
+    }()
 
     private static var fileURL: URL? {
         FileManager.default
@@ -24,7 +32,7 @@ public enum PrivycsLog {
         logger.log("\(message, privacy: .public)")
         queue.async {
             guard let url = fileURL else { return }
-            let ts = ISO8601DateFormatter().string(from: Date())
+            let ts = tsFormatter.string(from: Date())
             let line = "\(ts)  \(message)\n"
             guard let data = line.data(using: .utf8) else { return }
             if let handle = try? FileHandle(forWritingTo: url) {

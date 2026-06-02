@@ -28,6 +28,10 @@ final class VPNTunnelManager: ObservableObject {
     private var onDemandEnabled = false
     private var dnsOverride = ""
     private var killSwitch = true
+    /// The user's network rules, translated into system NEOnDemandRule
+    /// objects at connect time so iOS enforces them while the app is
+    /// suspended (the app-side engine only runs in the foreground).
+    private var pendingRules: [NetworkRule] = []
     /// Poll loop that pulls PTP stats from the App Group store while up.
     private var pollTask: Task<Void, Never>?
 
@@ -66,7 +70,8 @@ final class VPNTunnelManager: ObservableObject {
     /// toggle (Settings ▸ VPN ▸ (i)), like the WireGuard app. Gated by
     /// the app's auto-tunnel master (networkRulesEnabled).
     func connect(_ connection: SavedConnection, onDemand: Bool = false, dnsOverride: String = "",
-                 failoverOrder: [VpnProtocol] = [], killSwitch: Bool = true) async throws {
+                 failoverOrder: [VpnProtocol] = [], killSwitch: Bool = true,
+                 rules: [NetworkRule] = []) async throws {
         // Pick the config honoring the explicit active selection, then the
         // effective protocol-failover order (per-connection → global → default
         // AmneziaWG-first) rather than just the first imported config.
@@ -80,6 +85,7 @@ final class VPNTunnelManager: ObservableObject {
         self.onDemandEnabled = onDemand
         self.dnsOverride = dnsOverride
         self.killSwitch = killSwitch
+        self.pendingRules = rules
 
         if config.protocol == .ipsec {
             try await connectViaIKEv2(connection: connection, config: config)
@@ -89,14 +95,58 @@ final class VPNTunnelManager: ObservableObject {
         startPolling()
     }
 
-    /// Baseline on-demand rule set: connect on ANY interface when enabled.
-    /// The rule-aware per-SSID translation (connect/disconnect by network)
-    /// is a later batch; this is what makes the system toggle appear + the
-    /// tunnel auto-reconnect.
+    /// System-level on-demand rules. Translates the user's NetworkRules into
+    /// `NEOnDemandRule` objects so iOS enforces them in the NE daemon even
+    /// while the app is suspended/asleep (the app-side engine in AppState
+    /// only runs in the foreground — that's why background rules failed).
+    ///
+    /// What maps: SSID-exact + network-type + any, with no-VPN → Disconnect
+    /// and connect-type → Connect. What does NOT map (stays foreground-only,
+    /// handled by AppState.evaluateAndApplyRules): BSSID, glob SSID patterns,
+    /// and "switch to a specific pool/connection" target selection — a
+    /// single manager's rules can only connect/disconnect ITS own tunnel.
+    /// Rules are emitted in priority order (first match wins, like ours),
+    /// with a trailing connect-on-any so the tunnel returns once a
+    /// disconnect rule's network goes away.
     private func onDemandRuleSet() -> [NEOnDemandRule] {
-        let connectRule = NEOnDemandRuleConnect()
-        connectRule.interfaceTypeMatch = .any
-        return [connectRule]
+        var out: [NEOnDemandRule] = []
+        for rule in pendingRules.sorted(by: { $0.priority < $1.priority }) where rule.enabled {
+            switch rule.matchType {
+            case .ssidExact:
+                guard !rule.matchValue.isEmpty else { continue }
+                let r: NEOnDemandRule = rule.action == .noVpn ? NEOnDemandRuleDisconnect() : NEOnDemandRuleConnect()
+                r.interfaceTypeMatch = .wiFi
+                r.ssidMatch = [rule.matchValue]
+                out.append(r)
+            case .networkType:
+                let r: NEOnDemandRule = rule.action == .noVpn ? NEOnDemandRuleDisconnect() : NEOnDemandRuleConnect()
+                r.interfaceTypeMatch = Self.onDemandInterface(rule.matchValue)
+                out.append(r)
+            case .any:
+                let r: NEOnDemandRule = rule.action == .noVpn ? NEOnDemandRuleDisconnect() : NEOnDemandRuleConnect()
+                r.interfaceTypeMatch = .any
+                out.append(r)
+            case .ssidPattern, .bssid:
+                continue   // not expressible as NEOnDemandRule — foreground-only
+            }
+        }
+        // Keep the tunnel up on any otherwise-unmatched network (mirrors the
+        // app's "connect unless a rule says no-VPN" behaviour; also brings the
+        // tunnel back after a disconnect-rule network disappears).
+        let fallback = NEOnDemandRuleConnect()
+        fallback.interfaceTypeMatch = .any
+        out.append(fallback)
+        return out
+    }
+
+    /// Map a network-type matchValue to an on-demand interface type.
+    /// `ethernet` collapses to `.any` (no iOS ethernet on-demand interface).
+    private static func onDemandInterface(_ v: String) -> NEOnDemandRuleInterfaceType {
+        switch v.lowercased() {
+        case "wifi":             return .wiFi
+        case "mobile", "cellular": return .cellular
+        default:                 return .any
+        }
     }
 
     func disconnect() async {
@@ -215,6 +265,13 @@ final class VPNTunnelManager: ObservableObject {
             // governs it. Logged for parity, applied where supported.
             _ = mtu
         }
+
+        // Diagnostic: the most common IKEv2 failure on iOS is server-cert
+        // validation — a self-signed gateway CA is trusted by Android's
+        // strongSwan but NOT auto-trusted by iOS NEVPNManager (which checks
+        // the system trust store). Log key params so a failed connect can be
+        // traced from the device log.
+        PrivycsLog.log("IPSec/IKEv2 connecting — server=\(profile.remote.addr) remoteID=\(proto.remoteIdentifier ?? "?") cert=\(profile.pkcs12Data != nil)")
 
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name

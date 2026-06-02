@@ -152,7 +152,8 @@ final class AppState: ObservableObject {
             do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled,
                                                  dnsOverride: resolvedDNS(for: conn),
                                                  failoverOrder: settings.protocolFailoverOrder,
-                                                 killSwitch: settings.killSwitchEnabled) }
+                                                 killSwitch: settings.killSwitchEnabled,
+                                                 rules: rules) }
             catch { connectError = error.localizedDescription }
         }
     }
@@ -162,7 +163,19 @@ final class AppState: ObservableObject {
     /// fresh on return to the foreground so a stale "degraded" doesn't linger.
     func onScenePhase(_ active: Bool) {
         appActive = active
-        if active { startHealthMonitor() }   // restart → failure counter resets
+        guard active else { return }
+        startHealthMonitor()   // restart → failure counter resets
+        // A timed pause's in-app timer (Task.sleep) does NOT survive iOS
+        // suspension/doze, so a pause that elapsed while backgrounded never
+        // auto-resumed ("connection stale"). On return to the foreground,
+        // resume immediately if it already elapsed, else re-arm the timer.
+        if let until = pausedUntil {
+            if until != .distantFuture && Date() >= until {
+                Task { await resume() }
+            } else {
+                schedulePauseExpiry()
+            }
+        }
     }
 
     /// Pick a target from the Connect-screen dropdown. Always allowed —
@@ -275,7 +288,7 @@ final class AppState: ObservableObject {
             do {
                 let synth = synthConnection(for: member, pool: updated)
                 try await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled,
-                                                dnsOverride: resolvedDNS(for: synth), killSwitch: settings.killSwitchEnabled)
+                                                dnsOverride: resolvedDNS(for: synth), killSwitch: settings.killSwitchEnabled, rules: rules)
             } catch {
                 lastError = error.localizedDescription
                 await poolHealth.markUnreachable(pool: pool.id, member: member.id)
@@ -375,7 +388,7 @@ final class AppState: ObservableObject {
         nextRotationAt = updated.rotation?.nextRotationAt ?? 0
         resetSpeedTracking()
         let synth = synthConnection(for: member, pool: updated)
-        try? await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: synth), killSwitch: settings.killSwitchEnabled)
+        try? await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: synth), killSwitch: settings.killSwitchEnabled, rules: rules)
     }
 
     // MARK: - Import + Gateway (Session 5)
@@ -416,7 +429,9 @@ final class AppState: ObservableObject {
         resetSpeedTracking()
         do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled,
                                              dnsOverride: resolvedDNS(for: conn),
-                                             failoverOrder: settings.protocolFailoverOrder) }
+                                             failoverOrder: settings.protocolFailoverOrder,
+                                             killSwitch: settings.killSwitchEnabled,
+                                             rules: rules) }
         catch { connectError = error.localizedDescription }
     }
 
@@ -484,7 +499,8 @@ final class AppState: ObservableObject {
                 try? await self.tunnelManager.connect(conn, onDemand: self.settings.networkRulesEnabled,
                                                       dnsOverride: self.resolvedDNS(for: conn),
                                                       failoverOrder: self.settings.protocolFailoverOrder,
-                                                      killSwitch: self.settings.killSwitchEnabled)
+                                                      killSwitch: self.settings.killSwitchEnabled,
+                                                      rules: self.rules)
             }
 
         case .pool:
