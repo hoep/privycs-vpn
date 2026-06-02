@@ -83,6 +83,9 @@ final class AppState: ObservableObject {
     /// Suppress rule-driven auto-connect after an explicit user
     /// disconnect (mirrors Android's 30s manual-disconnect cooldown).
     private var manualDisconnectUntil: Date?
+    /// Mode A: once the user manually disconnects, persistent on-demand stays
+    /// disarmed until they manually connect again (so it can't auto-reconnect).
+    private var userDisconnectedManually = false
     /// Last rule-driven target we acted on, to avoid re-firing the same
     /// connect every network tick.
     private var lastRuleTargetID: String?
@@ -140,8 +143,9 @@ final class AppState: ObservableObject {
 
     func connectSelected() async {
         connectError = nil
-        // A manual connect cancels any active pause.
+        // A manual connect cancels any active pause + re-arms on-demand (A).
         pausedUntil = nil; pauseTimer?.cancel(); pauseTimer = nil
+        userDisconnectedManually = false
         if let pool = selectedPool {
             await connectPool(pool)
         } else if let conn = selectedConnection {
@@ -179,6 +183,27 @@ final class AppState: ObservableObject {
                 schedulePauseExpiry()
             }
         }
+        Task { await syncOnDemand() }
+    }
+
+    /// Mode-A persistent on-demand: when the auto-tunnel master toggle is on
+    /// and the user hasn't manually disconnected/paused, arm a background
+    /// on-demand profile so iOS connects/disconnects per the rules even while
+    /// the app is suspended/asleep (and the on-demand kill switch applies).
+    /// Disarms when the master toggle is off. Single (non-pool, non-IPSec)
+    /// connections only — pools rotate and can't be pre-armed.
+    func syncOnDemand() async {
+        guard settings.networkRulesEnabled else {
+            await tunnelManager.disarmOnDemand()
+            return
+        }
+        guard !userDisconnectedManually, !isPaused, !status.connected,
+              selectedPool == nil, let conn = selectedConnection,
+              (conn.resolvedActiveConfig(globalOrder: settings.protocolFailoverOrder)?.protocol ?? .wireguard) != .ipsec
+        else { return }
+        try? await tunnelManager.installOnDemandProfile(
+            conn, dnsOverride: resolvedDNS(for: conn),
+            killSwitch: settings.killSwitchEnabled, rules: rules)
     }
 
     /// Pick a target from the Connect-screen dropdown. Always allowed —
@@ -197,7 +222,10 @@ final class AppState: ObservableObject {
         defer { connecting = false }
         // A manual disconnect cancels any active pause.
         pausedUntil = nil; pauseTimer?.cancel(); pauseTimer = nil
+        // Mode A: stay disarmed until the user manually connects again.
+        userDisconnectedManually = true
         await teardownTunnel(armManualCooldown: true)
+        await tunnelManager.disarmOnDemand()
     }
 
     // MARK: - Manual pause / resume (Android ManualPauseSheet parity)
@@ -623,6 +651,10 @@ final class AppState: ObservableObject {
             self.nextRotationAt = p.rotation?.nextRotationAt ?? 0
         }
 
+        // Arm persistent background on-demand if the master toggle is on
+        // (so it works in doze even before a manual connect).
+        await syncOnDemand()
+
         // Observe transitions
         Task {
             for await s in await settingsRepo.observe() {
@@ -631,6 +663,8 @@ final class AppState: ObservableObject {
                     optedIn: s.crashReportsEnabled,
                     appVersion: PrivycsCoreInfo.version
                 )
+                // Master-toggle / rule changes re-arm or disarm on-demand.
+                await syncOnDemand()
             }
         }
         Task {

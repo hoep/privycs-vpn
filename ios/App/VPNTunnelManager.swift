@@ -220,6 +220,55 @@ final class VPNTunnelManager: ObservableObject {
         try mgr.connection.startVPNTunnel()
     }
 
+    /// Persist an on-demand profile WITHOUT starting the tunnel, so iOS
+    /// (nesessionmanager) auto-connects per the rules in the background —
+    /// even when the app is suspended/killed or the phone is asleep (doze).
+    /// While a "connect" rule matches and the tunnel isn't up yet, iOS blocks
+    /// the matching traffic = the on-demand kill switch. PTP protocols only
+    /// (WG/AWG/OVPN); IPSec/pools are not pre-armed.
+    func installOnDemandProfile(_ connection: SavedConnection, dnsOverride: String,
+                                killSwitch: Bool, rules: [NetworkRule]) async throws {
+        guard let config = connection.resolvedActiveConfig(), config.protocol != .ipsec else { return }
+        self.dnsOverride = dnsOverride
+        self.killSwitch = killSwitch
+        self.pendingRules = rules
+        let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+        let mgr = managers.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
+        let proto = NETunnelProviderProtocol()
+        proto.providerBundleIdentifier = "com.privycs.vpn.tunnel"
+        proto.serverAddress = config.serverAddress
+        proto.providerConfiguration = [
+            "protocol": config.protocol.rawValue,
+            "config_content": config.configContent,
+            "connection_id": connection.id,
+            "config_id": config.id,
+            "dns_override": dnsOverride,
+            "killSwitch": killSwitch,
+        ]
+        mgr.protocolConfiguration = proto
+        mgr.localizedDescription = connection.name
+        mgr.isEnabled = true
+        mgr.onDemandRules = onDemandRuleSet()
+        mgr.isOnDemandEnabled = true
+        try await mgr.saveToPreferences()
+        PrivycsLog.log("on-demand armed (persistent, no start) — \(connection.name), rules=\(rules.count)")
+    }
+
+    /// Disarm persistent on-demand on every saved manager (master toggle off,
+    /// or manual disconnect in mode A) so iOS stops auto-connecting — without
+    /// deleting the saved configuration.
+    func disarmOnDemand() async {
+        let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+        for m in managers where m.isOnDemandEnabled {
+            m.isOnDemandEnabled = false
+            try? await m.saveToPreferences()
+        }
+        let ike = NEVPNManager.shared()
+        try? await ike.loadFromPreferences()
+        if ike.isOnDemandEnabled { ike.isOnDemandEnabled = false; try? await ike.saveToPreferences() }
+        PrivycsLog.log("on-demand disarmed (all managers)")
+    }
+
     private func connectViaIKEv2(connection: SavedConnection, config: ProtocolConfig) async throws {
         // Parse the gateway's .sswan JSON profile into IKEv2 attributes.
         let profile = try SswanProfile.parse(config.configContent)
