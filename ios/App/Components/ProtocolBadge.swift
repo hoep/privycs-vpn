@@ -28,11 +28,9 @@ struct ProtocolBadge: View {
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
-                .frame(width: compact ? 12 : 14, height: compact ? 12 : 14)
-            if !compact {
-                Text(proto.shortLabel)
-                    .font(.system(size: 12, weight: .semibold))
-            }
+                .frame(width: compact ? 14 : 16, height: compact ? 14 : 16)
+            // No text label — the brand logo + colour identify the protocol
+            // (user: "das WG/AWG kann weg .. protocoll sagt genug").
             if count > 1 {
                 Text("×\(count)")
                     .font(.system(size: 11, weight: .bold))

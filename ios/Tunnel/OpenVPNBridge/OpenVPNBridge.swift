@@ -42,12 +42,19 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
         guard let rawIn = providerConfig["config_content"] as? String, !rawIn.isEmpty else {
             throw TunnelError.missingProviderConfig
         }
-        // IPv6 leak killswitch — always-on, matching Android: append
-        // `route-ipv6 ::/0` + `redirect-gateway ipv6` so v6 routes into the
-        // tunnel instead of leaking via the OS default v6 route.
-        let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .openvpn)
-        if v6.applied { PrivycsLog.log("OVPN: ipv6-killswitch appended route-ipv6 ::/0") }
-        var raw = v6.patched
+        // IPv6 leak killswitch — append `route-ipv6 ::/0` + `redirect-gateway
+        // ipv6` so v6 routes into the tunnel. Gated by the user's Kill Switch
+        // setting (default ON if absent).
+        let killSwitch = providerConfig["killSwitch"] as? Bool ?? true
+        var raw: String
+        if killSwitch {
+            let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .openvpn)
+            if v6.applied { PrivycsLog.log("OVPN: ipv6-killswitch appended route-ipv6 ::/0") }
+            raw = v6.patched
+        } else {
+            PrivycsLog.log("OVPN: ipv6-killswitch disabled (kill switch off)")
+            raw = rawIn
+        }
         // DNS override (3-tier resolved by the app, passed in providerConfig) —
         // Android applies it for ALL protocols; iOS previously did WG/AWG only.
         // Drop any server-pushed DNS and inject ours so the override wins

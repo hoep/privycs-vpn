@@ -134,14 +134,30 @@ final class AppState: ObservableObject {
         if let pool = selectedPool {
             await connectPool(pool)
         } else if let conn = selectedConnection {
+            // A single connection is now active — clear any pool context so
+            // the pool indicator card (rotate / next-rotation) disappears.
+            activePool = nil; activePoolMember = nil; nextRotationAt = 0
+            await poolRepo.setActivePoolID("")
             connecting = true
             defer { connecting = false }
             resetSpeedTracking()
             do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled,
                                                  dnsOverride: resolvedDNS(for: conn),
-                                                 failoverOrder: settings.protocolFailoverOrder) }
+                                                 failoverOrder: settings.protocolFailoverOrder,
+                                                 killSwitch: settings.killSwitchEnabled) }
             catch { connectError = error.localizedDescription }
         }
+    }
+
+    /// Pick a target from the Connect-screen dropdown. Always allowed —
+    /// even while connected: switch live by tearing down the old tunnel and
+    /// connecting the newly chosen connection/pool.
+    func selectTarget(_ id: String) async {
+        let wasConnected = status.connected
+        selectedTargetID = id
+        guard wasConnected else { return }
+        await teardownTunnel(armManualCooldown: false)
+        await connectSelected()
     }
 
     func disconnect() async {
@@ -243,7 +259,7 @@ final class AppState: ObservableObject {
             do {
                 let synth = synthConnection(for: member, pool: updated)
                 try await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled,
-                                                dnsOverride: resolvedDNS(for: synth))
+                                                dnsOverride: resolvedDNS(for: synth), killSwitch: settings.killSwitchEnabled)
             } catch {
                 lastError = error.localizedDescription
                 await poolHealth.markUnreachable(pool: pool.id, member: member.id)
@@ -343,7 +359,7 @@ final class AppState: ObservableObject {
         nextRotationAt = updated.rotation?.nextRotationAt ?? 0
         resetSpeedTracking()
         let synth = synthConnection(for: member, pool: updated)
-        try? await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: synth))
+        try? await tunnelManager.connect(synth, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: synth), killSwitch: settings.killSwitchEnabled)
     }
 
     // MARK: - Import + Gateway (Session 5)
@@ -451,7 +467,8 @@ final class AppState: ObservableObject {
                 self.resetSpeedTracking()
                 try? await self.tunnelManager.connect(conn, onDemand: self.settings.networkRulesEnabled,
                                                       dnsOverride: self.resolvedDNS(for: conn),
-                                                      failoverOrder: self.settings.protocolFailoverOrder)
+                                                      failoverOrder: self.settings.protocolFailoverOrder,
+                                                      killSwitch: self.settings.killSwitchEnabled)
             }
 
         case .pool:

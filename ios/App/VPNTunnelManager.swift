@@ -27,6 +27,7 @@ final class VPNTunnelManager: ObservableObject {
     private var isPTPTunnel = false
     private var onDemandEnabled = false
     private var dnsOverride = ""
+    private var killSwitch = true
     /// Poll loop that pulls PTP stats from the App Group store while up.
     private var pollTask: Task<Void, Never>?
 
@@ -65,7 +66,7 @@ final class VPNTunnelManager: ObservableObject {
     /// toggle (Settings ▸ VPN ▸ (i)), like the WireGuard app. Gated by
     /// the app's auto-tunnel master (networkRulesEnabled).
     func connect(_ connection: SavedConnection, onDemand: Bool = false, dnsOverride: String = "",
-                 failoverOrder: [VpnProtocol] = []) async throws {
+                 failoverOrder: [VpnProtocol] = [], killSwitch: Bool = true) async throws {
         // Pick the config honoring the explicit active selection, then the
         // effective protocol-failover order (per-connection → global → default
         // AmneziaWG-first) rather than just the first imported config.
@@ -78,6 +79,7 @@ final class VPNTunnelManager: ObservableObject {
         isPTPTunnel = config.protocol != .ipsec
         self.onDemandEnabled = onDemand
         self.dnsOverride = dnsOverride
+        self.killSwitch = killSwitch
 
         if config.protocol == .ipsec {
             try await connectViaIKEv2(connection: connection, config: config)
@@ -152,6 +154,7 @@ final class VPNTunnelManager: ObservableObject {
             "connection_id": connection.id,
             "config_id": config.id,
             "dns_override": dnsOverride,
+            "killSwitch": killSwitch,
         ]
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name

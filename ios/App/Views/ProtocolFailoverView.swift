@@ -16,6 +16,11 @@ struct ProtocolFailoverView: View {
                 ForEach(order) { proto in
                     HStack(spacing: 12) {
                         Image(systemName: "line.3.horizontal").foregroundStyle(.secondary)
+                        Image(proto.assetName)
+                            .renderingMode(.template)
+                            .resizable().scaledToFit()
+                            .frame(width: 18, height: 18)
+                            .foregroundStyle(proto.brandColor)
                         Text(proto.displayName)
                         Spacer()
                     }

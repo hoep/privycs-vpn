@@ -21,13 +21,17 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Privacy") {
-                    Toggle("Kill Switch (always on)", isOn: $killSwitch)
-                        .disabled(true) // iOS-Pflicht — wir lassen ihn nicht ausschalten
+                Section {
+                    Toggle("Kill Switch", isOn: $killSwitch)
+                        .onChange(of: killSwitch) { _, new in persistKillSwitch(new) }
                     Toggle("Anonymous crash reports", isOn: $crashReportsEnabled)
                         .onChange(of: crashReportsEnabled) { _, new in
                             persistCrashReports(new)
                         }
+                } header: {
+                    Text("Privacy")
+                } footer: {
+                    Text("Kill Switch routes IPv6 into the tunnel so a v4-only server can't leak your real IPv6 address. Turning it off allows IPv6 traffic outside the VPN.")
                 }
 
                 Section {
@@ -125,7 +129,7 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    LabeledContent("Version", value: PrivycsCoreInfo.version)
+                    LabeledContent("Version", value: versionString)
                     Link("Privacy Policy", destination: URL(string: "https://www.privycs.com/privacy")!)
                     Link("Help", destination: URL(string: "https://www.privycs.com/docs")!)
                 }
@@ -168,6 +172,19 @@ struct SettingsView: View {
     private func persistTheme(_ v: String) {
         var s = appState.settings
         s.theme = v
+        Task { try? await appState.settingsRepo.save(s) }
+    }
+
+    /// "1.0.8 (34)" — marketing version + CFBundleVersion build number.
+    private var versionString: String {
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        return build.isEmpty ? PrivycsCoreInfo.version : "\(PrivycsCoreInfo.version) (\(build))"
+    }
+
+    private func persistKillSwitch(_ v: Bool) {
+        var s = appState.settings
+        s.killSwitchEnabled = v
+        appState.settings = s
         Task { try? await appState.settingsRepo.save(s) }
     }
 

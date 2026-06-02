@@ -31,12 +31,20 @@ public final class WireGuardBridge: TunnelProtocolBridge, @unchecked Sendable {
         guard let rawIn = providerConfig["config_content"] as? String, !rawIn.isEmpty else {
             throw TunnelError.missingProviderConfig
         }
-        // IPv6 leak killswitch — always-on, matching Android. Re-adds `::/0`
-        // to AllowedIPs for v4-only gateway configs so v6 routes into the
-        // tunnel instead of leaking via the OS default v6 route.
-        let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .wireguard)
-        if v6.applied { PrivycsLog.log("WG: ipv6-killswitch injected ::/0 into AllowedIPs") }
-        let raw = v6.patched
+        // IPv6 leak killswitch — re-adds `::/0` to AllowedIPs for v4-only
+        // gateway configs so v6 routes into the tunnel instead of leaking via
+        // the OS default v6 route. Gated by the user's Kill Switch setting
+        // (default ON when the flag is absent).
+        let killSwitch = providerConfig["killSwitch"] as? Bool ?? true
+        let raw: String
+        if killSwitch {
+            let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .wireguard)
+            if v6.applied { PrivycsLog.log("WG: ipv6-killswitch injected ::/0 into AllowedIPs") }
+            raw = v6.patched
+        } else {
+            PrivycsLog.log("WG: ipv6-killswitch disabled (kill switch off)")
+            raw = rawIn
+        }
         // Parse via WireGuardKit's standard ini-config parser.
         guard var tunnelConfig = try? TunnelConfiguration(fromWgQuickConfig: raw, called: "privycs") else {
             throw TunnelError.nativeFault("WireGuard config parse failed")
@@ -46,7 +54,9 @@ public final class WireGuardBridge: TunnelProtocolBridge, @unchecked Sendable {
         // Stash interface address + peer endpoint for the stats channel.
         self.localAddress = tunnelConfig.interface.addresses
             .map { "\($0.address)" }.joined(separator: ", ")
-        self.serverEndpoint = tunnelConfig.peers.first?.endpoint.map { "\($0)" } ?? ""
+        // .stringRepresentation → "host:port"; plain "\(endpoint)" prints
+        // the struct description ("Endpoint(host: … port: …)").
+        self.serverEndpoint = tunnelConfig.peers.first?.endpoint?.stringRepresentation ?? ""
 
         let adapter = WireGuardAdapter(with: provider) { [weak self] level, message in
             // Route the WireGuard backend's verbose log (handshakes,

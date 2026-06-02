@@ -13,12 +13,6 @@ struct ConnectionView: View {
 
     private var status: VpnStatus { appState.status }
 
-    private var pillState: StatusPill.State {
-        if status.connected { return .connected }
-        if appState.connecting { return .connecting }
-        return .disconnected
-    }
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -28,10 +22,8 @@ struct ConnectionView: View {
                         if appState.connections.isEmpty && appState.pools.isEmpty {
                             welcomeView
                         } else {
-                            StatusPill(state: pillState)
-                                .padding(.top, 8)
-
                             targetPicker
+                                .padding(.top, 8)
 
                             ConnectButton(
                                 connected: status.connected,
@@ -62,7 +54,7 @@ struct ConnectionView: View {
                                         onRotateNow: { Task { await appState.rotatePool() } }
                                     )
                                 }
-                                if hasMultipleConfigs { protocolBadgeRow }
+                                if showProtocolPills { protocolBadgeRow }
                                 locationLine
                                 statsRow
                                 connectionDetails
@@ -174,7 +166,10 @@ struct ConnectionView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(PrivycsColor.onSurface)
-        .disabled(status.connected || appState.connecting)
+        // Always usable — even while connected. Picking a different target
+        // switches live (disconnect old → connect new). Only blocked during
+        // the brief connect transition.
+        .disabled(appState.connecting)
         .popover(isPresented: $showPicker, arrowEdge: .top) {
             pickerList
                 .frame(minWidth: 300, minHeight: 220)
@@ -195,8 +190,8 @@ struct ConnectionView: View {
                                 || (appState.selectedTargetID.isEmpty && appState.connections.first?.id == c.id),
                             accent: activeProto(c)?.brandColor ?? PrivycsColor.teal
                         ) {
-                            appState.selectedTargetID = c.id
                             showPicker = false
+                            Task { await appState.selectTarget(c.id) }
                         }
                     }
                 }
@@ -210,8 +205,8 @@ struct ConnectionView: View {
                             selected: appState.selectedTargetID == "pool:\(p.id)",
                             accent: PrivycsColor.teal
                         ) {
-                            appState.selectedTargetID = "pool:\(p.id)"
                             showPicker = false
+                            Task { await appState.selectTarget("pool:\(p.id)") }
                         }
                     }
                 }
@@ -252,8 +247,11 @@ struct ConnectionView: View {
 
     // MARK: Multi-config protocol badge row
 
-    private var hasMultipleConfigs: Bool {
-        (appState.selectedConnection?.protocols.count ?? 0) > 1
+    /// Protocol pills appear ONLY for a standard connection with more than
+    /// one distinct protocol — never for a pool (a pool has its own
+    /// indicator card; switching its protocol via a pill makes no sense).
+    private var showProtocolPills: Bool {
+        appState.activePool == nil && appState.selectedPool == nil && uniqueProtocols.count > 1
     }
 
     private var protocolBadgeRow: some View {
@@ -325,7 +323,7 @@ struct ConnectionView: View {
                 detailRow("VPN IP", value: status.localAddress)
             }
             if !status.serverEndpoint.isEmpty {
-                detailRow("Endpoint", value: status.serverEndpoint)
+                detailRow("Endpoint", value: formatEndpoint(status.serverEndpoint))
             }
             if !status.lastHandshake.isEmpty {
                 detailRow("Last handshake", value: status.lastHandshake)
@@ -389,6 +387,19 @@ struct ConnectionView: View {
             return cfg.protocol
         }
         return c.protocols.first?.protocol
+    }
+
+    /// Defensive: normalize a stray "Endpoint(host: X port: Y)" struct
+    /// description into "X:Y". Bridges now emit host:port directly, but a
+    /// value cached before this fix would still be the struct form.
+    private func formatEndpoint(_ s: String) -> String {
+        guard s.hasPrefix("Endpoint(") else { return s }
+        func field(_ key: String) -> String {
+            guard let r = s.range(of: "\(key): ") else { return "" }
+            return String(s[r.upperBound...].prefix(while: { $0 != "," && $0 != " " && $0 != ")" }))
+        }
+        let host = field("host"), port = field("port")
+        return (!host.isEmpty && !port.isEmpty) ? "\(host):\(port)" : s
     }
 
     private func formatUptime(_ secs: Int64) -> String {

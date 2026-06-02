@@ -45,10 +45,18 @@ public final class AmneziaWGBridge: TunnelProtocolBridge, @unchecked Sendable {
         // sent a v4-only config, so v6 enters the tunnel instead of leaking
         // via the OS default v6 route. THIS is the fix for "AmneziaWG has
         // no IPv6": iOS previously kept the v4-only AllowedIPs verbatim.
-        let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .amneziawg)
-        if v6.applied { PrivycsLog.log("AWG: ipv6-killswitch injected ::/0 into AllowedIPs") }
-        else { PrivycsLog.log("AWG: ipv6-killswitch skipped (\(v6.skippedReason ?? "?"))") }
-        let raw = v6.patched
+        // Gated by the user's Kill Switch setting (default ON if absent).
+        let killSwitch = providerConfig["killSwitch"] as? Bool ?? true
+        let raw: String
+        if killSwitch {
+            let v6 = IPv6KillswitchInjector.inject(rawIn, protocol: .amneziawg)
+            if v6.applied { PrivycsLog.log("AWG: ipv6-killswitch injected ::/0 into AllowedIPs") }
+            else { PrivycsLog.log("AWG: ipv6-killswitch skipped (\(v6.skippedReason ?? "?"))") }
+            raw = v6.patched
+        } else {
+            PrivycsLog.log("AWG: ipv6-killswitch disabled (kill switch off)")
+            raw = rawIn
+        }
         // The amnezia fork's parser keeps the AWG obfuscation keys; a
         // config without them parses as plain WireGuard.
         guard var tunnelConfig = try? TunnelConfiguration(fromWgQuickConfig: raw, called: "privycs-awg") else {
@@ -57,7 +65,8 @@ public final class AmneziaWGBridge: TunnelProtocolBridge, @unchecked Sendable {
         applyDNSOverride(providerConfig, to: &tunnelConfig)
         self.localAddress = tunnelConfig.interface.addresses
             .map { "\($0.address)" }.joined(separator: ", ")
-        self.serverEndpoint = tunnelConfig.peers.first?.endpoint.map { "\($0)" } ?? ""
+        // .stringRepresentation → "host:port" (not the struct description).
+        self.serverEndpoint = tunnelConfig.peers.first?.endpoint?.stringRepresentation ?? ""
 
         // Diagnostic: log whether the config actually carries IPv6 — the
         // "AWG works on v4 but not v6" question is usually answered here
