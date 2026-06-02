@@ -23,7 +23,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.0.8"                  # synced with ios/latest_version.txt
-    CURRENT_PROJECT_VERSION: "35"
+    CURRENT_PROJECT_VERSION: "36"
     # ed25519 license pubkey hex — overridden by CI from the
     # LICENSE_PUBLIC_KEY_HEX secret; empty default for local builds.
     LICENSE_PUBLIC_KEY_HEX: ""
@@ -75,6 +75,15 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Privycs VPN
+        # Advertise all 6 localizations so their .lproj are bundled and the
+        # in-app LanguageManager (Bundle swizzle) can load any of them.
+        CFBundleLocalizations:
+          - en
+          - de
+          - es
+          - fr
+          - it
+          - pt
         LSApplicationCategoryType: public.app-category.utilities
         NSLocationWhenInUseUsageDescription: >
           Privycs uses your location only to read the current Wi-Fi

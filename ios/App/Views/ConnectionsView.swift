@@ -86,40 +86,33 @@ struct ConnectionsView: View {
                 }
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
             }
-            // Tappable protocol badges — tap to switch the active config
-            // (per-protocol connect, like Android's ProtocolBadges).
-            // One pill PER PROTOCOL with an ×N count when a protocol has
-            // multiple configs (Android parity — a connection is a failover
-            // bag of same-protocol endpoints). Tap switches the active config
-            // to that protocol; if connected, setActiveConfig reconnects.
+            // ONE badge PER CONFIG (Android ConnectionsScreen parity) —
+            // protocol logo + server endpoint host, so a connection holding
+            // e.g. two WG entries shows both with their servers. Tap switches
+            // the active config (reconnects if this connection is live). The
+            // ×N grouped count lives only on the Connect screen.
             FlowRow(spacing: 6) {
-                ForEach(groupedProtocols(conn), id: \.self) { proto in
-                    let cfgs = conn.protocols.filter { $0.protocol == proto }
+                ForEach(conn.protocols) { cfg in
                     Button {
-                        let target = cfgs.first(where: { $0.id == conn.activeConfigID }) ?? cfgs.first
-                        if let target {
-                            Task { await appState.setActiveConfig(connectionID: conn.id, configID: target.id) }
-                        }
+                        Task { await appState.setActiveConfig(connectionID: conn.id, configID: cfg.id) }
                     } label: {
                         ProtocolBadge(
-                            proto: proto,
-                            endpoint: cfgs.count == 1 ? endpointHost(cfgs[0].serverAddress) : nil,
-                            active: cfgs.contains { $0.id == conn.activeConfigID },
-                            count: cfgs.count
+                            proto: cfg.protocol,
+                            endpoint: endpointHost(cfg.serverAddress),
+                            active: cfg.id == conn.activeConfigID,
+                            count: 1
                         )
                     }
                     // .borderless (not .plain) so each pill is an independent
                     // tap target inside the List row.
                     .buttonStyle(.borderless)
                     .contextMenu {
-                        ForEach(cfgs) { cfg in
-                            if cfg.protocol == .wireguard || cfg.protocol == .amneziawg || cfg.protocol == .openvpn {
-                                Button {
-                                    editConfigFor = EditConfigTarget(connectionID: conn.id, config: cfg)
-                                } label: { Label("Edit \(configLabel(cfg))", systemImage: "pencil") }
-                            }
+                        if cfg.protocol == .wireguard || cfg.protocol == .amneziawg || cfg.protocol == .openvpn {
+                            Button {
+                                editConfigFor = EditConfigTarget(connectionID: conn.id, config: cfg)
+                            } label: { Label("Edit \(configLabel(cfg))", systemImage: "pencil") }
                         }
-                        ForEach(cfgs) { cfg in
+                        if conn.protocols.count > 1 {
                             Button(role: .destructive) {
                                 Task { await appState.removeConfig(connectionID: conn.id, configID: cfg.id) }
                             } label: { Label("Remove \(configLabel(cfg))", systemImage: "trash") }
@@ -141,14 +134,6 @@ struct ConnectionsView: View {
             }
         }
         .padding(.vertical, 2)
-    }
-
-    /// Distinct protocols of a connection, in order of first appearance.
-    private func groupedProtocols(_ conn: SavedConnection) -> [VpnProtocol] {
-        var seen = Set<VpnProtocol>()
-        var out: [VpnProtocol] = []
-        for c in conn.protocols where seen.insert(c.protocol).inserted { out.append(c.protocol) }
-        return out
     }
 
     /// Human label for a config in context menus (nickname → filename → proto).

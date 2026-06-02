@@ -5,6 +5,7 @@ import PrivycsCore
 struct PrivycsVPNApp: App {
 
     @StateObject private var appState = AppState()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // BGTaskScheduler handlers must be registered during launch.
@@ -19,6 +20,9 @@ struct PrivycsVPNApp: App {
                     await appState.bootstrap()
                 }
                 .preferredColorScheme(appState.colorScheme)
+                .onChange(of: scenePhase) { _, phase in
+                    appState.onScenePhase(phase == .active)
+                }
         }
     }
 }
@@ -62,6 +66,10 @@ final class AppState: ObservableObject {
     /// reachability monitor in TunnelHealthService.
     @Published var tunnelHealth: TunnelHealthPill.Health?
     var healthTask: Task<Void, Never>?
+    /// True while the app is in the foreground. The health probe is
+    /// foreground-only (iOS suspends the app in background, so probes there
+    /// spuriously fail and falsely report "degraded"). See onScenePhase.
+    @Published var appActive = true
     /// Manual pause: the instant the tunnel auto-resumes. nil = not paused,
     /// `.distantFuture` = paused until the user resumes. While paused, all
     /// rule-driven automation is frozen (Android ManualPauseSheet parity).
@@ -147,6 +155,14 @@ final class AppState: ObservableObject {
                                                  killSwitch: settings.killSwitchEnabled) }
             catch { connectError = error.localizedDescription }
         }
+    }
+
+    /// React to foreground/background transitions. The tunnel-health probe
+    /// is paused in the background (where it would falsely fail) and restarted
+    /// fresh on return to the foreground so a stale "degraded" doesn't linger.
+    func onScenePhase(_ active: Bool) {
+        appActive = active
+        if active { startHealthMonitor() }   // restart → failure counter resets
     }
 
     /// Pick a target from the Connect-screen dropdown. Always allowed —
@@ -538,6 +554,9 @@ final class AppState: ObservableObject {
         // Initial load
         if let s = try? await settingsRepo.current() {
             self.settings = s
+            // Keep the in-app language override in sync with the persisted
+            // setting (first launch after upgrade may have it only here).
+            if !s.appLanguage.isEmpty { LanguageManager.shared.set(s.appLanguage) }
         }
         await crashReporter.start(
             optedIn: settings.crashReportsEnabled,

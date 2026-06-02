@@ -18,7 +18,7 @@ struct ConnectionView: View {
             ZStack {
                 PrivycsColor.background.ignoresSafeArea()
                 ScrollView {
-                    VStack(spacing: 22) {
+                    VStack(spacing: 14) {
                         if appState.connections.isEmpty && appState.pools.isEmpty {
                             welcomeView
                         } else {
@@ -260,7 +260,8 @@ struct ConnectionView: View {
         } label: {
             HStack(spacing: 6) {
                 ForEach(uniqueProtocols, id: \.self) { p in
-                    ProtocolBadge(proto: p)
+                    // ×N count of same-protocol configs — Connect screen only.
+                    ProtocolBadge(proto: p, count: configCount(p))
                 }
                 Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.secondary)
             }
@@ -272,6 +273,11 @@ struct ConnectionView: View {
         guard let c = appState.selectedConnection else { return [] }
         var seen = Set<VpnProtocol>()
         return c.protocols.compactMap { seen.insert($0.protocol).inserted ? $0.protocol : nil }
+    }
+
+    /// Number of same-protocol configs in the selected connection.
+    private func configCount(_ p: VpnProtocol) -> Int {
+        appState.selectedConnection?.protocols.filter { $0.protocol == p }.count ?? 1
     }
 
     // MARK: Stats
@@ -329,7 +335,7 @@ struct ConnectionView: View {
                 detailRow("Last handshake", value: status.lastHandshake)
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 6)
+        .padding(.horizontal, 14).padding(.vertical, 2)
         .background(RoundedRectangle(cornerRadius: 12).fill(PrivycsColor.surface))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(PrivycsColor.outline.opacity(0.4), lineWidth: 0.5))
     }
@@ -351,7 +357,7 @@ struct ConnectionView: View {
                 }
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
     }
 
     private func errorCard(_ msg: String) -> some View {

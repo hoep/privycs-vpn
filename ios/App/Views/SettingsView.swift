@@ -130,8 +130,8 @@ struct SettingsView: View {
 
                 Section("About") {
                     LabeledContent("Version", value: versionString)
-                    Link("Privacy Policy", destination: URL(string: "https://www.privycs.com/privacy")!)
-                    Link("Help", destination: URL(string: "https://www.privycs.com/docs")!)
+                    Link("Privacy Policy", destination: URL(string: "https://www.privycs.com/docs/ios-client-privacy")!)
+                    Link("Help", destination: URL(string: "https://www.privycs.com/docs/ios-client")!)
                 }
             }
             .navigationTitle("Settings")
@@ -160,6 +160,8 @@ struct SettingsView: View {
         var s = appState.settings
         s.appLanguage = v
         appState.settings = s
+        // Apply immediately (swaps the .lproj + re-renders the whole UI).
+        LanguageManager.shared.set(v)
         Task { try? await appState.settingsRepo.save(s) }
     }
 

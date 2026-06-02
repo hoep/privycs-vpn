@@ -4,6 +4,7 @@ import SwiftUI
 /// Bottom-Nav (Connect / Configs / Add / Settings / Help).
 struct RootView: View {
     @EnvironmentObject private var appState: AppState
+    @ObservedObject private var lang = LanguageManager.shared
     @State private var tab: Tab = .connect
 
     enum Tab: Hashable {
@@ -11,6 +12,17 @@ struct RootView: View {
     }
 
     var body: some View {
+        tabView
+            // Re-render the whole tree (incl. the tab bar) when the in-app
+            // language changes so every LocalizedStringKey re-resolves via
+            // the swizzled bundle — no restart needed (fixes the tab bar not
+            // switching language).
+            .id(lang.code)
+            .environment(\.locale, lang.code.isEmpty
+                ? Locale.autoupdatingCurrent : Locale(identifier: lang.code))
+    }
+
+    private var tabView: some View {
         TabView(selection: $tab) {
             ConnectionView()
                 .tabItem { Label("tab.connect", systemImage: "shield.checkered") }

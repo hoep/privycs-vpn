@@ -21,6 +21,10 @@ extension AppState {
                 if !connected || !enabled {
                     if self.tunnelHealth != nil { self.tunnelHealth = nil }
                     fails = 0
+                } else if !self.appActive {
+                    // Foreground-only: don't probe while backgrounded (the app
+                    // is suspended, so a probe would spuriously fail). Hold the
+                    // last state; onScenePhase restarts us fresh on resume.
                 } else {
                     let target = self.settings.tunnelHealthTarget.isEmpty
                         ? "1.1.1.1" : self.settings.tunnelHealthTarget
@@ -28,7 +32,9 @@ extension AppState {
                         ? self.settings.tunnelHealthDeadThreshold : 3
                     let ok = await AppState.reachable(host: target, timeout: 4)
                     fails = ok ? 0 : fails + 1
-                    self.tunnelHealth = fails == 0 ? .healthy
+                    // Grace: a single missed probe stays "healthy" (transient
+                    // blips are common); 2+ misses → degraded; dead → recovering.
+                    self.tunnelHealth = fails <= 1 ? .healthy
                         : (fails >= dead ? .recovering : .degraded)
                 }
                 let interval = self.settings.tunnelHealthPingIntervalSec > 0
