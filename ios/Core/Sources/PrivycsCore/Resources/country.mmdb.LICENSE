@@ -1,0 +1,18 @@
+Geographic data file: country.mmdb
+
+This database is "IP to Country Lite" by db-ip.com, licensed under
+Creative Commons Attribution 4.0 International License (CC BY 4.0).
+
+  https://db-ip.com/db/lite.php
+  https://creativecommons.org/licenses/by/4.0/
+
+Snapshot used in this repository: dbip-country-lite-2026-04.
+
+Attribution required by CC BY 4.0:
+  IP to Country Lite by db-ip.com (CC BY 4.0)
+
+This attribution is also surfaced in the Android app's About screen.
+
+Updates: db-ip publishes a fresh snapshot on the first of each month
+at https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz
+- replace this file in-place when bundling new releases.

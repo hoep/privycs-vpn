@@ -58,8 +58,11 @@ let package = Package(
             ],
             path: "Sources/PrivycsCore",
             resources: [
-                // Localizable.strings × 6 — gepflegt via String Catalog (.xcstrings)
-                // im App-Target, hier nur fallback default.
+                // IP→country DB (db-ip "IP to Country Lite", CC BY 4.0) —
+                // the same file Android bundles, read by MmdbCountryResolver
+                // to resolve pool/server country codes → flags.
+                .copy("Resources/country.mmdb"),
+                .copy("Resources/country.mmdb.LICENSE"),
             ]
         ),
         .testTarget(

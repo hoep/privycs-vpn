@@ -66,4 +66,49 @@ public enum PoolImporter {
             .first.map(String.init) ?? ""
         return first.count == 2 ? first.uppercased() : ""
     }
+
+    /// Fill in each member's `country` (where the filename didn't already
+    /// give one) by geolocating its server endpoint via the bundled
+    /// `country.mmdb` — resolving a hostname to an IP first if needed.
+    /// Mirrors Android's CombinedCountryResolver (IP-geo + filename fallback).
+    public static func enrichCountries(_ members: [PoolMember]) async -> [PoolMember] {
+        guard let mmdb = MmdbCountryResolver.shared else { return members }
+        var out = members
+        for i in out.indices where out[i].country.isEmpty {
+            let host = endpointHost(out[i].serverAddress)
+            guard !host.isEmpty else { continue }
+            if let ip = await firstIP(host), let cc = mmdb.country(forIP: ip) {
+                out[i].country = cc
+            }
+        }
+        return out
+    }
+
+    /// Host part of a "host:port" / "[v6]:port" endpoint.
+    static func endpointHost(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("[") {
+            if let close = t.firstIndex(of: "]") { return String(t[t.index(after: t.startIndex)..<close]) }
+            return t
+        }
+        let parts = t.split(separator: ":")
+        return parts.count == 2 ? String(parts[0]) : t   // host:port → host (bare v6 untouched)
+    }
+
+    /// Resolve a host (an IP literal returns itself) to its first numeric IP.
+    static func firstIP(_ host: String) async -> String? {
+        await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            DispatchQueue.global().async {
+                var res: UnsafeMutablePointer<addrinfo>?
+                guard getaddrinfo(host, nil, nil, &res) == 0, let first = res else {
+                    cont.resume(returning: nil); return
+                }
+                defer { freeaddrinfo(res) }
+                var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                let ok = getnameinfo(first.pointee.ai_addr, first.pointee.ai_addrlen,
+                                     &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0
+                cont.resume(returning: ok ? String(cString: buf) : nil)
+            }
+        }
+    }
 }

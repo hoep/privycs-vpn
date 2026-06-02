@@ -96,12 +96,15 @@ struct AddPoolView: View {
                 configs.append(.init(filename: url.lastPathComponent, content: raw))
             }
         }
-        let members = PoolImporter.makeMembers(configs)
+        var members = PoolImporter.makeMembers(configs)
         PrivycsLog.log("Pool import: \(pickedFiles.count) file(s) → \(configs.count) config(s) → \(members.count) member(s)")
         guard members.count >= 1 else {
             errorMessage = "No valid config files found in the selection."
             return
         }
+        // Geolocate each member's server (IP→country via the bundled DB) so
+        // country flags show even when the filename has no <cc>- prefix.
+        members = await PoolImporter.enrichCountries(members)
         let pool = Pool(id: UUID().uuidString, name: name, policy: policy, members: members)
         do {
             try await appState.poolRepo.save(pool)

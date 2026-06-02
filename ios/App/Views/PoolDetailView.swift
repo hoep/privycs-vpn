@@ -110,19 +110,25 @@ struct PoolDetailView: View {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                         Text(active.name).font(.body)
                         Spacer()
-                        Text(active.country).font(.caption).foregroundStyle(.secondary)
+                        Text(flagLabel(active.country)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 ForEach(pool.members.filter { $0.id != pool.activeMemberID }) { m in
                     HStack {
                         Text(m.name)
                         Spacer()
-                        Text(m.country).font(.caption).foregroundStyle(.secondary)
+                        Text(flagLabel(m.country)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
         }
         .navigationTitle(pool.name)
+    }
+
+    /// "🇩🇪 DE" — flag emoji + code, or just the code when no flag resolves.
+    private func flagLabel(_ cc: String) -> String {
+        let flag = PoolHostnameLabels.flagEmoji(cc)
+        return flag.isEmpty ? cc.uppercased() : "\(flag) \(cc.uppercased())"
     }
 
     /// Single writer — builds the pool from ALL current edit state so a
