@@ -30,6 +30,24 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
 
     // MARK: — NEPacketTunnelProvider override
 
+    /// The WireGuardKit / OpenVPNAdapter call this to apply the tunnel's
+    /// network settings. We override ONLY to log the EXACT IPv4/IPv6
+    /// interface addresses + IPv6 included routes the OS actually receives.
+    /// The adapter's own log prints route COUNTS but not the v6 SOURCE
+    /// address — the missing datum for diagnosing "AmneziaWG has no IPv6"
+    /// (a tunnel with a v6 route but no v6 source address can't originate v6).
+    public override func setTunnelNetworkSettings(_ tunnelNetworkSettings: NETunnelNetworkSettings?,
+                                                  completionHandler: ((Error?) -> Void)? = nil) {
+        if let s = tunnelNetworkSettings as? NEPacketTunnelNetworkSettings {
+            let v4 = s.ipv4Settings?.addresses ?? []
+            let v6 = s.ipv6Settings?.addresses ?? []
+            let v6routes = (s.ipv6Settings?.includedRoutes ?? [])
+                .map { "\($0.destinationAddress)/\($0.destinationNetworkPrefixLength)" }
+            PrivycsLog.log("PTP applied settings — v4-addr=\(v4) v6-addr=\(v6) v6-inc-routes=\(v6routes) dns=\(s.dnsSettings?.servers ?? [])")
+        }
+        super.setTunnelNetworkSettings(tunnelNetworkSettings, completionHandler: completionHandler)
+    }
+
     public override func startTunnel(
         options: [String: NSObject]?,
         completionHandler: @escaping (Error?) -> Void
