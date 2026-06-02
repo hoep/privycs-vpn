@@ -9,6 +9,7 @@ struct ConnectionView: View {
     @EnvironmentObject private var appState: AppState
     @State private var showPicker = false
     @State private var showConfigSheet = false
+    @State private var showPauseSheet = false
 
     private var status: VpnStatus { appState.status }
 
@@ -39,6 +40,8 @@ struct ConnectionView: View {
                                 onTap: { Task { await appState.toggleConnection() } }
                             )
                             .padding(.vertical, 4)
+
+                            pauseSection
 
                             if status.connected {
                                 // Uptime — monospace line right under the button,
@@ -88,6 +91,50 @@ struct ConnectionView: View {
             MultiConfigPickerSheet()
                 .environmentObject(appState)
         }
+        .sheet(isPresented: $showPauseSheet) {
+            ManualPauseSheet().environmentObject(appState)
+        }
+    }
+
+    // MARK: Pause / resume
+
+    /// When connected: a Pause button. When paused (tunnel down, timer
+    /// running): a banner with a live countdown + Resume. (Android parity.)
+    @ViewBuilder private var pauseSection: some View {
+        if appState.isPaused {
+            VStack(spacing: 8) {
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Label(pausedLabel, systemImage: "pause.circle.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(PrivycsColor.warning)
+                }
+                Button { Task { await appState.resume() } } label: {
+                    Label("Resume now", systemImage: "play.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(PrivycsColor.teal)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 12).fill(PrivycsColor.surface))
+        } else if status.connected {
+            Button { showPauseSheet = true } label: {
+                Label("Pause", systemImage: "pause.circle")
+                    .font(.system(size: 14, weight: .medium))
+            }
+            .buttonStyle(.bordered)
+            .tint(.secondary)
+        }
+    }
+
+    /// Countdown label for a timed pause; "Paused" for an indefinite one.
+    private var pausedLabel: String {
+        guard let until = appState.pausedUntil, until != .distantFuture else { return "Paused" }
+        let secs = max(0, Int(until.timeIntervalSinceNow))
+        if secs >= 3600 { return "Paused — resumes in \(secs / 3600)h \((secs % 3600) / 60)m" }
+        if secs >= 60 { return "Paused — resumes in \(secs / 60)m \(secs % 60)s" }
+        return "Paused — resumes in \(secs)s"
     }
 
     // MARK: Target picker (connections + pools)

@@ -64,9 +64,12 @@ final class VPNTunnelManager: ObservableObject {
     /// auto-reconnects on network change AND shows the system On-Demand
     /// toggle (Settings ▸ VPN ▸ (i)), like the WireGuard app. Gated by
     /// the app's auto-tunnel master (networkRulesEnabled).
-    func connect(_ connection: SavedConnection, onDemand: Bool = false, dnsOverride: String = "") async throws {
-        guard let config = connection.protocols.first(where: { $0.id == connection.activeConfigID })
-            ?? connection.protocols.first else {
+    func connect(_ connection: SavedConnection, onDemand: Bool = false, dnsOverride: String = "",
+                 failoverOrder: [VpnProtocol] = []) async throws {
+        // Pick the config honoring the explicit active selection, then the
+        // effective protocol-failover order (per-connection → global → default
+        // AmneziaWG-first) rather than just the first imported config.
+        guard let config = connection.resolvedActiveConfig(globalOrder: failoverOrder) else {
             throw VPNError.noConfig
         }
         activeConnectionName = connection.name

@@ -62,6 +62,11 @@ final class AppState: ObservableObject {
     /// reachability monitor in TunnelHealthService.
     @Published var tunnelHealth: TunnelHealthPill.Health?
     var healthTask: Task<Void, Never>?
+    /// Manual pause: the instant the tunnel auto-resumes. nil = not paused,
+    /// `.distantFuture` = paused until the user resumes. While paused, all
+    /// rule-driven automation is frozen (Android ManualPauseSheet parity).
+    @Published var pausedUntil: Date?
+    private var pauseTimer: Task<Void, Never>?
     private let rotator = PoolRotator()
     private let rulesEngine = NetworkRulesEngine()
     /// Suppress rule-driven auto-connect after an explicit user
@@ -124,13 +129,17 @@ final class AppState: ObservableObject {
 
     func connectSelected() async {
         connectError = nil
+        // A manual connect cancels any active pause.
+        pausedUntil = nil; pauseTimer?.cancel(); pauseTimer = nil
         if let pool = selectedPool {
             await connectPool(pool)
         } else if let conn = selectedConnection {
             connecting = true
             defer { connecting = false }
             resetSpeedTracking()
-            do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: conn)) }
+            do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled,
+                                                 dnsOverride: resolvedDNS(for: conn),
+                                                 failoverOrder: settings.protocolFailoverOrder) }
             catch { connectError = error.localizedDescription }
         }
     }
@@ -138,7 +147,54 @@ final class AppState: ObservableObject {
     func disconnect() async {
         connecting = true
         defer { connecting = false }
-        manualDisconnectUntil = Date().addingTimeInterval(30)
+        // A manual disconnect cancels any active pause.
+        pausedUntil = nil; pauseTimer?.cancel(); pauseTimer = nil
+        await teardownTunnel(armManualCooldown: true)
+    }
+
+    // MARK: - Manual pause / resume (Android ManualPauseSheet parity)
+
+    /// True while a manual pause is in effect.
+    var isPaused: Bool {
+        guard let until = pausedUntil else { return false }
+        return Date() < until
+    }
+
+    /// Pause the VPN: tear the tunnel down and freeze automation until
+    /// `seconds` elapse (nil = until the user resumes). On-demand is turned
+    /// off by the teardown so iOS doesn't immediately reconnect.
+    func pause(seconds: TimeInterval?) async {
+        pausedUntil = seconds.map { Date().addingTimeInterval($0) } ?? .distantFuture
+        schedulePauseExpiry()
+        connecting = true
+        defer { connecting = false }
+        await teardownTunnel(armManualCooldown: false)
+    }
+
+    /// Resume from a pause by reconnecting the current selection.
+    func resume() async {
+        pausedUntil = nil
+        pauseTimer?.cancel(); pauseTimer = nil
+        await connectSelected()
+    }
+
+    /// Auto-resume timer for a timed pause (no-op for an indefinite pause).
+    private func schedulePauseExpiry() {
+        pauseTimer?.cancel()
+        guard let until = pausedUntil, until != .distantFuture else { return }
+        let delay = until.timeIntervalSinceNow
+        guard delay > 0 else { Task { await resume() }; return }
+        pauseTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            await self.resume()
+        }
+    }
+
+    /// Shared tunnel teardown (manual disconnect + pause). Does NOT touch
+    /// pause state — callers own that.
+    private func teardownTunnel(armManualCooldown: Bool) async {
+        if armManualCooldown { manualDisconnectUntil = Date().addingTimeInterval(30) }
         lastRuleTargetID = nil
         rotationTimer?.cancel(); rotationTimer = nil
         BackgroundRotation.cancel()
@@ -326,7 +382,9 @@ final class AppState: ObservableObject {
         defer { connecting = false }
         await tunnelManager.disconnect()
         resetSpeedTracking()
-        do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled, dnsOverride: resolvedDNS(for: conn)) }
+        do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled,
+                                             dnsOverride: resolvedDNS(for: conn),
+                                             failoverOrder: settings.protocolFailoverOrder) }
         catch { connectError = error.localizedDescription }
     }
 
@@ -361,6 +419,8 @@ final class AppState: ObservableObject {
     /// cooldown, and de-dupes so the same connect doesn't re-fire on
     /// every network tick.
     func evaluateAndApplyRules() async {
+        // Frozen while manually paused — no rule-driven connect/disconnect.
+        if isPaused { return }
         let result = rulesEngine.evaluate(
             rules: rules,
             state: networkState,
@@ -389,7 +449,9 @@ final class AppState: ObservableObject {
                 self.connecting = true
                 defer { self.connecting = false }
                 self.resetSpeedTracking()
-                try? await self.tunnelManager.connect(conn, onDemand: self.settings.networkRulesEnabled, dnsOverride: self.resolvedDNS(for: conn))
+                try? await self.tunnelManager.connect(conn, onDemand: self.settings.networkRulesEnabled,
+                                                      dnsOverride: self.resolvedDNS(for: conn),
+                                                      failoverOrder: self.settings.protocolFailoverOrder)
             }
 
         case .pool:

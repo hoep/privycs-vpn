@@ -286,8 +286,7 @@ struct EditConnectionSheet: View {
                     TextField("Name", text: $name)
                 }
                 Section {
-                    TextField("e.g. 1.1.1.1, 9.9.9.9", text: $dns)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    DnsField(value: $dns)
                 } header: {
                     Text("DNS override")
                 } footer: {

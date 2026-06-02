@@ -10,6 +10,7 @@ struct PoolDetailView: View {
     @State private var splitMode: PoolSplitTunnel.SplitTunnelMode
     @State private var splitCidrText: String
     @State private var excludePrivate: Bool
+    @State private var dnsOverride: String
 
     init(pool: Pool) {
         self.pool = pool
@@ -18,6 +19,7 @@ struct PoolDetailView: View {
         self._splitMode = State(initialValue: pool.splitTunnel?.mode ?? .off)
         self._splitCidrText = State(initialValue: (pool.splitTunnel?.bypassCidrs ?? []).joined(separator: ", "))
         self._excludePrivate = State(initialValue: pool.splitTunnel?.excludePrivateNetworks ?? false)
+        self._dnsOverride = State(initialValue: pool.dnsOverride)
     }
 
     var body: some View {
@@ -55,7 +57,7 @@ struct PoolDetailView: View {
                         Text(p.displayName).tag(p)
                     }
                 }
-                .onChange(of: policy) { _, new in persistPolicy(new) }
+                .onChange(of: policy) { _, _ in persist() }
             }
 
             Section("Rotation") {
@@ -67,7 +69,7 @@ struct PoolDetailView: View {
                     Text("4 hours").tag(14400)
                     Text("Daily").tag(86400)
                 }
-                .onChange(of: rotationInterval) { _, new in persistRotation(new) }
+                .onChange(of: rotationInterval) { _, _ in persist() }
             }
 
             Section {
@@ -75,15 +77,15 @@ struct PoolDetailView: View {
                     Text("Off").tag(PoolSplitTunnel.SplitTunnelMode.off)
                     Text("Bypass listed").tag(PoolSplitTunnel.SplitTunnelMode.excludeListed)
                 }
-                .onChange(of: splitMode) { _, _ in persistSplit() }
+                .onChange(of: splitMode) { _, _ in persist() }
                 if splitMode != .off {
                     TextField("Bypass CIDRs (comma-separated)", text: $splitCidrText, axis: .vertical)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.system(size: 13, design: .monospaced))
-                        .onSubmit { persistSplit() }
+                        .onSubmit { persist() }
                     Toggle("Also bypass private networks", isOn: $excludePrivate)
-                        .onChange(of: excludePrivate) { _, _ in persistSplit() }
+                        .onChange(of: excludePrivate) { _, _ in persist() }
                 }
             } header: {
                 Text("Split tunnel")
@@ -91,6 +93,14 @@ struct PoolDetailView: View {
                 Text(splitMode == .excludeListed
                      ? "All traffic routes through the VPN except the listed networks (which bypass it)."
                      : "All traffic routes through the VPN.")
+            }
+
+            Section {
+                DnsField(value: $dnsOverride, onCommit: { persist() })
+            } header: {
+                Text("DNS override")
+            } footer: {
+                Text("DNS servers for this pool. Takes precedence over the global setting. Empty = use the global setting.")
             }
 
             Section("Members (\(pool.members.count))") {
@@ -115,26 +125,19 @@ struct PoolDetailView: View {
         .navigationTitle(pool.name)
     }
 
-    private func persistPolicy(_ new: PoolPolicy) {
+    /// Single writer — builds the pool from ALL current edit state so a
+    /// later change can't revert an earlier one (each setter used to start
+    /// from the original snapshot and silently drop the other fields).
+    private func persist() {
         var p = pool
-        p.policy = new
-        Task { try? await appState.poolRepo.save(p) }
-    }
-
-    private func persistRotation(_ seconds: Int) {
-        var p = pool
-        if seconds == 0 {
+        p.policy = policy
+        if rotationInterval == 0 {
             p.rotation = nil
         } else {
             var r = p.rotation ?? PoolRotation()
-            r.intervalSeconds = seconds
+            r.intervalSeconds = rotationInterval
             p.rotation = r
         }
-        Task { try? await appState.poolRepo.save(p) }
-    }
-
-    private func persistSplit() {
-        var p = pool
         let cidrs = splitCidrText
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -142,6 +145,7 @@ struct PoolDetailView: View {
         p.splitTunnel = splitMode == .off
             ? nil
             : PoolSplitTunnel(bypassCidrs: cidrs, excludePrivateNetworks: excludePrivate)
+        p.dnsOverride = dnsOverride.trimmingCharacters(in: .whitespaces)
         Task {
             try? await appState.poolRepo.save(p)
             appState.pools = (try? await appState.poolRepo.loadAll()) ?? appState.pools

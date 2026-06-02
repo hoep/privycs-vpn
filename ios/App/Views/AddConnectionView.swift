@@ -10,6 +10,7 @@ struct AddConnectionView: View {
     @State private var showFileImporter = false
     @State private var showQRScanner = false
     @State private var showGatewaySheet = false
+    @State private var showAddPool = false
     @State private var importErrorMessage: String?
     @State private var importedNote: String?
 
@@ -33,10 +34,23 @@ struct AddConnectionView: View {
                         Label("Pull from Privycs Gateway", systemImage: "cloud.bolt")
                     }
                     .disabled(appState.gatewayClient == nil)
+                } header: {
+                    Text("Single connection")
                 } footer: {
                     Text(appState.gatewayClient == nil
                          ? "Supported: .conf (WireGuard/AmneziaWG), .ovpn (OpenVPN), .sswan / .mobileconfig (IPSec). Configure a gateway in Settings to pull remote configs."
                          : "Supported: .conf, .ovpn, .sswan / .mobileconfig. Or pull your configs from the gateway.")
+                }
+                Section {
+                    Button {
+                        showAddPool = true
+                    } label: {
+                        Label("Create a VPN pool", systemImage: "circle.grid.3x3.fill")
+                    }
+                } header: {
+                    Text("VPN pool")
+                } footer: {
+                    Text("Bundle several servers into a pool and let the app rotate between them (geo-nearest / round-robin / random) with automatic failover. Import individual configs or a single .zip archive.")
                 }
                 if let note = importedNote {
                     Section { Label(note, systemImage: "checkmark.circle.fill").foregroundStyle(PrivycsColor.connected) }
@@ -61,6 +75,9 @@ struct AddConnectionView: View {
             }
             .sheet(isPresented: $showGatewaySheet) {
                 GatewayConfigSheet().environmentObject(appState)
+            }
+            .sheet(isPresented: $showAddPool) {
+                AddPoolView().environmentObject(appState)
             }
         }
     }

@@ -8,6 +8,10 @@ struct SettingsView: View {
     @State private var dnsOverride = ""
     @State private var killSwitch = true
     @State private var appLanguage = ""
+    @State private var tunnelHealthMode = "auto"
+    @State private var tunnelHealthTarget = ""
+    @State private var tunnelHealthInterval = 0
+    @State private var tunnelHealthThreshold = 0
 
     private let languages: [(code: String, label: String)] = [
         ("", "System"), ("en", "English"), ("de", "Deutsch"),
@@ -26,19 +30,61 @@ struct SettingsView: View {
                         }
                 }
 
-                Section("Connection") {
-                    LabeledContent("DNS Override") {
-                        TextField("1.1.1.1", text: $dnsOverride)
-                            .multilineTextAlignment(.trailing)
-                            .textInputAutocapitalization(.never)
-                            .onSubmit { persistDNS(dnsOverride) }
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("DNS Override").font(.subheadline)
+                        DnsField(value: $dnsOverride, onCommit: { persistDNS(dnsOverride) })
                     }
+                    NavigationLink {
+                        ProtocolFailoverView().environmentObject(appState)
+                    } label: { Text("Protocol Failover Order") }
                     NavigationLink {
                         GatewaySettingsView().environmentObject(appState)
                     } label: {
                         LabeledContent("Privycs Gateway",
                             value: appState.settings.gatewayURL.isEmpty ? "Not set" : "Configured")
                     }
+                } header: {
+                    Text("Connection")
+                } footer: {
+                    Text("DNS servers used while connected (WireGuard / AmneziaWG / OpenVPN). Per-connection and per-pool overrides take precedence.")
+                }
+
+                Section {
+                    Picker("Health monitoring", selection: $tunnelHealthMode) {
+                        Text("Auto").tag("auto")
+                        Text("Always on").tag("always")
+                        Text("Off").tag("off")
+                    }
+                    .onChange(of: tunnelHealthMode) { _, _ in persistHealth() }
+                    if tunnelHealthMode != "off" {
+                        LabeledContent("Ping target") {
+                            TextField("1.1.1.1", text: $tunnelHealthTarget)
+                                .multilineTextAlignment(.trailing)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .onSubmit { persistHealth() }
+                        }
+                        Picker("Check interval", selection: $tunnelHealthInterval) {
+                            Text("Default (10s)").tag(0)
+                            Text("5 seconds").tag(5)
+                            Text("10 seconds").tag(10)
+                            Text("30 seconds").tag(30)
+                            Text("60 seconds").tag(60)
+                        }
+                        .onChange(of: tunnelHealthInterval) { _, _ in persistHealth() }
+                        Picker("Mark dead after", selection: $tunnelHealthThreshold) {
+                            Text("Default (3)").tag(0)
+                            Text("2 misses").tag(2)
+                            Text("3 misses").tag(3)
+                            Text("5 misses").tag(5)
+                        }
+                        .onChange(of: tunnelHealthThreshold) { _, _ in persistHealth() }
+                    }
+                } header: {
+                    Text("Tunnel Health")
+                } footer: {
+                    Text("Probes a reachable target through the tunnel and shows a health pill on the Connect screen. Foreground-only on iOS.")
                 }
 
                 Section("Appearance") {
@@ -91,6 +137,10 @@ struct SettingsView: View {
                 dnsOverride = appState.settings.dnsOverride
                 killSwitch = appState.settings.killSwitchEnabled
                 appLanguage = appState.settings.appLanguage
+                tunnelHealthMode = appState.settings.tunnelHealthMode
+                tunnelHealthTarget = appState.settings.tunnelHealthTarget
+                tunnelHealthInterval = appState.settings.tunnelHealthPingIntervalSec
+                tunnelHealthThreshold = appState.settings.tunnelHealthDeadThreshold
             }
         }
     }
@@ -118,6 +168,16 @@ struct SettingsView: View {
     private func persistTheme(_ v: String) {
         var s = appState.settings
         s.theme = v
+        Task { try? await appState.settingsRepo.save(s) }
+    }
+
+    private func persistHealth() {
+        var s = appState.settings
+        s.tunnelHealthMode = tunnelHealthMode
+        s.tunnelHealthTarget = tunnelHealthTarget.trimmingCharacters(in: .whitespaces)
+        s.tunnelHealthPingIntervalSec = tunnelHealthInterval
+        s.tunnelHealthDeadThreshold = tunnelHealthThreshold
+        appState.settings = s   // immediate — the running monitor reads settings live
         Task { try? await appState.settingsRepo.save(s) }
     }
 }

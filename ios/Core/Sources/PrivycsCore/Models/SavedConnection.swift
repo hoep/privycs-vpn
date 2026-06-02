@@ -168,6 +168,25 @@ public struct ProtocolConfig: Codable, Identifiable, Equatable, Hashable {
     }
 }
 
+public extension SavedConnection {
+    /// The config to connect with. Honors the explicit `activeConfigID`;
+    /// when it is unset or stale, picks the first config whose protocol
+    /// comes earliest in the effective failover order (per-connection
+    /// override → the supplied global order → the built-in default).
+    /// Mirrors Android's default-protocol pick (AmneziaWG-first). Falls
+    /// back to the first imported config if no protocol matches.
+    func resolvedActiveConfig(globalOrder: [VpnProtocol] = []) -> ProtocolConfig? {
+        if let c = protocols.first(where: { $0.id == activeConfigID }) { return c }
+        let order = !protocolFailoverOrder.isEmpty
+            ? protocolFailoverOrder
+            : (!globalOrder.isEmpty ? globalOrder : VpnProtocol.defaultFailoverOrder)
+        for proto in order {
+            if let c = protocols.first(where: { $0.protocol == proto }) { return c }
+        }
+        return protocols.first
+    }
+}
+
 /// One of four supported VPN protocol classes. Stable serialised
 /// values match Android `VpnProtocol` enum.
 public enum VpnProtocol: String, Codable, CaseIterable, Identifiable, Hashable {
