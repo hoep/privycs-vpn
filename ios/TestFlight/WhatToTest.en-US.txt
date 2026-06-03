@@ -1,12 +1,13 @@
-On-Demand rule edits — please verify they take effect immediately:
+v1.0.8 — the 1.0.8 release. A full pass is appreciated:
 
-1. While CONNECTED on a Wi-Fi that has a "this Wi-Fi → no VPN" rule: toggle that
-   rule OFF then ON again. The VPN must now DISCONNECT right away (before, the
-   live-evaluation said "Disconnect" but the active connection stayed up).
-2. Delete or reorder a rule — the change should apply to the current network
-   immediately, not only after the next network change.
-3. Re-enabling a connect rule on its network should bring the VPN up.
+1. On-Demand & Network Rules: set rules (e.g. "this Wi-Fi → no VPN" above
+   "any → connect"); the top rule must win, edits apply immediately, and it must
+   follow the rules in the background. Allow the Location prompt (needed for
+   Wi-Fi-name rules). No state flapping. Pause lets traffic flow.
+2. iPad: the sidebar + detail layout — all screens, rotation, split view.
+3. Connect screen: protocol-name pills (only the active one coloured), endpoint
+   host shown.
+4. Help: the in-app guide opens; links in the text open the right pages.
+5. Connect/disconnect each protocol; no crashes.
 
-Also still confirming from recent builds: top rule wins (priority), Location
-prompt for Wi-Fi-name rules, native iPad sidebar layout, active-only coloured
-protocol pill. Thanks!
+Thanks for testing the 1.0.8 candidate!

@@ -177,8 +177,23 @@ private fun fetchDoc(url: String): String {
         if (code !in 200..299) {
             error("HTTP $code")
         }
-        conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        absolutizeDocLinks(conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
     } finally {
         conn.disconnect()
     }
 }
+
+/**
+ * Rewrite the docs' RELATIVE links ("foo.md", "foo.md#sec", "README.md") to
+ * absolute https://www.privycs.com/docs/foo[#sec] URLs. The rendered doc cross-
+ * links to sibling docs with relative .md paths; a relative link can't be
+ * opened in-app (no scheme), so a tap did nothing — now they open in a browser.
+ */
+private fun absolutizeDocLinks(md: String): String =
+    Regex("""\]\((\.?/?)([A-Za-z0-9._-]+)\.md(#[^)]*)?\)""").replace(md) { m ->
+        val slug = m.groupValues[2]
+        val frag = m.groupValues[3]
+        val base = if (slug.equals("README", ignoreCase = true)) "https://www.privycs.com/docs"
+                   else "https://www.privycs.com/docs/$slug"
+        "](" + base + frag + ")"
+    }

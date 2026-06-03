@@ -23,7 +23,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.0.8"                  # synced with ios/latest_version.txt
-    CURRENT_PROJECT_VERSION: "53"
+    CURRENT_PROJECT_VERSION: "54"
     # ed25519 license pubkey hex — overridden by CI from the
     # LICENSE_PUBLIC_KEY_HEX secret; empty default for local builds.
     LICENSE_PUBLIC_KEY_HEX: ""

@@ -105,7 +105,25 @@ const state = ref<'loading' | 'error' | 'loaded'>('loading')
 const markdown = ref<string>('')
 const errorMessage = ref<string>('')
 
-const renderedHtml = computed(() => md.render(markdown.value))
+// Rewrite the docs' RELATIVE links ("foo.md", "foo.md#sec", "README.md") to
+// absolute https://www.privycs.com/docs/foo[#sec] URLs before rendering. The
+// guide cross-links to sibling docs with relative .md paths; BrowserOpenURL
+// can't open a relative URL, so those in-text links did nothing — now they
+// open the right page in the browser.
+function absolutizeDocLinks(text: string): string {
+  return text.replace(
+    /\]\((\.?\/?)([A-Za-z0-9._-]+)\.md(#[^)]*)?\)/g,
+    (_m, _p: string, slug: string, frag = '') => {
+      const base =
+        slug.toLowerCase() === 'readme'
+          ? 'https://www.privycs.com/docs'
+          : `https://www.privycs.com/docs/${slug}`
+      return `](${base}${frag})`
+    },
+  )
+}
+
+const renderedHtml = computed(() => md.render(absolutizeDocLinks(markdown.value)))
 
 async function load() {
   state.value = 'loading'
