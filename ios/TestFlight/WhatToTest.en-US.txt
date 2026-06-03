@@ -1,19 +1,16 @@
-On-Demand & Network Rules — please check:
+Two UI changes — please check on BOTH iPhone and iPad:
 
-1. LOCATION: allow the Location prompt (iOS only reveals the Wi-Fi name with
-   location granted; without it SSID rules can't match). If you have an
-   SSID/BSSID rule but deny location, the screen now shows a clear warning with
-   an "Open Settings" button — verify it appears and disappears once granted.
+1. iPad LAYOUT (new): on iPad the app now shows a left sidebar (Connect /
+   Configs / Add / Settings / Help) with the selected screen beside it, instead
+   of a scaled-up iPhone view. Please check every screen opens correctly in the
+   detail pane, rotate the device, and try split-screen / Stage Manager.
+   Report anything that looks cramped, has a double title bar, or is centered
+   oddly on the wide pane (esp. the Connect screen).
 
-2. RULE ORDER (priority, top wins): e.g. top "Wi-Fi SSID = <yours> -> Disconnect",
-   bottom "Any -> Connect". On that Wi-Fi the VPN must stay OFF; elsewhere ON.
+2. CONNECT SCREEN protocol pills: under the Connect button, only the protocol
+   that will actually be used is shown in its brand colour; the others are now
+   greyed out (like Android). Switch the active protocol and confirm the
+   colouring follows.
 
-3. LIVE EVALUATION card now shows the actual decision, e.g. "Rule matches —
-   engine acts: Disconnect" / "...: Connect". Confirm it reflects reality.
-
-4. The whole On-Demand & Network Rules screen is now fully translated — switch
-   the app language (Settings > Language) and check the rules/eval text.
-
-5. No idle flapping of the network state; Pause lets traffic flow.
-
-Thanks!
+(iPhone bottom tabs are unchanged.) Also still confirming the On-Demand rule
+order + Location prompt from the previous build. Thanks!
