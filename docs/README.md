@@ -15,8 +15,10 @@ document rather than in the gateway/server repository.
 | `connect-guide.md`           | `/docs/connect-guide`       | Privycs Connect onboarding              |
 | `desktop-client.md`          | `/docs/desktop-client`      | Desktop VPN client (Windows/macOS/Linux)|
 | `android-client.md`          | `/docs/android-client`      | Android VPN client                      |
+| `ios-client.md`              | `/docs/ios-client`          | iOS VPN client                          |
 | `desktop-client-privacy.md`  | `/docs/desktop-client-privacy` | Desktop app GDPR privacy policy      |
 | `android-client-privacy.md`  | `/docs/android-client-privacy` | Android app GDPR privacy policy      |
+| `ios-client-privacy.md`      | `/docs/ios-client-privacy`  | iOS app GDPR privacy policy             |
 
 ## How these reach the website
 
