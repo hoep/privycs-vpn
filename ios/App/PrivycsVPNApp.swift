@@ -83,9 +83,6 @@ final class AppState: ObservableObject {
     /// Suppress rule-driven auto-connect after an explicit user
     /// disconnect (mirrors Android's 30s manual-disconnect cooldown).
     private var manualDisconnectUntil: Date?
-    /// Mode A: once the user manually disconnects, persistent on-demand stays
-    /// disarmed until they manually connect again (so it can't auto-reconnect).
-    private var userDisconnectedManually = false
     /// Last rule-driven target we acted on, to avoid re-firing the same
     /// connect every network tick.
     private var lastRuleTargetID: String?
@@ -163,9 +160,8 @@ final class AppState: ObservableObject {
 
     func connectSelected() async {
         connectError = nil
-        // A manual connect cancels any active pause + re-arms on-demand (A).
+        // A manual connect cancels any active pause.
         pausedUntil = nil; pauseTimer?.cancel(); pauseTimer = nil
-        userDisconnectedManually = false
         if let pool = selectedPool {
             await connectPool(pool)
         } else if let conn = selectedConnection {
@@ -206,45 +202,48 @@ final class AppState: ObservableObject {
         Task { await syncOnDemand() }
     }
 
-    /// Mode-A persistent on-demand (WireGuard-app model): when the auto-tunnel
-    /// master toggle is on and the rules say THIS connection should be up on
-    /// the current network, START it once with on-demand enabled. iOS then
-    /// persists `isOnDemandEnabled=true` on the saved manager and keeps
-    /// connecting/disconnecting per the (faithfully-translated) rules — and
-    /// enforces the block-until-connect kill switch — through suspension/doze/
-    /// app-death. (A never-started "armed" profile is inert on iOS, which is
-    /// why the previous arm-without-start approach failed.)
-    ///
-    /// The start is GATED on the engine verdict for the current network so we
-    /// don't blindly connect on networks the rules don't cover (e.g. an
-    /// allowlist "connect only on SSID X"): only `.connectActive` or a
-    /// `.connection` rule targeting the selected connection triggers a start.
-    /// `.noVpn`, `.pool`, and no-match leave it alone — but the saved on-demand
-    /// profile still carries the faithful rules, so iOS connects later when a
-    /// connect-rule network appears. Disarms when the master toggle is off.
-    /// Single (non-pool, non-IPSec) connections only.
+    /// Persistent on-demand (WireGuard-app model). When the auto-tunnel master
+    /// toggle is on, the connection's saved manager is kept ARMED — on-demand
+    /// enabled + faithfully-translated rules — at all times, so iOS (incl. the
+    /// iOS Settings VPN toggle) respects the rules and the block-until-connect
+    /// kill switch is armed where a connect rule applies, even when the app
+    /// isn't running. On top of that we also START the tunnel right now if the
+    /// engine says THIS connection belongs up on the CURRENT network (so it
+    /// comes up without waiting for a network change; a never-started profile
+    /// alone is inert on iOS). Master toggle off OR paused ⇒ disarm (Pause is
+    /// the "fully off, traffic flows, no kill switch" escape hatch). Single
+    /// (non-pool, non-IPSec) connections only — pools rotate and can't be
+    /// pre-armed.
     func syncOnDemand() async {
-        guard settings.networkRulesEnabled else {
+        guard settings.networkRulesEnabled, !isPaused else {
             await tunnelManager.disarmOnDemand()
             return
         }
-        guard !userDisconnectedManually, !isPaused, !status.connected, !connecting,
-              selectedPool == nil, let conn = selectedConnection,
+        guard selectedPool == nil, let conn = selectedConnection,
               (conn.resolvedActiveConfig(globalOrder: settings.protocolFailoverOrder)?.protocol ?? .wireguard) != .ipsec
         else { return }
-        // Only auto-start when the rules say THIS connection on THIS network.
-        // No match ⇒ leave it alone (engine parity); the saved on-demand
-        // profile still carries the faithful rules for iOS to act on later.
+        // Should THIS connection be up on the CURRENT network per the rules?
         let result = rulesEngine.evaluate(rules: rules, state: networkState, masterEnabled: true)
-        guard let matched = result.matchedRule else { return }
-        let shouldStart: Bool
-        switch matched.action {
-        case .connectActive: shouldStart = true
-        case .connection:    shouldStart = (matched.targetId == conn.id)
-        case .pool, .noVpn:  shouldStart = false
+        let shouldStart: Bool = {
+            guard let m = result.matchedRule else { return false }   // no match → leave as-is
+            switch m.action {
+            case .connectActive: return true
+            case .connection:    return m.targetId == conn.id
+            case .pool, .noVpn:  return false
+            }
+        }()
+        if shouldStart, !status.connected, !connecting {
+            await connectSelected()   // start + arm (persistent) → iOS owns the lifecycle
+        } else if !status.connected, !connecting {
+            // Not up (and shouldn't auto-start now): persist the armed on-demand
+            // config (rules + enabled) WITHOUT starting, so iOS + the Settings
+            // toggle keep respecting the rules and the kill switch stays armed
+            // where a connect rule applies. When connected, the running
+            // manager is already armed by the connect path — skip (no churn).
+            try? await tunnelManager.armOnDemand(
+                conn, dnsOverride: resolvedDNS(for: conn),
+                killSwitch: settings.killSwitchEnabled, rules: rules)
         }
-        guard shouldStart else { return }
-        await connectSelected()   // start once → iOS owns the lifecycle (incl. doze)
     }
 
     /// Pick a target from the Connect-screen dropdown. Always allowed —
@@ -263,10 +262,12 @@ final class AppState: ObservableObject {
         defer { connecting = false }
         // A manual disconnect cancels any active pause.
         pausedUntil = nil; pauseTimer?.cancel(); pauseTimer = nil
-        // Mode A: stay disarmed until the user manually connects again.
-        userDisconnectedManually = true
+        // WG model: stop the current session but KEEP on-demand armed (the
+        // teardown does NOT disarm) — iOS reconnects on its own schedule where
+        // a connect rule applies, and the Settings toggle keeps respecting the
+        // rules. We do NOT proactively reconnect here (that would fight the
+        // user's tap on an always-on network). To stay off everywhere → Pause.
         await teardownTunnel(armManualCooldown: true)
-        await tunnelManager.disarmOnDemand()
     }
 
     // MARK: - Manual pause / resume (Android ManualPauseSheet parity)
@@ -277,15 +278,19 @@ final class AppState: ObservableObject {
         return Date() < until
     }
 
-    /// Pause the VPN: tear the tunnel down and freeze automation until
-    /// `seconds` elapse (nil = until the user resumes). On-demand is turned
-    /// off by the teardown so iOS doesn't immediately reconnect.
+    /// Pause the VPN — the "fully off" escape hatch. Tears the tunnel down AND
+    /// disarms on-demand, so iOS does NOT auto-reconnect and — crucially — the
+    /// block-until-connect kill switch does NOT block: traffic flows normally
+    /// while paused. Frozen until `seconds` elapse (nil = until the user
+    /// resumes). syncOnDemand also disarms while `isPaused`, so a stray network
+    /// event can't re-arm it mid-pause.
     func pause(seconds: TimeInterval?) async {
         pausedUntil = seconds.map { Date().addingTimeInterval($0) } ?? .distantFuture
         schedulePauseExpiry()
         connecting = true
         defer { connecting = false }
         await teardownTunnel(armManualCooldown: false)
+        await tunnelManager.disarmOnDemand()   // no kill-switch block while paused
     }
 
     /// Resume from a pause by reconnecting the current selection.
@@ -315,7 +320,7 @@ final class AppState: ObservableObject {
         lastRuleTargetID = nil
         rotationTimer?.cancel(); rotationTimer = nil
         BackgroundRotation.cancel()
-        await tunnelManager.disconnect()
+        await tunnelManager.stopTunnel()
         await poolRepo.setActivePoolID("")
         activePool = nil
         activePoolMember = nil
@@ -524,7 +529,7 @@ final class AppState: ObservableObject {
               let conn = connections.first(where: { $0.id == connectionID }) else { return }
         connecting = true
         defer { connecting = false }
-        await tunnelManager.disconnect()
+        await tunnelManager.stopTunnel()
         resetSpeedTracking()
         do { try await tunnelManager.connect(conn, onDemand: settings.networkRulesEnabled,
                                              dnsOverride: resolvedDNS(for: conn),
@@ -580,7 +585,7 @@ final class AppState: ObservableObject {
                 // not arm the manual cooldown (that would block the next
                 // rule connect). Disconnect directly.
                 rotationTimer?.cancel(); rotationTimer = nil
-                await tunnelManager.disconnect()
+                await tunnelManager.stopTunnel()
                 await poolRepo.setActivePoolID("")
                 activePool = nil; activePoolMember = nil; nextRotationAt = 0
                 resetSpeedTracking()
