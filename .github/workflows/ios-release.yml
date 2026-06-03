@@ -255,6 +255,29 @@ jobs:
             --apiKey "$NOTARY_KEY_ID" \
             --apiIssuer "$NOTARY_ISSUER_ID"
 
+      # Set the TestFlight "What to Test" notes (en-US) for the build we just
+      # uploaded, via the App Store Connect API — same key as altool above, no
+      # new secret. Best-effort: never blocks the release (continue-on-error +
+      # the script exits 0 on any soft failure / build-processing timeout).
+      - name: Set TestFlight What-to-Test notes
+        continue-on-error: true
+        env:
+          NOTARY_KEY_B64: ${{ secrets.APPLE_NOTARY_API_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -uo pipefail
+          mkdir -p ~/.appstoreconnect/private_keys
+          KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${NOTARY_KEY_ID}.p8"
+          echo "$NOTARY_KEY_B64" | base64 -d > "$KEY_FILE"
+          BUILD=$(grep 'CURRENT_PROJECT_VERSION' ios/project.yml | grep -oE '[0-9]+' | head -1)
+          echo "Setting What-to-Test for build number: $BUILD"
+          python3 -m pip install --quiet "pyjwt[crypto]" \
+            || python3 -m pip install --quiet --break-system-packages "pyjwt[crypto]" || true
+          python3 ios/scripts/set_testflight_notes.py \
+            "$BUILD" "com.privycs.vpn" "ios/TestFlight/WhatToTest.en-US.txt" \
+            "$KEY_FILE" "$NOTARY_KEY_ID" "$NOTARY_ISSUER_ID"
+
       - name: Upload workflow artefact
         uses: actions/upload-artifact@v4
         with:
