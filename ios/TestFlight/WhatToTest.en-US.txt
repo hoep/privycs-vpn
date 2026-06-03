@@ -1,10 +1,20 @@
-Thanks for testing Privycs VPN!
+On-Demand / Network Rules — two important fixes in this build:
 
-Please check:
-1. Connect / disconnect a single connection (WireGuard, AmneziaWG, OpenVPN, IPSec) — does it come up and route traffic?
-2. On-Demand & Network Rules: set a rule (e.g. "Wi-Fi SSID X → no VPN", or "any → connect") and verify the VPN follows it — on the matching network AND in the background / with the app closed.
-3. The Connect screen shows the correct status (connected/disconnected) even when iOS brought the tunnel up on its own.
-4. Pause stops the VPN and lets traffic flow normally; Resume restores it.
-5. No crashes on launch, when opening Settings, or on first connect.
+1. LOCATION PROMPT: on first launch (or when you open On-Demand & Network
+   Rules) the app now asks for Location permission. Please ALLOW it — iOS only
+   reveals the current Wi-Fi SSID once location is granted, and without it
+   SSID rules can never match. Check it now appears under Settings > Privacy >
+   Location Services.
 
-Report anything that flaps, leaks, or doesn't match your rules. Thank you!
+2. RULE ORDER (priority): the TOP rule must win. Set, e.g.:
+     - top:    Wi-Fi SSID = <your network>  ->  Disconnect
+     - bottom: Any                          ->  Connect (always on)
+   On that Wi-Fi the VPN must stay OFF (top rule wins); on any other network it
+   must be ON. Reorder the rules and confirm the order is respected.
+
+Also please verify:
+- The network/state indicator no longer flaps when idle.
+- Connect screen shows the right status; traffic counters move when connected.
+- Pause lets traffic flow (no kill-switch block).
+
+Thanks!

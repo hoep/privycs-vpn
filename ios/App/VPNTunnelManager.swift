@@ -143,7 +143,15 @@ final class VPNTunnelManager: ObservableObject {
     /// they stay foreground-only (AppState.evaluateAndApplyRules).
     private func onDemandRuleSet() -> [NEOnDemandRule] {
         var out: [NEOnDemandRule] = []
-        for rule in pendingRules.sorted(by: { $0.priority < $1.priority }) where rule.enabled {
+        // Iterate in ARRAY order — that is the real priority (the UI lists
+        // "Rules (priority top-down)" and reorders the array; NetworkRulesEngine
+        // evaluates `for rule in rules` in array order too). Do NOT sort by the
+        // `priority` field: the UI's move/reorder updates the array but NOT the
+        // stored `priority`, so a priority-sort scrambled the order — the
+        // bottom "Always on" Connect(.any) landed ahead of a top
+        // "SSID X → disconnect" rule, so iOS connected on X regardless. Array
+        // order keeps iOS first-match identical to the foreground engine.
+        for rule in pendingRules where rule.enabled {
             // What should happen to the connection we're arming, on a match?
             let connectThis: Bool
             switch rule.action {

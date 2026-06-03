@@ -41,6 +41,11 @@ final class AppState: ObservableObject {
     let networkMonitor = NetworkMonitor()
     let crashReporter = CrashReporter()
     let tunnelManager = VPNTunnelManager()
+    /// Owns CLLocationManager — must be a strong, long-lived reference or the
+    /// location-permission prompt is dismissed before the user can answer.
+    /// Without location granted, iOS hands out NO Wi-Fi SSID, so SSID-based
+    /// rules (and iOS on-demand ssidMatch) can never match.
+    let ssidProvider = SSIDProvider()
 
     @Published var settings: AppSettings = .default
     @Published var connections: [SavedConnection] = []
@@ -716,6 +721,13 @@ final class AppState: ObservableObject {
         self.rules = (try? await rulesRepo.loadAll()) ?? []
         // Resolve endpoint country flags in the background (DNS + IP→country).
         Task { await refreshEndpointCountries() }
+
+        // If auto-tunnel rules are on, ask for location permission — iOS gives
+        // out the Wi-Fi SSID only once location is granted, and without the
+        // SSID neither the app nor iOS on-demand can match SSID-based rules.
+        if settings.networkRulesEnabled {
+            ssidProvider.requestPermissionIfNeeded()
+        }
 
         // Restore active-pool selection across app restarts.
         let activeID = await poolRepo.activePoolID()

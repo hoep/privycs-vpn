@@ -56,6 +56,10 @@ struct NetworkRulesView: View {
         }
         .task {
             masterEnabled = appState.settings.networkRulesEnabled
+            // Configuring SSID rules requires the Wi-Fi SSID, which iOS only
+            // hands out once location is granted — prompt here so the app even
+            // shows up under Settings ▸ Privacy ▸ Location Services.
+            appState.ssidProvider.requestPermissionIfNeeded()
         }
     }
 
