@@ -1,16 +1,12 @@
-Two UI changes — please check on BOTH iPhone and iPad:
+On-Demand rule edits — please verify they take effect immediately:
 
-1. iPad LAYOUT (new): on iPad the app now shows a left sidebar (Connect /
-   Configs / Add / Settings / Help) with the selected screen beside it, instead
-   of a scaled-up iPhone view. Please check every screen opens correctly in the
-   detail pane, rotate the device, and try split-screen / Stage Manager.
-   Report anything that looks cramped, has a double title bar, or is centered
-   oddly on the wide pane (esp. the Connect screen).
+1. While CONNECTED on a Wi-Fi that has a "this Wi-Fi → no VPN" rule: toggle that
+   rule OFF then ON again. The VPN must now DISCONNECT right away (before, the
+   live-evaluation said "Disconnect" but the active connection stayed up).
+2. Delete or reorder a rule — the change should apply to the current network
+   immediately, not only after the next network change.
+3. Re-enabling a connect rule on its network should bring the VPN up.
 
-2. CONNECT SCREEN protocol pills: under the Connect button, only the protocol
-   that will actually be used is shown in its brand colour; the others are now
-   greyed out (like Android). Switch the active protocol and confirm the
-   colouring follows.
-
-(iPhone bottom tabs are unchanged.) Also still confirming the On-Demand rule
-order + Location prompt from the previous build. Thanks!
+Also still confirming from recent builds: top rule wins (priority), Location
+prompt for Wi-Fi-name rules, native iPad sidebar layout, active-only coloured
+protocol pill. Thanks!

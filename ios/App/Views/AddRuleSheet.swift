@@ -106,7 +106,7 @@ struct AddRuleSheet: View {
         rules.append(rule)
         appState.rules = rules
         try? await appState.rulesRepo.save(rules)
-        await appState.evaluateAndApplyRules()
+        await appState.onRulesChanged()
         dismiss()
     }
 }

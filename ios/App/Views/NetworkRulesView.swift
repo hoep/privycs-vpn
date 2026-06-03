@@ -124,7 +124,7 @@ struct NetworkRulesView: View {
         appState.rules = rules
         Task {
             try? await appState.rulesRepo.save(rules)
-            await appState.evaluateAndApplyRules()
+            await appState.onRulesChanged()
         }
     }
 
@@ -225,13 +225,13 @@ struct NetworkRulesView: View {
         var rules = appState.rules
         rules.move(fromOffsets: source, toOffset: dest)
         appState.rules = rules
-        Task { try? await appState.rulesRepo.save(rules) }
+        Task { try? await appState.rulesRepo.save(rules); await appState.onRulesChanged() }
     }
 
     private func deleteRules(_ offsets: IndexSet) {
         var rules = appState.rules
         rules.remove(atOffsets: offsets)
         appState.rules = rules
-        Task { try? await appState.rulesRepo.save(rules) }
+        Task { try? await appState.rulesRepo.save(rules); await appState.onRulesChanged() }
     }
 }

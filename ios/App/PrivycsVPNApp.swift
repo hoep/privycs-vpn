@@ -606,18 +606,22 @@ final class AppState: ObservableObject {
         guard let rule = result.matchedRule else { return }
         switch rule.action {
         case .noVpn:
-            // EXPRESSIBLE off-rule (ssidExact / networkType / any): iOS
-            // on-demand's own Disconnect rule already enforces this reliably in
-            // foreground AND background (the NE daemon reads the SSID even when
-            // the app is suspended). The foreground engine must NOT also act —
-            // its SSID read is foreground/location-gated and flaps, and fighting
-            // iOS was the "geht aus und wieder an" flapping. Defer to iOS.
-            // Only an INEXPRESSIBLE off-rule (glob SSID / BSSID — can't be a
-            // NEOnDemandRule) needs the foreground engine to disconnect + disarm
-            // so iOS won't auto-reconnect it.
-            guard rule.matchType == .ssidPattern || rule.matchType == .bssid else { return }
+            // Trusted network → no VPN: tear the active tunnel down NOW.
+            // (This was briefly DEFERRED to iOS-on-demand to avoid a foreground↔
+            // iOS flapping fight — but that fight came from a rule-ordering bug
+            // [priority-sort vs array order] and a flapping NetworkMonitor, both
+            // since fixed. iOS' own Disconnect rule is now correctly ordered
+            // ahead of any Connect, so foreground + iOS agree and there's no
+            // flap. Deferring meant toggling/adding a no-VPN rule did NOT
+            // disconnect the live connection — the reported bug.)
             rotationTimer?.cancel(); rotationTimer = nil
-            await tunnelManager.disarmOnDemand()
+            // INEXPRESSIBLE off-rules (glob SSID / BSSID) can't be a
+            // NEOnDemandRule, so disarm so iOS won't auto-reconnect. EXPRESSIBLE
+            // ones (ssidExact / networkType / any) stay armed — iOS' Disconnect
+            // rule keeps them off here and background still works on other nets.
+            if rule.matchType == .ssidPattern || rule.matchType == .bssid {
+                await tunnelManager.disarmOnDemand()
+            }
             if status.connected {
                 await tunnelManager.stopTunnel()
                 await poolRepo.setActivePoolID("")
@@ -657,6 +661,19 @@ final class AppState: ObservableObject {
                 await self.connectSelected()
             }
         }
+    }
+
+    /// Call after ANY rule mutation (add / edit / toggle / reorder / delete):
+    /// (1) apply the new rule set to the CURRENT network right away — so e.g.
+    /// re-enabling a "this Wi-Fi → no VPN" rule disconnects the live tunnel, and
+    /// deleting/reordering takes effect immediately instead of only on the next
+    /// network change; (2) re-arm the persistent iOS on-demand profile so the
+    /// background uses the updated rules too. Previously a rule toggle only ran
+    /// the foreground engine (and move/delete ran nothing), and the on-demand
+    /// profile kept the stale rules.
+    func onRulesChanged() async {
+        await evaluateAndApplyRules()
+        await syncOnDemand()
     }
 
     /// Shared guard for rule-driven connects: respect manual cooldown +
