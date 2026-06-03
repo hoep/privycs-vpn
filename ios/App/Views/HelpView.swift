@@ -13,7 +13,6 @@ struct HelpView: View {
                         Label("User Guide", systemImage: "book")
                     }
                     Link("Open in browser", destination: URL(string: "https://www.privycs.com/docs/ios-client")!)
-                    Link("FAQ", destination: URL(string: "https://www.privycs.com/faq")!)
                     Link("Privacy Policy", destination: URL(string: "https://www.privycs.com/docs/ios-client-privacy")!)
                 }
                 Section("Support") {

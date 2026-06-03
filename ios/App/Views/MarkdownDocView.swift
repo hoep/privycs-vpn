@@ -106,10 +106,36 @@ struct MDBlock: Identifiable {
 
     /// Inline emphasis/links only (block syntax handled by the parser).
     static func inline(_ s: String) -> AttributedString {
-        (try? AttributedString(
+        var attr = (try? AttributedString(
             markdown: s,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )) ?? AttributedString(s)
+        // The docs use RELATIVE links (e.g. "android-client.md",
+        // "README.md#sec"). A relative URL does nothing when tapped in-app, so
+        // rewrite them to the absolute privycs.com doc URL (opens in the
+        // browser). Absolute http(s)/mailto links pass through unchanged.
+        var rewrites: [(Range<AttributedString.Index>, URL)] = []
+        for run in attr.runs {
+            guard let link = run.link else { continue }
+            let abs = absoluteDocURL(link)
+            if abs != link { rewrites.append((run.range, abs)) }
+        }
+        for (range, url) in rewrites { attr[range].link = url }
+        return attr
+    }
+
+    /// Map a relative doc link ("foo.md", "foo.md#sec", "README.md") to the
+    /// absolute https://www.privycs.com/docs/<slug> URL. Absolute / mailto
+    /// links are returned unchanged.
+    private static func absoluteDocURL(_ url: URL) -> URL {
+        let s = url.absoluteString
+        guard !(s.hasPrefix("http://") || s.hasPrefix("https://") || s.hasPrefix("mailto:")) else { return url }
+        var path = s, frag = ""
+        if let h = path.firstIndex(of: "#") { frag = String(path[h...]); path = String(path[..<h]) }
+        path = path.replacingOccurrences(of: ".md", with: "").replacingOccurrences(of: "./", with: "")
+        if path.isEmpty { return URL(string: "https://www.privycs.com/docs/ios-client\(frag)") ?? url }
+        if path == "README" { return URL(string: "https://www.privycs.com/docs\(frag)") ?? url }
+        return URL(string: "https://www.privycs.com/docs/\(path)\(frag)") ?? url
     }
 }
 

@@ -14,6 +14,10 @@ struct ProtocolBadge: View {
     var endpoint: String? = nil
     var active: Bool = true
     var compact: Bool = false
+    /// Show the protocol's full brand name next to the logo (Android Connect-
+    /// screen parity: "WireGuard" / "AmneziaWG" / …). The Configs screen leaves
+    /// this off and shows the endpoint host instead.
+    var showName: Bool = false
     /// Number of configs of this protocol in the connection. >1 shows a
     /// "×N" count (Android parity — a connection can hold N same-protocol
     /// endpoints as a failover bag).
@@ -29,8 +33,11 @@ struct ProtocolBadge: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: compact ? 14 : 16, height: compact ? 14 : 16)
-            // No text label — the brand logo + colour identify the protocol
-            // (user: "das WG/AWG kann weg .. protocoll sagt genug").
+            // Full brand name on the Connect screen (Android parity).
+            if showName {
+                Text(proto.displayName)
+                    .font(.system(size: 13, weight: .medium))
+            }
             if count > 1 {
                 Text("×\(count)")
                     .font(.system(size: 11, weight: .bold))

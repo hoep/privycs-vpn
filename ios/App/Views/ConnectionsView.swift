@@ -154,12 +154,11 @@ struct ConnectionsView: View {
         return cfg.protocol.shortLabel
     }
 
-    /// Endpoint label for a config badge: country flag (once resolved) +
-    /// host (port stripped). Flag fills in asynchronously via the IP→country DB.
+    /// Endpoint label for a config badge: just the host (port stripped). No
+    /// country flag on the Configs screen — flags aren't needed here and the
+    /// shorter label lets badges sit two-up.
     private func endpointLabel(_ cfg: ProtocolConfig) -> String {
-        let host = endpointHost(cfg.serverAddress)
-        let flag = appState.endpointFlag(cfg.serverAddress)
-        return flag.isEmpty ? host : "\(flag) \(host)"
+        endpointHost(cfg.serverAddress)
     }
 
     /// Strip the port for a compact endpoint display in the badge.

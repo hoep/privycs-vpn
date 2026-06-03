@@ -268,6 +268,7 @@ struct ConnectionView: View {
                     // is brand-coloured; the rest render grey (Android parity).
                     ProtocolBadge(proto: p,
                                   active: p == appState.displayProtocol,
+                                  showName: true,
                                   count: configCount(p))
                 }
                 Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.secondary)
