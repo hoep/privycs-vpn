@@ -1,499 +1,18 @@
 {
   "sourceLanguage": "en",
-  "version": "1.0",
   "strings": {
-    "app.title": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privycs VPN"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privycs VPN"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privycs VPN"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privycs VPN"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privycs VPN"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privycs VPN"
-          }
-        }
-      }
-    },
-    "tab.connect": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbinden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conectar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connecter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Collega"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conectar"
-          }
-        }
-      }
-    },
-    "tab.configs": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configs"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konfigurationen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuraciones"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurations"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurazioni"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurações"
-          }
-        }
-      }
-    },
-    "tab.add": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hinzufügen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Añadir"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajouter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiungi"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adicionar"
-          }
-        }
-      }
-    },
-    "tab.settings": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Settings"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einstellungen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajustes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réglages"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impostazioni"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Definições"
-          }
-        }
-      }
-    },
-    "tab.help": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Help"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hilfe"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ayuda"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aide"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aiuto"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajuda"
-          }
-        }
-      }
-    },
-    "connect.status.connected": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connected"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbunden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conectado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connecté"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connesso"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conectado"
-          }
-        }
-      }
-    },
-    "connect.status.disconnected": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disconnected"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Getrennt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desconectado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Déconnecté"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disconnesso"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desconectado"
-          }
-        }
-      }
-    },
-    "connect.stats.download": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Download"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Empfangen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Descarga"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Téléchargement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Download"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Descarregamento"
-          }
-        }
-      }
-    },
-    "connect.stats.upload": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upload"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gesendet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subida"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Téléversement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upload"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carregamento"
-          }
-        }
-      }
-    },
-    "settings.crash_reports": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anonymous crash reports"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anonyme Absturzberichte"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Informes de fallo anónimos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rapports de plantage anonymes"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segnalazioni di crash anonime"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relatórios de falha anónimos"
-          }
-        }
-      }
-    },
-    "settings.crash_reports_desc": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Help improve Privycs by sending anonymous crash reports. SSIDs, API keys, IPs and file paths are redacted on-device before upload to our self-hosted backend."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hilf Privycs zu verbessern durch anonyme Absturzberichte. SSIDs, API-Keys, IPs und Datei-Pfade werden vor dem Upload zu unserem self-hosted Backend on-device redaktiert."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ayuda a mejorar Privycs enviando informes anónimos de fallo. SSIDs, claves API, IPs y rutas de archivos se redactan en el dispositivo antes de subirlos a nuestro backend propio."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aidez à améliorer Privycs en envoyant des rapports de plantage anonymes. SSID, clés API, IPs et chemins de fichiers sont caviardés sur l’appareil avant l’envoi à notre backend auto-hébergé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aiuta a migliorare Privycs inviando segnalazioni anonime di crash. SSID, chiavi API, IP e percorsi di file vengono oscurati sul dispositivo prima del caricamento sul nostro backend self-hosted."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajude a melhorar o Privycs enviando relatórios anónimos de falhas. SSIDs, chaves de API, IPs e caminhos de ficheiros são redigidos no dispositivo antes do envio para o nosso backend self-hosted."
-          }
-        }
-      }
-    },
     "1 hour": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 hour"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "1 Stunde"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 hour"
           }
         },
         "es": {
@@ -524,16 +43,16 @@
     },
     "10 seconds": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "10 seconds"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "10 Sekunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10 seconds"
           }
         },
         "es": {
@@ -564,16 +83,16 @@
     },
     "15 minutes": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "15 minutes"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "15 Minuten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15 minutes"
           }
         },
         "es": {
@@ -604,16 +123,16 @@
     },
     "2 misses": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2 misses"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "2 Fehlversuche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 misses"
           }
         },
         "es": {
@@ -644,16 +163,16 @@
     },
     "3 misses": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "3 misses"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "3 Fehlversuche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 misses"
           }
         },
         "es": {
@@ -684,16 +203,16 @@
     },
     "30 seconds": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "30 seconds"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "30 Sekunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 seconds"
           }
         },
         "es": {
@@ -724,16 +243,16 @@
     },
     "4 hours": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "4 hours"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "4 Stunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4 hours"
           }
         },
         "es": {
@@ -764,16 +283,16 @@
     },
     "5 minutes": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "5 minutes"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "5 Minuten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutes"
           }
         },
         "es": {
@@ -804,16 +323,16 @@
     },
     "5 misses": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "5 misses"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "5 Fehlversuche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 misses"
           }
         },
         "es": {
@@ -844,16 +363,16 @@
     },
     "5 seconds": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "5 seconds"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "5 Sekunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 seconds"
           }
         },
         "es": {
@@ -884,16 +403,16 @@
     },
     "60 seconds": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "60 seconds"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "60 Sekunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 seconds"
           }
         },
         "es": {
@@ -924,16 +443,16 @@
     },
     "About": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "About"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Über"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About"
           }
         },
         "es": {
@@ -964,16 +483,16 @@
     },
     "Action": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aktion"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action"
           }
         },
         "es": {
@@ -1004,16 +523,16 @@
     },
     "Activate pool": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activate pool"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pool aktivieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activate pool"
           }
         },
         "es": {
@@ -1044,16 +563,16 @@
     },
     "Active": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Active"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active"
           }
         },
         "es": {
@@ -1084,16 +603,16 @@
     },
     "Add Config": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Config"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Config hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Config"
           }
         },
         "es": {
@@ -1124,16 +643,16 @@
     },
     "Add Protocol": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Protocol"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Protokoll hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Protocol"
           }
         },
         "es": {
@@ -1164,16 +683,16 @@
     },
     "Also bypass private networks": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Also bypass private networks"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auch private Netzwerke umgehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also bypass private networks"
           }
         },
         "es": {
@@ -1204,16 +723,16 @@
     },
     "Always on": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Always on"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Immer an"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always on"
           }
         },
         "es": {
@@ -1244,16 +763,16 @@
     },
     "Anonymous crash reports": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anonymous crash reports"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Anonyme Absturzberichte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonymous crash reports"
           }
         },
         "es": {
@@ -1284,16 +803,16 @@
     },
     "Any (online)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Any (online)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Beliebig (online)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Any (online)"
           }
         },
         "es": {
@@ -1324,16 +843,16 @@
     },
     "Any network": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Any network"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Beliebiges Netzwerk"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Any network"
           }
         },
         "es": {
@@ -1364,16 +883,16 @@
     },
     "Appearance": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Appearance"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Darstellung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
           }
         },
         "es": {
@@ -1404,13 +923,13 @@
     },
     "Auto": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auto"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Auto"
@@ -1444,16 +963,16 @@
     },
     "Auto-rotate every": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auto-rotate every"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Automatisch rotieren alle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-rotate every"
           }
         },
         "es": {
@@ -1484,16 +1003,16 @@
     },
     "Auto-tunnel master": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auto-tunnel master"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auto-Tunnel-Hauptschalter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-tunnel master"
           }
         },
         "es": {
@@ -1524,16 +1043,16 @@
     },
     "Automation": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automation"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Automatisierung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automation"
           }
         },
         "es": {
@@ -1564,13 +1083,13 @@
     },
     "Backup": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Backup"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Backup"
@@ -1604,16 +1123,16 @@
     },
     "Backup & Restore": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Backup & Restore"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Backup & Wiederherstellung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup & Restore"
           }
         },
         "es": {
@@ -1644,16 +1163,16 @@
     },
     "Bundle several servers into a pool and let the app rotate between them (geo-nearest / round-robin / random) with automatic failover. Import individual configs or a single .zip archive.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bundle several servers into a pool and let the app rotate between them (geo-nearest / round-robin / random) with automatic failover. Import individual configs or a single .zip archive."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Bündele mehrere Server in einem Pool und lass die App zwischen ihnen rotieren (geografisch nächster / Round-Robin / zufällig) mit automatischem Failover. Importiere einzelne Configs oder ein einzelnes .zip-Archiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bundle several servers into a pool and let the app rotate between them (geo-nearest / round-robin / random) with automatic failover. Import individual configs or a single .zip archive."
           }
         },
         "es": {
@@ -1684,16 +1203,16 @@
     },
     "Bundled components": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bundled components"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Mitgelieferte Komponenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bundled components"
           }
         },
         "es": {
@@ -1724,16 +1243,16 @@
     },
     "Bypass CIDRs (comma-separated)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bypass CIDRs (comma-separated)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Bypass-CIDRs (kommagetrennt)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bypass CIDRs (comma-separated)"
           }
         },
         "es": {
@@ -1764,16 +1283,16 @@
     },
     "Bypass listed": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bypass listed"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aufgelistete umgehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bypass listed"
           }
         },
         "es": {
@@ -1804,16 +1323,16 @@
     },
     "Cancel": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Abbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
           }
         },
         "es": {
@@ -1844,16 +1363,16 @@
     },
     "Check interval": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Check interval"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Prüfintervall"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check interval"
           }
         },
         "es": {
@@ -1884,16 +1403,16 @@
     },
     "Choose protocol": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose protocol"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Protokoll wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose protocol"
           }
         },
         "es": {
@@ -1924,16 +1443,16 @@
     },
     "Clear": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Leeren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
           }
         },
         "es": {
@@ -1964,16 +1483,16 @@
     },
     "Clear (use default)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear (use default)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Leeren (Standard verwenden)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear (use default)"
           }
         },
         "es": {
@@ -2004,16 +1523,16 @@
     },
     "Comma-separated DNS servers used while this connection is active. Empty = use the global setting.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comma-separated DNS servers used while this connection is active. Empty = use the global setting."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Kommagetrennte DNS-Server, die bei aktiver Verbindung verwendet werden. Leer = globale Einstellung verwenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comma-separated DNS servers used while this connection is active. Empty = use the global setting."
           }
         },
         "es": {
@@ -2044,16 +1563,16 @@
     },
     "Condition": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Condition"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Bedingung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condition"
           }
         },
         "es": {
@@ -2084,16 +1603,16 @@
     },
     "Configs": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configs"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verbindungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configs"
           }
         },
         "es": {
@@ -2122,18 +1641,58 @@
         }
       }
     },
-    "Connect active selection": {
+    "Configured": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguriert"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect active selection"
+            "value": "Configured"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurato"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurado"
+          }
+        }
+      }
+    },
+    "Connect active selection": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aktive Auswahl verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect active selection"
           }
         },
         "es": {
@@ -2164,16 +1723,16 @@
     },
     "Connect to connection": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect to connection"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Mit Verbindung verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to connection"
           }
         },
         "es": {
@@ -2204,16 +1763,16 @@
     },
     "Connection": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connection"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verbindung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
           }
         },
         "es": {
@@ -2244,16 +1803,16 @@
     },
     "Connections": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connections"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verbindungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connections"
           }
         },
         "es": {
@@ -2284,16 +1843,16 @@
     },
     "Copy": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
           }
         },
         "es": {
@@ -2324,16 +1883,16 @@
     },
     "Couldn't load the guide. Check your connection.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't load the guide. Check your connection."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Anleitung konnte nicht geladen werden. Prüfe deine Verbindung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load the guide. Check your connection."
           }
         },
         "es": {
@@ -2364,16 +1923,16 @@
     },
     "Create a VPN pool": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Create a VPN pool"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "VPN-Pool erstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a VPN pool"
           }
         },
         "es": {
@@ -2404,16 +1963,16 @@
     },
     "Create encrypted backup": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Create encrypted backup"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verschlüsseltes Backup erstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create encrypted backup"
           }
         },
         "es": {
@@ -2444,16 +2003,16 @@
     },
     "Current evaluation": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Current evaluation"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aktuelle Auswertung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current evaluation"
           }
         },
         "es": {
@@ -2484,16 +2043,16 @@
     },
     "Current member": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Current member"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aktuelles Mitglied"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current member"
           }
         },
         "es": {
@@ -2524,16 +2083,16 @@
     },
     "DNS Override": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "DNS Override"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "DNS-Überschreibung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS Override"
           }
         },
         "es": {
@@ -2564,16 +2123,16 @@
     },
     "DNS override": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "DNS Override"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "DNS-Überschreibung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS Override"
           }
         },
         "es": {
@@ -2604,16 +2163,16 @@
     },
     "DNS servers for this pool. Takes precedence over the global setting. Empty = use the global setting.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "DNS servers for this pool. Takes precedence over the global setting. Empty = use the global setting."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "DNS-Server für diesen Pool. Hat Vorrang vor der globalen Einstellung. Leer = globale Einstellung verwenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS servers for this pool. Takes precedence over the global setting. Empty = use the global setting."
           }
         },
         "es": {
@@ -2644,16 +2203,16 @@
     },
     "DNS servers used while connected (WireGuard / AmneziaWG / OpenVPN). Per-connection and per-pool overrides take precedence.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "DNS servers used while connected (WireGuard / AmneziaWG / OpenVPN). Per-connection and per-pool overrides take precedence."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "DNS-Server, die bei Verbindung verwendet werden (WireGuard / AmneziaWG / OpenVPN). Verbindungs- und Pool-spezifische Überschreibungen haben Vorrang."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS servers used while connected (WireGuard / AmneziaWG / OpenVPN). Per-connection and per-pool overrides take precedence."
           }
         },
         "es": {
@@ -2684,16 +2243,16 @@
     },
     "Daily": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Daily"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Täglich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily"
           }
         },
         "es": {
@@ -2724,16 +2283,16 @@
     },
     "Dark": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dark"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Dunkel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark"
           }
         },
         "es": {
@@ -2764,16 +2323,16 @@
     },
     "Default (10s)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default (10s)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Standard (10 s)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default (10s)"
           }
         },
         "es": {
@@ -2804,16 +2363,16 @@
     },
     "Default (3)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default (3)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Standard (3)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default (3)"
           }
         },
         "es": {
@@ -2844,16 +2403,16 @@
     },
     "Diagnostics": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diagnostics"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Diagnose"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostics"
           }
         },
         "es": {
@@ -2884,16 +2443,16 @@
     },
     "Disconnect (no VPN)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disconnect (no VPN)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Trennen (kein VPN)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect (no VPN)"
           }
         },
         "es": {
@@ -2924,16 +2483,16 @@
     },
     "Documentation": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Documentation"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Dokumentation"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documentation"
           }
         },
         "es": {
@@ -2964,16 +2523,16 @@
     },
     "Done": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Done"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
           }
         },
         "es": {
@@ -3004,16 +2563,16 @@
     },
     "Drag to reorder": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drag to reorder"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Zum Neuordnen ziehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to reorder"
           }
         },
         "es": {
@@ -3044,16 +2603,16 @@
     },
     "Edit connection": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edit connection"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verbindung bearbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit connection"
           }
         },
         "es": {
@@ -3084,16 +2643,16 @@
     },
     "Encrypts the backup (AES-256-GCM). You'll need the same passphrase to restore — there is no recovery if you forget it. Backups are cross-platform with the Android and Desktop apps.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Encrypts the backup (AES-256-GCM). You'll need the same passphrase to restore — there is no recovery if you forget it. Backups are cross-platform with the Android and Desktop apps."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verschlüsselt das Backup (AES-256-GCM). Zum Wiederherstellen brauchst du dieselbe Passphrase — es gibt keine Wiederherstellung, wenn du sie vergisst. Backups sind plattformübergreifend mit den Android- und Desktop-Apps."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encrypts the backup (AES-256-GCM). You'll need the same passphrase to restore — there is no recovery if you forget it. Backups are cross-platform with the Android and Desktop apps."
           }
         },
         "es": {
@@ -3124,13 +2683,13 @@
     },
     "Ethernet": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Ethernet"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Ethernet"
@@ -3164,16 +2723,16 @@
     },
     "Export": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Export"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Exportieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export"
           }
         },
         "es": {
@@ -3204,16 +2763,16 @@
     },
     "Health monitoring": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Health monitoring"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Zustandsüberwachung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health monitoring"
           }
         },
         "es": {
@@ -3244,16 +2803,16 @@
     },
     "Help": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Help"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Hilfe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help"
           }
         },
         "es": {
@@ -3284,16 +2843,16 @@
     },
     "I have a license key": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I already have a license key"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Ich habe bereits einen Lizenzschlüssel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I already have a license key"
           }
         },
         "es": {
@@ -3324,16 +2883,16 @@
     },
     "Import": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Importieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
           }
         },
         "es": {
@@ -3364,16 +2923,16 @@
     },
     "Import License": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import License"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Lizenz importieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import License"
           }
         },
         "es": {
@@ -3404,16 +2963,16 @@
     },
     "Import a configuration to get started.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import a configuration to get started."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Importiere eine Konfiguration, um zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import a configuration to get started."
           }
         },
         "es": {
@@ -3444,16 +3003,16 @@
     },
     "Import from file": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import from file"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aus Datei importieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import from file"
           }
         },
         "es": {
@@ -3484,13 +3043,13 @@
     },
     "Kill Switch": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Kill Switch"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Kill Switch"
@@ -3524,16 +3083,16 @@
     },
     "Kill Switch routes IPv6 into the tunnel so a v4-only server can't leak your real IPv6 address. Turning it off allows IPv6 traffic outside the VPN.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kill Switch routes IPv6 into the tunnel so a v4-only server can't leak your real IPv6 address. Turning it off allows IPv6 traffic outside the VPN."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Der Kill Switch leitet IPv6 in den Tunnel, damit ein reiner v4-Server deine echte IPv6-Adresse nicht preisgibt. Ausschalten erlaubt IPv6-Verkehr außerhalb des VPN."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill Switch routes IPv6 into the tunnel so a v4-only server can't leak your real IPv6 address. Turning it off allows IPv6 traffic outside the VPN."
           }
         },
         "es": {
@@ -3564,16 +3123,16 @@
     },
     "Language": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Language"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Sprache"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language"
           }
         },
         "es": {
@@ -3604,16 +3163,16 @@
     },
     "License keys are ed25519-signed and verified offline. Paste the entire string including the .signature.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "License keys are ed25519-signed and verified offline. Paste the entire string including the .signature."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Lizenzschlüssel sind ed25519-signiert und werden offline verifiziert. Füge die gesamte Zeichenkette inklusive der .signature ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "License keys are ed25519-signed and verified offline. Paste the entire string including the .signature."
           }
         },
         "es": {
@@ -3644,16 +3203,16 @@
     },
     "Light": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Light"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Hell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
           }
         },
         "es": {
@@ -3682,18 +3241,98 @@
         }
       }
     },
-    "Logs": {
+    "Load earlier entries": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ältere Einträge laden"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logs"
+            "value": "Load earlier entries"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargar entradas anteriores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charger les entrées précédentes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carica voci precedenti"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregar entradas anteriores"
+          }
+        }
+      }
+    },
+    "Location needed for Wi-Fi rules": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standort für WLAN-Regeln nötig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Location needed for Wi-Fi rules"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se necesita la ubicación para las reglas de Wi-Fi"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localisation requise pour les règles Wi-Fi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione necessaria per le regole Wi-Fi"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localização necessária para regras de Wi-Fi"
+          }
+        }
+      }
+    },
+    "Logs": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Protokolle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logs"
           }
         },
         "es": {
@@ -3724,13 +3363,13 @@
     },
     "MAC (AA:BB:CC:DD:EE:FF)": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "MAC (AA:BB:CC:DD:EE:FF)"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "MAC (AA:BB:CC:DD:EE:FF)"
@@ -3764,16 +3403,16 @@
     },
     "Mark dead after": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mark dead after"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Als tot markieren nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark dead after"
           }
         },
         "es": {
@@ -3804,16 +3443,16 @@
     },
     "Match": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Match"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Übereinstimmung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match"
           }
         },
         "es": {
@@ -3844,16 +3483,16 @@
     },
     "Mobile": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mobile"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Mobil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile"
           }
         },
         "es": {
@@ -3884,13 +3523,13 @@
     },
     "Name": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Name"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Name"
@@ -3924,16 +3563,16 @@
     },
     "Network type": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Network type"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Netzwerktyp"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network type"
           }
         },
         "es": {
@@ -3964,16 +3603,16 @@
     },
     "New Pool": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Pool"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Neuer Pool"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Pool"
           }
         },
         "es": {
@@ -4004,16 +3643,16 @@
     },
     "New Rule": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Rule"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Neue Regel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Rule"
           }
         },
         "es": {
@@ -4044,16 +3683,16 @@
     },
     "No configs yet. Use the Add tab to import.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No configs yet. Use the Add tab to import."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Noch keine Configs. Nutze den Tab \"Hinzufügen\" zum Importieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No configs yet. Use the Add tab to import."
           }
         },
         "es": {
@@ -4082,18 +3721,58 @@
         }
       }
     },
-    "No remote configs found.": {
+    "No log entries yet.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Log-Einträge."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No remote configs found."
+            "value": "No log entries yet."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay entradas de registro."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune entrée de journal pour l'instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna voce di log ancora."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não há entradas de registo."
+          }
+        }
+      }
+    },
+    "No remote configs found.": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Keine entfernten Configs gefunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No remote configs found."
           }
         },
         "es": {
@@ -4124,16 +3803,16 @@
     },
     "No rules yet. Tap + to add.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No rules yet. Tap + to add."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Noch keine Regeln. Tippe auf +, um eine hinzuzufügen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No rules yet. Tap + to add."
           }
         },
         "es": {
@@ -4162,18 +3841,58 @@
         }
       }
     },
-    "Off": {
+    "Not set": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht festgelegt"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off"
+            "value": "Not set"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin configurar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non défini"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non impostato"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não definido"
+          }
+        }
+      }
+    },
+    "Off": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
           }
         },
         "es": {
@@ -4204,16 +3923,16 @@
     },
     "On-Demand & Network Rules": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On-Demand & Network Rules"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "On-Demand & Netzwerkregeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On-Demand & Network Rules"
           }
         },
         "es": {
@@ -4242,18 +3961,58 @@
         }
       }
     },
-    "Open Source Licenses": {
+    "Open Settings": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen öffnen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Source Licenses"
+            "value": "Open Settings"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les Réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Impostazioni"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes"
+          }
+        }
+      }
+    },
+    "Open Source Licenses": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Open-Source-Lizenzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Source Licenses"
           }
         },
         "es": {
@@ -4284,13 +4043,13 @@
     },
     "Optional": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Optional"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Optional"
@@ -4324,13 +4083,13 @@
     },
     "Passphrase": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Passphrase"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Passphrase"
@@ -4364,16 +4123,16 @@
     },
     "Paste your license key": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paste your license key"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Lizenzschlüssel einfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste your license key"
           }
         },
         "es": {
@@ -4404,16 +4163,16 @@
     },
     "Pattern (e.g. Cafe*)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pattern (e.g. Cafe*)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Muster (z. B. Cafe*)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pattern (e.g. Cafe*)"
           }
         },
         "es": {
@@ -4444,13 +4203,13 @@
     },
     "Pause": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pause"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Pause"
@@ -4484,16 +4243,16 @@
     },
     "Pause VPN": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pause VPN"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "VPN pausieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause VPN"
           }
         },
         "es": {
@@ -4524,16 +4283,16 @@
     },
     "Pause for": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pause for"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pausieren für"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause for"
           }
         },
         "es": {
@@ -4564,16 +4323,16 @@
     },
     "Pick individual .conf/.ovpn/.sswan files, or a single .zip archive from your provider — all configs inside it become pool members. Country is parsed from each filename when possible.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pick individual .conf/.ovpn/.sswan files, or a single .zip archive from your provider — all configs inside it become pool members. Country is parsed from each filename when possible."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wähle einzelne .conf/.ovpn/.sswan-Dateien oder ein einzelnes .zip-Archiv deines Anbieters — alle darin enthaltenen Configs werden Pool-Mitglieder. Das Land wird wenn möglich aus jedem Dateinamen ermittelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick individual .conf/.ovpn/.sswan files, or a single .zip archive from your provider — all configs inside it become pool members. Country is parsed from each filename when possible."
           }
         },
         "es": {
@@ -4604,16 +4363,16 @@
     },
     "Ping target": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ping target"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Ping-Ziel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping target"
           }
         },
         "es": {
@@ -4644,16 +4403,16 @@
     },
     "Policy": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Policy"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Richtlinie"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Policy"
           }
         },
         "es": {
@@ -4684,13 +4443,13 @@
     },
     "Pool": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pool"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Pool"
@@ -4724,16 +4483,16 @@
     },
     "Pool name": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pool name"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pool-Name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pool name"
           }
         },
         "es": {
@@ -4764,13 +4523,13 @@
     },
     "Pools": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pools"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Pools"
@@ -4804,16 +4563,16 @@
     },
     "Privacy": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privacy"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Datenschutz"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
           }
         },
         "es": {
@@ -4844,13 +4603,13 @@
     },
     "Privycs Gateway": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Privycs Gateway"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Privycs Gateway"
@@ -4884,13 +4643,13 @@
     },
     "Privycs Pro": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Privycs Pro"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Privycs Pro"
@@ -4924,16 +4683,16 @@
     },
     "Privycs VPN is licensed under GPL-3.0. Full license texts ship with the source.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privycs VPN is licensed under GPL-3.0. Full license texts ship with the source."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Privycs VPN ist unter GPL-3.0 lizenziert. Die vollständigen Lizenztexte liegen dem Quellcode bei."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privycs VPN is licensed under GPL-3.0. Full license texts ship with the source."
           }
         },
         "es": {
@@ -4964,13 +4723,13 @@
     },
     "Pro": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pro"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Pro"
@@ -5004,16 +4763,16 @@
     },
     "Probes a reachable target through the tunnel and shows a health pill on the Connect screen. Foreground-only on iOS.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Probes a reachable target through the tunnel and shows a health pill on the Connect screen. Foreground-only on iOS."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Prüft ein erreichbares Ziel durch den Tunnel und zeigt eine Zustandsanzeige im Verbinden-Bildschirm. Auf iOS nur im Vordergrund."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Probes a reachable target through the tunnel and shows a health pill on the Connect screen. Foreground-only on iOS."
           }
         },
         "es": {
@@ -5044,16 +4803,16 @@
     },
     "Protocol Failover": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Protocol Failover"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Protokoll-Failover"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protocol Failover"
           }
         },
         "es": {
@@ -5084,16 +4843,16 @@
     },
     "Protocol Failover Order": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Protocol Failover Order"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Protokoll-Failover-Reihenfolge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protocol Failover Order"
           }
         },
         "es": {
@@ -5124,16 +4883,16 @@
     },
     "Pull from Privycs Gateway": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pull from Privycs Gateway"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Vom Privycs-Gateway laden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull from Privycs Gateway"
           }
         },
         "es": {
@@ -5164,16 +4923,16 @@
     },
     "Remote Configs": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote Configs"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Entfernte Configs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote Configs"
           }
         },
         "es": {
@@ -5204,16 +4963,16 @@
     },
     "Reset to default": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset to default"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auf Standard zurücksetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to default"
           }
         },
         "es": {
@@ -5244,16 +5003,16 @@
     },
     "Restore Purchases": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restore purchase"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Kauf wiederherstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore purchase"
           }
         },
         "es": {
@@ -5284,16 +5043,16 @@
     },
     "Restore from backup": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restore from backup"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aus Backup wiederherstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore from backup"
           }
         },
         "es": {
@@ -5324,16 +5083,16 @@
     },
     "Resume now": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resume now"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Jetzt fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume now"
           }
         },
         "es": {
@@ -5364,16 +5123,16 @@
     },
     "Rotate": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rotate"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Rotieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotate"
           }
         },
         "es": {
@@ -5404,13 +5163,13 @@
     },
     "Rotation": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Rotation"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Rotation"
@@ -5444,16 +5203,16 @@
     },
     "Rules (priority top-down)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rules (priority top-down)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Regeln (Priorität von oben nach unten)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rules (priority top-down)"
           }
         },
         "es": {
@@ -5484,13 +5243,13 @@
     },
     "SSID": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "SSID"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "SSID"
@@ -5524,16 +5283,16 @@
     },
     "Save": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Speichern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
           }
         },
         "es": {
@@ -5564,16 +5323,16 @@
     },
     "Save & verify": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save & verify"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Speichern & prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save & verify"
           }
         },
         "es": {
@@ -5604,16 +5363,16 @@
     },
     "Scan QR code": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scan QR code"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "QR-Code scannen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan QR code"
           }
         },
         "es": {
@@ -5644,16 +5403,16 @@
     },
     "Select configs or a .zip": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select configs or a .zip"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Configs oder .zip auswählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select configs or a .zip"
           }
         },
         "es": {
@@ -5684,16 +5443,16 @@
     },
     "Select connection": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select connection"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verbindung auswählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select connection"
           }
         },
         "es": {
@@ -5724,16 +5483,16 @@
     },
     "Selection policy": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Selection policy"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auswahlrichtlinie"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selection policy"
           }
         },
         "es": {
@@ -5764,16 +5523,16 @@
     },
     "Settings": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Settings"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Einstellungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
           }
         },
         "es": {
@@ -5804,16 +5563,16 @@
     },
     "Share backup file": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share backup file"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Backup-Datei teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share backup file"
           }
         },
         "es": {
@@ -5844,16 +5603,16 @@
     },
     "Single connection": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Single connection"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Einzelne Verbindung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Single connection"
           }
         },
         "es": {
@@ -5884,16 +5643,16 @@
     },
     "Source code": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Source code"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Quellcode"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source code"
           }
         },
         "es": {
@@ -5924,16 +5683,16 @@
     },
     "Split tunnel": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split tunnel"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Split-Tunnel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split tunnel"
           }
         },
         "es": {
@@ -5964,13 +5723,13 @@
     },
     "Support": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Support"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Support"
@@ -6004,13 +5763,13 @@
     },
     "System": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "System"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "System"
@@ -6044,16 +5803,16 @@
     },
     "Test DNS": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Test DNS"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "DNS testen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test DNS"
           }
         },
         "es": {
@@ -6084,16 +5843,16 @@
     },
     "The VPN disconnects and stays off — network rules and on-demand are paused too. A timed pause reconnects your current selection automatically.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The VPN disconnects and stays off — network rules and on-demand are paused too. A timed pause reconnects your current selection automatically."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Das VPN trennt und bleibt aus — Netzwerkregeln und On-Demand werden ebenfalls pausiert. Eine zeitlich begrenzte Pause verbindet deine aktuelle Auswahl automatisch wieder."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The VPN disconnects and stays off — network rules and on-demand are paused too. A timed pause reconnects your current selection automatically."
           }
         },
         "es": {
@@ -6124,16 +5883,16 @@
     },
     "Theme": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Theme"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Design"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme"
           }
         },
         "es": {
@@ -6164,16 +5923,16 @@
     },
     "Tunnel Health": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tunnel Health"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Tunnel-Zustand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel Health"
           }
         },
         "es": {
@@ -6204,16 +5963,16 @@
     },
     "Type": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Type"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Typ"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type"
           }
         },
         "es": {
@@ -6244,16 +6003,16 @@
     },
     "Unlimited configs, pool rotation, geo-nearest routing, and more — one-time purchase, no subscription.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unlimited configs, pool rotation, geo-nearest routing, and more — one-time purchase, no subscription."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Unbegrenzte Configs, Pool-Rotation, geografisch-nächstes Routing und mehr — Einmalkauf, kein Abo."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlimited configs, pool rotation, geo-nearest routing, and more — one-time purchase, no subscription."
           }
         },
         "es": {
@@ -6284,16 +6043,16 @@
     },
     "Upgrade to Pro": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upgrade to Pro"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auf Pro upgraden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
           }
         },
         "es": {
@@ -6324,16 +6083,16 @@
     },
     "User Guide": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "User Guide"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Benutzerhandbuch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User Guide"
           }
         },
         "es": {
@@ -6364,16 +6123,16 @@
     },
     "VPN pool": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VPN pool"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "VPN-Pool"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN pool"
           }
         },
         "es": {
@@ -6404,13 +6163,13 @@
     },
     "Version": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Version"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Version"
@@ -6444,16 +6203,16 @@
     },
     "Welcome to Privycs VPN": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Welcome to Privycs VPN"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Willkommen bei Privycs VPN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to Privycs VPN"
           }
         },
         "es": {
@@ -6484,16 +6243,16 @@
     },
     "When a connection holds several protocols and you haven't pinned one, the app connects with the first protocol in this list that the connection has. Default: AmneziaWG → WireGuard → OpenVPN → IPSec.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When a connection holds several protocols and you haven't pinned one, the app connects with the first protocol in this list that the connection has. Default: AmneziaWG → WireGuard → OpenVPN → IPSec."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wenn eine Verbindung mehrere Protokolle hat und du keines fixiert hast, verbindet die App mit dem ersten Protokoll in dieser Liste, das die Verbindung besitzt. Standard: AmneziaWG → WireGuard → OpenVPN → IPSec."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When a connection holds several protocols and you haven't pinned one, the app connects with the first protocol in this list that the connection has. Default: AmneziaWG → WireGuard → OpenVPN → IPSec."
           }
         },
         "es": {
@@ -6524,16 +6283,16 @@
     },
     "When matched": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When matched"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Bei Übereinstimmung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When matched"
           }
         },
         "es": {
@@ -6564,16 +6323,16 @@
     },
     "When off, no rule is evaluated — VPN is fully manual.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When off, no rule is evaluated — VPN is fully manual."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wenn aus, wird keine Regel ausgewertet — das VPN ist vollständig manuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, no rule is evaluated — VPN is fully manual."
           }
         },
         "es": {
@@ -6604,16 +6363,16 @@
     },
     "Wi-Fi": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wi-Fi"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "WLAN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi"
           }
         },
         "es": {
@@ -6644,16 +6403,16 @@
     },
     "Wi-Fi BSSID (MAC)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wi-Fi BSSID (MAC)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wi-Fi-BSSID (MAC)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi BSSID (MAC)"
           }
         },
         "es": {
@@ -6684,16 +6443,16 @@
     },
     "Wi-Fi name (exact)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wi-Fi name (exact)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wi-Fi-SSID (exakt)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi name (exact)"
           }
         },
         "es": {
@@ -6724,16 +6483,16 @@
     },
     "Wi-Fi name (pattern)": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wi-Fi name (pattern)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wi-Fi-SSID (Muster)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi name (pattern)"
           }
         },
         "es": {
@@ -6764,16 +6523,16 @@
     },
     "Wi-Fi name/BSSID matching requires the Access-WiFi-Information capability; until that ships, these rules are stored but only network-type/any rules act.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wi-Fi name/BSSID matching requires the Access-WiFi-Information capability; until that ships, these rules are stored but only network-type/any rules act."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wi-Fi-Name/BSSID-Abgleich erfordert die Access-WiFi-Information-Berechtigung; bis dahin werden diese Regeln gespeichert, aber nur Netzwerktyp-/Beliebig-Regeln wirken."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi name/BSSID matching requires the Access-WiFi-Information capability; until that ships, these rules are stored but only network-type/any rules act."
           }
         },
         "es": {
@@ -6804,16 +6563,16 @@
     },
     "Wi-Fi or Mobile": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wi-Fi or Mobile"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "WLAN oder Mobil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi or Mobile"
           }
         },
         "es": {
@@ -6844,16 +6603,16 @@
     },
     "Your per-user API key from the gateway's user settings. Sent as a Bearer token.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your per-user API key from the gateway's user settings. Sent as a Bearer token."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Dein benutzerspezifischer API-Schlüssel aus den Benutzereinstellungen des Gateways. Wird als Bearer-Token gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your per-user API key from the gateway's user settings. Sent as a Bearer token."
           }
         },
         "es": {
@@ -6882,18 +6641,258 @@
         }
       }
     },
-    "e.g. 1.1.1.1, 9.9.9.9": {
+    "Your rules match on a Wi-Fi network name (SSID/BSSID). iOS only reveals the Wi-Fi name when Location is allowed — without it these rules can never match and the VPN won't follow them. Grant Location to enable Wi-Fi-name rules.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Regeln greifen auf den WLAN-Namen (SSID/BSSID) zu. iOS gibt den WLAN-Namen nur preis, wenn der Standort erlaubt ist — ohne ihn können diese Regeln nie greifen und das VPN folgt ihnen nicht. Erlaube den Standort, um WLAN-Namen-Regeln zu aktivieren."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "e.g. 1.1.1.1, 9.9.9.9"
+            "value": "Your rules match on a Wi-Fi network name (SSID/BSSID). iOS only reveals the Wi-Fi name when Location is allowed — without it these rules can never match and the VPN won't follow them. Grant Location to enable Wi-Fi-name rules."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus reglas coinciden con el nombre de la red Wi-Fi (SSID/BSSID). iOS solo revela el nombre de la Wi-Fi cuando se permite la ubicación; sin ella, estas reglas nunca coincidirán y la VPN no las seguirá. Concede la ubicación para activar las reglas por nombre de Wi-Fi."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos règles se basent sur le nom du réseau Wi-Fi (SSID/BSSID). iOS ne révèle le nom du Wi-Fi que si la localisation est autorisée — sans elle, ces règles ne peuvent jamais s'appliquer et le VPN ne les suivra pas. Autorisez la localisation pour activer les règles par nom de Wi-Fi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tue regole si basano sul nome della rete Wi-Fi (SSID/BSSID). iOS rivela il nome del Wi-Fi solo quando la posizione è consentita: senza, queste regole non possono mai applicarsi e la VPN non le seguirà. Concedi la posizione per attivare le regole per nome Wi-Fi."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As suas regras dependem do nome da rede Wi-Fi (SSID/BSSID). O iOS só revela o nome do Wi-Fi quando a localização é permitida — sem ela, estas regras nunca podem corresponder e a VPN não as seguirá. Conceda a localização para ativar as regras por nome de Wi-Fi."
+          }
+        }
+      }
+    },
+    "app.title": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privycs VPN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privycs VPN"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privycs VPN"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privycs VPN"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privycs VPN"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privycs VPN"
+          }
+        }
+      }
+    },
+    "connect.stats.download": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfangen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descarga"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Téléchargement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descarregamento"
+          }
+        }
+      }
+    },
+    "connect.stats.upload": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Téléversement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregamento"
+          }
+        }
+      }
+    },
+    "connect.status.connected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connesso"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado"
+          }
+        }
+      }
+    },
+    "connect.status.disconnected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getrennt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnesso"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectado"
+          }
+        }
+      }
+    },
+    "e.g. 1.1.1.1, 9.9.9.9": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "z. B. 1.1.1.1, 9.9.9.9"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. 1.1.1.1, 9.9.9.9"
           }
         },
         "es": {
@@ -6924,16 +6923,16 @@
     },
     "next rotation": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "next rotation"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "nächste Rotation"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "next rotation"
           }
         },
         "es": {
@@ -6962,165 +6961,286 @@
         }
       }
     },
-    "Configured": {
+    "settings.crash_reports": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configured"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Konfiguriert"
+            "value": "Anonyme Absturzberichte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonymous crash reports"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurado"
+            "value": "Informes de fallo anónimos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configuré"
+            "value": "Rapports de plantage anonymes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurato"
+            "value": "Segnalazioni di crash anonime"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurado"
+            "value": "Relatórios de falha anónimos"
           }
         }
       }
     },
-    "Not set": {
+    "settings.crash_reports_desc": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not set"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht festgelegt"
+            "value": "Hilf Privycs zu verbessern durch anonyme Absturzberichte. SSIDs, API-Keys, IPs und Datei-Pfade werden vor dem Upload zu unserem self-hosted Backend on-device redaktiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help improve Privycs by sending anonymous crash reports. SSIDs, API keys, IPs and file paths are redacted on-device before upload to our self-hosted backend."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin configurar"
+            "value": "Ayuda a mejorar Privycs enviando informes anónimos de fallo. SSIDs, claves API, IPs y rutas de archivos se redactan en el dispositivo antes de subirlos a nuestro backend propio."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non défini"
+            "value": "Aidez à améliorer Privycs en envoyant des rapports de plantage anonymes. SSID, clés API, IPs et chemins de fichiers sont caviardés sur l’appareil avant l’envoi à notre backend auto-hébergé."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non impostato"
+            "value": "Aiuta a migliorare Privycs inviando segnalazioni anonime di crash. SSID, chiavi API, IP e percorsi di file vengono oscurati sul dispositivo prima del caricamento sul nostro backend self-hosted."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não definido"
+            "value": "Ajude a melhorar o Privycs enviando relatórios anónimos de falhas. SSIDs, chaves de API, IPs e caminhos de ficheiros são redigidos no dispositivo antes do envio para o nosso backend self-hosted."
           }
         }
       }
     },
-    "Load earlier entries": {
+    "tab.add": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Load earlier entries"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ältere Einträge laden"
+            "value": "Hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cargar entradas anteriores"
+            "value": "Añadir"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Charger les entrées précédentes"
+            "value": "Ajouter"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Carica voci precedenti"
+            "value": "Aggiungi"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Carregar entradas anteriores"
+            "value": "Adicionar"
           }
         }
       }
     },
-    "No log entries yet.": {
+    "tab.configs": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No log entries yet."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch keine Log-Einträge."
+            "value": "Konfigurationen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configs"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aún no hay entradas de registro."
+            "value": "Configuraciones"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune entrée de journal pour l'instant."
+            "value": "Configurations"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessuna voce di log ancora."
+            "value": "Configurazioni"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ainda não há entradas de registo."
+            "value": "Configurações"
+          }
+        }
+      }
+    },
+    "tab.connect": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar"
+          }
+        }
+      }
+    },
+    "tab.help": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hilfe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayuda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aiuto"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajuda"
+          }
+        }
+      }
+    },
+    "tab.settings": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impostazioni"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Definições"
           }
         }
       }
     }
-  }
+  },
+  "version": "1.0"
 }

@@ -1,5 +1,8 @@
 import SwiftUI
 import PrivycsCore
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// On-Demand & Network Rules screen. Mirror der Android v1.0.5.73+
 /// + Desktop NetworkRulesView. Drei sections: Master Toggle, Rules-
@@ -8,9 +11,33 @@ struct NetworkRulesView: View {
     @EnvironmentObject private var appState: AppState
     @State private var masterEnabled = true
     @State private var showAddRule = false
+    @State private var locationAuthorized = true
+
+    /// SSID/BSSID rules can only match when iOS hands out the Wi-Fi name, which
+    /// requires location permission. networkType/any rules don't.
+    private var hasWiFiNameRules: Bool {
+        appState.rules.contains {
+            $0.enabled && ($0.matchType == .ssidExact || $0.matchType == .ssidPattern || $0.matchType == .bssid)
+        }
+    }
 
     var body: some View {
         List {
+            if hasWiFiNameRules && !locationAuthorized {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Location needed for Wi-Fi rules", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(PrivycsColor.error)
+                        Text("Your rules match on a Wi-Fi network name (SSID/BSSID). iOS only reveals the Wi-Fi name when Location is allowed — without it these rules can never match and the VPN won't follow them. Grant Location to enable Wi-Fi-name rules.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Open Settings") { openLocationSettings() }
+                            .font(.callout.weight(.semibold))
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
             Section {
                 Toggle("Auto-tunnel master", isOn: $masterEnabled)
                     .onChange(of: masterEnabled) { _, new in
@@ -60,7 +87,19 @@ struct NetworkRulesView: View {
             // hands out once location is granted — prompt here so the app even
             // shows up under Settings ▸ Privacy ▸ Location Services.
             appState.ssidProvider.requestPermissionIfNeeded()
+            locationAuthorized = appState.ssidProvider.isAuthorized
         }
+        .onReceive(appState.ssidProvider.$authorizationStatus) { _ in
+            locationAuthorized = appState.ssidProvider.isAuthorized
+        }
+    }
+
+    private func openLocationSettings() {
+        #if canImport(UIKit)
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+        }
+        #endif
     }
 
     private func ruleRow(_ rule: NetworkRule) -> some View {

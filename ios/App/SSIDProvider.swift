@@ -24,22 +24,35 @@ final class SSIDProvider: NSObject, ObservableObject {
 
 #if canImport(CoreLocation)
     private let locationManager = CLLocationManager()
+    /// Published so the UI can warn when SSID/BSSID rules need location but it
+    /// isn't granted. Updated on init + every authorization change.
+    @Published private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
 #endif
+
+    /// True only when location is granted — i.e. iOS will actually hand out the
+    /// current Wi-Fi SSID, so SSID/BSSID rules can match. When false, those
+    /// rules silently never match and the UI should warn.
+    var isAuthorized: Bool {
+#if canImport(CoreLocation)
+        authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways
+#else
+        false
+#endif
+    }
 
     override init() {
         super.init()
 #if canImport(CoreLocation)
         locationManager.delegate = self
+        authorizationStatus = locationManager.authorizationStatus
 #endif
     }
 
     func requestPermissionIfNeeded() {
 #if canImport(CoreLocation)
-        switch locationManager.authorizationStatus {
-        case .notDetermined:
+        authorizationStatus = locationManager.authorizationStatus
+        if authorizationStatus == .notDetermined {
             locationManager.requestWhenInUseAuthorization()
-        default:
-            break
         }
 #endif
     }
@@ -62,8 +75,8 @@ final class SSIDProvider: NSObject, ObservableObject {
 #if canImport(CoreLocation)
 extension SSIDProvider: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        // Nothing to do — the next SSID-fetch attempt will see the
-        // updated permission state via fetchCurrent's callback.
+        let status = manager.authorizationStatus
+        Task { @MainActor in self.authorizationStatus = status }
     }
 }
 #endif
