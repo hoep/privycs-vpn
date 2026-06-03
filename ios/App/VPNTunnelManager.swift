@@ -174,12 +174,16 @@ final class VPNTunnelManager: ObservableObject {
                 continue   // not expressible as NEOnDemandRule — foreground-only
             }
         }
-        // No rule matched ⇒ leave the tunnel in its current state — engine
-        // parity (RuleResolution.NoMatch = take no action). NOT a blanket
-        // connect.
-        let ignore = NEOnDemandRuleIgnore()
-        ignore.interfaceTypeMatch = .any
-        out.append(ignore)
+        // Terminal rule — WireGuard-exact: the rule set is COMPLETE, every
+        // network maps to an explicit Connect or Disconnect (WG never uses
+        // Ignore). Default = Disconnect: if no Connect rule matched, NO VPN.
+        // (An Ignore terminal made iOS "leave current state" → once connected
+        // it stayed connected on every unmatched net = "connects no matter the
+        // rules". Disconnect mirrors WG's allowlist terminal + the user's
+        // expectation that the VPN only comes up where a rule says so.)
+        let terminal = NEOnDemandRuleDisconnect()
+        terminal.interfaceTypeMatch = .any
+        out.append(terminal)
         return out
     }
 

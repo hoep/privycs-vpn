@@ -222,24 +222,45 @@ final class AppState: ObservableObject {
         guard selectedPool == nil, let conn = selectedConnection,
               (conn.resolvedActiveConfig(globalOrder: settings.protocolFailoverOrder)?.protocol ?? .wireguard) != .ipsec
         else { return }
-        // Should THIS connection be up on the CURRENT network per the rules?
+        // What do the rules say for the CURRENT network? Keep the foreground
+        // decision and the iOS on-demand armed-state CONSISTENT so they never
+        // fight (that fight = the flapping).
         let result = rulesEngine.evaluate(rules: rules, state: networkState, masterEnabled: true)
-        let shouldStart: Bool = {
-            guard let m = result.matchedRule else { return false }   // no match → leave as-is
-            switch m.action {
-            case .connectActive: return true
-            case .connection:    return m.targetId == conn.id
-            case .pool, .noVpn:  return false
+        guard let matched = result.matchedRule else {
+            // No rule matches the current net → arm the persistent on-demand
+            // config WITHOUT starting. Its terminal Disconnect keeps the
+            // current net off, while its Connect rules let iOS bring the tunnel
+            // up on OTHER networks (incl. doze) and the Settings toggle keeps
+            // respecting the rules.
+            if !status.connected, !connecting {
+                try? await tunnelManager.armOnDemand(
+                    conn, dnsOverride: resolvedDNS(for: conn),
+                    killSwitch: settings.killSwitchEnabled, rules: rules)
             }
-        }()
-        if shouldStart, !status.connected, !connecting {
-            await connectSelected()   // start + arm (persistent) → iOS owns the lifecycle
+            return
+        }
+        // Does the matched rule want THIS connection up on this network?
+        let connectThis: Bool
+        switch matched.action {
+        case .connectActive: connectThis = true
+        case .connection:    connectThis = (matched.targetId == conn.id)
+        case .pool, .noVpn:  connectThis = false
+        }
+        if connectThis {
+            // connectSelected also arms persistent on-demand.
+            if !status.connected, !connecting { await connectSelected() }
+        } else if matched.matchType == .ssidPattern || matched.matchType == .bssid {
+            // INEXPRESSIBLE off-rule (glob SSID / BSSID): on-demand can't encode
+            // it, so the armed profile's Connect rules would fight us here →
+            // disarm so iOS won't auto-connect (no flapping). Foreground-only
+            // for this net (background can't honor glob/BSSID anyway).
+            await tunnelManager.disarmOnDemand()
         } else if !status.connected, !connecting {
-            // Not up (and shouldn't auto-start now): persist the armed on-demand
-            // config (rules + enabled) WITHOUT starting, so iOS + the Settings
-            // toggle keep respecting the rules and the kill switch stays armed
-            // where a connect rule applies. When connected, the running
-            // manager is already armed by the connect path — skip (no churn).
+            // EXPRESSIBLE off-rule (noVpn ssidExact/networkType) or pool/other-
+            // target: keep on-demand ARMED. onDemandRuleSet encodes an explicit
+            // Disconnect for this net (priority-sorted ahead of any Connect), so
+            // iOS keeps it off here — no flap — while background/doze still
+            // works on the nets where a Connect rule applies.
             try? await tunnelManager.armOnDemand(
                 conn, dnsOverride: resolvedDNS(for: conn),
                 killSwitch: settings.killSwitchEnabled, rules: rules)
@@ -580,17 +601,25 @@ final class AppState: ObservableObject {
         guard let rule = result.matchedRule else { return }
         switch rule.action {
         case .noVpn:
+            // Trusted network: no VPN. For an INEXPRESSIBLE off-rule (glob SSID
+            // / BSSID — not encodable as a NEOnDemandRule) the still-armed
+            // on-demand profile would immediately auto-reconnect what we stop
+            // → that fight was the "geht aus und wieder an" flapping → disarm.
+            // An EXPRESSIBLE off-rule is already encoded as an explicit
+            // Disconnect (priority-sorted ahead of any Connect), so iOS keeps
+            // it off here without disarming — leaving background/doze working
+            // on other nets.
+            rotationTimer?.cancel(); rotationTimer = nil
+            if rule.matchType == .ssidPattern || rule.matchType == .bssid {
+                await tunnelManager.disarmOnDemand()
+            }
             if status.connected {
-                // Rule-driven disconnect is NOT a manual disconnect — do
-                // not arm the manual cooldown (that would block the next
-                // rule connect). Disconnect directly.
-                rotationTimer?.cancel(); rotationTimer = nil
                 await tunnelManager.stopTunnel()
                 await poolRepo.setActivePoolID("")
                 activePool = nil; activePoolMember = nil; nextRotationAt = 0
                 resetSpeedTracking()
-                lastRuleTargetID = "disconnect"
             }
+            lastRuleTargetID = "disconnect"
 
         case .connection:
             let id = rule.targetId
