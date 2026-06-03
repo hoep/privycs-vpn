@@ -264,7 +264,10 @@ struct ConnectionView: View {
             HStack(spacing: 6) {
                 ForEach(uniqueProtocols, id: \.self) { p in
                     // ×N count of same-protocol configs — Connect screen only.
-                    ProtocolBadge(proto: p, count: configCount(p))
+                    // Only the protocol that would actually start (or is live)
+                    // is brand-coloured; the rest render grey (Android parity).
+                    ProtocolBadge(proto: p, count: configCount(p),
+                                  active: p == appState.displayProtocol)
                 }
                 Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.secondary)
             }
