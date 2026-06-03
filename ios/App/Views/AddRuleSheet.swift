@@ -54,7 +54,7 @@ struct AddRuleSheet: View {
                     Text("Match")
                 } footer: {
                     if matchType == .ssidExact || matchType == .ssidPattern || matchType == .bssid {
-                        Text("Wi-Fi name/BSSID matching requires the Access-WiFi-Information capability; until that ships, these rules are stored but only network-type/any rules act.")
+                        Text("Wi-Fi name / BSSID rules need Location permission so iOS can read the network name — allow it when prompted (or in Settings ▸ Privacy ▸ Location). Without it these rules can’t match.")
                             .font(.caption2)
                     }
                 }

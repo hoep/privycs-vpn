@@ -1,20 +1,19 @@
-On-Demand / Network Rules — two important fixes in this build:
+On-Demand & Network Rules — please check:
 
-1. LOCATION PROMPT: on first launch (or when you open On-Demand & Network
-   Rules) the app now asks for Location permission. Please ALLOW it — iOS only
-   reveals the current Wi-Fi SSID once location is granted, and without it
-   SSID rules can never match. Check it now appears under Settings > Privacy >
-   Location Services.
+1. LOCATION: allow the Location prompt (iOS only reveals the Wi-Fi name with
+   location granted; without it SSID rules can't match). If you have an
+   SSID/BSSID rule but deny location, the screen now shows a clear warning with
+   an "Open Settings" button — verify it appears and disappears once granted.
 
-2. RULE ORDER (priority): the TOP rule must win. Set, e.g.:
-     - top:    Wi-Fi SSID = <your network>  ->  Disconnect
-     - bottom: Any                          ->  Connect (always on)
-   On that Wi-Fi the VPN must stay OFF (top rule wins); on any other network it
-   must be ON. Reorder the rules and confirm the order is respected.
+2. RULE ORDER (priority, top wins): e.g. top "Wi-Fi SSID = <yours> -> Disconnect",
+   bottom "Any -> Connect". On that Wi-Fi the VPN must stay OFF; elsewhere ON.
 
-Also please verify:
-- The network/state indicator no longer flaps when idle.
-- Connect screen shows the right status; traffic counters move when connected.
-- Pause lets traffic flow (no kill-switch block).
+3. LIVE EVALUATION card now shows the actual decision, e.g. "Rule matches —
+   engine acts: Disconnect" / "...: Connect". Confirm it reflects reality.
+
+4. The whole On-Demand & Network Rules screen is now fully translated — switch
+   the app language (Settings > Language) and check the rules/eval text.
+
+5. No idle flapping of the network state; Pause lets traffic flow.
 
 Thanks!
