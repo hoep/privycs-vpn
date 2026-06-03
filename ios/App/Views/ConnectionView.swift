@@ -28,7 +28,10 @@ struct ConnectionView: View {
                             ConnectButton(
                                 connected: status.connected,
                                 connecting: appState.connecting,
-                                activeProtocol: status.activeProtocol,
+                                // Idle: show the protocol that would actually
+                                // start (matches the pill / pool), not a stale
+                                // value. Connected: the live active protocol.
+                                activeProtocol: appState.displayProtocol,
                                 onTap: { Task { await appState.toggleConnection() } }
                             )
                             .padding(.vertical, 4)
@@ -323,12 +326,18 @@ struct ConnectionView: View {
         let flag = PoolHostnameLabels.flagEmoji(cc)
         let city = PoolHostnameLabels.cityFromHostname(labelName)
         let country = PoolHostnameLabels.countryNameFromCode(cc)
+        // Endpoint host/IP (port stripped) — appended after the country so
+        // the line reads e.g. "🇩🇪  Deutschland · zerotrust.privycs.com".
+        let host = PoolImporter.endpointHost(formatEndpoint(status.serverEndpoint))
         let loc: String = {
-            var s = flag.isEmpty ? "" : flag + "  "
-            if !city.isEmpty && !country.isEmpty { s += "\(city), \(country)" }
-            else if !city.isEmpty { s += city }
-            else if !country.isEmpty { s += country }
-            return s.trimmingCharacters(in: .whitespaces)
+            var parts: [String] = []
+            if !city.isEmpty && !country.isEmpty { parts.append("\(city), \(country)") }
+            else if !city.isEmpty { parts.append(city) }
+            else if !country.isEmpty { parts.append(country) }
+            if !host.isEmpty { parts.append(host) }
+            let joined = parts.joined(separator: " · ")
+            guard !joined.isEmpty else { return "" }
+            return flag.isEmpty ? joined : flag + "  " + joined
         }()
         if !loc.isEmpty {
             Text(loc).font(.system(size: 13)).foregroundStyle(.secondary)

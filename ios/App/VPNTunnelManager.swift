@@ -98,44 +98,66 @@ final class VPNTunnelManager: ObservableObject {
     /// System-level on-demand rules. Translates the user's NetworkRules into
     /// `NEOnDemandRule` objects so iOS enforces them in the NE daemon even
     /// while the app is suspended/asleep (the app-side engine in AppState
-    /// only runs in the foreground — that's why background rules failed).
+    /// only runs in the foreground).
     ///
-    /// What maps: SSID-exact + network-type + any, with no-VPN → Disconnect
-    /// and connect-type → Connect. What does NOT map (stays foreground-only,
-    /// handled by AppState.evaluateAndApplyRules): BSSID, glob SSID patterns,
-    /// and "switch to a specific pool/connection" target selection — a
-    /// single manager's rules can only connect/disconnect ITS own tunnel.
-    /// Rules are emitted in priority order (first match wins, like ours),
-    /// with a trailing connect-on-any so the tunnel returns once a
-    /// disconnect rule's network goes away.
+    /// Faithful mirror of `NetworkRulesEngine`: first-match-wins in priority
+    /// order, and — crucially — NO MATCH ⇒ **Ignore** (leave the tunnel in
+    /// its current state), exactly like the engine's `RuleResolution.NoMatch`.
+    /// (The previous trailing connect-on-any made iOS connect on EVERY network
+    /// regardless of the configured rules — the "connects no matter what"
+    /// bug.)
+    ///
+    /// A single manager's on-demand can only Connect/Disconnect/Ignore ITS OWN
+    /// tunnel — the one we're arming (`activeConnectionID`). So each app rule
+    /// is mapped to what should happen to THIS connection on the matched net:
+    ///   • .noVpn                          → Disconnect (trusted network)
+    ///   • .connectActive                  → Connect (this IS the active conn)
+    ///   • .connection where target == self → Connect
+    ///   • .connection where target != self → Disconnect (a different conn wins)
+    ///   • .pool                           → Disconnect (pools rotate — the
+    ///                                        foreground engine owns pool switch)
+    /// Match types `.ssidPattern` (glob) and `.bssid` can't be expressed as a
+    /// NEOnDemandRule (only exact SSID list + interface type) → skipped, so
+    /// they stay foreground-only (AppState.evaluateAndApplyRules).
     private func onDemandRuleSet() -> [NEOnDemandRule] {
         var out: [NEOnDemandRule] = []
         for rule in pendingRules.sorted(by: { $0.priority < $1.priority }) where rule.enabled {
+            // What should happen to the connection we're arming, on a match?
+            let connectThis: Bool
+            switch rule.action {
+            case .noVpn:         connectThis = false
+            case .connectActive: connectThis = true
+            case .connection:    connectThis = (rule.targetId == activeConnectionID)
+            case .pool:          connectThis = false
+            }
+            func mk() -> NEOnDemandRule {
+                connectThis ? NEOnDemandRuleConnect() : NEOnDemandRuleDisconnect()
+            }
             switch rule.matchType {
             case .ssidExact:
                 guard !rule.matchValue.isEmpty else { continue }
-                let r: NEOnDemandRule = rule.action == .noVpn ? NEOnDemandRuleDisconnect() : NEOnDemandRuleConnect()
+                let r = mk()
                 r.interfaceTypeMatch = .wiFi
                 r.ssidMatch = [rule.matchValue]
                 out.append(r)
             case .networkType:
-                let r: NEOnDemandRule = rule.action == .noVpn ? NEOnDemandRuleDisconnect() : NEOnDemandRuleConnect()
+                let r = mk()
                 r.interfaceTypeMatch = Self.onDemandInterface(rule.matchValue)
                 out.append(r)
             case .any:
-                let r: NEOnDemandRule = rule.action == .noVpn ? NEOnDemandRuleDisconnect() : NEOnDemandRuleConnect()
+                let r = mk()
                 r.interfaceTypeMatch = .any
                 out.append(r)
             case .ssidPattern, .bssid:
                 continue   // not expressible as NEOnDemandRule — foreground-only
             }
         }
-        // Keep the tunnel up on any otherwise-unmatched network (mirrors the
-        // app's "connect unless a rule says no-VPN" behaviour; also brings the
-        // tunnel back after a disconnect-rule network disappears).
-        let fallback = NEOnDemandRuleConnect()
-        fallback.interfaceTypeMatch = .any
-        out.append(fallback)
+        // No rule matched ⇒ leave the tunnel in its current state — engine
+        // parity (RuleResolution.NoMatch = take no action). NOT a blanket
+        // connect.
+        let ignore = NEOnDemandRuleIgnore()
+        ignore.interfaceTypeMatch = .any
+        out.append(ignore)
         return out
     }
 
@@ -192,6 +214,25 @@ final class VPNTunnelManager: ObservableObject {
 
     // MARK: — Private
 
+    /// Start the tunnel with the WireGuard-app's stale-config retry. The very
+    /// first `startVPNTunnel()` after a fresh `saveToPreferences()` frequently
+    /// throws `NEVPNError.configurationStale`/`.configurationInvalid`; the OS
+    /// needs the manager reloaded before it accepts the start. WG retries up to
+    /// 8× (reload → retry). Without this a fresh connect/auto-arm silently fails
+    /// — a prime cause of "doesn't connect in doze".
+    private func startTunnelRetrying(_ mgr: NEVPNManager, attempt: Int = 0) async throws {
+        do {
+            try mgr.connection.startVPNTunnel()
+        } catch let err as NEVPNError where
+            (err.code == .configurationStale || err.code == .configurationInvalid) && attempt < 8 {
+            PrivycsLog.log("startTunnel stale/invalid (attempt \(attempt)) — reloading + retrying")
+            try await mgr.loadFromPreferences()
+            try await startTunnelRetrying(mgr, attempt: attempt + 1)
+        } catch {
+            throw error
+        }
+    }
+
     private func connectViaPTP(connection: SavedConnection, config: ProtocolConfig) async throws {
         let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         let mgr = managers.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
@@ -217,41 +258,7 @@ final class VPNTunnelManager: ObservableObject {
         }
         try await mgr.saveToPreferences()
         try await mgr.loadFromPreferences()
-        try mgr.connection.startVPNTunnel()
-    }
-
-    /// Persist an on-demand profile WITHOUT starting the tunnel, so iOS
-    /// (nesessionmanager) auto-connects per the rules in the background —
-    /// even when the app is suspended/killed or the phone is asleep (doze).
-    /// While a "connect" rule matches and the tunnel isn't up yet, iOS blocks
-    /// the matching traffic = the on-demand kill switch. PTP protocols only
-    /// (WG/AWG/OVPN); IPSec/pools are not pre-armed.
-    func installOnDemandProfile(_ connection: SavedConnection, dnsOverride: String,
-                                killSwitch: Bool, rules: [NetworkRule]) async throws {
-        guard let config = connection.resolvedActiveConfig(), config.protocol != .ipsec else { return }
-        self.dnsOverride = dnsOverride
-        self.killSwitch = killSwitch
-        self.pendingRules = rules
-        let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        let mgr = managers.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
-        let proto = NETunnelProviderProtocol()
-        proto.providerBundleIdentifier = "com.privycs.vpn.tunnel"
-        proto.serverAddress = config.serverAddress
-        proto.providerConfiguration = [
-            "protocol": config.protocol.rawValue,
-            "config_content": config.configContent,
-            "connection_id": connection.id,
-            "config_id": config.id,
-            "dns_override": dnsOverride,
-            "killSwitch": killSwitch,
-        ]
-        mgr.protocolConfiguration = proto
-        mgr.localizedDescription = connection.name
-        mgr.isEnabled = true
-        mgr.onDemandRules = onDemandRuleSet()
-        mgr.isOnDemandEnabled = true
-        try await mgr.saveToPreferences()
-        PrivycsLog.log("on-demand armed (persistent, no start) — \(connection.name), rules=\(rules.count)")
+        try await startTunnelRetrying(mgr)
     }
 
     /// Disarm persistent on-demand on every saved manager (master toggle off,
@@ -333,7 +340,7 @@ final class VPNTunnelManager: ObservableObject {
         }
         try await mgr.saveToPreferences()
         try await mgr.loadFromPreferences()
-        try mgr.connection.startVPNTunnel()
+        try await startTunnelRetrying(mgr)
     }
 
     private func refreshStatus() {

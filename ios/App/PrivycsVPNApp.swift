@@ -130,6 +130,26 @@ final class AppState: ObservableObject {
         return "No connection"
     }
 
+    /// Protocol whose brand logo the (idle) connect button should show —
+    /// the one that would ACTUALLY be started for the current selection,
+    /// not a stale `status.activeProtocol` (which lingered as IPSec and
+    /// showed the strongSwan logo while disconnected). When connected we
+    /// defer to the live `status.activeProtocol`; otherwise we resolve the
+    /// selected pool's member protocol (active member, else first) or the
+    /// connection's effective active config protocol (same resolution the
+    /// connect path uses). nil ⇒ button falls back to its shield glyph.
+    var displayProtocol: VpnProtocol? {
+        if status.connected, let p = status.activeProtocol { return p }
+        if let pool = selectedPool {
+            let m = pool.members.first(where: { $0.id == pool.activeMemberID }) ?? pool.members.first
+            return m?.protocol
+        }
+        if let conn = selectedConnection {
+            return conn.resolvedActiveConfig(globalOrder: settings.protocolFailoverOrder)?.protocol
+        }
+        return nil
+    }
+
     // MARK: - Connect orchestration (Session 1: connection path real;
     // pool-connect rotation lands in Session 3)
 
@@ -186,24 +206,45 @@ final class AppState: ObservableObject {
         Task { await syncOnDemand() }
     }
 
-    /// Mode-A persistent on-demand: when the auto-tunnel master toggle is on
-    /// and the user hasn't manually disconnected/paused, arm a background
-    /// on-demand profile so iOS connects/disconnects per the rules even while
-    /// the app is suspended/asleep (and the on-demand kill switch applies).
-    /// Disarms when the master toggle is off. Single (non-pool, non-IPSec)
-    /// connections only — pools rotate and can't be pre-armed.
+    /// Mode-A persistent on-demand (WireGuard-app model): when the auto-tunnel
+    /// master toggle is on and the rules say THIS connection should be up on
+    /// the current network, START it once with on-demand enabled. iOS then
+    /// persists `isOnDemandEnabled=true` on the saved manager and keeps
+    /// connecting/disconnecting per the (faithfully-translated) rules — and
+    /// enforces the block-until-connect kill switch — through suspension/doze/
+    /// app-death. (A never-started "armed" profile is inert on iOS, which is
+    /// why the previous arm-without-start approach failed.)
+    ///
+    /// The start is GATED on the engine verdict for the current network so we
+    /// don't blindly connect on networks the rules don't cover (e.g. an
+    /// allowlist "connect only on SSID X"): only `.connectActive` or a
+    /// `.connection` rule targeting the selected connection triggers a start.
+    /// `.noVpn`, `.pool`, and no-match leave it alone — but the saved on-demand
+    /// profile still carries the faithful rules, so iOS connects later when a
+    /// connect-rule network appears. Disarms when the master toggle is off.
+    /// Single (non-pool, non-IPSec) connections only.
     func syncOnDemand() async {
         guard settings.networkRulesEnabled else {
             await tunnelManager.disarmOnDemand()
             return
         }
-        guard !userDisconnectedManually, !isPaused, !status.connected,
+        guard !userDisconnectedManually, !isPaused, !status.connected, !connecting,
               selectedPool == nil, let conn = selectedConnection,
               (conn.resolvedActiveConfig(globalOrder: settings.protocolFailoverOrder)?.protocol ?? .wireguard) != .ipsec
         else { return }
-        try? await tunnelManager.installOnDemandProfile(
-            conn, dnsOverride: resolvedDNS(for: conn),
-            killSwitch: settings.killSwitchEnabled, rules: rules)
+        // Only auto-start when the rules say THIS connection on THIS network.
+        // No match ⇒ leave it alone (engine parity); the saved on-demand
+        // profile still carries the faithful rules for iOS to act on later.
+        let result = rulesEngine.evaluate(rules: rules, state: networkState, masterEnabled: true)
+        guard let matched = result.matchedRule else { return }
+        let shouldStart: Bool
+        switch matched.action {
+        case .connectActive: shouldStart = true
+        case .connection:    shouldStart = (matched.targetId == conn.id)
+        case .pool, .noVpn:  shouldStart = false
+        }
+        guard shouldStart else { return }
+        await connectSelected()   // start once → iOS owns the lifecycle (incl. doze)
     }
 
     /// Pick a target from the Connect-screen dropdown. Always allowed —
