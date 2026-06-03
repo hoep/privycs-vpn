@@ -601,18 +601,18 @@ final class AppState: ObservableObject {
         guard let rule = result.matchedRule else { return }
         switch rule.action {
         case .noVpn:
-            // Trusted network: no VPN. For an INEXPRESSIBLE off-rule (glob SSID
-            // / BSSID — not encodable as a NEOnDemandRule) the still-armed
-            // on-demand profile would immediately auto-reconnect what we stop
-            // → that fight was the "geht aus und wieder an" flapping → disarm.
-            // An EXPRESSIBLE off-rule is already encoded as an explicit
-            // Disconnect (priority-sorted ahead of any Connect), so iOS keeps
-            // it off here without disarming — leaving background/doze working
-            // on other nets.
+            // EXPRESSIBLE off-rule (ssidExact / networkType / any): iOS
+            // on-demand's own Disconnect rule already enforces this reliably in
+            // foreground AND background (the NE daemon reads the SSID even when
+            // the app is suspended). The foreground engine must NOT also act —
+            // its SSID read is foreground/location-gated and flaps, and fighting
+            // iOS was the "geht aus und wieder an" flapping. Defer to iOS.
+            // Only an INEXPRESSIBLE off-rule (glob SSID / BSSID — can't be a
+            // NEOnDemandRule) needs the foreground engine to disconnect + disarm
+            // so iOS won't auto-reconnect it.
+            guard rule.matchType == .ssidPattern || rule.matchType == .bssid else { return }
             rotationTimer?.cancel(); rotationTimer = nil
-            if rule.matchType == .ssidPattern || rule.matchType == .bssid {
-                await tunnelManager.disarmOnDemand()
-            }
+            await tunnelManager.disarmOnDemand()
             if status.connected {
                 await tunnelManager.stopTunnel()
                 await poolRepo.setActivePoolID("")

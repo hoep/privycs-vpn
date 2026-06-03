@@ -97,12 +97,30 @@ public actor NetworkMonitor {
     private func publishEnriched(_ base: NetworkState) async {
         guard base.networkType == .wifi else { publish(base); return }
         let wifi = await WiFiInfo.current()
-        publish(NetworkState(networkType: .wifi, ssid: wifi.ssid, bssid: wifi.bssid))
+        var ssid = wifi.ssid
+        var bssid = wifi.bssid
+        // iOS hands out the SSID only in the foreground + with location
+        // permission; a transient EMPTY read while we're still on Wi-Fi must
+        // NOT publish a different state — that empty↔SSID flip-flop (plus the
+        // missing dedup below) was the relentless "state flappt" flapping that
+        // drove the rule engine in circles. Keep the last known SSID/BSSID
+        // when the fresh read comes back empty.
+        if ssid.isEmpty, latestState.networkType == .wifi, !latestState.ssid.isEmpty {
+            ssid = latestState.ssid
+            bssid = latestState.bssid
+        }
+        publish(NetworkState(networkType: .wifi, ssid: ssid, bssid: bssid))
     }
 
     // MARK: — Private continuation registry
 
     private func publish(_ state: NetworkState) {
+        // DEDUP: NWPathMonitor fires pathUpdateHandler frequently (signal
+        // changes, DNS, VPN path churn) even when the effective state is
+        // unchanged. Publishing every time re-ran the whole rule engine and —
+        // with the VPN itself changing the path — self-sustained a flap loop.
+        // Only emit on a real transition.
+        guard state != latestState else { return }
         latestState = state
         for (_, c) in continuations {
             c.yield(state)

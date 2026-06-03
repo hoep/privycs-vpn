@@ -123,11 +123,11 @@ final class VPNTunnelManager: ObservableObject {
     /// only runs in the foreground).
     ///
     /// Faithful mirror of `NetworkRulesEngine`: first-match-wins in priority
-    /// order, and — crucially — NO MATCH ⇒ **Ignore** (leave the tunnel in
-    /// its current state), exactly like the engine's `RuleResolution.NoMatch`.
-    /// (The previous trailing connect-on-any made iOS connect on EVERY network
-    /// regardless of the configured rules — the "connects no matter what"
-    /// bug.)
+    /// order. The rule set is COMPLETE (every net → explicit Connect or
+    /// Disconnect, never Ignore — WireGuard-exact); the terminal default is
+    /// blocklist/allowlist-aware (see bottom of this function). iOS' NE daemon
+    /// evaluates these rules in the background (incl. reliable SSID matching),
+    /// so SSID-based automation works fg AND bg without the app polling.
     ///
     /// A single manager's on-demand can only Connect/Disconnect/Ignore ITS OWN
     /// tunnel — the one we're arming (`activeConnectionID`). So each app rule
@@ -174,14 +174,30 @@ final class VPNTunnelManager: ObservableObject {
                 continue   // not expressible as NEOnDemandRule — foreground-only
             }
         }
-        // Terminal rule — WireGuard-exact: the rule set is COMPLETE, every
-        // network maps to an explicit Connect or Disconnect (WG never uses
-        // Ignore). Default = Disconnect: if no Connect rule matched, NO VPN.
-        // (An Ignore terminal made iOS "leave current state" → once connected
-        // it stayed connected on every unmatched net = "connects no matter the
-        // rules". Disconnect mirrors WG's allowlist terminal + the user's
-        // expectation that the VPN only comes up where a rule says so.)
-        let terminal = NEOnDemandRuleDisconnect()
+        // Terminal rule — WireGuard-exact COMPLETE rule set: every network maps
+        // to an explicit Connect or Disconnect (WG never uses Ignore). The
+        // default for otherwise-unmatched nets mirrors WG's two modes:
+        //   • Only "no-VPN" rule(s), NO connect rule ⇒ BLOCKLIST: VPN ON
+        //     everywhere except the listed nets → Connect(.any) terminal
+        //     (exactly WG's "exceptSpecificSSIDs"). A lone "disconnect on SSID
+        //     X" rule therefore means "VPN on, but not on X".
+        //   • A connect rule present, OR no rules at all ⇒ ALLOWLIST: VPN only
+        //     where a Connect rule matched → Disconnect(.any) terminal. (No
+        //     rules ⇒ off, so the master toggle alone never auto-connects
+        //     everywhere — that was the old "connects no matter the rules".)
+        let enabled = pendingRules.filter { $0.enabled }
+        let hasConnect = enabled.contains {
+            $0.action == .connectActive || $0.action == .connection || $0.action == .pool
+        }
+        // Only EXPRESSIBLE no-VPN rules flip the terminal to blocklist-connect.
+        // A glob/BSSID no-VPN rule isn't encoded as a NEOnDemandRule (the
+        // foreground engine handles it), so it must NOT make iOS connect on the
+        // very net it can't exclude.
+        let hasNoVpn = enabled.contains {
+            $0.action == .noVpn && $0.matchType != .ssidPattern && $0.matchType != .bssid
+        }
+        let terminal: NEOnDemandRule = (hasNoVpn && !hasConnect)
+            ? NEOnDemandRuleConnect() : NEOnDemandRuleDisconnect()
         terminal.interfaceTypeMatch = .any
         out.append(terminal)
         return out
