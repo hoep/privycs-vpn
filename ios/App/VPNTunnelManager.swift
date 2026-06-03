@@ -34,31 +34,16 @@ final class VPNTunnelManager: ObservableObject {
     private var pendingRules: [NetworkRule] = []
     /// Poll loop that pulls PTP stats from the App Group store while up.
     private var pollTask: Task<Void, Never>?
-    /// Cache of all saved PTP managers — refreshed from preferences whenever
-    /// the system VPN status changes, so `refreshStatus` can derive state
-    /// from the ACTUAL connection (incl. tunnels iOS brought up via on-demand
-    /// that the app never started itself).
-    private var managers: [NETunnelProviderManager] = []
 
     init() {
-        // System-side NEVPNStatusDidChange notifications observer. Reload the
-        // manager cache + re-derive status on every change so the app stays
-        // in sync with iOS-initiated (on-demand) connects.
+        // System-side NEVPNStatusDidChange notifications observer.
         observer = NotificationCenter.default.addObserver(
             forName: .NEVPNStatusDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in await self?.reloadManagersAndRefresh() }
+            self?.refreshStatus()
         }
-        Task { @MainActor in await reloadManagersAndRefresh() }
-    }
-
-    /// Reload all saved PTP managers and re-derive status from real system
-    /// state. Cheap; called on launch + every NEVPNStatusDidChange.
-    private func reloadManagersAndRefresh() async {
-        managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        refreshStatus()
     }
 
     deinit {
@@ -107,7 +92,6 @@ final class VPNTunnelManager: ObservableObject {
         } else {
             try await connectViaPTP(connection: connection, config: config)
         }
-        await reloadManagersAndRefresh()   // pick up the just-started manager
         startPolling()
     }
 
@@ -187,21 +171,31 @@ final class VPNTunnelManager: ObservableObject {
         }
     }
 
-    /// Stop the running tunnel session(s) WITHOUT touching on-demand — the
-    /// WireGuard-app manual-disconnect model: on-demand stays armed so iOS
-    /// reconnects where a connect rule applies (and the iOS Settings toggle
-    /// keeps respecting the rules). Pause/master-off disarm explicitly via
-    /// `disarmOnDemand()`.
-    func stopTunnel() async {
+    func disconnect() async {
         pollTask?.cancel()
         pollTask = nil
-        let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        for m in mgrs { m.connection.stopVPNTunnel() }
-        NEVPNManager.shared().connection.stopVPNTunnel()
+        // Disable on-demand BEFORE stopping so iOS doesn't immediately
+        // reconnect the tunnel we're tearing down (the WireGuard-app
+        // behaviour: a manual disconnect turns off on-demand).
+        let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+        for m in managers {
+            if m.isOnDemandEnabled {
+                m.isOnDemandEnabled = false
+                try? await m.saveToPreferences()
+            }
+            m.connection.stopVPNTunnel()
+        }
+        let ike = NEVPNManager.shared()
+        try? await ike.loadFromPreferences()
+        if ike.isOnDemandEnabled {
+            ike.isOnDemandEnabled = false
+            try? await ike.saveToPreferences()
+        }
+        ike.connection.stopVPNTunnel()
         TunnelStatsStore.clear()
         activeProtocol = nil
         isPTPTunnel = false
-        await reloadManagersAndRefresh()
+        refreshStatus()
     }
 
     /// While a tunnel is up, poll the App Group stats store (PTP) once
@@ -240,8 +234,8 @@ final class VPNTunnelManager: ObservableObject {
     }
 
     private func connectViaPTP(connection: SavedConnection, config: ProtocolConfig) async throws {
-        let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        let mgr = mgrs.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
+        let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+        let mgr = managers.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = "com.privycs.vpn.tunnel"
         proto.serverAddress = config.serverAddress
@@ -271,54 +265,15 @@ final class VPNTunnelManager: ObservableObject {
     /// or manual disconnect in mode A) so iOS stops auto-connecting — without
     /// deleting the saved configuration.
     func disarmOnDemand() async {
-        let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        for m in mgrs where m.isOnDemandEnabled {
+        let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+        for m in managers where m.isOnDemandEnabled {
             m.isOnDemandEnabled = false
             try? await m.saveToPreferences()
         }
         let ike = NEVPNManager.shared()
         try? await ike.loadFromPreferences()
         if ike.isOnDemandEnabled { ike.isOnDemandEnabled = false; try? await ike.saveToPreferences() }
-        await reloadManagersAndRefresh()
         PrivycsLog.log("on-demand disarmed (all managers)")
-    }
-
-    /// Persist the on-demand configuration (isOnDemandEnabled + faithful
-    /// rules) on the connection's saved manager WITHOUT starting the tunnel.
-    /// Keeps on-demand armed so iOS — and the iOS Settings VPN toggle —
-    /// respect the rules even when the app isn't running, and the
-    /// block-until-connect kill switch is armed where a connect rule applies.
-    /// PTP only (WG/AWG/OVPN); IPSec/pools are not pre-armed.
-    func armOnDemand(_ connection: SavedConnection, dnsOverride: String,
-                     killSwitch: Bool, rules: [NetworkRule]) async throws {
-        guard let config = connection.resolvedActiveConfig(), config.protocol != .ipsec else { return }
-        // Identity drives onDemandRuleSet's per-connection mapping.
-        activeConnectionID = connection.id
-        activeConnectionName = connection.name
-        self.dnsOverride = dnsOverride
-        self.killSwitch = killSwitch
-        self.pendingRules = rules
-        let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        let mgr = mgrs.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
-        let proto = NETunnelProviderProtocol()
-        proto.providerBundleIdentifier = "com.privycs.vpn.tunnel"
-        proto.serverAddress = config.serverAddress
-        proto.providerConfiguration = [
-            "protocol": config.protocol.rawValue,
-            "config_content": config.configContent,
-            "connection_id": connection.id,
-            "config_id": config.id,
-            "dns_override": dnsOverride,
-            "killSwitch": killSwitch,
-        ]
-        mgr.protocolConfiguration = proto
-        mgr.localizedDescription = connection.name
-        mgr.isEnabled = true
-        mgr.onDemandRules = onDemandRuleSet()
-        mgr.isOnDemandEnabled = true
-        try await mgr.saveToPreferences()
-        await reloadManagersAndRefresh()
-        PrivycsLog.log("on-demand armed (persistent config) — \(connection.name), rules=\(rules.count)")
     }
 
     private func connectViaIKEv2(connection: SavedConnection, config: ProtocolConfig) async throws {
@@ -389,41 +344,22 @@ final class VPNTunnelManager: ObservableObject {
     }
 
     private func refreshStatus() {
-        // Derive status from the ACTUAL system state, regardless of who
-        // started the tunnel (manual connect OR iOS on-demand). Find a live
-        // PTP manager; else fall back to the IKEv2 personal-VPN session.
-        let livePTP = managers.first { m in
-            switch m.connection.status {
-            case .connected, .connecting, .reasserting: return true
-            default: return false
-            }
-        }
-        if let m = livePTP {
-            buildPTPStatus(from: m)
+        if isPTPTunnel {
+            buildPTPStatus()
         } else {
-            let ikeStatus = NEVPNManager.shared().connection.status
-            if ikeStatus == .connected || ikeStatus == .connecting || ikeStatus == .reasserting {
-                buildIKEv2Status()
-            } else {
-                self.status = .disconnected
-            }
+            buildIKEv2Status()
         }
         for (_, c) in statusContinuations {
             c.yield(self.status)
         }
     }
 
-    /// PTP protocols (WG / AWG / OVPN): connected-state + identity from the
-    /// live NETunnelProviderManager (works for app-started AND iOS on-demand
-    /// tunnels); rx/tx + endpoint + handshake from the App Group store the
-    /// extension writes.
-    private func buildPTPStatus(from m: NETunnelProviderManager) {
-        let connected = m.connection.status == .connected
-        let pc = (m.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
-        let connName = m.localizedDescription ?? activeConnectionName
-        let connID = (pc?["connection_id"] as? String) ?? activeConnectionID
-        let proto = VpnProtocol(rawValue: (pc?["protocol"] as? String) ?? "") ?? activeProtocol
+    /// PTP protocols (WG / AWG / OVPN): connected-state from the
+    /// NETunnelProviderManager session if available, rx/tx + endpoint
+    /// from the App Group store the extension writes.
+    private func buildPTPStatus() {
         let snap = TunnelStatsStore.read()
+        let connected = snap?.connected ?? false
         let uptime: Int64
         if let at = snap?.connectedAtEpoch, at > 0, connected {
             uptime = max(0, Int64(Date().timeIntervalSince1970) - at)
@@ -432,9 +368,9 @@ final class VPNTunnelManager: ObservableObject {
         }
         self.status = VpnStatus(
             connected: connected,
-            connectionName: connName,
-            connectionID: connID,
-            activeProtocol: proto,
+            connectionName: activeConnectionName,
+            connectionID: activeConnectionID,
+            activeProtocol: activeProtocol,
             uptime: uptime,
             rxBytes: snap?.rxBytes ?? 0,
             txBytes: snap?.txBytes ?? 0,
