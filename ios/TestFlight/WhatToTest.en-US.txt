@@ -1,13 +1,7 @@
-v1.0.8 — the 1.0.8 release. A full pass is appreciated:
+v1.0.8.1 (build 55) — small Connect-screen fix:
 
-1. On-Demand & Network Rules: set rules (e.g. "this Wi-Fi → no VPN" above
-   "any → connect"); the top rule must win, edits apply immediately, and it must
-   follow the rules in the background. Allow the Location prompt (needed for
-   Wi-Fi-name rules). No state flapping. Pause lets traffic flow.
-2. iPad: the sidebar + detail layout — all screens, rotation, split view.
-3. Connect screen: protocol-name pills (only the active one coloured), endpoint
-   host shown.
-4. Help: the in-app guide opens; links in the text open the right pages.
-5. Connect/disconnect each protocol; no crashes.
-
-Thanks for testing the 1.0.8 candidate!
+The protocol pills under the Connect button (now showing the full protocol
+names) used to wrap onto two lines when a connection had several protocols.
+They are now a single horizontal row you swipe left/right — matching the
+Android app. Please confirm: one line, swipeable, only the active protocol is
+brand-coloured, and tapping a pill still opens the config picker.

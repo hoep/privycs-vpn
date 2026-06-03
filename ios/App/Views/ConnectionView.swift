@@ -258,23 +258,28 @@ struct ConnectionView: View {
     }
 
     private var protocolBadgeRow: some View {
-        Button {
-            showConfigSheet = true
-        } label: {
+        // Single line, swipe left/right — Android LazyRow parity. The protocol
+        // names make the row wider than the screen with 3-4 protocols, so a
+        // horizontal scroll keeps it one line instead of wrapping to two.
+        ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(uniqueProtocols, id: \.self) { p in
                     // ×N count of same-protocol configs — Connect screen only.
                     // Only the protocol that would actually start (or is live)
                     // is brand-coloured; the rest render grey (Android parity).
-                    ProtocolBadge(proto: p,
-                                  active: p == appState.displayProtocol,
-                                  showName: true,
-                                  count: configCount(p))
+                    Button {
+                        showConfigSheet = true
+                    } label: {
+                        ProtocolBadge(proto: p,
+                                      active: p == appState.displayProtocol,
+                                      showName: true,
+                                      count: configCount(p))
+                    }
+                    .buttonStyle(.plain)
                 }
-                Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 2)
         }
-        .buttonStyle(.plain)
     }
 
     private var uniqueProtocols: [VpnProtocol] {
