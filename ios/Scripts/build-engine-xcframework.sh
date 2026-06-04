@@ -39,12 +39,13 @@ rm -rf "$OUT_XC"
 
 gomobile init
 
-# Targets match the AmneziaWG xcframework so the engine links from the iOS app,
-# the iOS simulator, and the tvOS app/simulator. engine/ffi is pure Go (no
-# platform-gated cgo), so every slice builds.
+# iOS device + simulator only. The engine is linked exclusively by the iOS App
+# target (it lives in the app, never the NetworkExtension, and no tvOS target
+# depends on it), so tvOS slices aren't needed — and this gomobile pin doesn't
+# accept a "tvos" target anyway.
 echo "==> Running gomobile bind"
 (cd "$ENGINE_DIR" && gomobile bind \
-    -target=ios,iossimulator,tvos,tvossimulator \
+    -target=ios,iossimulator \
     -prefix=Pvcs \
     -o "$OUT_XC" \
     ./ffi)
