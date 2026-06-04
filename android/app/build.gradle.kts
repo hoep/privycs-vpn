@@ -206,16 +206,14 @@ dependencies {
     // the stable release and is compatible with the Compose 1.7.x line
     // pinned by the BOM above.
     //
-    // tv-foundation supplies TvLazyColumn / TvLazyRow (the focus-aware
-    // lazy lists). It never graduated past alpha upstream — 1.0.0-alpha12
-    // is the LAST published release (Google folded its capabilities into
-    // foundation 1.7's LazyColumn afterward, but the TvLazy* APIs our
-    // TvConnectScreen uses still ship only in this artifact). Pinned
-    // explicitly so the dependency is reproducible. Android Studio /CI
-    // build should confirm resolution; if a newer coordinate appears,
-    // bump here.
+    // NOTE: we deliberately do NOT depend on androidx.tv:tv-foundation
+    // (TvLazyColumn). Its last release (1.0.0-alpha12) was built against
+    // Compose foundation ~1.6 and its LazyLayout ABI is incompatible with
+    // the foundation 1.7.x our BOM pins — it would throw NoSuchMethodError
+    // at runtime on first TV-list compose. foundation 1.7 absorbed D-pad
+    // focus + scrolling into the regular LazyColumn, which TvConnectScreen
+    // uses instead.
     implementation("androidx.tv:tv-material3:1.0.0")
-    implementation("androidx.tv:tv-foundation:1.0.0-alpha12")
 
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")

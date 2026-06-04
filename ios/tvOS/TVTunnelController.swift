@@ -58,9 +58,12 @@ final class TVTunnelController: ObservableObject {
             return
         }
         guard config.protocol == .wireguard || config.protocol == .amneziawg else {
-            lastError = String(
-                localized: "tv.error.unsupported_protocol",
-                defaultValue: "\(config.protocol.displayName) is not supported on Apple TV. Use WireGuard or AmneziaWG.")
+            // The catalog value carries a `%@` placeholder for the protocol
+            // name — look up the localized template, then substitute. (Passing
+            // the name via `defaultValue:` interpolation would NOT fill the
+            // catalog's `%@`; it would surface a literal "%@" at runtime.)
+            let template = String(localized: "tv.error.unsupported_protocol")
+            lastError = String(format: template, config.protocol.displayName)
             return
         }
         activeConnectionName = connection.name

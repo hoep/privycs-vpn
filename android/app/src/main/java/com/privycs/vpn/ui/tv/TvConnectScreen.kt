@@ -25,8 +25,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.tv.material3.Button
 import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -119,7 +119,11 @@ fun TvConnectScreen(
             )
             Spacer(Modifier.height(16.dp))
 
-            TvLazyColumn(
+            // Regular Compose-foundation LazyColumn: foundation 1.7 (pinned via
+            // the Compose BOM) handles D-pad focus + scrolling natively, so we
+            // avoid androidx.tv:tv-foundation (alpha12) whose LazyLayout ABI is
+            // incompatible with foundation 1.7 and would NoSuchMethodError at runtime.
+            LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f),
             ) {

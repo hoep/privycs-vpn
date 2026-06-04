@@ -147,6 +147,14 @@ targets:
     platform: iOS
     sources:
       - path: Tunnel
+        # Both tunnel targets glob the shared Tunnel/ dir, and XcodeGen writes
+        # each target's generated Info.plist INTO that dir. Exclude BOTH plists
+        # from the source glob so the iOS target never picks up the tvOS plist
+        # (and vice-versa) as a stray Copy-Bundle-Resources entry — which would
+        # trip "Multiple commands produce .../Info.plist".
+        excludes:
+          - "Info.plist"
+          - "InfoTV.plist"
     info:
       path: Tunnel/Info.plist
       properties:
@@ -250,6 +258,11 @@ targets:
           - packet-tunnel-provider
         com.apple.security.application-groups:
           - group.com.privycs.vpn
+        # Required: KeychainSecretStore (settings/token persistence) writes
+        # under kSecAttrAccessGroup = group.com.privycs.vpn. Without this
+        # entitlement those ops fail at runtime with errSecMissingEntitlement.
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.privycs.vpn
         com.apple.developer.networking.vpn.api:
           - allow-vpn
     dependencies:
@@ -275,6 +288,11 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: Tunnel
+        # See PrivycsVPNTunnel above — exclude both generated plists so the
+        # tvOS tunnel doesn't glob the iOS tunnel's Info.plist as a resource.
+        excludes:
+          - "Info.plist"
+          - "InfoTV.plist"
     info:
       path: Tunnel/InfoTV.plist
       properties:
@@ -289,6 +307,10 @@ targets:
           - packet-tunnel-provider
         com.apple.security.application-groups:
           - group.com.privycs.vpn
+        # Tunnel reads the same Keychain access group (hydrated configs /
+        # secrets) — mirror the iOS tunnel target's keychain-access-groups.
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.privycs.vpn
     dependencies:
       - package: PrivycsCore
       - package: WireGuardKit
