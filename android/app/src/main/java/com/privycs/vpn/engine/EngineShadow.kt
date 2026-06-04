@@ -60,11 +60,23 @@ object EngineShadow {
         }
     }
 
-    /** Idle→…→Connected in shadow. Called from ConnectCoordinator.markConnected. */
-    fun observeConnect() {
+    /**
+     * Idle→…→Connected in shadow. proto is the ACTUAL connected protocol so the
+     * decision log reflects reality ("Connected via <proto>") instead of a
+     * hypothetical failover-order pick. Called from VpnServiceManager on the
+     * confirmed-connect transition.
+     */
+    fun observeConnect(proto: VpnProtocol?) {
         ensure()
+        val token = when (proto) {
+            VpnProtocol.AMNEZIAWG -> "amneziawg"
+            VpnProtocol.WIREGUARD -> "wireguard"
+            VpnProtocol.OPENVPN -> "openvpn"
+            VpnProtocol.IPSEC -> "ipsec"
+            null -> ""
+        }
         try {
-            session?.observeConnect()
+            session?.observeConnect(token)
         } catch (t: Throwable) {
             PrivycsLogger.w(TAG, "observeConnect: ${t.message}")
         }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	eng "github.com/hoep/privycs-vpn/engine"
@@ -18,18 +19,20 @@ import (
 type decisionBridge struct {
 	eng    *eng.Engine
 	cancel context.CancelFunc
+	store  *shadowStore
 }
 
 func newDecisionBridge(getOrder func() []string) *decisionBridge {
+	store := &shadowStore{getOrder: getOrder}
 	e := eng.New(eng.Config{
 		Policy: eng.DefaultPolicy(),
 		Tunnel: shadowTunnel{},
 		Prober: shadowProber{},
-		Store:  &shadowStore{getOrder: getOrder},
+		Store:  store,
 		Notify: logNotifier{},
 		// No PlatformBridge: in shadow we feed events explicitly via Observe*.
 	})
-	return &decisionBridge{eng: e}
+	return &decisionBridge{eng: e, store: store}
 }
 
 func (b *decisionBridge) start(ctx context.Context) {
@@ -104,10 +107,15 @@ func (a *App) EngineDecisions() []EngineDecisionDTO {
 
 // ── observations fed from the real app flow ──
 
-func (b *decisionBridge) observeConnect() {
+// observeConnect feeds the engine a real connect. protocol is the ACTUAL
+// connected protocol token; it becomes the engine's sole candidate so the
+// decision log reflects reality ("Connected via <protocol>") instead of a
+// hypothetical failover-order pick.
+func (b *decisionBridge) observeConnect(protocol string) {
 	if b == nil {
 		return
 	}
+	b.store.setActive(protocol)
 	b.eng.Submit(eng.Event{Kind: eng.EvUserConnect})
 	b.eng.Submit(eng.Event{Kind: eng.EvHandshakeOK})
 	b.eng.Submit(probeEvent(true, 30, 0)) // validate → Connected in shadow
@@ -117,6 +125,7 @@ func (b *decisionBridge) observeDisconnect() {
 	if b == nil {
 		return
 	}
+	b.store.setActive("")
 	b.eng.Submit(eng.Event{Kind: eng.EvUserDisconnect})
 }
 
@@ -165,10 +174,26 @@ func (logNotifier) Notify(key string) { log.Printf("[engine/shadow] notify %q", 
 // per-connection profiles + persisted stats arrive with active mode / P4.
 type shadowStore struct {
 	getOrder func() []string
+	mu       sync.Mutex
+	active   string
+}
+
+func (s *shadowStore) setActive(p string) {
+	s.mu.Lock()
+	s.active = p
+	s.mu.Unlock()
 }
 
 func (s *shadowStore) Snapshot() eng.ProfileSnapshot {
-	order := s.getOrder()
+	s.mu.Lock()
+	active := s.active
+	s.mu.Unlock()
+	var order []string
+	if active != "" {
+		order = []string{active} // reflect the real connection, not a hypothetical pick
+	} else {
+		order = s.getOrder()
+	}
 	if len(order) == 0 {
 		order = []string{"wireguard", "amnezia", "openvpn", "ipsec"}
 	}

@@ -28,7 +28,7 @@ func TestConnectProducesDecisions(t *testing.T) {
 	s := NewSession(`["wireguard","openvpn"]`)
 	defer s.Close()
 
-	s.ObserveConnect()
+	s.ObserveConnect("wireguard")
 	out := waitDecisions(t, s, 1)
 
 	// Every decision must carry a stable i18n key (never pre-translated text)
@@ -52,7 +52,7 @@ func TestConnectProducesDecisions(t *testing.T) {
 func TestEmptyAndInvalidProfilesFallBack(t *testing.T) {
 	for _, js := range []string{"", "not-json", "[]"} {
 		s := NewSession(js)
-		s.ObserveConnect()
+		s.ObserveConnect("wireguard")
 		_ = waitDecisions(t, s, 1) // must still produce decisions via default order
 		s.Close()
 	}
@@ -71,7 +71,7 @@ func TestCloseIsIdempotentAndNilSafe(t *testing.T) {
 	s.Close()
 	s.Close() // must not panic
 	var nilS *Session
-	nilS.ObserveConnect()      // nil-safe
+	nilS.ObserveConnect("wireguard")      // nil-safe
 	nilS.ObserveDisconnect()   //
 	nilS.ObserveHealth("dead") //
 	if got := nilS.PollDecisions(); got != "[]" {

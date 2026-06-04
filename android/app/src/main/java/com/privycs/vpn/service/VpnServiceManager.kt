@@ -789,6 +789,9 @@ class VpnServiceManager private constructor(private val context: Context) {
             scope.launch {
                 com.privycs.vpn.util.ConnectCoordinator.markConnected(status.connectionId)
             }
+            // Smart Decision Engine (shadow): feed the engine the REAL protocol
+            // so its decision log reflects this connection. [v1.0.9]
+            com.privycs.vpn.engine.EngineShadow.observeConnect(status.activeProtocol)
             // Tunnel is up: decide whether to start the periodic
             // ICMP-based liveness monitor based on user settings.
             //   - mode = "off": never run
@@ -988,6 +991,10 @@ class VpnServiceManager private constructor(private val context: Context) {
                     activeConn?.id ?: _status.value.connectionId,
                 )
             }
+            // Smart Decision Engine (shadow): feed the REAL protocol. [v1.0.9]
+            com.privycs.vpn.engine.EngineShadow.observeConnect(
+                activeConn?.activeProtocol ?: _status.value.activeProtocol,
+            )
             return
         }
 

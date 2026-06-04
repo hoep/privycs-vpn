@@ -36,7 +36,7 @@ final class EngineShadow {
         orderJSON = js
     }
 
-    func observeConnect() { session?.observeConnect() }
+    func observeConnect(_ proto: String) { session?.observeConnect(proto) }
 
     func observeDisconnect() { session?.observeDisconnect() }
 

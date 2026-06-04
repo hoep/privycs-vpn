@@ -25,6 +25,7 @@ import (
 type Session struct {
 	eng    *eng.Engine
 	cancel context.CancelFunc
+	store  *shadowStore
 
 	mu  sync.Mutex
 	log []decisionDTO // drained from eng.Decisions(); newest last
@@ -56,12 +57,13 @@ func NewSession(profilesJSON string) *Session {
 	if profilesJSON != "" {
 		_ = json.Unmarshal([]byte(profilesJSON), &order)
 	}
-	s := &Session{cap: 50}
+	store := &shadowStore{order: order}
+	s := &Session{cap: 50, store: store}
 	s.eng = eng.New(eng.Config{
 		Policy: eng.DefaultPolicy(),
 		Tunnel: shadowTunnel{},
 		Prober: shadowProber{},
-		Store:  &shadowStore{order: order},
+		Store:  store,
 		Notify: nopNotifier{},
 	})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -98,10 +100,15 @@ func (s *Session) drain(ctx context.Context) {
 
 // ObserveConnect mirrors desktop bridge.observeConnect: user-connect →
 // handshake-ok → a healthy validation probe (drives Idle→…→Connected in shadow).
-func (s *Session) ObserveConnect() {
+// protocol is the ACTUAL connected protocol token ("wireguard"/"amneziawg"/
+// "openvpn"/"ipsec"); it becomes the engine's sole candidate so the decision
+// log reflects reality ("Connected via <protocol>") rather than a hypothetical
+// failover-order pick. Empty falls back to the configured order.
+func (s *Session) ObserveConnect(protocol string) {
 	if s == nil {
 		return
 	}
+	s.store.setActive(protocol)
 	s.eng.Submit(eng.Event{Kind: eng.EvUserConnect})
 	s.eng.Submit(eng.Event{Kind: eng.EvHandshakeOK})
 	s.eng.Submit(probeEvent(true, 30, 0))
@@ -112,6 +119,7 @@ func (s *Session) ObserveDisconnect() {
 	if s == nil {
 		return
 	}
+	s.store.setActive("")
 	s.eng.Submit(eng.Event{Kind: eng.EvUserDisconnect})
 }
 
@@ -181,13 +189,29 @@ type nopNotifier struct{}
 
 func (nopNotifier) Notify(string) {}
 
-// shadowStore presents the configured protocol-failover order as the candidate
-// set, matching desktop's shadowStore.
-type shadowStore struct{ order []string }
+// shadowStore presents the candidate set. Once a real connect is observed it
+// returns ONLY the active protocol, so the engine's pick (and the decision log)
+// reflects the actual connection; before/after that it falls back to the
+// configured failover order. Matches desktop's shadowStore.
+type shadowStore struct {
+	mu     sync.Mutex
+	order  []string
+	active string
+}
+
+func (s *shadowStore) setActive(p string) {
+	s.mu.Lock()
+	s.active = p
+	s.mu.Unlock()
+}
 
 func (s *shadowStore) Snapshot() eng.ProfileSnapshot {
-	order := s.order
-	if len(order) == 0 {
+	s.mu.Lock()
+	order, active := s.order, s.active
+	s.mu.Unlock()
+	if active != "" {
+		order = []string{active}
+	} else if len(order) == 0 {
 		order = []string{"wireguard", "amnezia", "openvpn", "ipsec"}
 	}
 	var profs []eng.Profile

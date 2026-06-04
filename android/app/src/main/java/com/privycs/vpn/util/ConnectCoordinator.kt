@@ -448,9 +448,8 @@ object ConnectCoordinator {
             _state.value = State.Connected(System.currentTimeMillis(), connectionId, carriedSource)
             cancelWatchdog()
         }
-        // Smart Decision Engine (shadow): observe the confirmed connect so the
-        // engine can explain what it WOULD choose. Drives nothing. [v1.0.9]
-        com.privycs.vpn.engine.EngineShadow.observeConnect()
+        // Smart Decision Engine (shadow): observed from VpnServiceManager where
+        // the actual protocol is known (see EngineShadow.observeConnect). [v1.0.9]
     }
 
     /**

@@ -863,7 +863,7 @@ final class AppState: ObservableObject {
                 self.pushWidgetSnapshot()
                 // Shadow engine: map the status stream's edge to one observe.
                 if st.connected && !engineConnectedLatch {
-                    engineShadow.observeConnect()
+                    engineShadow.observeConnect(st.activeProtocol?.rawValue ?? "")
                 } else if !st.connected && engineConnectedLatch {
                     engineShadow.observeDisconnect()
                 }

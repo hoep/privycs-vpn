@@ -1408,7 +1408,7 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 			// PickAndConnectActivePool's "wasConnected" path then
 			// no-ops on a phantom-running tunnel. Re-enabling the
 			// real recovery closes that hole.
-			a.engineBridge.observeConnect() // shadow: feed the engine a connect
+			a.engineBridge.observeConnect(activeProto) // shadow: feed the engine the real protocol
 			a.tunnelHealth.Start(target, a.settings.TunnelHealthPingIntervalSec, a.settings.TunnelHealthDeadThreshold, func() {
 				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + trying failover")
 				// Serialise against concurrent UI Connect/Disconnect.

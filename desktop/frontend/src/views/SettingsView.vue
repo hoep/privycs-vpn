@@ -942,10 +942,21 @@ async function refreshEngineDecisions() {
 }
 // Localize a decision via its stable engine HumanKey (e.g. "decision.switching")
 // → settings.engine.decision.<key>, interpolating the engine-provided args.
+function engineProtoLabel(token: string): string {
+  switch (String(token).toLowerCase()) {
+    case 'wireguard': return 'WireGuard'
+    case 'amneziawg': case 'amnezia': return 'AmneziaWG'
+    case 'openvpn': return 'OpenVPN'
+    case 'ipsec': return 'IPSec'
+    default: return token
+  }
+}
 function decisionText(d: any): string {
   const key = String(d?.key || '').replace(/^decision\./, '')
   if (!key) return String(d?.rule || '')
-  return t('settings.engine.decision.' + key, (d?.args || []) as string[])
+  // args carry protocol tokens — render their proper brand labels.
+  const args = ((d?.args || []) as string[]).map(engineProtoLabel)
+  return t('settings.engine.decision.' + key, args)
 }
 function fmtTime(iso: string): string {
   try {

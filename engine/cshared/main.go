@@ -48,7 +48,9 @@ func lookup(h C.int64_t) *ffi.Session {
 }
 
 //export PvcsEngineObserveConnect
-func PvcsEngineObserveConnect(h C.int64_t) { lookup(h).ObserveConnect() }
+func PvcsEngineObserveConnect(h C.int64_t, protocol *C.char) {
+	lookup(h).ObserveConnect(C.GoString(protocol))
+}
 
 //export PvcsEngineObserveDisconnect
 func PvcsEngineObserveDisconnect(h C.int64_t) { lookup(h).ObserveDisconnect() }

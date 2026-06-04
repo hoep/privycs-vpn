@@ -1419,14 +1419,42 @@ private fun EngineDecisionsPanel() {
         )
     } else {
         decisions.asReversed().take(20).forEach { d ->
-            Text(
-                text = engineDecisionText(d),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
+            Row(
                 modifier = Modifier.padding(vertical = 2.dp),
-            )
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = engineShortTime(d.at),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = engineDecisionText(d),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
+}
+
+/** "20:45:03" from a decision's RFC3339 timestamp (empty if unparseable). */
+private fun engineShortTime(at: String): String = try {
+    java.time.OffsetDateTime.parse(at)
+        .toLocalTime()
+        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+} catch (t: Throwable) {
+    ""
+}
+
+/** Proper brand label for a protocol token (never localized). */
+private fun engineProtoLabel(token: String): String = when (token.lowercase()) {
+    "wireguard" -> "WireGuard"
+    "amneziawg", "amnezia" -> "AmneziaWG"
+    "openvpn" -> "OpenVPN"
+    "ipsec" -> "IPSec"
+    else -> token
 }
 
 /** Maps an engine decision's stable i18n key to the localized string. */
@@ -1453,8 +1481,10 @@ private fun engineDecisionText(d: com.privycs.vpn.engine.EngineDecision): String
         else -> 0
     }
     if (resId == 0) return d.to
-    return if (d.args.isNotEmpty()) {
-        stringResource(resId, *d.args.toTypedArray())
+    // args carry protocol tokens — render their proper brand labels.
+    val labeled = d.args.map { engineProtoLabel(it) }.toTypedArray()
+    return if (labeled.isNotEmpty()) {
+        stringResource(resId, *labeled)
     } else {
         stringResource(resId)
     }

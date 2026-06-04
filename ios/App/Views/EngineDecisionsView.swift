@@ -26,8 +26,14 @@ struct EngineDecisionsView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(Array(decisions.reversed().prefix(20))) { d in
-                        Text(decisionText(d))
-                            .font(.callout)
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(shortTime(d.at))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Text(decisionText(d))
+                                .font(.callout)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
             } header: {
@@ -43,11 +49,35 @@ struct EngineDecisionsView: View {
 
     private func refresh() { decisions = appState.engineShadow.decisions() }
 
+    private static let isoParser = ISO8601DateFormatter()
+    private static let hms: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    /// "20:45:03" from the decision's RFC3339 timestamp (empty if unparseable).
+    private func shortTime(_ at: String) -> String {
+        guard let d = Self.isoParser.date(from: at) else { return "" }
+        return Self.hms.string(from: d)
+    }
+
+    /// Map a protocol token to its proper brand label (never localized).
+    private func protoLabel(_ token: String) -> String {
+        switch token.lowercased() {
+        case "wireguard": return "WireGuard"
+        case "amneziawg", "amnezia": return "AmneziaWG"
+        case "openvpn": return "OpenVPN"
+        case "ipsec": return "IPSec"
+        default: return token
+        }
+    }
+
     /// Maps the engine's stable i18n key to the localized string. Arg strings
     /// use String(localized:) interpolation, whose generated catalog key is the
     /// "%@" form (e.g. "Connecting via %@…").
     private func decisionText(_ d: EngineDecision) -> String {
-        let arg = d.args.first ?? ""
+        let arg = protoLabel(d.args.first ?? "")
         switch d.key {
         case "decision.connecting": return String(localized: "Connecting via \(arg)…")
         case "decision.validating": return String(localized: "Verifying connectivity…")
