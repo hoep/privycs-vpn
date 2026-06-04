@@ -57,19 +57,23 @@ jobs:
           git clone https://github.com/amnezia-vpn/amneziawg-apple .deps/wireguard-apple
           (cd .deps/wireguard-apple && git checkout "$PIN")
 
-          # swift-tools-version → 5.5 (no-op on the amnezia fork; robustness).
-          sed -i '' '1s|.*|// swift-tools-version:5.5|' .deps/wireguard-apple/Package.swift
+          # swift-tools-version → 5.9 so the manifest can express .tvOS(.v17)
+          # (the .v17 enum case needs tools >= 5.9; 5.5 only knew up to .v15,
+          # and a tvOS-15 package floor made WireGuardKit's tvOS-17-only NE
+          # APIs — NEPacketTunnelProvider / NE*Route — unavailable). 5.9 is
+          # backward-compatible with the fork's 5.5-era manifest; iOS unaffected.
+          sed -i '' '1s|.*|// swift-tools-version:5.9|' .deps/wireguard-apple/Package.swift
 
           # Declare tvOS platform support in the package so a tvOS build
           # destination resolves WireGuardKit. The fork's manifest lists
           # .iOS(...) / .macOS(...); add .tvOS(.v17) alongside .iOS if missing.
           PKG=.deps/wireguard-apple/Package.swift
-          # NB: .v15 (not .v17) — the fork's manifest is swift-tools-version:5.5,
-          # whose PackageDescription only knows tvOS up to .v15; .v16/.v17 need
-          # tools 5.7/5.9. A package min-platform of .v15 is fine: the tvOS app
-          # target still builds at its own 17.0 deployment target.
+          # .v17 (needs the tools 5.9 bump above): WireGuardKit references
+          # NEPacketTunnelProvider / NEIPv4Route / NEIPv6Route /
+          # NEPacketTunnelNetworkSettings, which Apple only shipped to tvOS in
+          # 17.0 — a lower package floor makes those uses "unavailable".
           if ! grep -q '\.tvOS' "$PKG"; then
-            perl -0pi -e 's/(\.iOS\([^)]*\))/$1, .tvOS(.v15)/' "$PKG"
+            perl -0pi -e 's/(\.iOS\([^)]*\))/$1, .tvOS(.v17)/' "$PKG"
             echo "Patched platforms line:"; grep -n 'platforms' "$PKG" || true
             grep -n '\.tvOS' "$PKG" || { echo "ERROR: tvOS platform patch did not apply"; exit 1; }
           fi

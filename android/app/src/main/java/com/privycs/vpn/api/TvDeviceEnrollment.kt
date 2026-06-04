@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * the private docs (TV_PORT_PLAN.md §2 + GATEWAY_TASK_tv-device-
  * enrollment.md).
  *
- * NOTE (2026-06-04): the gateway endpoints under /api/v1/tv/device/*
+ * NOTE (2026-06-04): the gateway endpoints under /api/v1/tv/device/
  * do NOT exist yet — they are P0 in the TV port plan and tracked in
  * GATEWAY_TASK_tv-device-enrollment.md. Until they land, [start] / [poll]
  * will fail with a network/HTTP error and the TV enrollment UI falls
