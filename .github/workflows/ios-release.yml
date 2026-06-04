@@ -226,7 +226,7 @@ jobs:
             <dict>
               <key>com.privycs.vpn</key><string>Privycs VPN App Store</string>
               <key>com.privycs.vpn.tunnel</key><string>Privycs VPN Tunnel App Store</string>
-              <key>com.privycs.vpn.widget</key><string>Privycs VPN Widget App Store</string>
+              <key>com.privycs.vpn.widgets</key><string>Privycs VPN Widget App Store</string>
             </dict>
           </dict></plist>
           EOF
