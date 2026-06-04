@@ -1,0 +1,4 @@
+{"name":"suspend then resume re-validates","profiles":["wireguard:wg-1"],
+ "steps":[{"ev":"UserConnect"},{"ev":"HandshakeOK"},{"ev":"Probe","ok":true,"rtt":30},
+          {"ev":"Suspend"},{"ev":"Resume"}],
+ "expectFSM":"Validating","expectActive":"wg-1"}

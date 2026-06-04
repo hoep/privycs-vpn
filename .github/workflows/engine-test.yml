@@ -1,0 +1,40 @@
+name: Engine Tests
+
+# Pure-Go Smart Decision Engine core (engine/). Fully platform-independent —
+# fast Linux CI, no SDKs. This is the foundation gate for the cross-platform
+# rollout (P0); the same golden vectors get replayed later in the Android (AAR)
+# and iOS (xcframework) CIs to prove identical behavior across platforms.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'engine/**'
+      - '.github/workflows/engine-test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'engine/**'
+      - '.github/workflows/engine-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: go vet
+        working-directory: engine
+        run: go vet ./...
+      - name: go test (race)
+        working-directory: engine
+        run: go test -race -count=1 ./...
+      - name: cross-arch determinism guard (arm64 build)
+        working-directory: engine
+        run: |
+          GOARCH=arm64 go build ./...
+          GOARCH=arm64 go vet ./...

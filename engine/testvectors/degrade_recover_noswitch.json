@@ -1,0 +1,5 @@
+{"name":"degrade then recover without switching","profiles":["wireguard:wg-1","openvpn:ovpn-1"],
+ "steps":[{"ev":"UserConnect"},{"ev":"HandshakeOK"},{"ev":"Probe","ok":true,"rtt":30},
+          {"ev":"Probe","ok":true,"rtt":500},{"ev":"Probe","ok":true,"rtt":500},
+          {"ev":"Probe","ok":true,"rtt":30}],
+ "expectFSM":"Connected","expectActive":"wg-1"}

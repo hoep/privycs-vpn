@@ -1,0 +1,8 @@
+{"name":"dead -> recovery ladder -> fallback to ovpn","profiles":["wireguard:wg-1","openvpn:ovpn-1"],
+ "steps":[{"ev":"UserConnect"},{"ev":"HandshakeOK"},{"ev":"Probe","ok":true,"rtt":30},
+          {"ev":"Probe","ok":false,"rtt":5000,"loss":500000},
+          {"ev":"Probe","ok":false,"rtt":5000,"loss":500000},
+          {"ev":"Timer","timer":"RecoveryStep"},{"ev":"Timer","timer":"RecoveryStep"},
+          {"ev":"Timer","timer":"RecoveryStep"},{"ev":"Timer","timer":"RecoveryStep"},
+          {"ev":"HandshakeOK"},{"ev":"Probe","ok":true,"rtt":30}],
+ "expectFSM":"Connected","expectActive":"ovpn-1"}
