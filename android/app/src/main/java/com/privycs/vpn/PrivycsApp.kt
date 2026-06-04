@@ -171,6 +171,17 @@ class PrivycsApp : StrongSwanApplication() {
         connectionRepository = ConnectionRepository(this)
         settingsRepository = SettingsRepository(this)
 
+        // Smart Decision Engine (shadow, v1.0.9): forward every tunnel-health
+        // transition to the engine so it can explain what it WOULD do. The
+        // StateFlow only emits on change, so this is one cheap observer; the
+        // engine drives nothing. Connect/disconnect are observed from
+        // ConnectCoordinator; the candidate set is the failover order.
+        appScope.launch {
+            com.privycs.vpn.service.TunnelHealthMonitor.state.collect { hs ->
+                com.privycs.vpn.engine.EngineShadow.observeHealth(hs)
+            }
+        }
+
         // v1.0.7.3 — anonymous crash reporting. Default OFF. NO
         // runBlocking on the main thread: just observe the
         // settings flow on Dispatchers.IO and (re-)init the

@@ -680,4 +680,27 @@
     <string name="tv_connect_button_connecting">A ligar…</string>
     <string name="tv_connect_button_connect">Ligar</string>
     <string name="tv_connect_pick_a_server">Escolha um servidor à esquerda para começar.</string>
+    <!-- Smart Decision Engine (v1.0.9) -->
+    <string name="settings_auto_protocol_title">Seleção automática de protocolo</string>
+    <string name="settings_auto_protocol_help">Deixe o motor escolher e restabelecer o melhor protocolo para a rede atual.</string>
+    <string name="settings_auto_protocol_on_note">O motor decide o protocolo automaticamente. A ordem manual fica oculta enquanto isto estiver ativo.</string>
+    <string name="settings_engine_decisions_title">Decisões do motor</string>
+    <string name="settings_engine_decisions_empty">Ainda sem decisões — liga-te para veres o que o motor escolhe e porquê.</string>
+    <string name="engine_decision_connecting">A ligar via %1$s…</string>
+    <string name="engine_decision_validating">A verificar a ligação…</string>
+    <string name="engine_decision_connected">Ligado via %1$s</string>
+    <string name="engine_decision_degraded">Ligação degradada — a monitorizar</string>
+    <string name="engine_decision_recovered">Ligação restabelecida</string>
+    <string name="engine_decision_recover_wait">Recuperação: a aguardar a estabilização da ligação</string>
+    <string name="engine_decision_recover_revalidate">Recuperação: a verificar novamente a ligação</string>
+    <string name="engine_decision_recover_restart">Recuperação: a reiniciar o túnel</string>
+    <string name="engine_decision_switching">A mudar de protocolo para %1$s</string>
+    <string name="engine_decision_backoff">Falha na ligação — a aguardar antes de repetir</string>
+    <string name="engine_decision_captive">Portal cativo detetado — inicia sessão para continuar</string>
+    <string name="engine_decision_roam">Rede alterada — a revalidar</string>
+    <string name="engine_decision_disconnected">Desligado</string>
+    <string name="engine_decision_suspended">Em pausa (suspensão do sistema)</string>
+    <string name="engine_decision_resumed_idle">Retomado</string>
+    <string name="engine_decision_resumed_revalidate">Retomado — a revalidar</string>
+    <string name="engine_decision_no_profile">Nenhum protocolo utilizável</string>
 </resources>

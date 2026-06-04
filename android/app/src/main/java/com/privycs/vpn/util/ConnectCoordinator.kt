@@ -448,6 +448,9 @@ object ConnectCoordinator {
             _state.value = State.Connected(System.currentTimeMillis(), connectionId, carriedSource)
             cancelWatchdog()
         }
+        // Smart Decision Engine (shadow): observe the confirmed connect so the
+        // engine can explain what it WOULD choose. Drives nothing. [v1.0.9]
+        com.privycs.vpn.engine.EngineShadow.observeConnect()
     }
 
     /**
@@ -478,6 +481,8 @@ object ConnectCoordinator {
             _state.value = State.Idle
             cancelWatchdog()
         }
+        // Smart Decision Engine (shadow): observe the disconnect. [v1.0.9]
+        com.privycs.vpn.engine.EngineShadow.observeDisconnect()
     }
 
     /** Read the current intent source of a Connecting state, if any. */

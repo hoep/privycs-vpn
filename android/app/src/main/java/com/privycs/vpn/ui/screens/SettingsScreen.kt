@@ -58,6 +58,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -941,6 +942,25 @@ fun SettingsScreen(
 
             // -- Protocol Failover Order (v0.9.15.70) --
             SettingsSection(title = stringResource(R.string.settings_section_protocol_failover)) {
+                // Smart Decision Engine (v1.0.9): Automatic protocol selection.
+                // When on, the manual reorder list is hidden and a live engine
+                // decision panel is shown instead — mirrors desktop SettingsView.
+                SettingsToggle(
+                    title = stringResource(R.string.settings_auto_protocol_title),
+                    description = stringResource(R.string.settings_auto_protocol_help),
+                    checked = settings.autoProtocolSelection,
+                    onCheckedChange = { persistScope.launch { settingsRepo.setAutoProtocolSelection(it) } },
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                if (settings.autoProtocolSelection) {
+                    Text(
+                        text = stringResource(R.string.settings_auto_protocol_on_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    EngineDecisionsPanel()
+                } else {
                 Text(
                     text = stringResource(R.string.settings_protocol_failover_desc),
                     style = MaterialTheme.typography.bodySmall,
@@ -1037,6 +1057,7 @@ fun SettingsScreen(
                         }
                     }
                 }
+                } // end else (manual failover order)
             }
 
             // -- Per-App VPN --
@@ -1365,6 +1386,77 @@ internal fun SettingsToggle(
                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary
             )
         )
+    }
+}
+
+/**
+ * Live panel of the Smart Decision Engine's recent decisions (v1.0.9). Polls
+ * the shadow engine every 4 s and renders each decision's localized "what +
+ * why" string — the same i18n keys the desktop SettingsView uses. Shown in
+ * place of the manual failover list when Automatic protocol selection is on.
+ */
+@Composable
+private fun EngineDecisionsPanel() {
+    var decisions by remember { mutableStateOf(com.privycs.vpn.engine.EngineShadow.decisions()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            decisions = com.privycs.vpn.engine.EngineShadow.decisions()
+            kotlinx.coroutines.delay(4000)
+        }
+    }
+    Text(
+        text = stringResource(R.string.settings_engine_decisions_title),
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    if (decisions.isEmpty()) {
+        Text(
+            text = stringResource(R.string.settings_engine_decisions_empty),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        decisions.asReversed().take(20).forEach { d ->
+            Text(
+                text = engineDecisionText(d),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(vertical = 2.dp),
+            )
+        }
+    }
+}
+
+/** Maps an engine decision's stable i18n key to the localized string. */
+@Composable
+private fun engineDecisionText(d: com.privycs.vpn.engine.EngineDecision): String {
+    val resId = when (d.key.removePrefix("decision.")) {
+        "connecting" -> R.string.engine_decision_connecting
+        "validating" -> R.string.engine_decision_validating
+        "connected" -> R.string.engine_decision_connected
+        "degraded" -> R.string.engine_decision_degraded
+        "recovered" -> R.string.engine_decision_recovered
+        "recover_wait" -> R.string.engine_decision_recover_wait
+        "recover_revalidate" -> R.string.engine_decision_recover_revalidate
+        "recover_restart" -> R.string.engine_decision_recover_restart
+        "switching" -> R.string.engine_decision_switching
+        "backoff" -> R.string.engine_decision_backoff
+        "captive" -> R.string.engine_decision_captive
+        "roam" -> R.string.engine_decision_roam
+        "disconnected" -> R.string.engine_decision_disconnected
+        "suspended" -> R.string.engine_decision_suspended
+        "resumed_idle" -> R.string.engine_decision_resumed_idle
+        "resumed_revalidate" -> R.string.engine_decision_resumed_revalidate
+        "no_profile" -> R.string.engine_decision_no_profile
+        else -> 0
+    }
+    if (resId == 0) return d.to
+    return if (d.args.isNotEmpty()) {
+        stringResource(resId, *d.args.toTypedArray())
+    } else {
+        stringResource(resId)
     }
 }
 

@@ -57,6 +57,9 @@ class SettingsRepository(private val context: Context) {
         // openvpn,ipsec"). Empty / missing key falls back to the
         // AppSettings default in the data class.
         val PROTOCOL_FAILOVER_ORDER = stringPreferencesKey("protocol_failover_order")
+        // v1.0.9: Smart Decision Engine "Automatic protocol selection".
+        // Matches Desktop's `auto_protocol_selection`. Default false.
+        val AUTO_PROTOCOL_SELECTION = booleanPreferencesKey("auto_protocol_selection")
         // v1.0.5: master on/off for the NetworkRules engine. Matches
         // Desktop's `network_rules_enabled` field. Defaults true.
         val NETWORK_RULES_ENABLED = booleanPreferencesKey("network_rules_enabled")
@@ -99,6 +102,7 @@ class SettingsRepository(private val context: Context) {
             keepMonitorAlive = prefs[Keys.KEEP_MONITOR_ALIVE] ?: false,
             networkRulesEnabled = prefs[Keys.NETWORK_RULES_ENABLED] ?: true,
             crashReportsEnabled = prefs[Keys.CRASH_REPORTS_ENABLED] ?: false,
+            autoProtocolSelection = prefs[Keys.AUTO_PROTOCOL_SELECTION] ?: false,
             protocolFailoverOrder = (prefs[Keys.PROTOCOL_FAILOVER_ORDER] ?: "")
                 .split(",")
                 .mapNotNull { VpnProtocol.fromString(it.trim()) }
@@ -195,6 +199,16 @@ class SettingsRepository(private val context: Context) {
                 settings.protocolFailoverOrder.joinToString(",") { it.name.lowercase() }
             prefs[Keys.NETWORK_RULES_ENABLED] = settings.networkRulesEnabled
             prefs[Keys.CRASH_REPORTS_ENABLED] = settings.crashReportsEnabled
+            prefs[Keys.AUTO_PROTOCOL_SELECTION] = settings.autoProtocolSelection
+        }
+    }
+
+    /** Targeted setter for the Smart-Decision-Engine "Automatic protocol
+     *  selection" toggle (v1.0.9). Flips the bit without rewriting the whole
+     *  AppSettings document. */
+    suspend fun setAutoProtocolSelection(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.AUTO_PROTOCOL_SELECTION] = enabled
         }
     }
 

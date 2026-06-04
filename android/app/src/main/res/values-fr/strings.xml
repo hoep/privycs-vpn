@@ -680,4 +680,27 @@
     <string name="tv_connect_button_connecting">Connexion…</string>
     <string name="tv_connect_button_connect">Connecter</string>
     <string name="tv_connect_pick_a_server">Choisissez un serveur à gauche pour commencer.</string>
+    <!-- Smart Decision Engine (v1.0.9) -->
+    <string name="settings_auto_protocol_title">Sélection automatique du protocole</string>
+    <string name="settings_auto_protocol_help">Laissez le moteur choisir et rétablir le meilleur protocole pour le réseau actuel.</string>
+    <string name="settings_auto_protocol_on_note">Le moteur décide automatiquement du protocole. L’ordre manuel est masqué tant que c’est activé.</string>
+    <string name="settings_engine_decisions_title">Décisions du moteur</string>
+    <string name="settings_engine_decisions_empty">Aucune décision pour l’instant — connectez-vous pour voir ce que le moteur choisit et pourquoi.</string>
+    <string name="engine_decision_connecting">Connexion via %1$s…</string>
+    <string name="engine_decision_validating">Vérification de la connectivité…</string>
+    <string name="engine_decision_connected">Connecté via %1$s</string>
+    <string name="engine_decision_degraded">Connexion dégradée — surveillance</string>
+    <string name="engine_decision_recovered">Connexion rétablie</string>
+    <string name="engine_decision_recover_wait">Récupération : attente de la stabilisation du lien</string>
+    <string name="engine_decision_recover_revalidate">Récupération : nouvelle vérification de la connectivité</string>
+    <string name="engine_decision_recover_restart">Récupération : redémarrage du tunnel</string>
+    <string name="engine_decision_switching">Changement de protocole vers %1$s</string>
+    <string name="engine_decision_backoff">Échec de la connexion — pause avant nouvelle tentative</string>
+    <string name="engine_decision_captive">Portail captif détecté — connectez-vous pour continuer</string>
+    <string name="engine_decision_roam">Réseau changé — revalidation</string>
+    <string name="engine_decision_disconnected">Déconnecté</string>
+    <string name="engine_decision_suspended">En pause (veille système)</string>
+    <string name="engine_decision_resumed_idle">Repris</string>
+    <string name="engine_decision_resumed_revalidate">Repris — revalidation</string>
+    <string name="engine_decision_no_profile">Aucun protocole utilisable</string>
 </resources>

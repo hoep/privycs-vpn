@@ -698,4 +698,27 @@
     <string name="tv_connect_button_connecting">Connecting…</string>
     <string name="tv_connect_button_connect">Connect</string>
     <string name="tv_connect_pick_a_server">Pick a server on the left to begin.</string>
+    <!-- Smart Decision Engine (v1.0.9) -->
+    <string name="settings_auto_protocol_title">Automatic protocol selection</string>
+    <string name="settings_auto_protocol_help">Let the engine choose and recover the best protocol for the current network.</string>
+    <string name="settings_auto_protocol_on_note">The engine decides the protocol automatically. The manual order is hidden while this is on.</string>
+    <string name="settings_engine_decisions_title">Engine decisions</string>
+    <string name="settings_engine_decisions_empty">No decisions yet — connect to see what the engine chooses and why.</string>
+    <string name="engine_decision_connecting">Connecting via %1$s…</string>
+    <string name="engine_decision_validating">Verifying connectivity…</string>
+    <string name="engine_decision_connected">Connected via %1$s</string>
+    <string name="engine_decision_degraded">Connection degraded — monitoring</string>
+    <string name="engine_decision_recovered">Connection recovered</string>
+    <string name="engine_decision_recover_wait">Recovering: waiting for the link to settle</string>
+    <string name="engine_decision_recover_revalidate">Recovering: re-checking connectivity</string>
+    <string name="engine_decision_recover_restart">Recovering: restarting the tunnel</string>
+    <string name="engine_decision_switching">Switching protocol to %1$s</string>
+    <string name="engine_decision_backoff">Connection failed — backing off before retry</string>
+    <string name="engine_decision_captive">Captive portal detected — sign in to continue</string>
+    <string name="engine_decision_roam">Network changed — re-validating</string>
+    <string name="engine_decision_disconnected">Disconnected</string>
+    <string name="engine_decision_suspended">Paused (system sleep)</string>
+    <string name="engine_decision_resumed_idle">Resumed</string>
+    <string name="engine_decision_resumed_revalidate">Resumed — re-validating</string>
+    <string name="engine_decision_no_profile">No usable protocol available</string>
 </resources>

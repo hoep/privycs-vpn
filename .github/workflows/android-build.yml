@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'android/**'
+      - 'engine/**'
       - '.github/workflows/android-build.yml'
   pull_request:
     branches: [main]
     paths:
       - 'android/**'
+      - 'engine/**'
       - '.github/workflows/android-build.yml'
 
 # Least-privilege workflow token — build only needs to read source.
@@ -99,6 +101,18 @@ jobs:
 
       - name: Prepare AmneziaWG (rename native libs to coexist with WG)
         run: ./scripts/prepare-amneziawg.sh
+
+      - name: Set up Go (Smart Decision Engine)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build Smart Decision Engine AAR (gomobile)
+        # gomobile-bind the shared Go core (engine/ffi) into
+        # android/app/libs/engine.aar before gradle. Needs the NDK (set above).
+        run: ../engine/scripts/build-engine-aar.sh
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -206,6 +220,18 @@ jobs:
 
       - name: Prepare AmneziaWG (rename native libs to coexist with WG)
         run: ./scripts/prepare-amneziawg.sh
+
+      - name: Set up Go (Smart Decision Engine)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build Smart Decision Engine AAR (gomobile)
+        # gomobile-bind the shared Go core (engine/ffi) into
+        # android/app/libs/engine.aar before gradle. Needs the NDK (set above).
+        run: ../engine/scripts/build-engine-aar.sh
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
