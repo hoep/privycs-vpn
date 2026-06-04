@@ -162,3 +162,21 @@ jobs:
             -destination 'generic/platform=tvOS' \
             CODE_SIGNING_ALLOWED=NO \
             LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out-tvos'
+
+      # Release archive (unsigned) — runs Release config's VALIDATE_PRODUCT, the
+      # stricter Mach-O / platform-load-command validation the real ios-release
+      # tvOS archive will hit. Catches the known risk (libwg-go built GOOS=ios
+      # carries an iOS platform load command a tvOS archive may reject) on the
+      # PR, WITHOUT a release tag / TestFlight upload.
+      - name: Archive tvOS (Release, unsigned — VALIDATE_PRODUCT check)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project PrivycsVPN.xcodeproj \
+            -scheme PrivycsVPNtvOS \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            -archivePath /tmp/PrivycsVPNtvOS.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out-tvos'
