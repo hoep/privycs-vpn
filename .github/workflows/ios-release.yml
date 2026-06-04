@@ -515,7 +515,7 @@ jobs:
             <key>provisioningProfiles</key>
             <dict>
               <key>com.privycs.vpn</key><string>Privycs VPN tvOS App Store</string>
-              <key>com.privycs.vpn.tunnel</key><string>Privycs VPN tvOS Tunnel App Store</string>
+              <key>com.privycs.vpn.tunnel</key><string>Privycs VPN Tunnel tvOS App Store</string>
             </dict>
           </dict></plist>
           EOF
