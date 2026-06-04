@@ -10,11 +10,13 @@ on:
     branches: [main]
     paths:
       - 'ios/**'
+      - 'engine/**'
       - '.github/workflows/ios-build.yml'
   push:
     branches: ['feat/**']
     paths:
       - 'ios/**'
+      - 'engine/**'
       - '.github/workflows/ios-build.yml'
   workflow_dispatch:
 
@@ -133,6 +135,15 @@ jobs:
             CONFIGURATION_TEMP_DIR=/tmp/wg-out-tvos/tmp \
             make GOOS_appletvos=ios build
           ls -la /tmp/wg-out-tvos/libwg-go.a
+
+      - name: Build Smart Decision Engine xcframework (gomobile)
+        # gomobile-bind the shared Go core (engine/ffi) into
+        # ios/ThirdParty/Engine/Engine.xcframework BEFORE xcodegen so the local
+        # SwiftPM binaryTarget resolves. Go is installed above; the script
+        # installs gomobile. The iOS App target links it (engine lives in the
+        # app, not the NetworkExtension).
+        working-directory: ios
+        run: ./Scripts/build-engine-xcframework.sh
 
       - name: Generate .xcodeproj
         working-directory: ios

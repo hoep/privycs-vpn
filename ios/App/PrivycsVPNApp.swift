@@ -48,6 +48,15 @@ final class AppState: ObservableObject {
     /// rules (and iOS on-demand ssidMatch) can never match.
     let ssidProvider = SSIDProvider()
 
+    /// Smart Decision Engine (shadow, v1.0.9) — the same Go core (engine/ffi)
+    /// as desktop/Android, via the gomobile Engine.xcframework. Observes the
+    /// real connect/disconnect + tunnel-health and explains what it WOULD
+    /// choose; drives nothing. The EngineDecisionsView polls its decisions.
+    let engineShadow = EngineShadow()
+    /// Connected-edge latch so the status stream's repeated emissions map to a
+    /// single observeConnect()/observeDisconnect() per real transition.
+    private var engineConnectedLatch = false
+
     @Published var settings: AppSettings = .default
     @Published var connections: [SavedConnection] = []
     @Published var pools: [Pool] = []
@@ -795,6 +804,8 @@ final class AppState: ObservableObject {
             // setting (first launch after upgrade may have it only here).
             if !s.appLanguage.isEmpty { LanguageManager.shared.set(s.appLanguage) }
         }
+        // Seed the shadow engine's candidate set from the failover order.
+        engineShadow.ensure(order: self.settings.protocolFailoverOrder)
         await crashReporter.start(
             optedIn: settings.crashReportsEnabled,
             appVersion: PrivycsCoreInfo.version
@@ -833,6 +844,8 @@ final class AppState: ObservableObject {
                     optedIn: s.crashReportsEnabled,
                     appVersion: PrivycsCoreInfo.version
                 )
+                // Keep the engine's candidate set in sync with the order.
+                engineShadow.ensure(order: s.protocolFailoverOrder)
                 // Master-toggle / rule changes re-arm or disarm on-demand.
                 await syncOnDemand()
             }
@@ -848,6 +861,13 @@ final class AppState: ObservableObject {
                 self.status = st
                 self.ingestSpeedSample(st)
                 self.pushWidgetSnapshot()
+                // Shadow engine: map the status stream's edge to one observe.
+                if st.connected && !engineConnectedLatch {
+                    engineShadow.observeConnect()
+                } else if !st.connected && engineConnectedLatch {
+                    engineShadow.observeDisconnect()
+                }
+                engineConnectedLatch = st.connected
             }
         }
 

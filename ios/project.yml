@@ -62,6 +62,11 @@ packages:
   OpenVPNAdapter:
     url: https://github.com/ss-abramchuk/OpenVPNAdapter
     from: 0.8.0
+  # Smart Decision Engine (v1.0.9) — local SwiftPM wrapper around the gomobile
+  # Engine.xcframework (engine/ffi), built by Scripts/build-engine-xcframework.sh
+  # into ThirdParty/Engine/ (gitignored, rebuilt in CI). App target only.
+  Engine:
+    path: ThirdParty/Engine
 
 targets:
   # ───── Main App ─────────────────────────────────────────────────
@@ -127,6 +132,8 @@ targets:
         com.apple.developer.networking.wifi-info: true
     dependencies:
       - package: PrivycsCore
+      - package: Engine
+        product: Engine
       # - package: Sentry        # temporarily removed, see packages: comment
       #   product: Sentry
       - target: PrivycsVPNTunnel

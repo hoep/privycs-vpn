@@ -69,4 +69,4 @@ ios/ThirdParty/AmneziaWG/
 
 # Smart Decision Engine gomobile artefacts (rebuilt in CI)
 android/app/libs/engine.aar
-ios/ThirdParty/Engine/
+ios/ThirdParty/Engine/Engine.xcframework/
