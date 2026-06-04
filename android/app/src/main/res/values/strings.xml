@@ -667,4 +667,35 @@
          Previously hard-coded English in PrivycsVpnService.kt. -->
     <string name="vpn_error_unknown_protocol">Unknown protocol: %1$s</string>
     <string name="vpn_error_connection_failed">Connection failed: %1$s</string>
+
+    <!-- Android TV / Google TV (leanback) UI strings. -->
+    <string name="tv_enroll_title">Link this TV</string>
+    <string name="tv_enroll_requesting_code">Requesting a code…</string>
+    <string name="tv_enroll_waiting">Waiting for you to confirm on your phone…</string>
+    <string name="tv_enroll_linked">TV linked! Loading your servers…</string>
+    <string name="tv_enroll_expired">The code expired. Get a new one.</string>
+    <string name="tv_enroll_error">Couldn\'t link: %1$s</string>
+    <string name="tv_enroll_instructions">On your phone, open %1$s and enter this code:</string>
+    <string name="tv_enroll_retry">Get a new code</string>
+    <string name="tv_enroll_manual">Enter gateway manually</string>
+    <string name="tv_enroll_manual_hint">Enter your gateway address and access token.</string>
+    <string name="tv_enroll_field_gateway_url">Gateway URL</string>
+    <string name="tv_enroll_field_token">Access token</string>
+    <string name="tv_enroll_manual_incomplete">Enter both the gateway URL and token.</string>
+    <string name="tv_enroll_save">Save</string>
+    <string name="tv_enroll_saving">Saving…</string>
+    <string name="tv_enroll_back_to_code">Back to code</string>
+    <string name="tv_connect_servers_title">Servers</string>
+    <string name="tv_connect_downloading">Adding…</string>
+    <string name="tv_connect_tap_to_add">Press to add from gateway</string>
+    <string name="tv_connect_add_failed">Couldn\'t add this config.</string>
+    <string name="tv_connect_relink">Re-link or change gateway</string>
+    <string name="tv_connect_no_selection">No server selected</string>
+    <string name="tv_connect_status_connecting">Connecting…</string>
+    <string name="tv_connect_status_connected">Connected</string>
+    <string name="tv_connect_status_disconnected">Not connected</string>
+    <string name="tv_connect_button_disconnect">Disconnect</string>
+    <string name="tv_connect_button_connecting">Connecting…</string>
+    <string name="tv_connect_button_connect">Connect</string>
+    <string name="tv_connect_pick_a_server">Pick a server on the left to begin.</string>
 </resources>

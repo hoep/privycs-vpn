@@ -1,0 +1,185 @@
+import Foundation
+import PrivycsCore
+
+/// Top-level tvOS app state. Reuses `PrivycsCore` verbatim — the same
+/// `SettingsRepository` (gateway URL + Keychain-stored token),
+/// `GatewayAPIClient` (config pull), and the live `TunnelStatsStore` the
+/// packet-tunnel extension publishes — so the TV behaves like the phone app's
+/// gateway-pull path with a living-room UI on top.
+///
+/// Holds the gateway `(url, token)` pair (from device-code enrollment or the
+/// manual fallback), the pulled remote-config list, the current selection, and
+/// a thin connect/disconnect surface over `TVTunnelController`.
+@MainActor
+final class TVAppState: ObservableObject {
+
+    // Reused PrivycsCore singletons (subset the TV needs).
+    let settingsRepo = SettingsRepository()
+    let connectionRepo = ConnectionRepository()
+    let tunnel = TVTunnelController()
+
+    /// Public site base the device-code endpoints live under. Constant for the
+    /// TV apps (the TV learns the *gateway* URL only after enrollment).
+    private let enrollmentBaseURL = URL(string: "https://www.privycs.com")!
+
+    @Published var settings: AppSettings = .default
+
+    /// Gateway-pulled configs the user can connect to. Each is imported into a
+    /// transient `SavedConnection` on connect.
+    @Published var remoteConfigs: [RemoteConfigEntry] = []
+    /// `id` of the selected `RemoteConfigEntry` (empty = none picked yet).
+    @Published var selectedConfigID: Int?
+
+    @Published var loadingConfigs = false
+    @Published var configError: String?
+
+    /// Live tunnel status, mirrored from the controller for view convenience.
+    @Published var status: VpnStatus = .disconnected
+    @Published var connecting = false
+
+    private var statusTask: Task<Void, Never>?
+
+    // MARK: — Derived
+
+    /// True once enrollment produced a `(gatewayURL, token)` pair — routes the
+    /// UI from the enroll screen to the main screen.
+    var isEnrolled: Bool {
+        !settings.gatewayURL.isEmpty && !settings.apiKey.isEmpty
+    }
+
+    /// Gateway client from current settings, or nil when not yet enrolled.
+    var gatewayClient: GatewayAPIClient? {
+        guard isEnrolled, let url = URL(string: settings.gatewayURL) else { return nil }
+        return GatewayAPIClient(gatewayURL: url, apiKey: settings.apiKey)
+    }
+
+    /// A fresh device-code enrollment client.
+    func makeEnrollmentClient() -> TVDeviceEnrollment {
+        TVDeviceEnrollment(baseURL: enrollmentBaseURL)
+    }
+
+    var selectedConfig: RemoteConfigEntry? {
+        guard let id = selectedConfigID else { return remoteConfigs.first }
+        return remoteConfigs.first(where: { $0.id == id }) ?? remoteConfigs.first
+    }
+
+    // MARK: — Lifecycle
+
+    func bootstrap() async {
+        if let s = try? await settingsRepo.current() {
+            settings = s
+        }
+        // Observe live tunnel status from the controller.
+        observeStatus()
+        // Auto-pull the config list if we're already enrolled.
+        if isEnrolled { await refreshConfigs() }
+    }
+
+    func refreshStatus() {
+        tunnel.refreshStatus()
+        status = tunnel.status
+    }
+
+    private func observeStatus() {
+        statusTask?.cancel()
+        statusTask = Task { [weak self] in
+            // The controller is @Published; poll its status into ours so the
+            // views observe a single object. 1s cadence matches the PTP stats.
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.status = self.tunnel.status
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
+    // MARK: — Enrollment
+
+    /// Persist a successful enrollment `(gatewayURL, token)` and pull configs.
+    /// Used by BOTH the device-code success path and the manual fallback.
+    func applyEnrollment(gatewayURL: String, token: String) async {
+        var s = settings
+        s.gatewayURL = gatewayURL
+        s.apiKey = token
+        try? await settingsRepo.save(s)
+        settings = s
+        await refreshConfigs()
+    }
+
+    /// Clear the stored gateway credentials (un-link this TV locally).
+    func unenroll() async {
+        var s = settings
+        s.gatewayURL = ""
+        s.apiKey = ""
+        try? await settingsRepo.save(s)
+        settings = s
+        remoteConfigs = []
+        selectedConfigID = nil
+    }
+
+    // MARK: — Config pull
+
+    func refreshConfigs() async {
+        guard let client = gatewayClient else { return }
+        loadingConfigs = true
+        configError = nil
+        defer { loadingConfigs = false }
+        do {
+            let configs = try await client.listMyConfigs()
+            remoteConfigs = configs
+            if selectedConfigID == nil { selectedConfigID = configs.first?.id }
+        } catch {
+            configError = error.localizedDescription
+        }
+    }
+
+    // MARK: — Connect / disconnect
+
+    func toggle() async {
+        if status.connected || tunnel.status.connected {
+            await disconnect()
+        } else {
+            await connectSelected()
+        }
+    }
+
+    func connectSelected() async {
+        guard let entry = selectedConfig, let client = gatewayClient else { return }
+        connecting = true
+        defer { connecting = false }
+        configError = nil
+        do {
+            // Download + render the .conf for this entry (WG/AWG JSON → wg-quick).
+            let content = try await client.fetchConfig(entry: entry)
+            let proto = ConfigImport.detectProtocol(filename: "\(entry.name).conf", content: content)
+            let cfg = ProtocolConfig(
+                id: "tv-\(entry.id)",
+                protocol: proto,
+                filename: "\(entry.name).conf",
+                configContent: content,
+                serverAddress: ConfigImport.extractServerAddress(content, proto)
+            )
+            let connection = SavedConnection(
+                id: "tv-\(entry.id)",
+                name: entry.name,
+                protocols: [cfg],
+                activeConfigID: cfg.id,
+                dnsOverride: settings.dnsOverride
+            )
+            await tunnel.connect(connection,
+                                 dnsOverride: settings.dnsOverride,
+                                 killSwitch: settings.killSwitchEnabled)
+            if let err = tunnel.lastError { configError = err }
+            status = tunnel.status
+        } catch {
+            configError = error.localizedDescription
+        }
+    }
+
+    func disconnect() async {
+        connecting = true
+        defer { connecting = false }
+        await tunnel.disconnect()
+        status = tunnel.status
+    }
+}

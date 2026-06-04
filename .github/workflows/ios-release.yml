@@ -302,6 +302,279 @@ jobs:
             ios/build/IPA/*.ipa
             ios/build/IPA/*.ipa.sha256
 
+  build-tvos:
+    needs: check-changes
+    if: needs.check-changes.outputs.ios_changed == 'true'
+    # macos-26 carries Xcode 26 + tvOS 26 SDK — same minimum-SDK enforcement
+    # as iOS applies to TestFlight uploads.
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          # macos-26 runner ships Xcode 26.x; pick the highest installed.
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            XCODE=/Applications/Xcode_26.app
+          fi
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Ensure tvOS SDK is installed
+        run: |
+          sudo xcodebuild -runFirstLaunch || true
+          xcodebuild -downloadPlatform tvOS || true
+          xcodebuild -showsdks | grep -i tvos || true
+
+      - name: Install XcodeGen + Go toolchain
+        run: |
+          brew install xcodegen
+          # Go is needed by the WireGuardKitGo Makefile (libwg-go.a)
+          if ! command -v go >/dev/null; then
+            brew install go
+          fi
+          go version
+
+      - name: Prepare WireGuardKit (clone + patch + build libwg-go.a for iOS AND tvOS)
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          PIN="5cbc86f38466ff763e24167bebc2640d6c30e7fe"
+          mkdir -p .deps
+          rm -rf .deps/wireguard-apple
+          git clone https://github.com/amnezia-vpn/amneziawg-apple .deps/wireguard-apple
+          (cd .deps/wireguard-apple && git checkout "$PIN")
+
+          # swift-tools-version → 5.9 so the manifest can express .tvOS(.v17)
+          # (the .v17 enum case needs tools >= 5.9; 5.5 only knew up to .v15,
+          # and a tvOS-15 package floor made WireGuardKit's tvOS-17-only NE
+          # APIs — NEPacketTunnelProvider / NE*Route — unavailable). 5.9 is
+          # backward-compatible with the fork's 5.5-era manifest; iOS unaffected.
+          sed -i '' '1s|.*|// swift-tools-version:5.9|' .deps/wireguard-apple/Package.swift
+
+          # Declare tvOS platform support in the package so a tvOS build
+          # destination resolves WireGuardKit. The fork's manifest lists
+          # .iOS(...) / .macOS(...); add .tvOS(.v17) alongside .iOS if missing.
+          PKG=.deps/wireguard-apple/Package.swift
+          # .v17 (needs the tools 5.9 bump above): WireGuardKit references
+          # NEPacketTunnelProvider / NEIPv4Route / NEIPv6Route /
+          # NEPacketTunnelNetworkSettings, which Apple only shipped to tvOS in
+          # 17.0 — a lower package floor makes those uses "unavailable".
+          if ! grep -q '\.tvOS' "$PKG"; then
+            perl -0pi -e 's/(\.iOS\([^)]*\))/$1, .tvOS(.v17)/' "$PKG"
+            echo "Patched platforms line:"; grep -n 'platforms' "$PKG" || true
+            grep -n '\.tvOS' "$PKG" || { echo "ERROR: tvOS platform patch did not apply"; exit 1; }
+          fi
+
+          # WireGuardKitC.h needs <sys/types.h> for u_int32_t/u_char/u_int16_t.
+          HEADER=.deps/wireguard-apple/Sources/WireGuardKitC/WireGuardKitC.h
+          if ! grep -q '<sys/types.h>' "$HEADER"; then
+            awk '/^#include "x25519.h"/ { print; print "#include <sys/types.h>"; next } { print }' "$HEADER" > "$HEADER.tmp"
+            grep -q '<sys/types.h>' "$HEADER.tmp" || { echo "ERROR: WireGuardKitC.h patch did not match"; exit 1; }
+            mv "$HEADER.tmp" "$HEADER"
+          fi
+
+          # WireGuardKit's DNSResolver / PacketTunnelSettingsGenerator /
+          # WireGuardAdapter #error("Unimplemented"/"Unsupported") on any
+          # platform other than iOS/macOS. tvOS has the same NetworkExtension +
+          # POSIX DNS (getaddrinfo) APIs as iOS, so route tvOS into the iOS
+          # branches. Fail loud if a repin moves these anchors.
+          WGK=.deps/wireguard-apple/Sources/WireGuardKit
+          perl -0pi -e 's/\Q#if os(iOS)\E/#if os(iOS) || os(tvOS)/' "$WGK/DNSResolver.swift"
+          perl -0pi -e 's/\Q#if os(iOS)\E/#if os(iOS) || os(tvOS)/' "$WGK/PacketTunnelSettingsGenerator.swift"
+          perl -0pi -e 's/\Q#elseif os(iOS)\E/#elseif os(iOS) || os(tvOS)/' "$WGK/WireGuardAdapter.swift"
+          for f in DNSResolver PacketTunnelSettingsGenerator WireGuardAdapter; do
+            grep -q 'os(tvOS)' "$WGK/$f.swift" || { echo "ERROR: tvOS guard patch did not apply to $f.swift (upstream changed)"; exit 1; }
+          done
+          echo "WireGuardKit tvOS guard patches applied."
+
+          cd .deps/wireguard-apple/Sources/WireGuardKitGo
+
+          echo "==> libwg-go.a for iphoneos arm64"
+          mkdir -p /tmp/wg-out
+          PLATFORM_NAME=iphoneos ARCHS=arm64 \
+            IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+            DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mios-version-min \
+            DEPLOYMENT_TARGET_CLANG_ENV_NAME=IPHONEOS_DEPLOYMENT_TARGET \
+            SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \
+            DESTDIR=/tmp/wg-out CONFIGURATION_BUILD_DIR=/tmp/wg-out \
+            CONFIGURATION_TEMP_DIR=/tmp/wg-out/tmp \
+            make build
+          ls -la /tmp/wg-out/libwg-go.a
+
+          echo "==> libwg-go.a for appletvos arm64"
+          make clean || true
+          mkdir -p /tmp/wg-out-tvos
+          # GOOS_appletvos=ios: the Makefile maps PLATFORM_NAME→GOOS but only
+          # defines GOOS_iphoneos/GOOS_macosx, so appletvos yielded an empty
+          # GOOS → host default 'darwin' → the //go:build ios cgo runtime (which
+          # defines darwin_arm_init_mach_exception_handler / _thread_exception_port)
+          # was not compiled → undefined symbols at link. Go has no tvOS GOOS;
+          # the standard recipe is GOOS=ios built against the appletvos SDK +
+          # -mtvos-version-min (set above), which produces a tvOS-linkable archive.
+          PLATFORM_NAME=appletvos ARCHS=arm64 \
+            TVOS_DEPLOYMENT_TARGET=17.0 \
+            DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mtvos-version-min \
+            DEPLOYMENT_TARGET_CLANG_ENV_NAME=TVOS_DEPLOYMENT_TARGET \
+            SDKROOT="$(xcrun --sdk appletvos --show-sdk-path)" \
+            DESTDIR=/tmp/wg-out-tvos CONFIGURATION_BUILD_DIR=/tmp/wg-out-tvos \
+            CONFIGURATION_TEMP_DIR=/tmp/wg-out-tvos/tmp \
+            make GOOS_appletvos=ios build
+          ls -la /tmp/wg-out-tvos/libwg-go.a
+
+      - name: Generate .xcodeproj
+        working-directory: ios
+        env:
+          PRIVYCS_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: xcodegen generate
+
+      - name: Resolve Swift Packages
+        working-directory: ios
+        run: xcodebuild -resolvePackageDependencies -project PrivycsVPN.xcodeproj
+
+      - name: Decode signing certificate
+        env:
+          P12_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERT_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERT_P12_PASSWORD }}
+        run: |
+          mkdir -p ~/keychain
+          echo "$P12_BASE64" | base64 -d > ~/keychain/dist.p12
+          security create-keychain -p actions ~/Library/Keychains/build.keychain-db
+          security default-keychain -s ~/Library/Keychains/build.keychain-db
+          security unlock-keychain -p actions ~/Library/Keychains/build.keychain-db
+          security set-keychain-settings -l -u ~/Library/Keychains/build.keychain-db
+          security import ~/keychain/dist.p12 -k ~/Library/Keychains/build.keychain-db \
+            -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k actions ~/Library/Keychains/build.keychain-db
+
+      - name: Install provisioning profiles
+        env:
+          PROFILE_TVOS_APP_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_TVOS_APP_BASE64 }}
+          PROFILE_TVOS_TUNNEL_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_TVOS_TUNNEL_BASE64 }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROFILE_TVOS_APP_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/tvos-app.mobileprovision
+          echo "$PROFILE_TVOS_TUNNEL_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/tvos-tunnel.mobileprovision
+
+      - name: Archive
+        working-directory: ios
+        env:
+          LICENSE_PUBLIC_KEY_HEX: ${{ secrets.LICENSE_PUBLIC_KEY_HEX }}
+        run: |
+          xcodebuild archive \
+            -project PrivycsVPN.xcodeproj \
+            -scheme PrivycsVPNtvOS \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            -archivePath build/PrivycsVPNtvOS.xcarchive \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            CODE_SIGN_STYLE=Manual \
+            LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out-tvos' \
+            LICENSE_PUBLIC_KEY_HEX="${LICENSE_PUBLIC_KEY_HEX}" \
+            -allowProvisioningUpdates
+
+      - name: Export IPA
+        working-directory: ios
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          cat > ExportOptions-tvos.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store</string>
+            <key>uploadSymbols</key><true/>
+            <key>uploadBitcode</key><false/>
+            <key>teamID</key><string>__TEAM_ID__</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.privycs.vpn</key><string>Privycs VPN tvOS App Store</string>
+              <key>com.privycs.vpn.tunnel</key><string>Privycs VPN tvOS Tunnel App Store</string>
+            </dict>
+          </dict></plist>
+          EOF
+          sed -i '' "s|__TEAM_ID__|${TEAM_ID}|" ExportOptions-tvos.plist
+          xcodebuild -exportArchive \
+            -archivePath build/PrivycsVPNtvOS.xcarchive \
+            -exportOptionsPlist ExportOptions-tvos.plist \
+            -exportPath build/IPA-tvos
+
+      - name: Rename IPA + generate checksum
+        run: |
+          cd ios/build/IPA-tvos
+          VERSION="${{ needs.check-changes.outputs.version }}"
+          mv PrivycsVPNtvOS.ipa "privycs-vpn-tvos-${VERSION}.ipa"
+          shasum -a 256 "privycs-vpn-tvos-${VERSION}.ipa" > "privycs-vpn-tvos-${VERSION}.ipa.sha256"
+
+      - name: Upload to TestFlight
+        env:
+          NOTARY_KEY_B64: ${{ secrets.APPLE_NOTARY_API_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$NOTARY_KEY_B64" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_$NOTARY_KEY_ID.p8
+          VERSION="${{ needs.check-changes.outputs.version }}"
+          xcrun altool --upload-app \
+            -f "ios/build/IPA-tvos/privycs-vpn-tvos-${VERSION}.ipa" \
+            -t tvos \
+            --apiKey "$NOTARY_KEY_ID" \
+            --apiIssuer "$NOTARY_ISSUER_ID"
+
+      # Set the TestFlight "What to Test" notes (en-US) for the build we just
+      # uploaded, via the App Store Connect API — same key as altool above, no
+      # new secret. tvOS shares the same app record / build number under
+      # Universal Purchase, so this targets the same com.privycs.vpn build.
+      # Best-effort: never blocks the release (continue-on-error + the script
+      # exits 0 on any soft failure / build-processing timeout).
+      - name: Set TestFlight What-to-Test notes
+        continue-on-error: true
+        env:
+          NOTARY_KEY_B64: ${{ secrets.APPLE_NOTARY_API_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -uo pipefail
+          mkdir -p ~/.appstoreconnect/private_keys
+          KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${NOTARY_KEY_ID}.p8"
+          echo "$NOTARY_KEY_B64" | base64 -d > "$KEY_FILE"
+          BUILD=$(grep 'CURRENT_PROJECT_VERSION' ios/project.yml | grep -oE '[0-9]+' | head -1)
+          echo "Setting What-to-Test for build number: $BUILD"
+          python3 -m pip install --quiet "pyjwt[crypto]" \
+            || python3 -m pip install --quiet --break-system-packages "pyjwt[crypto]" || true
+          python3 ios/scripts/set_testflight_notes.py \
+            "$BUILD" "com.privycs.vpn" "ios/TestFlight/WhatToTest.en-US.txt" \
+            "$KEY_FILE" "$NOTARY_KEY_ID" "$NOTARY_ISSUER_ID"
+
+      - name: Upload workflow artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvos-${{ needs.check-changes.outputs.version }}
+          path: |
+            ios/build/IPA-tvos/*.ipa
+            ios/build/IPA-tvos/*.ipa.sha256
+
+      - name: Attach IPA to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Privycs VPN ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            ios/build/IPA-tvos/*.ipa
+            ios/build/IPA-tvos/*.ipa.sha256
+
   propagate-previous-ios:
     name: Propagate previous iOS IPA
     needs: [check-changes, build-ios]
@@ -392,4 +665,96 @@ jobs:
           if [ "${#ASSETS[@]}" -gt 0 ]; then
             gh release upload "$CURRENT_TAG" --repo "$REPO" --clobber "${ASSETS[@]}"
             echo "Propagated ${#ASSETS[@]} iOS asset(s) from $PREV_TAG."
+          fi
+
+  propagate-previous-tvos:
+    name: Propagate previous tvOS IPA
+    needs: [check-changes, build-tvos]
+    if: |
+      always() &&
+      needs.check-changes.outputs.ios_changed == 'false' &&
+      startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find previous tag with tvOS IPA and re-attach
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Semver-sorted prior tag list (NOT creation-time ordered — avoids
+          # racing an in-flight numerically-earlier build).
+          TAGS=$(gh release list --repo "$REPO" --limit 50 --json tagName --jq '.[].tagName' \
+                 | grep -v "^${CURRENT_TAG}$" | sort -rV)
+          if [ -z "$TAGS" ]; then
+            echo "No prior releases — nothing to propagate."
+            exit 0
+          fi
+          TVOS_RE='privycs-vpn-tvos-.*\.ipa(\.sha256)?$'
+          # Poll for in-flight prior runs up to 35 min — matches android-release's
+          # wait_for_android_assets (a clean tvOS archive + export + TestFlight upload
+          # comfortably fits in 35 min).
+          wait_for_tvos_assets() {
+            local tag="$1"
+            local deadline=$(( $(date +%s) + 2100 ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              local count
+              count=$(gh release view "$tag" --repo "$REPO" --json assets \
+                      --jq ".assets[].name" 2>/dev/null \
+                      | grep -cE "$TVOS_RE" || true)
+              if [ "$count" -gt 0 ]; then
+                return 0
+              fi
+              sleep 30
+            done
+            return 1
+          }
+          PREV_TAG=""
+          for tag in $TAGS; do
+            count=$(gh release view "$tag" --repo "$REPO" --json assets \
+                    --jq '.assets[].name' 2>/dev/null \
+                    | grep -cE "$TVOS_RE" || true)
+            if [ "$count" -gt 0 ]; then
+              PREV_TAG="$tag"
+              break
+            fi
+            # In-flight check: if ios-release is still running on this tag, wait.
+            running=$(gh run list --repo "$REPO" --workflow=ios-release.yml \
+                      --json databaseId,status,headBranch \
+                      --jq ".[] | select(.headBranch==\"$tag\" and (.status==\"in_progress\" or .status==\"queued\")) | .databaseId" \
+                      | head -1)
+            if [ -n "$running" ]; then
+              echo "Tag $tag has an in-flight ios-release run — waiting up to 35 min for assets."
+              if wait_for_tvos_assets "$tag"; then
+                PREV_TAG="$tag"
+                break
+              fi
+            fi
+          done
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous release with tvOS IPA found — nothing to propagate."
+            exit 0
+          fi
+          echo "Propagating tvOS assets from $PREV_TAG → $CURRENT_TAG"
+          mkdir -p /tmp/tvos-assets
+          gh release download "$PREV_TAG" --repo "$REPO" --dir /tmp/tvos-assets \
+            --pattern 'privycs-vpn-tvos-*.ipa' --pattern 'privycs-vpn-tvos-*.ipa.sha256'
+          # Ensure current release exists (race-tolerant — desktop/android may
+          # have already created it).
+          if ! gh release view "$CURRENT_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$CURRENT_TAG" --repo "$REPO" \
+              --title "Privycs VPN $CURRENT_TAG" \
+              --generate-notes \
+              || echo "Race: release was created by another job just now."
+          fi
+          shopt -s nullglob
+          ASSETS=(/tmp/tvos-assets/privycs-vpn-tvos-*.ipa /tmp/tvos-assets/privycs-vpn-tvos-*.ipa.sha256)
+          if [ "${#ASSETS[@]}" -gt 0 ]; then
+            gh release upload "$CURRENT_TAG" --repo "$REPO" --clobber "${ASSETS[@]}"
+            echo "Propagated ${#ASSETS[@]} tvOS asset(s) from $PREV_TAG."
           fi

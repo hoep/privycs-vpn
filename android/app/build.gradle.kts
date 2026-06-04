@@ -200,6 +200,16 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
+    // Android TV / Google TV (leanback) UI: the ui/tv/ screens use regular
+    // androidx.compose.material3 (already pulled above) + Modifier.focusable /
+    // onFocusChanged for D-pad focus. We deliberately do NOT depend on
+    // androidx.tv:tv-material — tv-material 1.1.0 requires AGP 8.6.0 (project
+    // pins AGP 8.3.2) and the older tv versions have Compose-1.6-vs-1.7 ABI
+    // mismatches against the BOM (2024.09.00 = Compose 1.7.x) pinned above.
+    // material3's clickable Card / Button / OutlinedButton are focusable and
+    // D-pad-activatable on TV; visible focus is supplied by an explicit border
+    // highlight in the ui/tv/ composables.
+
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
 

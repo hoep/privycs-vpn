@@ -649,4 +649,35 @@
 
     <string name="vpn_error_unknown_protocol">Protocolo desconocido: %1$s</string>
     <string name="vpn_error_connection_failed">Conexión fallida: %1$s</string>
+
+    <!-- Cadenas de la interfaz para Android TV / Google TV (Leanback). -->
+    <string name="tv_enroll_title">Vincular este TV</string>
+    <string name="tv_enroll_requesting_code">Solicitando un código…</string>
+    <string name="tv_enroll_waiting">Esperando tu confirmación en el teléfono…</string>
+    <string name="tv_enroll_linked">TV vinculado. Cargando tus servidores…</string>
+    <string name="tv_enroll_expired">El código ha caducado. Obtén uno nuevo.</string>
+    <string name="tv_enroll_error">No se pudo vincular: %1$s</string>
+    <string name="tv_enroll_instructions">En tu teléfono, abre %1$s e introduce este código:</string>
+    <string name="tv_enroll_retry">Obtener un código nuevo</string>
+    <string name="tv_enroll_manual">Introducir la puerta de enlace manualmente</string>
+    <string name="tv_enroll_manual_hint">Introduce la dirección de tu puerta de enlace y el token de acceso.</string>
+    <string name="tv_enroll_field_gateway_url">URL de la puerta de enlace</string>
+    <string name="tv_enroll_field_token">Token de acceso</string>
+    <string name="tv_enroll_manual_incomplete">Introduce tanto la URL de la puerta de enlace como el token.</string>
+    <string name="tv_enroll_save">Guardar</string>
+    <string name="tv_enroll_saving">Guardando…</string>
+    <string name="tv_enroll_back_to_code">Volver al código</string>
+    <string name="tv_connect_servers_title">Servidores</string>
+    <string name="tv_connect_downloading">Añadiendo…</string>
+    <string name="tv_connect_tap_to_add">Pulsa para añadir desde la puerta de enlace</string>
+    <string name="tv_connect_add_failed">No se pudo añadir esta configuración.</string>
+    <string name="tv_connect_relink">Volver a vincular o cambiar la puerta de enlace</string>
+    <string name="tv_connect_no_selection">Ningún servidor seleccionado</string>
+    <string name="tv_connect_status_connecting">Conectando…</string>
+    <string name="tv_connect_status_connected">Conectado</string>
+    <string name="tv_connect_status_disconnected">Sin conexión</string>
+    <string name="tv_connect_button_disconnect">Desconectar</string>
+    <string name="tv_connect_button_connecting">Conectando…</string>
+    <string name="tv_connect_button_connect">Conectar</string>
+    <string name="tv_connect_pick_a_server">Elige un servidor a la izquierda para empezar.</string>
 </resources>

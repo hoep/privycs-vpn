@@ -649,4 +649,35 @@
 
     <string name="vpn_error_unknown_protocol">Protocole inconnu : %1$s</string>
     <string name="vpn_error_connection_failed">Échec de la connexion : %1$s</string>
+
+    <!-- Chaînes de l\'interface pour Android TV / Google TV (Leanback). -->
+    <string name="tv_enroll_title">Associer ce téléviseur</string>
+    <string name="tv_enroll_requesting_code">Demande d\'un code en cours…</string>
+    <string name="tv_enroll_waiting">En attente de votre confirmation sur votre téléphone…</string>
+    <string name="tv_enroll_linked">Téléviseur associé ! Chargement de vos serveurs…</string>
+    <string name="tv_enroll_expired">Le code a expiré. Obtenez-en un nouveau.</string>
+    <string name="tv_enroll_error">Association impossible : %1$s</string>
+    <string name="tv_enroll_instructions">Sur votre téléphone, ouvrez %1$s et saisissez ce code :</string>
+    <string name="tv_enroll_retry">Obtenir un nouveau code</string>
+    <string name="tv_enroll_manual">Saisir la passerelle manuellement</string>
+    <string name="tv_enroll_manual_hint">Saisissez l\'adresse de votre passerelle et le jeton d\'accès.</string>
+    <string name="tv_enroll_field_gateway_url">URL de la passerelle</string>
+    <string name="tv_enroll_field_token">Jeton d\'accès</string>
+    <string name="tv_enroll_manual_incomplete">Saisissez à la fois l\'URL de la passerelle et le jeton.</string>
+    <string name="tv_enroll_save">Enregistrer</string>
+    <string name="tv_enroll_saving">Enregistrement…</string>
+    <string name="tv_enroll_back_to_code">Retour au code</string>
+    <string name="tv_connect_servers_title">Serveurs</string>
+    <string name="tv_connect_downloading">Ajout…</string>
+    <string name="tv_connect_tap_to_add">Appuyez pour ajouter depuis la passerelle</string>
+    <string name="tv_connect_add_failed">Impossible d\'ajouter cette configuration.</string>
+    <string name="tv_connect_relink">Réassocier ou changer de passerelle</string>
+    <string name="tv_connect_no_selection">Aucun serveur sélectionné</string>
+    <string name="tv_connect_status_connecting">Connexion…</string>
+    <string name="tv_connect_status_connected">Connecté</string>
+    <string name="tv_connect_status_disconnected">Non connecté</string>
+    <string name="tv_connect_button_disconnect">Déconnecter</string>
+    <string name="tv_connect_button_connecting">Connexion…</string>
+    <string name="tv_connect_button_connect">Connecter</string>
+    <string name="tv_connect_pick_a_server">Choisissez un serveur à gauche pour commencer.</string>
 </resources>

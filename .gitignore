@@ -58,3 +58,11 @@ android/play-store/
 # iOS — pre-fetched + locally-patched WireGuardKit SPM dep, built by CI
 ios/.deps/
 ios/ThirdParty/AmneziaWG/
+
+# ── Stray working assets (repo-root scratch) ─────────────────────
+# Loose AmneziaWG icon SVGs dropped in the repo root + an ad-hoc
+# screenshot grab. The intentional, repo-safe (blurred) screenshots
+# under screenshots/ stay tracked — only this stray grab is ignored.
+/awg_on.svg
+/awg_off.svg
+/screenshots/screen.png

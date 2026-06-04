@@ -1,0 +1,182 @@
+name: iOS Build (compile-check)
+
+# Compile-only verification for the iOS app + the tvOS port. NO signing, NO
+# archive, NO TestFlight upload — just `xcodebuild build` with signing disabled,
+# so we can shake out compile/link errors (especially the new tvOS targets)
+# from real CI output WITHOUT churning release tags or TestFlight. The release
+# build (ios-release.yml, tag-driven) stays the shipping path.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  push:
+    branches: ['feat/**']
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -z "$XCODE" ] && XCODE=/Applications/Xcode_26.app
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Ensure iOS + tvOS SDKs
+        run: |
+          sudo xcodebuild -runFirstLaunch || true
+          xcodebuild -downloadPlatform iOS || true
+          xcodebuild -downloadPlatform tvOS || true
+          xcodebuild -showsdks | grep -iE 'ios|tvos' || true
+
+      - name: Install XcodeGen + Go toolchain
+        run: |
+          brew install xcodegen
+          command -v go >/dev/null || brew install go
+          go version
+
+      - name: Prepare WireGuardKit (clone + patch + build libwg-go.a for iOS AND tvOS)
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          PIN="5cbc86f38466ff763e24167bebc2640d6c30e7fe"
+          mkdir -p .deps
+          rm -rf .deps/wireguard-apple
+          git clone https://github.com/amnezia-vpn/amneziawg-apple .deps/wireguard-apple
+          (cd .deps/wireguard-apple && git checkout "$PIN")
+
+          # swift-tools-version → 5.9 so the manifest can express .tvOS(.v17)
+          # (the .v17 enum case needs tools >= 5.9; 5.5 only knew up to .v15,
+          # and a tvOS-15 package floor made WireGuardKit's tvOS-17-only NE
+          # APIs — NEPacketTunnelProvider / NE*Route — unavailable). 5.9 is
+          # backward-compatible with the fork's 5.5-era manifest; iOS unaffected.
+          sed -i '' '1s|.*|// swift-tools-version:5.9|' .deps/wireguard-apple/Package.swift
+
+          # Declare tvOS platform support in the package so a tvOS build
+          # destination resolves WireGuardKit. The fork's manifest lists
+          # .iOS(...) / .macOS(...); add .tvOS(.v17) alongside .iOS if missing.
+          PKG=.deps/wireguard-apple/Package.swift
+          # .v17 (needs the tools 5.9 bump above): WireGuardKit references
+          # NEPacketTunnelProvider / NEIPv4Route / NEIPv6Route /
+          # NEPacketTunnelNetworkSettings, which Apple only shipped to tvOS in
+          # 17.0 — a lower package floor makes those uses "unavailable".
+          if ! grep -q '\.tvOS' "$PKG"; then
+            perl -0pi -e 's/(\.iOS\([^)]*\))/$1, .tvOS(.v17)/' "$PKG"
+            echo "Patched platforms line:"; grep -n 'platforms' "$PKG" || true
+            grep -n '\.tvOS' "$PKG" || { echo "ERROR: tvOS platform patch did not apply"; exit 1; }
+          fi
+
+          # WireGuardKitC.h needs <sys/types.h> for u_int32_t/u_char/u_int16_t.
+          HEADER=.deps/wireguard-apple/Sources/WireGuardKitC/WireGuardKitC.h
+          if ! grep -q '<sys/types.h>' "$HEADER"; then
+            awk '/^#include "x25519.h"/ { print; print "#include <sys/types.h>"; next } { print }' "$HEADER" > "$HEADER.tmp"
+            grep -q '<sys/types.h>' "$HEADER.tmp" || { echo "ERROR: WireGuardKitC.h patch did not match"; exit 1; }
+            mv "$HEADER.tmp" "$HEADER"
+          fi
+
+          # WireGuardKit's DNSResolver / PacketTunnelSettingsGenerator /
+          # WireGuardAdapter #error("Unimplemented"/"Unsupported") on any
+          # platform other than iOS/macOS. tvOS has the same NetworkExtension +
+          # POSIX DNS (getaddrinfo) APIs as iOS, so route tvOS into the iOS
+          # branches. Fail loud if a repin moves these anchors.
+          WGK=.deps/wireguard-apple/Sources/WireGuardKit
+          perl -0pi -e 's/\Q#if os(iOS)\E/#if os(iOS) || os(tvOS)/' "$WGK/DNSResolver.swift"
+          perl -0pi -e 's/\Q#if os(iOS)\E/#if os(iOS) || os(tvOS)/' "$WGK/PacketTunnelSettingsGenerator.swift"
+          perl -0pi -e 's/\Q#elseif os(iOS)\E/#elseif os(iOS) || os(tvOS)/' "$WGK/WireGuardAdapter.swift"
+          for f in DNSResolver PacketTunnelSettingsGenerator WireGuardAdapter; do
+            grep -q 'os(tvOS)' "$WGK/$f.swift" || { echo "ERROR: tvOS guard patch did not apply to $f.swift (upstream changed)"; exit 1; }
+          done
+          echo "WireGuardKit tvOS guard patches applied."
+
+          cd .deps/wireguard-apple/Sources/WireGuardKitGo
+
+          echo "==> libwg-go.a for iphoneos arm64"
+          mkdir -p /tmp/wg-out
+          PLATFORM_NAME=iphoneos ARCHS=arm64 \
+            IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+            DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mios-version-min \
+            DEPLOYMENT_TARGET_CLANG_ENV_NAME=IPHONEOS_DEPLOYMENT_TARGET \
+            SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \
+            DESTDIR=/tmp/wg-out CONFIGURATION_BUILD_DIR=/tmp/wg-out \
+            CONFIGURATION_TEMP_DIR=/tmp/wg-out/tmp \
+            make build
+          ls -la /tmp/wg-out/libwg-go.a
+
+          echo "==> libwg-go.a for appletvos arm64"
+          make clean || true
+          mkdir -p /tmp/wg-out-tvos
+          # GOOS_appletvos=ios: the Makefile maps PLATFORM_NAME→GOOS but only
+          # defines GOOS_iphoneos/GOOS_macosx, so appletvos yielded an empty
+          # GOOS → host default 'darwin' → the //go:build ios cgo runtime (which
+          # defines darwin_arm_init_mach_exception_handler / _thread_exception_port)
+          # was not compiled → undefined symbols at link. Go has no tvOS GOOS;
+          # the standard recipe is GOOS=ios built against the appletvos SDK +
+          # -mtvos-version-min (set above), which produces a tvOS-linkable archive.
+          PLATFORM_NAME=appletvos ARCHS=arm64 \
+            TVOS_DEPLOYMENT_TARGET=17.0 \
+            DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mtvos-version-min \
+            DEPLOYMENT_TARGET_CLANG_ENV_NAME=TVOS_DEPLOYMENT_TARGET \
+            SDKROOT="$(xcrun --sdk appletvos --show-sdk-path)" \
+            DESTDIR=/tmp/wg-out-tvos CONFIGURATION_BUILD_DIR=/tmp/wg-out-tvos \
+            CONFIGURATION_TEMP_DIR=/tmp/wg-out-tvos/tmp \
+            make GOOS_appletvos=ios build
+          ls -la /tmp/wg-out-tvos/libwg-go.a
+
+      - name: Generate .xcodeproj
+        working-directory: ios
+        env:
+          PRIVYCS_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: xcodegen generate
+
+      - name: Build iOS app (no signing)
+        working-directory: ios
+        run: |
+          xcodebuild build \
+            -project PrivycsVPN.xcodeproj \
+            -scheme PrivycsVPN \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out'
+
+      - name: Build tvOS app (no signing)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project PrivycsVPN.xcodeproj \
+            -scheme PrivycsVPNtvOS \
+            -configuration Debug \
+            -destination 'generic/platform=tvOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out-tvos'
+
+      # Release archive (unsigned) — runs Release config's VALIDATE_PRODUCT, the
+      # stricter Mach-O / platform-load-command validation the real ios-release
+      # tvOS archive will hit. Catches the known risk (libwg-go built GOOS=ios
+      # carries an iOS platform load command a tvOS archive may reject) on the
+      # PR, WITHOUT a release tag / TestFlight upload.
+      - name: Archive tvOS (Release, unsigned — VALIDATE_PRODUCT check)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project PrivycsVPN.xcodeproj \
+            -scheme PrivycsVPNtvOS \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            -archivePath /tmp/PrivycsVPNtvOS.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out-tvos'
