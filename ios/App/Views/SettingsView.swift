@@ -12,6 +12,12 @@ struct SettingsView: View {
     @State private var tunnelHealthTarget = ""
     @State private var tunnelHealthInterval = 0
     @State private var tunnelHealthThreshold = 0
+    /// Smart Decision Engine "Automatic protocol selection" (v1.0.9). A local
+    /// display preference (UserDefaults) that hides the manual failover order
+    /// and shows the live decision panel. The engine observes in shadow mode
+    /// regardless; this toggle only controls the Settings UI — kept out of the
+    /// cross-platform Codable AppSettings to avoid a strict-decoder migration.
+    @AppStorage("auto_protocol_selection") private var autoProtocolSelection = false
 
     private let languages: [(code: String, label: String)] = [
         ("", "System"), ("en", "English"), ("de", "Deutsch"),
@@ -39,9 +45,16 @@ struct SettingsView: View {
                         Text("DNS Override").font(.subheadline)
                         DnsField(value: $dnsOverride, onCommit: { persistDNS(dnsOverride) })
                     }
-                    NavigationLink {
-                        ProtocolFailoverView().environmentObject(appState)
-                    } label: { Text("Protocol Failover Order") }
+                    Toggle("Automatic protocol selection", isOn: $autoProtocolSelection)
+                    if autoProtocolSelection {
+                        NavigationLink {
+                            EngineDecisionsView().environmentObject(appState)
+                        } label: { Text("Engine decisions") }
+                    } else {
+                        NavigationLink {
+                            ProtocolFailoverView().environmentObject(appState)
+                        } label: { Text("Protocol Failover Order") }
+                    }
                     NavigationLink {
                         GatewaySettingsView().environmentObject(appState)
                     } label: {

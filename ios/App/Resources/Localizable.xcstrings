@@ -3,16 +3,16 @@
   "strings": {
     "%@ did not pass traffic": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ did not pass traffic"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ hat keinen Datenverkehr durchgelassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ did not pass traffic"
           }
         },
         "es": {
@@ -43,16 +43,16 @@
     },
     "%lld config(s) imported": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld config(s) imported"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld Konfiguration(en) importiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld config(s) imported"
           }
         },
         "es": {
@@ -83,16 +83,16 @@
     },
     "%lld hours ago": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld hours ago"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "vor %lld Stunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld hours ago"
           }
         },
         "es": {
@@ -123,16 +123,16 @@
     },
     "%lld minutes ago": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld minutes ago"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "vor %lld Minuten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld minutes ago"
           }
         },
         "es": {
@@ -163,16 +163,16 @@
     },
     "%lld seconds ago": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld seconds ago"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "vor %lld Sekunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld seconds ago"
           }
         },
         "es": {
@@ -243,16 +243,16 @@
     },
     "1 hour ago": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 hour ago"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "vor 1 Stunde"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 hour ago"
           }
         },
         "es": {
@@ -283,16 +283,16 @@
     },
     "1 minute ago": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 minute ago"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "vor 1 Minute"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 minute ago"
           }
         },
         "es": {
@@ -323,16 +323,16 @@
     },
     "1 second ago": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 second ago"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "vor 1 Sekunde"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 second ago"
           }
         },
         "es": {
@@ -523,16 +523,16 @@
     },
     "30 minutes": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "30 minutes"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "30 Minuten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 minutes"
           }
         },
         "es": {
@@ -803,16 +803,16 @@
     },
     "API key": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API key"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "API-Schlüssel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key"
           }
         },
         "es": {
@@ -1123,16 +1123,16 @@
     },
     "Added %@": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Added %@"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ hinzugefügt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added %@"
           }
         },
         "es": {
@@ -1163,16 +1163,16 @@
     },
     "All traffic routes through the VPN except the listed networks (which bypass it).": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "All traffic routes through the VPN except the listed networks (which bypass it)."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Der gesamte Datenverkehr läuft über das VPN, außer den aufgeführten Netzwerken (die es umgehen)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All traffic routes through the VPN except the listed networks (which bypass it)."
           }
         },
         "es": {
@@ -1203,16 +1203,16 @@
     },
     "All traffic routes through the VPN.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "All traffic routes through the VPN."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Der gesamte Datenverkehr läuft über das VPN."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All traffic routes through the VPN."
           }
         },
         "es": {
@@ -1681,6 +1681,46 @@
         }
       }
     },
+    "Automatic protocol selection": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatische Protokollwahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic protocol selection"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selección automática de protocolo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélection automatique du protocole"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selezione automatica del protocollo"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleção automática de protocolo"
+          }
+        }
+      }
+    },
     "Automation": {
       "localizations": {
         "de": {
@@ -1843,16 +1883,16 @@
     },
     "Backup created — tap Share to save it.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Backup created — tap Share to save it."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Backup erstellt – tippe auf „Teilen“, um es zu speichern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup created — tap Share to save it."
           }
         },
         "es": {
@@ -2077,6 +2117,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cancelar"
+          }
+        }
+      }
+    },
+    "Captive portal detected — sign in to continue": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captive-Portal erkannt – zum Fortfahren anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captive portal detected — sign in to continue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portal cautivo detectado: inicia sesión para continuar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portail captif détecté — connectez-vous pour continuer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captive portal rilevato — accedi per continuare"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portal cativo detetado — inicia sessão para continuar"
           }
         }
       }
@@ -2563,16 +2643,16 @@
     },
     "Connected": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connected"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verbunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
           }
         },
         "es": {
@@ -2601,18 +2681,58 @@
         }
       }
     },
-    "Connected — %lld config(s) available": {
+    "Connected via %@": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden über %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connected — %lld config(s) available"
+            "value": "Connected via %@"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado vía %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté via %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connesso tramite %@"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ligado via %@"
+          }
+        }
+      }
+    },
+    "Connected — %lld config(s) available": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verbunden – %lld Konfiguration(en) verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected — %lld config(s) available"
           }
         },
         "es": {
@@ -2641,18 +2761,58 @@
         }
       }
     },
-    "Connecting…": {
+    "Connecting via %@…": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde über %@…"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting…"
+            "value": "Connecting via %@…"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando vía %@…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion via %@…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione tramite %@…"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A ligar via %@…"
+          }
+        }
+      }
+    },
+    "Connecting…": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Verbinde…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting…"
           }
         },
         "es": {
@@ -2717,6 +2877,126 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ligação"
+          }
+        }
+      }
+    },
+    "Connection degraded — monitoring": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung beeinträchtigt – wird überwacht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection degraded — monitoring"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexión degradada: supervisando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion dégradée — surveillance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione degradata — monitoraggio"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ligação degradada — a monitorizar"
+          }
+        }
+      }
+    },
+    "Connection failed — backing off before retry": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung fehlgeschlagen – warte vor erneutem Versuch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection failed — backing off before retry"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexión fallida: esperando antes de reintentar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la connexion — pause avant nouvelle tentative"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione non riuscita — attesa prima di riprovare"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha na ligação — a aguardar antes de repetir"
+          }
+        }
+      }
+    },
+    "Connection recovered": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung wiederhergestellt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection recovered"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexión recuperada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion rétablie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione ripristinata"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ligação restabelecida"
           }
         }
       }
@@ -2803,16 +3083,16 @@
     },
     "Could not open the selected file.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not open the selected file."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Die ausgewählte Datei konnte nicht geöffnet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not open the selected file."
           }
         },
         "es": {
@@ -2843,16 +3123,16 @@
     },
     "Could not read %@": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not read %@"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ konnte nicht gelesen werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not read %@"
           }
         },
         "es": {
@@ -2883,16 +3163,16 @@
     },
     "Could not read file": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not read file"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Datei konnte nicht gelesen werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not read file"
           }
         },
         "es": {
@@ -3443,16 +3723,16 @@
     },
     "Degraded": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Degraded"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Beeinträchtigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Degraded"
           }
         },
         "es": {
@@ -3603,16 +3883,16 @@
     },
     "Disconnected": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disconnected"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Getrennt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected"
           }
         },
         "es": {
@@ -3723,13 +4003,13 @@
     },
     "Download": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Download"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Download"
@@ -3843,16 +4123,16 @@
     },
     "Email Support": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Email Support"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Support per E-Mail"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email Support"
           }
         },
         "es": {
@@ -3923,16 +4203,16 @@
     },
     "Endpoint": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Endpoint"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Endpunkt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endpoint"
           }
         },
         "es": {
@@ -3957,6 +4237,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Endpoint"
+          }
+        }
+      }
+    },
+    "Engine decisions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine-Entscheidungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine decisions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decisiones del motor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Décisions du moteur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decisioni del motore"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decisões do motor"
           }
         }
       }
@@ -4043,16 +4363,16 @@
     },
     "Failed to load: %@": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed to load: %@"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Laden fehlgeschlagen: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to load: %@"
           }
         },
         "es": {
@@ -4083,16 +4403,16 @@
     },
     "Gateway enrolled — pull your configs": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway enrolled — pull your configs"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Gateway eingerichtet – Konfigurationen abrufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gateway enrolled — pull your configs"
           }
         },
         "es": {
@@ -4123,16 +4443,16 @@
     },
     "Gateway not configured. Set it in Settings.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway not configured. Set it in Settings."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Gateway nicht konfiguriert. In den Einstellungen festlegen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gateway not configured. Set it in Settings."
           }
         },
         "es": {
@@ -4163,16 +4483,16 @@
     },
     "Geolocation data": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Geolocation data"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Standortdaten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geolocation data"
           }
         },
         "es": {
@@ -4243,16 +4563,16 @@
     },
     "Healthy": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Healthy"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Stabil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Healthy"
           }
         },
         "es": {
@@ -4523,16 +4843,16 @@
     },
     "Imported %lld config(s) — closing…": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Imported %lld config(s) — closing…"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld Konfiguration(en) importiert – schließe…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported %lld config(s) — closing…"
           }
         },
         "es": {
@@ -4563,16 +4883,16 @@
     },
     "Imported from QR": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Imported from QR"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Aus QR importiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported from QR"
           }
         },
         "es": {
@@ -4603,16 +4923,16 @@
     },
     "Invalid gateway URL": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invalid gateway URL"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Ungültige Gateway-URL"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid gateway URL"
           }
         },
         "es": {
@@ -4763,16 +5083,16 @@
     },
     "Last handshake": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Last handshake"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Letzter Handshake"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last handshake"
           }
         },
         "es": {
@@ -4801,18 +5121,58 @@
         }
       }
     },
-    "License accepted — %@ (%@)": {
+    "Let the engine choose and recover the best protocol for the current network.": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Engine wählt und stellt das beste Protokoll für das aktuelle Netzwerk automatisch wieder her."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "License accepted — %@ (%@)"
+            "value": "Let the engine choose and recover the best protocol for the current network."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deja que el motor elija y restablezca el mejor protocolo para la red actual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laissez le moteur choisir et rétablir le meilleur protocole pour le réseau actuel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lascia che il motore scelga e ripristini il protocollo migliore per la rete attuale."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deixe o motor escolher e restabelecer o melhor protocolo para a rede atual."
+          }
+        }
+      }
+    },
+    "License accepted — %@ (%@)": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Lizenz akzeptiert — %@ (%@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "License accepted — %@ (%@)"
           }
         },
         "es": {
@@ -5361,6 +5721,46 @@
         }
       }
     },
+    "Network changed — re-validating": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netzwerk gewechselt – wird neu geprüft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network changed — re-validating"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red cambiada: revalidando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réseau changé — revalidation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rete cambiata — nuova verifica"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rede alterada — a revalidar"
+          }
+        }
+      }
+    },
     "Network type": {
       "localizations": {
         "de": {
@@ -5523,16 +5923,16 @@
     },
     "No connection": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No connection"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Keine Verbindung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No connection"
           }
         },
         "es": {
@@ -5557,6 +5957,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sem ligação"
+          }
+        }
+      }
+    },
+    "No decisions yet — connect to see what the engine chooses and why.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Entscheidungen – verbinde dich, um zu sehen, was die Engine wählt und warum."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No decisions yet — connect to see what the engine chooses and why."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay decisiones: conéctate para ver qué elige el motor y por qué."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune décision pour l’instant — connectez-vous pour voir ce que le moteur choisit et pourquoi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessuna decisione: connettiti per vedere cosa sceglie il motore e perché."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda sem decisões — liga-te para veres o que o motor escolhe e porquê."
           }
         }
       }
@@ -5643,16 +6083,16 @@
     },
     "No protocol config selected": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No protocol config selected"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Keine Protokoll-Konfiguration ausgewählt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No protocol config selected"
           }
         },
         "es": {
@@ -5801,18 +6241,58 @@
         }
       }
     },
-    "No valid config files found in the selection.": {
+    "No usable protocol available": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein nutzbares Protokoll verfügbar"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No valid config files found in the selection."
+            "value": "No usable protocol available"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún protocolo utilizable"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun protocole utilisable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun protocollo utilizzabile"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum protocolo utilizável"
+          }
+        }
+      }
+    },
+    "No valid config files found in the selection.": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "In der Auswahl wurden keine gültigen Konfigurationsdateien gefunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No valid config files found in the selection."
           }
         },
         "es": {
@@ -6003,13 +6483,13 @@
     },
     "Open Source": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Open Source"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Open Source"
@@ -6083,16 +6563,16 @@
     },
     "Open in browser": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in browser"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Im Browser öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in browser"
           }
         },
         "es": {
@@ -6403,16 +6883,16 @@
     },
     "Paused": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paused"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pausiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
           }
         },
         "es": {
@@ -6441,18 +6921,58 @@
         }
       }
     },
-    "Paused — resumes in %lldh %lldm": {
+    "Paused (system sleep)": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert (Ruhezustand)"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paused — resumes in %lldh %lldm"
+            "value": "Paused (system sleep)"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausado (suspensión del sistema)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En pause (veille système)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In pausa (sospensione del sistema)"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em pausa (suspensão do sistema)"
+          }
+        }
+      }
+    },
+    "Paused — resumes in %lldh %lldm": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pausiert – fortgesetzt in %lldh %lldm"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused — resumes in %lldh %lldm"
           }
         },
         "es": {
@@ -6483,16 +7003,16 @@
     },
     "Paused — resumes in %lldm %llds": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paused — resumes in %lldm %llds"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pausiert – fortgesetzt in %lldm %llds"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused — resumes in %lldm %llds"
           }
         },
         "es": {
@@ -6523,16 +7043,16 @@
     },
     "Paused — resumes in %llds": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paused — resumes in %llds"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pausiert – fortgesetzt in %llds"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused — resumes in %llds"
           }
         },
         "es": {
@@ -6723,16 +7243,16 @@
     },
     "Pool active": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pool active"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pool aktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pool active"
           }
         },
         "es": {
@@ -6763,16 +7283,16 @@
     },
     "Pool has no reachable members": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pool has no reachable members"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pool hat keine erreichbaren Mitglieder"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pool has no reachable members"
           }
         },
         "es": {
@@ -6923,16 +7443,16 @@
     },
     "Privacy Policy": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privacy Policy"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Datenschutzerklärung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy Policy"
           }
         },
         "es": {
@@ -7123,16 +7643,16 @@
     },
     "Pro unlocked! Thank you.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pro unlocked! Thank you."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pro freigeschaltet! Danke."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro unlocked! Thank you."
           }
         },
         "es": {
@@ -7323,16 +7843,16 @@
     },
     "Purchase pending": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Purchase pending"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Kauf ausstehend"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Purchase pending"
           }
         },
         "es": {
@@ -7361,18 +7881,138 @@
         }
       }
     },
-    "Recovering…": {
+    "Recovering: re-checking connectivity": {
       "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederherstellung: prüfe die Verbindung erneut"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recovering…"
+            "value": "Recovering: re-checking connectivity"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperando: comprobando de nuevo la conectividad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récupération : nouvelle vérification de la connectivité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristino: nuova verifica della connettività"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperação: a verificar novamente a ligação"
+          }
+        }
+      }
+    },
+    "Recovering: restarting the tunnel": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederherstellung: starte den Tunnel neu"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovering: restarting the tunnel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperando: reiniciando el túnel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récupération : redémarrage du tunnel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristino: riavvio del tunnel"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperação: a reiniciar o túnel"
+          }
+        }
+      }
+    },
+    "Recovering: waiting for the link to settle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederherstellung: warte, bis sich die Verbindung stabilisiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovering: waiting for the link to settle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperando: esperando a que el enlace se estabilice"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récupération : attente de la stabilisation du lien"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristino: in attesa che il collegamento si stabilizzi"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperação: a aguardar a estabilização da ligação"
+          }
+        }
+      }
+    },
+    "Recovering…": {
+      "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Erholt sich…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovering…"
           }
         },
         "es": {
@@ -7483,16 +8123,16 @@
     },
     "Resolution failed": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resolution failed"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auflösung fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolution failed"
           }
         },
         "es": {
@@ -7603,16 +8243,16 @@
     },
     "Restore initiated": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restore initiated"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wiederherstellung gestartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore initiated"
           }
         },
         "es": {
@@ -7643,16 +8283,16 @@
     },
     "Restored %lld connection(s), %lld pool(s), %lld rule(s).": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restored %lld connection(s), %lld pool(s), %lld rule(s)."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld Verbindung(en), %lld Pool(s), %lld Regel(n) wiederhergestellt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored %lld connection(s), %lld pool(s), %lld rule(s)."
           }
         },
         "es": {
@@ -7717,6 +8357,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "Retomar agora"
+          }
+        }
+      }
+    },
+    "Resumed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortgesetzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repris"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripreso"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retomado"
+          }
+        }
+      }
+    },
+    "Resumed — re-validating": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortgesetzt – wird neu geprüft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumed — re-validating"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudado: revalidando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repris — revalidation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripreso — nuova verifica"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retomado — a revalidar"
           }
         }
       }
@@ -8043,16 +8763,16 @@
     },
     "Scanned config": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scanned config"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Gescannte Konfiguration"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scanned config"
           }
         },
         "es": {
@@ -8443,16 +9163,16 @@
     },
     "Supported: .conf (WireGuard/AmneziaWG), .ovpn (OpenVPN), .sswan / .mobileconfig (IPSec). Configure a gateway in Settings to pull remote configs.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supported: .conf (WireGuard/AmneziaWG), .ovpn (OpenVPN), .sswan / .mobileconfig (IPSec). Configure a gateway in Settings to pull remote configs."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Unterstützt: .conf (WireGuard/AmneziaWG), .ovpn (OpenVPN), .sswan / .mobileconfig (IPSec). Konfiguriere ein Gateway in den Einstellungen, um Remote-Konfigurationen abzurufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supported: .conf (WireGuard/AmneziaWG), .ovpn (OpenVPN), .sswan / .mobileconfig (IPSec). Configure a gateway in Settings to pull remote configs."
           }
         },
         "es": {
@@ -8483,16 +9203,16 @@
     },
     "Supported: .conf, .ovpn, .sswan / .mobileconfig. Or pull your configs from the gateway.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supported: .conf, .ovpn, .sswan / .mobileconfig. Or pull your configs from the gateway."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Unterstützt: .conf, .ovpn, .sswan / .mobileconfig. Oder rufe deine Konfigurationen vom Gateway ab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supported: .conf, .ovpn, .sswan / .mobileconfig. Or pull your configs from the gateway."
           }
         },
         "es": {
@@ -8517,6 +9237,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Suportados: .conf, .ovpn, .sswan / .mobileconfig. Ou obtém as tuas configurações a partir do gateway."
+          }
+        }
+      }
+    },
+    "Switching protocol to %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechsle Protokoll zu %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switching protocol to %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiando de protocolo a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changement de protocole vers %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambio protocollo a %@"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A mudar de protocolo para %@"
           }
         }
       }
@@ -8643,16 +9403,16 @@
     },
     "The backup decrypted, but its contents couldn't be read — it may be from a newer or incompatible version of the app.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The backup decrypted, but its contents couldn't be read — it may be from a newer or incompatible version of the app."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Das Backup wurde entschlüsselt, aber sein Inhalt konnte nicht gelesen werden – es stammt möglicherweise aus einer neueren oder inkompatiblen Version der App."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The backup decrypted, but its contents couldn't be read — it may be from a newer or incompatible version of the app."
           }
         },
         "es": {
@@ -8683,16 +9443,16 @@
     },
     "The bundled IP→country database (country.mmdb) resolves server locations to flags entirely on-device. No IP is sent anywhere.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The bundled IP→country database (country.mmdb) resolves server locations to flags entirely on-device. No IP is sent anywhere."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Die mitgelieferte IP→Land-Datenbank (country.mmdb) ordnet Serverstandorte vollständig auf dem Gerät Flaggen zu. Es wird keine IP irgendwohin gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bundled IP→country database (country.mmdb) resolves server locations to flags entirely on-device. No IP is sent anywhere."
           }
         },
         "es": {
@@ -8717,6 +9477,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "A base de dados IP→país incluída (country.mmdb) resolve as localizações dos servidores em bandeiras inteiramente no dispositivo. Nenhum IP é enviado para lado nenhum."
+          }
+        }
+      }
+    },
+    "The engine decides the protocol automatically. The manual order is hidden while this is on.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Engine entscheidet das Protokoll automatisch. Die manuelle Reihenfolge ist ausgeblendet, solange dies aktiv ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The engine decides the protocol automatically. The manual order is hidden while this is on."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El motor decide el protocolo automáticamente. El orden manual se oculta mientras está activado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le moteur décide automatiquement du protocole. L’ordre manuel est masqué tant que c’est activé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il motore decide automaticamente il protocollo. L’ordine manuale è nascosto mentre è attivo."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O motor decide o protocolo automaticamente. A ordem manual fica oculta enquanto isto estiver ativo."
           }
         }
       }
@@ -8763,16 +9563,16 @@
     },
     "This backup (version %lld) isn't supported by this app.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This backup (version %lld) isn't supported by this app."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Dieses Backup (Version %lld) wird von dieser App nicht unterstützt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This backup (version %lld) isn't supported by this app."
           }
         },
         "es": {
@@ -8803,16 +9603,16 @@
     },
     "This file isn't a valid Privycs backup.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This file isn't a valid Privycs backup."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Diese Datei ist kein gültiges Privycs-Backup."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file isn't a valid Privycs backup."
           }
         },
         "es": {
@@ -8843,16 +9643,16 @@
     },
     "This no longer parses as %@.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This no longer parses as %@."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Lässt sich nicht mehr als %@ einlesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This no longer parses as %@."
           }
         },
         "es": {
@@ -9003,16 +9803,16 @@
     },
     "Unrecognized QR code": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unrecognized QR code"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "QR-Code nicht erkannt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unrecognized QR code"
           }
         },
         "es": {
@@ -9043,16 +9843,16 @@
     },
     "Until I resume": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Until I resume"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Bis ich fortsetze"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Until I resume"
           }
         },
         "es": {
@@ -9123,13 +9923,13 @@
     },
     "Upload": {
       "localizations": {
-        "en": {
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Upload"
           }
         },
-        "de": {
+        "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Upload"
@@ -9203,16 +10003,16 @@
     },
     "VPN IP": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VPN IP"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "VPN-IP"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN IP"
           }
         },
         "es": {
@@ -9277,6 +10077,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Grupo VPN"
+          }
+        }
+      }
+    },
+    "Verifying connectivity…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung wird geprüft…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifying connectivity…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificando la conectividad…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérification de la connectivité…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifica della connettività…"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A verificar a ligação…"
           }
         }
       }
@@ -9883,16 +10723,16 @@
     },
     "Wrong passphrase or corrupted backup file.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wrong passphrase or corrupted backup file."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Falsche Passphrase oder beschädigte Backup-Datei."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrong passphrase or corrupted backup file."
           }
         },
         "es": {
@@ -10243,16 +11083,16 @@
     },
     "just now": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "just now"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "gerade eben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "just now"
           }
         },
         "es": {
@@ -10323,16 +11163,16 @@
     },
     "rotating…": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "rotating…"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "rotiert…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rotating…"
           }
         },
         "es": {

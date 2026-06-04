@@ -152,6 +152,13 @@ jobs:
           echo "libwg-go.a built:"
           ls -la /tmp/wg-out/libwg-go.a
 
+      - name: Build Smart Decision Engine xcframework (gomobile)
+        # gomobile-bind engine/ffi into ios/ThirdParty/Engine/Engine.xcframework
+        # BEFORE xcodegen + resolve so the local SwiftPM binaryTarget exists.
+        # Go is installed above; the script installs gomobile.
+        working-directory: ios
+        run: ./Scripts/build-engine-xcframework.sh
+
       - name: Generate .xcodeproj
         working-directory: ios
         env:
@@ -425,6 +432,13 @@ jobs:
             CONFIGURATION_TEMP_DIR=/tmp/wg-out-tvos/tmp \
             make GOOS_appletvos=ios build
           ls -la /tmp/wg-out-tvos/libwg-go.a
+
+      - name: Build Smart Decision Engine xcframework (gomobile)
+        # gomobile-bind engine/ffi into ios/ThirdParty/Engine/Engine.xcframework
+        # BEFORE xcodegen + resolve so the local SwiftPM binaryTarget exists.
+        # Go is installed above; the script installs gomobile.
+        working-directory: ios
+        run: ./Scripts/build-engine-xcframework.sh
 
       - name: Generate .xcodeproj
         working-directory: ios

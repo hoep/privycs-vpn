@@ -680,4 +680,27 @@
     <string name="tv_connect_button_connecting">Connessione…</string>
     <string name="tv_connect_button_connect">Connetti</string>
     <string name="tv_connect_pick_a_server">Scegli un server a sinistra per iniziare.</string>
+    <!-- Smart Decision Engine (v1.0.9) -->
+    <string name="settings_auto_protocol_title">Selezione automatica del protocollo</string>
+    <string name="settings_auto_protocol_help">Lascia che il motore scelga e ripristini il protocollo migliore per la rete attuale.</string>
+    <string name="settings_auto_protocol_on_note">Il motore decide automaticamente il protocollo. L’ordine manuale è nascosto mentre è attivo.</string>
+    <string name="settings_engine_decisions_title">Decisioni del motore</string>
+    <string name="settings_engine_decisions_empty">Ancora nessuna decisione: connettiti per vedere cosa sceglie il motore e perché.</string>
+    <string name="engine_decision_connecting">Connessione tramite %1$s…</string>
+    <string name="engine_decision_validating">Verifica della connettività…</string>
+    <string name="engine_decision_connected">Connesso tramite %1$s</string>
+    <string name="engine_decision_degraded">Connessione degradata — monitoraggio</string>
+    <string name="engine_decision_recovered">Connessione ripristinata</string>
+    <string name="engine_decision_recover_wait">Ripristino: in attesa che il collegamento si stabilizzi</string>
+    <string name="engine_decision_recover_revalidate">Ripristino: nuova verifica della connettività</string>
+    <string name="engine_decision_recover_restart">Ripristino: riavvio del tunnel</string>
+    <string name="engine_decision_switching">Cambio protocollo a %1$s</string>
+    <string name="engine_decision_backoff">Connessione non riuscita — attesa prima di riprovare</string>
+    <string name="engine_decision_captive">Captive portal rilevato — accedi per continuare</string>
+    <string name="engine_decision_roam">Rete cambiata — nuova verifica</string>
+    <string name="engine_decision_disconnected">Disconnesso</string>
+    <string name="engine_decision_suspended">In pausa (sospensione del sistema)</string>
+    <string name="engine_decision_resumed_idle">Ripreso</string>
+    <string name="engine_decision_resumed_revalidate">Ripreso — nuova verifica</string>
+    <string name="engine_decision_no_profile">Nessun protocollo utilizzabile</string>
 </resources>

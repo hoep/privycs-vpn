@@ -41,6 +41,8 @@ extension AppState {
                     // blips are common); 2+ misses → degraded; dead → recovering.
                     self.tunnelHealth = fails <= 1 ? .healthy
                         : (fails >= dead ? .recovering : .degraded)
+                    // Shadow engine (v1.0.9): forward the health verdict.
+                    self.engineShadow.observeHealth(self.tunnelHealth)
                     PrivycsLog.log("health: probe \(target):443 ok=\(ok) live=\(live) fails=\(fails)")
                 }
                 let interval = self.settings.tunnelHealthPingIntervalSec > 0

@@ -680,4 +680,27 @@
     <string name="tv_connect_button_connecting">Verbinden …</string>
     <string name="tv_connect_button_connect">Verbinden</string>
     <string name="tv_connect_pick_a_server">Wähle links einen Server, um zu beginnen.</string>
+    <!-- Smart Decision Engine (v1.0.9) -->
+    <string name="settings_auto_protocol_title">Automatische Protokollwahl</string>
+    <string name="settings_auto_protocol_help">Die Engine wählt und stellt das beste Protokoll für das aktuelle Netzwerk automatisch wieder her.</string>
+    <string name="settings_auto_protocol_on_note">Die Engine entscheidet das Protokoll automatisch. Die manuelle Reihenfolge ist ausgeblendet, solange dies aktiv ist.</string>
+    <string name="settings_engine_decisions_title">Engine-Entscheidungen</string>
+    <string name="settings_engine_decisions_empty">Noch keine Entscheidungen – verbinde dich, um zu sehen, was die Engine wählt und warum.</string>
+    <string name="engine_decision_connecting">Verbinde über %1$s…</string>
+    <string name="engine_decision_validating">Verbindung wird geprüft…</string>
+    <string name="engine_decision_connected">Verbunden über %1$s</string>
+    <string name="engine_decision_degraded">Verbindung beeinträchtigt – wird überwacht</string>
+    <string name="engine_decision_recovered">Verbindung wiederhergestellt</string>
+    <string name="engine_decision_recover_wait">Wiederherstellung: warte, bis sich die Verbindung stabilisiert</string>
+    <string name="engine_decision_recover_revalidate">Wiederherstellung: prüfe die Verbindung erneut</string>
+    <string name="engine_decision_recover_restart">Wiederherstellung: starte den Tunnel neu</string>
+    <string name="engine_decision_switching">Wechsle Protokoll zu %1$s</string>
+    <string name="engine_decision_backoff">Verbindung fehlgeschlagen – warte vor erneutem Versuch</string>
+    <string name="engine_decision_captive">Captive-Portal erkannt – zum Fortfahren anmelden</string>
+    <string name="engine_decision_roam">Netzwerk gewechselt – wird neu geprüft</string>
+    <string name="engine_decision_disconnected">Getrennt</string>
+    <string name="engine_decision_suspended">Pausiert (Ruhezustand)</string>
+    <string name="engine_decision_resumed_idle">Fortgesetzt</string>
+    <string name="engine_decision_resumed_revalidate">Fortgesetzt – wird neu geprüft</string>
+    <string name="engine_decision_no_profile">Kein nutzbares Protokoll verfügbar</string>
 </resources>

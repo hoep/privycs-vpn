@@ -379,7 +379,14 @@ data class AppSettings(
         VpnProtocol.WIREGUARD,
         VpnProtocol.OPENVPN,
         VpnProtocol.IPSEC,
-    )
+    ),
+    // v1.0.9 — Smart Decision Engine "Automatic protocol selection". When on,
+    // the manual protocolFailoverOrder list is hidden in Settings and a live
+    // decision panel is shown instead. Currently SHADOW-mode (the engine
+    // observes + explains but drives nothing); flipping it to active selection
+    // is a later slice. Mirrors desktop AppSettings.AutoProtocolSelection.
+    @SerialName("auto_protocol_selection")
+    val autoProtocolSelection: Boolean = false,
 )
 
 // Gateway API models matching desktop api_client.go

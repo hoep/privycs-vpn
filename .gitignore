@@ -66,3 +66,7 @@ ios/ThirdParty/AmneziaWG/
 /awg_on.svg
 /awg_off.svg
 /screenshots/screen.png
+
+# Smart Decision Engine gomobile artefacts (rebuilt in CI)
+android/app/libs/engine.aar
+ios/ThirdParty/Engine/Engine.xcframework/

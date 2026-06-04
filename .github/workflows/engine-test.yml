@@ -38,3 +38,10 @@ jobs:
         run: |
           GOARCH=arm64 go build ./...
           GOARCH=arm64 go vet ./...
+      - name: cgo FFI smoke (c-shared builds)
+        working-directory: engine
+        # The iOS/Android artefacts are produced by `gomobile bind` from
+        # engine/ffi (expensive, mobile-only CI). This free Linux step compiles
+        # the same FFI surface through cgo (engine/cshared) so a breaking change
+        # to the foreign-function contract fails here, not in the slow mobile CI.
+        run: CGO_ENABLED=1 go build -tags cshared -buildmode=c-shared -o /tmp/libengine.so ./cshared
