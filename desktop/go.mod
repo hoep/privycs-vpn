@@ -11,18 +11,15 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/oschwald/maxminddb-golang v1.13.0
 	github.com/wailsapp/wails/v2 v2.12.0
-	golang.org/x/crypto v0.50.0
-	golang.org/x/sys v0.43.0
+	golang.org/x/crypto v0.51.0
+	golang.org/x/sys v0.44.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	software.sslmate.com/src/go-pkcs12 v0.7.1
 )
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/amnezia-vpn/amneziawg-windows v0.1.8 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
-	github.com/getsentry/sentry-go v0.46.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
@@ -32,8 +29,6 @@ require (
 	github.com/leaanthony/gosod v1.0.4 // indirect
 	github.com/leaanthony/slicer v1.6.0 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
-	github.com/lxn/walk v0.0.0-20210112085537-c389da54e794 // indirect
-	github.com/lxn/win v0.0.0-20210218163916-a377121e959e // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
@@ -45,17 +40,22 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
-	golang.org/x/mod v0.34.0 // indirect
-	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/mobile v0.0.0-20260602190626-68735029466e // indirect
+	golang.org/x/mod v0.36.0 // indirect
+	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
-	golang.org/x/tools v0.43.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/tools v0.45.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
-	golang.zx2c4.com/wireguard/windows v1.0.1 // indirect
-	gopkg.in/Knetic/govaluate.v3 v3.0.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20250606233247-e3c4c4cad86f // indirect
 )
 
-require github.com/hoep/privycs-vpn/engine v0.0.0
+require (
+	github.com/Microsoft/go-winio v0.6.2
+	github.com/amnezia-vpn/amneziawg-windows v0.1.8
+	github.com/getsentry/sentry-go v0.46.2
+	github.com/hoep/privycs-vpn/engine v0.0.0
+	golang.zx2c4.com/wireguard/windows v1.0.1
+)
 
 replace github.com/hoep/privycs-vpn/engine => ../engine
