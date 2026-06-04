@@ -117,6 +117,13 @@ jobs:
           echo "==> libwg-go.a for appletvos arm64"
           make clean || true
           mkdir -p /tmp/wg-out-tvos
+          # GOOS_appletvos=ios: the Makefile maps PLATFORM_NAME→GOOS but only
+          # defines GOOS_iphoneos/GOOS_macosx, so appletvos yielded an empty
+          # GOOS → host default 'darwin' → the //go:build ios cgo runtime (which
+          # defines darwin_arm_init_mach_exception_handler / _thread_exception_port)
+          # was not compiled → undefined symbols at link. Go has no tvOS GOOS;
+          # the standard recipe is GOOS=ios built against the appletvos SDK +
+          # -mtvos-version-min (set above), which produces a tvOS-linkable archive.
           PLATFORM_NAME=appletvos ARCHS=arm64 \
             TVOS_DEPLOYMENT_TARGET=17.0 \
             DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mtvos-version-min \
@@ -124,7 +131,7 @@ jobs:
             SDKROOT="$(xcrun --sdk appletvos --show-sdk-path)" \
             DESTDIR=/tmp/wg-out-tvos CONFIGURATION_BUILD_DIR=/tmp/wg-out-tvos \
             CONFIGURATION_TEMP_DIR=/tmp/wg-out-tvos/tmp \
-            make build
+            make GOOS_appletvos=ios build
           ls -la /tmp/wg-out-tvos/libwg-go.a
 
       - name: Generate .xcodeproj
