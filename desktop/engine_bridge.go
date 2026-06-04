@@ -1,0 +1,200 @@
+package main
+
+import (
+	"context"
+	"log"
+	"time"
+
+	eng "github.com/hoep/privycs-vpn/engine"
+)
+
+// decisionBridge wires the headless Smart Decision Engine (engine/) into the
+// desktop app in SHADOW MODE: it observes the real connection lifecycle +
+// health + (later) network changes, runs the engine's pure FSM, and LOGS what
+// the engine WOULD decide — without taking any action (the tunnel/prober spokes
+// are no-ops). This lets us validate the engine against real behavior before
+// the AutoProtocolSelection toggle flips it to active (P1b). Zero behavior
+// change while shadowing.
+type decisionBridge struct {
+	eng    *eng.Engine
+	cancel context.CancelFunc
+}
+
+func newDecisionBridge(getOrder func() []string) *decisionBridge {
+	e := eng.New(eng.Config{
+		Policy: eng.DefaultPolicy(),
+		Tunnel: shadowTunnel{},
+		Prober: shadowProber{},
+		Store:  &shadowStore{getOrder: getOrder},
+		Notify: logNotifier{},
+		// No PlatformBridge: in shadow we feed events explicitly via Observe*.
+	})
+	return &decisionBridge{eng: e}
+}
+
+func (b *decisionBridge) start(ctx context.Context) {
+	cctx, cancel := context.WithCancel(ctx)
+	b.cancel = cancel
+	go b.eng.Run(cctx)
+	go func() {
+		for {
+			select {
+			case <-cctx.Done():
+				return
+			case d := <-b.eng.Decisions():
+				// Human-readable "what + why"; surfaces in LogsView. The
+				// HumanKey is the stable i18n key the UI will localize (P1b).
+				log.Printf("[engine/shadow] %s→%s rule=%q active=%q chosen=%q key=%q",
+					d.From, d.To, d.Rule, d.Active, d.Chosen, d.HumanKey)
+			}
+		}
+	}()
+}
+
+func (b *decisionBridge) stop() {
+	if b.cancel != nil {
+		b.cancel()
+	}
+}
+
+// EngineDecisionDTO is the Wails-marshalled decision record for the UI's
+// "what the engine decided & why" panel. Key is the stable i18n key the
+// frontend localizes (the engine never emits pre-translated text).
+type EngineDecisionDTO struct {
+	At     string   `json:"at"`
+	From   string   `json:"from"`
+	To     string   `json:"to"`
+	Rule   string   `json:"rule"`
+	Active string   `json:"active"`
+	Chosen string   `json:"chosen"`
+	Key    string   `json:"key"`
+	Args   []string `json:"args"`
+}
+
+func (b *decisionBridge) recent(n int) []EngineDecisionDTO {
+	if b == nil {
+		return nil
+	}
+	recs := b.eng.Log().Recent(n)
+	out := make([]EngineDecisionDTO, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, EngineDecisionDTO{
+			At:     r.At.Format(time.RFC3339),
+			From:   r.From.String(),
+			To:     r.To.String(),
+			Rule:   r.Rule,
+			Active: string(r.Active),
+			Chosen: string(r.Chosen),
+			Key:    r.HumanKey,
+			Args:   r.Args,
+		})
+	}
+	return out
+}
+
+// EngineDecisions is the Wails-bound accessor for the recent Smart-Decision-
+// Engine decision log (newest last). Powers the Settings "Engine decisions"
+// panel.
+func (a *App) EngineDecisions() []EngineDecisionDTO {
+	if a.engineBridge == nil {
+		return nil
+	}
+	return a.engineBridge.recent(50)
+}
+
+// ── observations fed from the real app flow ──
+
+func (b *decisionBridge) observeConnect() {
+	if b == nil {
+		return
+	}
+	b.eng.Submit(eng.Event{Kind: eng.EvUserConnect})
+	b.eng.Submit(eng.Event{Kind: eng.EvHandshakeOK})
+	b.eng.Submit(probeEvent(true, 30, 0)) // validate → Connected in shadow
+}
+
+func (b *decisionBridge) observeDisconnect() {
+	if b == nil {
+		return
+	}
+	b.eng.Submit(eng.Event{Kind: eng.EvUserDisconnect})
+}
+
+// observeHealth maps the desktop TunnelHealthMonitor's (already-debounced) state
+// transitions onto engine probe samples. The desktop monitor only fires on a
+// CONFIRMED transition, so we emit two samples to carry the engine past its own
+// debounce — keeping the shadow verdict aligned with reality.
+func (b *decisionBridge) observeHealth(s TunnelHealthState) {
+	if b == nil {
+		return
+	}
+	switch s {
+	case TunnelHealthHealthy:
+		b.eng.Submit(probeEvent(true, 30, 0))
+	case TunnelHealthDegraded:
+		b.eng.Submit(probeEvent(true, 500, 0))
+		b.eng.Submit(probeEvent(true, 500, 0))
+	case TunnelHealthRecovering:
+		b.eng.Submit(probeEvent(false, 5000, 500000))
+		b.eng.Submit(probeEvent(false, 5000, 500000))
+	}
+}
+
+func probeEvent(ok bool, rtt, loss int32) eng.Event {
+	return eng.Event{Kind: eng.EvProbeResult, Probe: eng.ProbeResult{Kind: eng.ProbePath, OK: ok, RTTms: rtt, LossPpm: loss}}
+}
+
+// ── shadow spokes (no-ops; the engine drives nothing in shadow) ──
+
+type shadowTunnel struct{}
+
+func (shadowTunnel) Start(eng.ProfileID) {}
+func (shadowTunnel) Stop()               {}
+
+type shadowProber struct{}
+
+func (shadowProber) Run(eng.ProbeKind)        {}
+func (shadowProber) SetCadence(time.Duration) {}
+
+type logNotifier struct{}
+
+func (logNotifier) Notify(key string) { log.Printf("[engine/shadow] notify %q", key) }
+
+// shadowStore presents the configured protocol-failover order as the candidate
+// set so the engine's static selector has something to choose from. Real
+// per-connection profiles + persisted stats arrive with active mode / P4.
+type shadowStore struct {
+	getOrder func() []string
+}
+
+func (s *shadowStore) Snapshot() eng.ProfileSnapshot {
+	order := s.getOrder()
+	if len(order) == 0 {
+		order = []string{"wireguard", "amnezia", "openvpn", "ipsec"}
+	}
+	var profs []eng.Profile
+	for _, p := range order {
+		profs = append(profs, eng.Profile{
+			ID:        eng.ProfileID(p),
+			Protocol:  protoFromString(p),
+			Endpoints: []eng.Endpoint{{Host: p, Port: 443}},
+		})
+	}
+	return eng.ProfileSnapshot{Profiles: profs}
+}
+
+func (s *shadowStore) RecordOutcome(eng.ProfileID, eng.NetworkKey, bool, eng.FailKind) {}
+
+func protoFromString(p string) eng.Protocol {
+	switch p {
+	case "wireguard":
+		return eng.ProtoWireGuard
+	case "amneziawg", "amnezia":
+		return eng.ProtoAmnezia
+	case "openvpn":
+		return eng.ProtoOpenVPN
+	case "ipsec":
+		return eng.ProtoIPsec
+	}
+	return eng.ProtoWireGuard
+}

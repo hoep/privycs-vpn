@@ -138,6 +138,32 @@
       "section-title": "Privycs Pro",
       "upgrade": "Unlock Privycs Pro",
       "manage": "Manage your Pro license"
+    },
+    "engine": {
+      "auto-label": "Automatic protocol selection",
+      "auto-help": "Let the engine choose and recover the best protocol for the current network.",
+      "auto-on-note": "The engine decides the protocol automatically. The manual order is hidden while this is on.",
+      "decisions-title": "Engine decisions",
+      "decisions-empty": "No decisions yet — connect to see what the engine chooses and why.",
+      "decision": {
+        "connecting": "Connecting via {0}…",
+        "validating": "Verifying connectivity…",
+        "connected": "Connected via {0}",
+        "degraded": "Connection degraded — monitoring",
+        "recovered": "Connection recovered",
+        "recover_wait": "Recovering: waiting for the link to settle",
+        "recover_revalidate": "Recovering: re-checking connectivity",
+        "recover_restart": "Recovering: restarting the tunnel",
+        "switching": "Switching protocol to {0}",
+        "backoff": "Connection failed — backing off before retry",
+        "captive": "Captive portal detected — sign in to continue",
+        "roam": "Network changed — re-validating",
+        "disconnected": "Disconnected",
+        "suspended": "Paused (system sleep)",
+        "resumed_idle": "Resumed",
+        "resumed_revalidate": "Resumed — re-validating",
+        "no_profile": "No usable protocol available"
+      }
     }
   },
   "common": {

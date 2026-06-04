@@ -316,35 +316,71 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
         </router-link>
       </div>
 
-      <!-- Protocol Failover Order (v0.9.15.70) -->
+      <!-- Protocol selection: Automatic (engine) or manual failover order -->
       <div class="card p-4">
         <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ $t('settings.failover.section-title') }}</h3>
-        <p class="text-[10px] text-gray-400 mb-3">
-          {{ $t('settings.failover.description') }}
-        </p>
-        <div class="space-y-1.5">
-          <div v-for="(p, idx) in failoverOrder" :key="p" class="flex items-center gap-2 px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700">
-            <span class="text-[10px] text-gray-400 w-4">{{ idx + 1 }}.</span>
-            <ProtocolIcon :protocol="p" size="lg" />
-            <span class="flex-1 text-xs font-medium text-gray-700 dark:text-gray-200">{{ protocolLabel(p) }}</span>
-            <button
-              class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
-              :disabled="idx === 0"
-              @click="moveFailover(idx, idx - 1)"
-              :title="$t('settings.failover.move-up')"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
-            </button>
-            <button
-              class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
-              :disabled="idx === failoverOrder.length - 1"
-              @click="moveFailover(idx, idx + 1)"
-              :title="$t('settings.failover.move-down')"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-            </button>
+
+        <!-- Automatic toggle -->
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.engine.auto-label') }}</span>
+            <p class="text-[10px] text-gray-400 mt-0.5">{{ $t('settings.engine.auto-help') }}</p>
           </div>
+          <button
+            @click="toggleSetting('auto_protocol_selection')"
+            class="toggle"
+            :class="settings.auto_protocol_selection ? 'toggle-enabled' : 'toggle-disabled'"
+          >
+            <span class="toggle-knob" :class="settings.auto_protocol_selection ? 'translate-x-5' : 'translate-x-0'" />
+          </button>
         </div>
+
+        <!-- Manual order (only when Automatic is OFF) -->
+        <template v-if="!settings.auto_protocol_selection">
+          <p class="text-[10px] text-gray-400 mb-3">
+            {{ $t('settings.failover.description') }}
+          </p>
+          <div class="space-y-1.5">
+            <div v-for="(p, idx) in failoverOrder" :key="p" class="flex items-center gap-2 px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700">
+              <span class="text-[10px] text-gray-400 w-4">{{ idx + 1 }}.</span>
+              <ProtocolIcon :protocol="p" size="lg" />
+              <span class="flex-1 text-xs font-medium text-gray-700 dark:text-gray-200">{{ protocolLabel(p) }}</span>
+              <button
+                class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                :disabled="idx === 0"
+                @click="moveFailover(idx, idx - 1)"
+                :title="$t('settings.failover.move-up')"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+              </button>
+              <button
+                class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                :disabled="idx === failoverOrder.length - 1"
+                @click="moveFailover(idx, idx + 1)"
+                :title="$t('settings.failover.move-down')"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Automatic ON: engine decides; show the decision log (what + why) -->
+        <template v-else>
+          <p class="text-[10px] text-gray-400 mb-3">{{ $t('settings.engine.auto-on-note') }}</p>
+          <h4 class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{{ $t('settings.engine.decisions-title') }}</h4>
+          <p v-if="engineDecisions.length === 0" class="text-[10px] text-gray-400">{{ $t('settings.engine.decisions-empty') }}</p>
+          <ul v-else class="space-y-1 max-h-48 overflow-y-auto">
+            <li
+              v-for="(d, i) in engineDecisionsReversed"
+              :key="i"
+              class="text-[11px] flex items-start gap-2 px-2 py-1 rounded border border-gray-100 dark:border-gray-800"
+            >
+              <span class="text-gray-400 tabular-nums whitespace-nowrap">{{ fmtTime(d.at) }}</span>
+              <span class="flex-1 text-gray-700 dark:text-gray-200">{{ decisionText(d) }}</span>
+            </li>
+          </ul>
+        </template>
       </div>
 
       <!-- Logs -->
@@ -529,7 +565,7 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useVpnStore } from '@/stores/vpn'
-import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath, ValidateDnsOverride, TestDnsResolution, GetDnsProviders } from '../../wailsjs/go/main/App'
+import { GetSettings, UpdateSettings, GetPlatformFeatures, FetchMyProfile, GetHelperStatus, InstallPrivilegedHelper, UninstallPrivilegedHelper, ExportBackup, ImportBackup, PickBackupSavePath, PickBackupOpenPath, ValidateDnsOverride, TestDnsResolution, GetDnsProviders, EngineDecisions } from '../../wailsjs/go/main/App'
 import AppSelect from '@/components/AppSelect.vue'
 import { setLocale } from '@/i18n'
 import DnsOverrideField from '@/components/DnsOverrideField.vue'
@@ -893,6 +929,32 @@ function toggleSetting(key: string) {
   saveSettings()
 }
 
+// ── Smart Decision Engine (shadow) decision log ──
+const engineDecisions = ref<any[]>([])
+const engineDecisionsReversed = computed(() => [...engineDecisions.value].reverse())
+let engineDecisionsTimer: number | undefined
+async function refreshEngineDecisions() {
+  try {
+    engineDecisions.value = (await EngineDecisions()) || []
+  } catch {
+    /* shadow log may be empty / method absent in older builds */
+  }
+}
+// Localize a decision via its stable engine HumanKey (e.g. "decision.switching")
+// → settings.engine.decision.<key>, interpolating the engine-provided args.
+function decisionText(d: any): string {
+  const key = String(d?.key || '').replace(/^decision\./, '')
+  if (!key) return String(d?.rule || '')
+  return t('settings.engine.decision.' + key, (d?.args || []) as string[])
+}
+function fmtTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString()
+  } catch {
+    return ''
+  }
+}
+
 // Privileged helper state
 const helperStatus = ref<any>({ installed: false, running: false, platform: '' })
 const helperInstalling = ref(false)
@@ -954,11 +1016,17 @@ onMounted(async () => {
   // Listen for OS theme changes (for "System Default" mode)
   mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
   mediaQuery.addEventListener('change', onSystemThemeChange)
+  // Poll the engine decision log (shadow mode) for the "what/why" panel.
+  refreshEngineDecisions()
+  engineDecisionsTimer = window.setInterval(refreshEngineDecisions, 4000)
 })
 
 onUnmounted(() => {
   if (mediaQuery) {
     mediaQuery.removeEventListener('change', onSystemThemeChange)
+  }
+  if (engineDecisionsTimer) {
+    clearInterval(engineDecisionsTimer)
   }
 })
 </script>

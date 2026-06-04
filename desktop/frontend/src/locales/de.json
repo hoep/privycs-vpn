@@ -138,6 +138,32 @@
       "section-title": "Privycs Pro",
       "upgrade": "Privycs Pro freischalten",
       "manage": "Pro-Lizenz verwalten"
+    },
+    "engine": {
+      "auto-label": "Automatische Protokollwahl",
+      "auto-help": "Die Engine wählt und stellt das beste Protokoll für das aktuelle Netzwerk automatisch wieder her.",
+      "auto-on-note": "Die Engine entscheidet das Protokoll automatisch. Die manuelle Reihenfolge ist ausgeblendet, solange dies aktiv ist.",
+      "decisions-title": "Engine-Entscheidungen",
+      "decisions-empty": "Noch keine Entscheidungen – verbinde dich, um zu sehen, was die Engine wählt und warum.",
+      "decision": {
+        "connecting": "Verbinde über {0}…",
+        "validating": "Verbindung wird geprüft…",
+        "connected": "Verbunden über {0}",
+        "degraded": "Verbindung beeinträchtigt – wird überwacht",
+        "recovered": "Verbindung wiederhergestellt",
+        "recover_wait": "Wiederherstellung: warte, bis sich die Verbindung stabilisiert",
+        "recover_revalidate": "Wiederherstellung: prüfe die Verbindung erneut",
+        "recover_restart": "Wiederherstellung: starte den Tunnel neu",
+        "switching": "Wechsle Protokoll zu {0}",
+        "backoff": "Verbindung fehlgeschlagen – warte vor erneutem Versuch",
+        "captive": "Captive-Portal erkannt – zum Fortfahren anmelden",
+        "roam": "Netzwerk gewechselt – wird neu geprüft",
+        "disconnected": "Getrennt",
+        "suspended": "Pausiert (Ruhezustand)",
+        "resumed_idle": "Fortgesetzt",
+        "resumed_revalidate": "Fortgesetzt – wird neu geprüft",
+        "no_profile": "Kein nutzbares Protokoll verfügbar"
+      }
     }
   },
   "common": {

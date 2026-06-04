@@ -138,6 +138,32 @@
       "section-title": "Privycs Pro",
       "upgrade": "Desbloquear Privycs Pro",
       "manage": "Gestionar tu licencia Pro"
+    },
+    "engine": {
+      "auto-label": "Selección automática de protocolo",
+      "auto-help": "Deja que el motor elija y restablezca el mejor protocolo para la red actual.",
+      "auto-on-note": "El motor decide el protocolo automáticamente. El orden manual se oculta mientras está activado.",
+      "decisions-title": "Decisiones del motor",
+      "decisions-empty": "Aún no hay decisiones: conéctate para ver qué elige el motor y por qué.",
+      "decision": {
+        "connecting": "Conectando vía {0}…",
+        "validating": "Verificando la conectividad…",
+        "connected": "Conectado vía {0}",
+        "degraded": "Conexión degradada: supervisando",
+        "recovered": "Conexión recuperada",
+        "recover_wait": "Recuperando: esperando a que el enlace se estabilice",
+        "recover_revalidate": "Recuperando: comprobando de nuevo la conectividad",
+        "recover_restart": "Recuperando: reiniciando el túnel",
+        "switching": "Cambiando de protocolo a {0}",
+        "backoff": "Conexión fallida: esperando antes de reintentar",
+        "captive": "Portal cautivo detectado: inicia sesión para continuar",
+        "roam": "Red cambiada: revalidando",
+        "disconnected": "Desconectado",
+        "suspended": "Pausado (suspensión del sistema)",
+        "resumed_idle": "Reanudado",
+        "resumed_revalidate": "Reanudado: revalidando",
+        "no_profile": "No hay ningún protocolo utilizable"
+      }
     }
   },
   "connect": {

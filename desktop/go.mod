@@ -55,3 +55,7 @@ require (
 	gopkg.in/Knetic/govaluate.v3 v3.0.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20250606233247-e3c4c4cad86f // indirect
 )
+
+require github.com/hoep/privycs-vpn/engine v0.0.0
+
+replace github.com/hoep/privycs-vpn/engine => ../engine

@@ -89,6 +89,11 @@ type AppSettings struct {
 	// an older / partial list still produces a total order. Mirrors
 	// the Android AppSettings.protocolFailoverOrder field.
 	ProtocolFailoverOrder []string `json:"protocol_failover_order,omitempty"`
+	// Smart Decision Engine: when true, the engine auto-selects + fails over
+	// the protocol, and the manual ProtocolFailoverOrder UI is hidden. Default
+	// off; runs in shadow (observe + log only) until flipped active. Mirrors
+	// the planned Android / iOS AutoProtocolSelection field.
+	AutoProtocolSelection bool `json:"auto_protocol_selection,omitempty"`
 	// v1.0.0: encryption-at-rest. Set to true once
 	// MigrateAppDataToEncrypted completes successfully on this
 	// machine. Purely informational — the actual on-disk encryption

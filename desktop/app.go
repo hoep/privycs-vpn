@@ -133,6 +133,9 @@ type App struct {
 	// the "tunnel up but no traffic" gap that OpenVPN / IPSec do
 	// not detect themselves.
 	tunnelHealth *TunnelHealthMonitor
+	// Smart Decision Engine bridge (shadow mode): observes the connection
+	// lifecycle + health and LOGS what the engine would decide; takes no action.
+	engineBridge *decisionBridge
 	// Per-network auto-tunnel rule list (Phase 2). Walked on every
 	// NetworkMonitor tick; first matching rule drives the connect
 	// lifecycle (overrides COD trigger/SSID logic when at least
@@ -228,11 +231,25 @@ func (a *App) startup(ctx context.Context) {
 	// Wire tunnel-health state events to the Vue frontend so the
 	// ConnectionView traffic-light pill updates live without
 	// polling. Vue listens via wailsRuntime.EventsOn.
+	// Smart Decision Engine (shadow mode): observe the real connection
+	// lifecycle + health and LOG what the engine would decide. No-op spokes →
+	// zero behavior change until the AutoProtocolSelection toggle flips active.
+	a.engineBridge = newDecisionBridge(func() []string {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.settings != nil {
+			return a.settings.ProtocolFailoverOrder
+		}
+		return nil
+	})
+	a.engineBridge.start(ctx)
+
 	if a.tunnelHealth != nil {
 		a.tunnelHealth.SetOnStateChange(func(s TunnelHealthState) {
 			if a.ctx != nil {
 				wailsRuntime.EventsEmit(a.ctx, "tunnelHealth:state", string(s))
 			}
+			a.engineBridge.observeHealth(s)
 		})
 	}
 
@@ -1391,6 +1408,7 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 			// PickAndConnectActivePool's "wasConnected" path then
 			// no-ops on a phantom-running tunnel. Re-enabling the
 			// real recovery closes that hole.
+			a.engineBridge.observeConnect() // shadow: feed the engine a connect
 			a.tunnelHealth.Start(target, a.settings.TunnelHealthPingIntervalSec, a.settings.TunnelHealthDeadThreshold, func() {
 				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + trying failover")
 				// Serialise against concurrent UI Connect/Disconnect.
@@ -1554,6 +1572,7 @@ func (a *App) disconnectInternal() error {
 	if a.tunnelHealth != nil {
 		a.tunnelHealth.Stop()
 	}
+	a.engineBridge.observeDisconnect() // shadow: feed the engine a disconnect
 
 	// Release the prevent-display-sleep assertion. Idempotent —
 	// no-op if PreventDisplaySleep was off or caffeinate was never
