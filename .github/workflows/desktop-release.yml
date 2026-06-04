@@ -14,7 +14,12 @@ permissions:
 env:
   GO_VERSION: '1.25'
   NODE_VERSION: '20'
-  WAILS_VERSION: 'latest'
+  # Pinned: wails v2.12.0 regressed the build pipeline — bindings generation
+  # runs before the frontend build, so `//go:embed all:frontend/dist` fails
+  # with "no matching files found". v2.11.0 is the last good release (was what
+  # `@latest` resolved to for the prior green builds). Re-evaluate when the
+  # upstream ordering bug is fixed.
+  WAILS_VERSION: 'v2.11.0'
 
 jobs:
   check-changes:
