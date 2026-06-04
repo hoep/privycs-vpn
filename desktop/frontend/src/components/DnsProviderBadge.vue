@@ -103,13 +103,16 @@
     <span
       v-else
       class="block w-full h-full rounded-md bg-gray-500"
-      aria-label="DNS provider"
+      :aria-label="t('components.dns-provider-badge.generic-label')"
     />
   </span>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   id: string

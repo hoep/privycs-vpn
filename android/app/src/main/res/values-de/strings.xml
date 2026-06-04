@@ -627,4 +627,26 @@
     <string name="netrules_master_subtitle_off">Auto-Tunnel ist aus. Verbinde und trenne manuell über den Connect-Screen, oder schalte hier ein, um die Regeln unten laufen zu lassen.</string>
     <string name="settings_crash_reports_label">Anonyme Absturzberichte</string>
     <string name="settings_crash_reports_desc">Hilf Privycs zu verbessern durch anonyme Absturzberichte. SSIDs, API-Keys, IPs und Datei-Pfade werden vor dem Upload zu unserem self-hosted Backend on-device redaktiert.</string>
+
+    <string name="vpn_notification_connecting_to">Verbinde mit %1$s…</string>
+    <string name="vpn_notification_connecting_pool">Verbinde mit Pool…</string>
+    <string name="vpn_notification_reconnecting">Erneut verbinden…</string>
+    <string name="vpn_notification_disconnecting">Trennen…</string>
+    <string name="vpn_notification_connected_protocol">Verbunden mit %1$s (%2$s)</string>
+    <string name="vpn_notification_connecting_protocol">Verbinde %1$s (%2$s)…</string>
+    <string name="vpn_notification_openvpn_failed">OpenVPN fehlgeschlagen</string>
+    <string name="vpn_notification_kill_switch_active">Kill Switch aktiv — Datenverkehr blockiert</string>
+    <string name="vpn_notification_kill_switch_failed">Kill Switch konnte Datenverkehr nicht blockieren</string>
+    <string name="vpn_notification_kill_switch_unprotected">Kill Switch konnte den Datenverkehr NICHT blockieren — du bist ungeschützt. Tippe auf Erneut verbinden.</string>
+    <string name="vpn_notification_kill_switch_no_network">Kill Switch aktiv — kein Netzwerk zum Verbinden</string>
+    <string name="vpn_notification_cannot_connect_no_network">Verbindung nicht möglich — kein Netzwerk verfügbar</string>
+    <string name="vpn_notification_monitoring">Überwacht Netzwerkänderungen für On-Demand-Regeln.</string>
+    <string name="vpn_notification_title_kill_switch_active">Privycs VPN — Kill Switch aktiv</string>
+    <string name="vpn_notification_title_kill_switch_inactive">Privycs VPN — Kill Switch NICHT aktiv</string>
+    <string name="vpn_notification_title_monitoring">Privycs VPN — Netzwerk wird überwacht</string>
+    <string name="vpn_notification_action_stop_monitoring">Überwachung stoppen</string>
+    <string name="vpn_notification_action_retry_connect">Erneut verbinden</string>
+
+    <string name="vpn_error_unknown_protocol">Unbekanntes Protokoll: %1$s</string>
+    <string name="vpn_error_connection_failed">Verbindung fehlgeschlagen: %1$s</string>
 </resources>

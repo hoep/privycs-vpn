@@ -83,7 +83,7 @@ struct DnsField: View {
             testResult = "\(host) → \(first) (\(ms) ms)"
         } else {
             testOK = false
-            testResult = "Resolution failed"
+            testResult = String(localized: "Resolution failed")
         }
     }
 

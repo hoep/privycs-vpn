@@ -16,12 +16,14 @@ public enum BackupManager {
 
     public enum BackupError: Error, LocalizedError {
         case unsupportedVersion(Int)
-        case decryptFailed          // wrong passphrase or corrupted file
+        case decryptFailed          // GCM auth failed = wrong passphrase / corrupted
+        case payloadUnreadable      // decrypted OK but the JSON didn't match our models
         case malformed
         public var errorDescription: String? {
             switch self {
             case .unsupportedVersion(let v): return "Backup version \(v) is not supported by this app."
             case .decryptFailed: return "Wrong passphrase or corrupted backup file."
+            case .payloadUnreadable: return "The backup decrypted, but its contents couldn't be read — it may be from a newer or incompatible version."
             case .malformed: return "The backup file is not a valid Privycs backup."
             }
         }
@@ -139,7 +141,9 @@ public enum BackupManager {
         if let reg = try? JSONDecoder().decode(ConnectionRegistry.self, from: plaintext) {
             return Payload(connections: reg, settings: .default)
         }
-        throw BackupError.decryptFailed
+        // Decryption succeeded (the passphrase was right) but the JSON didn't
+        // decode into our models — a wire-format mismatch, NOT a bad passphrase.
+        throw BackupError.payloadUnreadable
     }
 
     // MARK: Helpers

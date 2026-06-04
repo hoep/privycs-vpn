@@ -68,26 +68,43 @@ struct BackupView: View {
                 .appendingPathComponent("privycs-backup.pvcbackup")
             try data.write(to: url, options: .atomic)
             exportURL = url
-            message = "Backup created — tap Share to save it."; isError = false
+            message = String(localized: "Backup created — tap Share to save it."); isError = false
         } catch {
-            message = error.localizedDescription; isError = true
+            message = backupErrorText(error); isError = true
+        }
+    }
+
+    /// Localized message for a backup failure. BackupError gets a translated
+    /// string (incl. the new "decrypted but unreadable" case, distinct from a
+    /// wrong passphrase); anything else falls back to its description.
+    private func backupErrorText(_ error: Error) -> String {
+        guard let e = error as? BackupManager.BackupError else { return error.localizedDescription }
+        switch e {
+        case .decryptFailed:
+            return String(localized: "Wrong passphrase or corrupted backup file.")
+        case .payloadUnreadable:
+            return String(localized: "The backup decrypted, but its contents couldn't be read — it may be from a newer or incompatible version of the app.")
+        case .malformed:
+            return String(localized: "This file isn't a valid Privycs backup.")
+        case .unsupportedVersion(let v):
+            return String(localized: "This backup (version \(v)) isn't supported by this app.")
         }
     }
 
     private func doImport(_ result: Result<[URL], Error>) async {
         guard case .success(let urls) = result, let url = urls.first else { return }
         guard url.startAccessingSecurityScopedResource() else {
-            message = "Could not open the selected file."; isError = true; return
+            message = String(localized: "Could not open the selected file."); isError = true; return
         }
         defer { url.stopAccessingSecurityScopedResource() }
         busy = true; defer { busy = false }
         do {
             let data = try Data(contentsOf: url)
             let r = try await appState.importBackup(data, password: password)
-            message = "Restored \(r.connections) connection(s), \(r.pools) pool(s), \(r.rules) rule(s)."
+            message = String(localized: "Restored \(r.connections) connection(s), \(r.pools) pool(s), \(r.rules) rule(s).")
             isError = false
         } catch {
-            message = error.localizedDescription; isError = true
+            message = backupErrorText(error); isError = true
         }
     }
 }

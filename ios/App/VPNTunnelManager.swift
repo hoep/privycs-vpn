@@ -211,6 +211,27 @@ final class VPNTunnelManager: ObservableObject {
         return out
     }
 
+    /// Does the current ruleset ever bring the tunnel UP? True iff there is at
+    /// least one Connect-producing rule (allowlist) or an expressible no-VPN
+    /// rule that flips the terminal to Connect(.any) (blocklist). When FALSE the
+    /// only on-demand outcome is "Disconnect everywhere" — and enabling
+    /// on-demand then makes iOS' NE daemon immediately tear down a manually
+    /// started tunnel while never auto-connecting anything useful. That is the
+    /// trap a fresh user hits with the master toggle ON but no rules yet: the
+    /// Connect button looks broken because on-demand kills the session. So when
+    /// this is false, callers MUST leave on-demand disabled — the master toggle
+    /// alone, with no actionable rule, must never sabotage a manual connect.
+    private func onDemandWouldConnect() -> Bool {
+        let enabled = pendingRules.filter { $0.enabled }
+        let hasConnect = enabled.contains {
+            $0.action == .connectActive || $0.action == .connection || $0.action == .pool
+        }
+        let hasNoVpn = enabled.contains {
+            $0.action == .noVpn && $0.matchType != .ssidPattern && $0.matchType != .bssid
+        }
+        return hasConnect || hasNoVpn
+    }
+
     /// Map a network-type matchValue to an on-demand interface type.
     /// `ethernet` collapses to `.any` (no iOS ethernet on-demand interface).
     private static func onDemandInterface(_ v: String) -> NEOnDemandRuleInterfaceType {
@@ -279,21 +300,23 @@ final class VPNTunnelManager: ObservableObject {
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = "com.privycs.vpn.tunnel"
         proto.serverAddress = config.serverAddress
-        proto.providerConfiguration = [
-            "protocol": config.protocol.rawValue,
-            "config_content": config.configContent,
-            "connection_id": connection.id,
-            "config_id": config.id,
-            "dns_override": dnsOverride,
-            "killSwitch": killSwitch,
-        ]
+        proto.providerConfiguration = TunnelProviderConfig.make(
+            protocolRaw: config.protocol.rawValue,
+            configContent: config.configContent,
+            connectionId: connection.id,
+            configId: config.id,
+            dnsOverride: dnsOverride,
+            killSwitch: killSwitch
+        )
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name
         mgr.isEnabled = true
-        if onDemandEnabled {
+        if onDemandEnabled && onDemandWouldConnect() {
             mgr.onDemandRules = onDemandRuleSet()
             mgr.isOnDemandEnabled = true
         } else {
+            // Master toggle off, OR on but no rule that ever connects: never
+            // arm a Disconnect-only ruleset — it would kill this manual connect.
             mgr.isOnDemandEnabled = false
         }
         try await mgr.saveToPreferences()
@@ -337,22 +360,29 @@ final class VPNTunnelManager: ObservableObject {
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = "com.privycs.vpn.tunnel"
         proto.serverAddress = config.serverAddress
-        proto.providerConfiguration = [
-            "protocol": config.protocol.rawValue,
-            "config_content": config.configContent,
-            "connection_id": connection.id,
-            "config_id": config.id,
-            "dns_override": dnsOverride,
-            "killSwitch": killSwitch,
-        ]
+        proto.providerConfiguration = TunnelProviderConfig.make(
+            protocolRaw: config.protocol.rawValue,
+            configContent: config.configContent,
+            connectionId: connection.id,
+            configId: config.id,
+            dnsOverride: dnsOverride,
+            killSwitch: killSwitch
+        )
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name
         mgr.isEnabled = true
-        mgr.onDemandRules = onDemandRuleSet()
-        mgr.isOnDemandEnabled = true
+        if onDemandWouldConnect() {
+            mgr.onDemandRules = onDemandRuleSet()
+            mgr.isOnDemandEnabled = true
+        } else {
+            // No actionable rule (only "Disconnect everywhere"): arming would
+            // block all traffic via on-demand and never auto-connect — leave it
+            // disabled so the user can still connect manually.
+            mgr.isOnDemandEnabled = false
+        }
         try await mgr.saveToPreferences()
         await reloadManagersAndRefresh()
-        PrivycsLog.log("on-demand armed (persistent config) — \(connection.name), rules=\(rules.count)")
+        PrivycsLog.log("on-demand armed (persistent config) — \(connection.name), rules=\(rules.count), enabled=\(onDemandWouldConnect())")
     }
 
     private func connectViaIKEv2(connection: SavedConnection, config: ProtocolConfig) async throws {
@@ -411,10 +441,12 @@ final class VPNTunnelManager: ObservableObject {
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name
         mgr.isEnabled = true
-        if onDemandEnabled {
+        if onDemandEnabled && onDemandWouldConnect() {
             mgr.onDemandRules = onDemandRuleSet()
             mgr.isOnDemandEnabled = true
         } else {
+            // Master toggle off, OR on but no rule that ever connects: never
+            // arm a Disconnect-only ruleset — it would kill this manual connect.
             mgr.isOnDemandEnabled = false
         }
         try await mgr.saveToPreferences()
@@ -484,13 +516,13 @@ final class VPNTunnelManager: ObservableObject {
     static func formatHandshakeAge(_ epoch: Int64) -> String {
         guard epoch > 0 else { return "" }
         let age = Int64(Date().timeIntervalSince1970) - epoch
-        if age < 0 { return "just now" }
-        if age < 2 { return "1 second ago" }
-        if age < 60 { return "\(age) seconds ago" }
-        if age < 120 { return "1 minute ago" }
-        if age < 3600 { return "\(age / 60) minutes ago" }
-        if age < 7200 { return "1 hour ago" }
-        return "\(age / 3600) hours ago"
+        if age < 0 { return String(localized: "just now") }
+        if age < 2 { return String(localized: "1 second ago") }
+        if age < 60 { return String(localized: "\(age) seconds ago") }
+        if age < 120 { return String(localized: "1 minute ago") }
+        if age < 3600 { return String(localized: "\(age / 60) minutes ago") }
+        if age < 7200 { return String(localized: "1 hour ago") }
+        return String(localized: "\(age / 3600) hours ago")
     }
 
     /// IKEv2 Personal VPN: connected-state from NEVPNConnection. No
@@ -520,7 +552,7 @@ enum VPNError: LocalizedError {
     case noConfig
     var errorDescription: String? {
         switch self {
-        case .noConfig: return "No protocol config selected"
+        case .noConfig: return String(localized: "No protocol config selected")
         }
     }
 }

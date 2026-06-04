@@ -14,10 +14,18 @@ public enum PoolHostnameLabels {
         return cityCodes[parts[1].lowercased()] ?? ""
     }
 
-    /// Country full name from ISO-3166-1 alpha-2 (else "").
-    public static func countryNameFromCode(_ cc: String?) -> String {
+    /// Country full name from ISO-3166-1 alpha-2 (else ""), localized to the
+    /// given locale. CLDR ships every country name in all our languages, so we
+    /// prefer the OS localization (pass the in-app-language locale to honor the
+    /// user's language pick) and fall back to the curated English table for any
+    /// code CLDR can't resolve.
+    public static func countryNameFromCode(_ cc: String?, locale: Locale = .current) -> String {
         guard let cc, !cc.isEmpty else { return "" }
-        return countryNames[cc.uppercased()] ?? ""
+        let code = cc.uppercased()
+        if let localized = locale.localizedString(forRegionCode: code), !localized.isEmpty {
+            return localized
+        }
+        return countryNames[code] ?? ""
     }
 
     /// Country flag emoji via Regional Indicator Symbols (else "").

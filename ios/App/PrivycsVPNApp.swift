@@ -1,5 +1,6 @@
 import SwiftUI
 import PrivycsCore
+import WidgetKit
 
 @main
 struct PrivycsVPNApp: App {
@@ -129,7 +130,7 @@ final class AppState: ObservableObject {
     var selectedLabel: String {
         if let p = selectedPool { return p.name }
         if let c = selectedConnection { return c.name }
-        return "No connection"
+        return String(localized: "No connection")
     }
 
     /// Protocol whose brand logo the (idle) connect button should show —
@@ -278,6 +279,7 @@ final class AppState: ObservableObject {
     func selectTarget(_ id: String) async {
         let wasConnected = status.connected
         selectedTargetID = id
+        pushWidgetSnapshot()
         guard wasConnected else { return }
         await teardownTunnel(armManualCooldown: false)
         await connectSelected()
@@ -406,7 +408,7 @@ final class AppState: ObservableObject {
                 let snap = TunnelStatsStore.read()
                 if snap?.connected != true || (snap?.rxBytes ?? 0) == 0 {
                     await poolHealth.markUnreachable(pool: pool.id, member: member.id)
-                    lastError = "\(member.name) did not pass traffic"
+                    lastError = String(localized: "\(member.name) did not pass traffic")
                     continue
                 }
             }
@@ -422,7 +424,7 @@ final class AppState: ObservableObject {
         if await AppState.reachable(host: "1.1.1.1", timeout: 4) {
             await poolHealth.clear(pool: pool.id)
         }
-        connectError = lastError ?? "Pool has no reachable members"
+        connectError = lastError ?? String(localized: "Pool has no reachable members")
     }
 
     /// 3-tier DNS override: the connection's own override (pool members
@@ -715,6 +717,70 @@ final class AppState: ObservableObject {
         lastSampleAt = now
     }
 
+    private var lastWidgetReloadKey = ""
+
+    /// Publish the rich home-screen-widget snapshot to the shared App Group
+    /// and nudge WidgetKit. Writes on every status tick (a cheap UserDefaults
+    /// encode) so a system-scheduled reload always finds fresh traffic, but
+    /// only FORCES a reload on a real transition (connect / disconnect /
+    /// pause / selection / protocol change) to respect WidgetKit's tight
+    /// reload budget. The widget merges this with the live `TunnelStatsSnapshot`
+    /// the tunnel writes, so it stays correct even when this app isn't running.
+    func pushWidgetSnapshot() {
+        let conn = selectedConnection
+        let pool = selectedPool
+        let dns = conn.map { resolvedDNS(for: $0) } ?? ""
+        var seen = Set<VpnProtocol>()
+        var available: [String] = []
+        var targets: [WidgetSwitchTarget] = []
+        for cfg in (conn?.protocols ?? []) where seen.insert(cfg.protocol).inserted {
+            available.append(cfg.protocol.rawValue)
+            // Only emit packet-tunnel protocols the widget can reconfigure
+            // in-place (WG/AWG/OpenVPN); IPSec is handled by opening the app.
+            if TunnelProviderConfig.isInPlaceSwitchable(cfg.protocol.rawValue) {
+                targets.append(WidgetSwitchTarget(
+                    protocolRaw: cfg.protocol.rawValue,
+                    configId: cfg.id,
+                    configContent: cfg.configContent,
+                    serverAddress: cfg.serverAddress,
+                    dnsOverride: dns
+                ))
+            }
+        }
+        let cc = status.activeMemberCountry.isEmpty ? status.serverCountryCode : status.activeMemberCountry
+        let nowEpoch = Int64(Date().timeIntervalSince1970)
+        let snap = WidgetSnapshot(
+            connected: status.connected,
+            paused: pausedUntil != nil,
+            protocolRaw: status.activeProtocol?.rawValue ?? conn?.protocols.first?.protocol.rawValue ?? "",
+            availableProtocols: pool == nil ? available : [],
+            isPool: pool != nil,
+            connectionName: conn?.name ?? status.connectionName,
+            poolName: pool?.name ?? "",
+            memberName: status.activeMemberName,
+            countryCode: cc,
+            serverEndpoint: status.serverEndpoint,
+            localAddress: status.localAddress,
+            rxBytes: status.rxBytes,
+            txBytes: status.txBytes,
+            rxSpeed: Int64(rxSpeed),
+            txSpeed: Int64(txSpeed),
+            rxHistory: rxHistory,
+            txHistory: txHistory,
+            connectedAtEpoch: status.connected ? nowEpoch - status.uptime : 0,
+            updatedAtEpoch: nowEpoch,
+            connectionId: conn?.id ?? "",
+            killSwitch: settings.killSwitchEnabled,
+            switchTargets: pool == nil ? targets : []
+        )
+        WidgetSnapshotStore.write(snap)
+        let key = "\(status.connected)|\(pausedUntil != nil)|\(selectedTargetID)|\(snap.protocolRaw)"
+        if key != lastWidgetReloadKey {
+            lastWidgetReloadKey = key
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+
     func bootstrap() async {
         await networkMonitor.start()
         startHealthMonitor()
@@ -781,7 +847,12 @@ final class AppState: ObservableObject {
             for await st in await tunnelManager.observeStatus() {
                 self.status = st
                 self.ingestSpeedSample(st)
+                self.pushWidgetSnapshot()
             }
         }
+
+        // Seed the widget once at launch so a freshly added widget shows the
+        // restored selection/state before the first status tick arrives.
+        pushWidgetSnapshot()
     }
 }

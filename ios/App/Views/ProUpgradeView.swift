@@ -65,7 +65,7 @@ struct ProUpgradeView: View {
         do {
             products = try await Product.products(for: ["com.privycs.vpn.pro_lifetime"])
         } catch {
-            message = "Failed to load: \(error.localizedDescription)"
+            message = String(localized: "Failed to load: \(error.localizedDescription)")
         }
     }
 
@@ -79,7 +79,7 @@ struct ProUpgradeView: View {
                 if case .verified(let transaction) = verification {
                     try await appState.entitlementRepo.markStoreKitEntitled(product.id)
                     await transaction.finish()
-                    message = "Pro unlocked! Thank you."
+                    message = String(localized: "Pro unlocked! Thank you.")
                     // Best-effort cross-platform redeem: exchange the
                     // signed transaction for an ed25519 license so the
                     // same purchase unlocks the user's other devices via
@@ -94,7 +94,7 @@ struct ProUpgradeView: View {
             case .userCancelled:
                 break
             case .pending:
-                message = "Purchase pending"
+                message = String(localized: "Purchase pending")
             @unknown default:
                 break
             }
@@ -105,6 +105,6 @@ struct ProUpgradeView: View {
 
     private func restore() async {
         try? await AppStore.sync()
-        message = "Restore initiated"
+        message = String(localized: "Restore initiated")
     }
 }

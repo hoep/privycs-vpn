@@ -31,13 +31,19 @@ object PoolHostnameLabels {
     }
 
     /**
-     * Country full name from ISO-3166-1 alpha-2 code, or "" if the
-     * code is unknown. ASCII-only English labels regardless of
-     * device locale (matches desktop's behaviour).
+     * Country full name from ISO-3166-1 alpha-2 code, localized to the
+     * given locale (default = the active app/device locale), or "" if the
+     * code is unknown. The JDK ships every country name in all our languages
+     * via CLDR, so we prefer [java.util.Locale.getDisplayCountry] and fall
+     * back to the curated English table only for codes CLDR can't resolve.
      */
-    fun countryNameFromCode(cc: String?): String {
+    fun countryNameFromCode(cc: String?, locale: java.util.Locale = java.util.Locale.getDefault()): String {
         if (cc.isNullOrEmpty()) return ""
-        return COUNTRY_NAMES[cc.uppercase()].orEmpty()
+        val code = cc.uppercase()
+        val display = java.util.Locale("", code).getDisplayCountry(locale)
+        // getDisplayCountry echoes the code back when CLDR doesn't know it.
+        if (display.isNotEmpty() && !display.equals(code, ignoreCase = true)) return display
+        return COUNTRY_NAMES[code].orEmpty()
     }
 
     /**

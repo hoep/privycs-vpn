@@ -820,6 +820,9 @@
       "preset-label": "Or use preset:",
       "pick-provider": "— pick a provider —"
     },
+    "dns-provider-badge": {
+      "generic-label": "DNS provider"
+    },
     "pool-import-toast": {
       "headline": {
         "extracting": "Extracting archive",

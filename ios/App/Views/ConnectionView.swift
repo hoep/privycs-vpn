@@ -7,6 +7,7 @@ import PrivycsCore
 /// stats with sparklines, connection-detail rows, tunnel-health pill.
 struct ConnectionView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.locale) private var locale
     @State private var showPicker = false
     @State private var showConfigSheet = false
     @State private var showPauseSheet = false
@@ -125,11 +126,11 @@ struct ConnectionView: View {
 
     /// Countdown label for a timed pause; "Paused" for an indefinite one.
     private var pausedLabel: String {
-        guard let until = appState.pausedUntil, until != .distantFuture else { return "Paused" }
+        guard let until = appState.pausedUntil, until != .distantFuture else { return String(localized: "Paused") }
         let secs = max(0, Int(until.timeIntervalSinceNow))
-        if secs >= 3600 { return "Paused — resumes in \(secs / 3600)h \((secs % 3600) / 60)m" }
-        if secs >= 60 { return "Paused — resumes in \(secs / 60)m \(secs % 60)s" }
-        return "Paused — resumes in \(secs)s"
+        if secs >= 3600 { return String(localized: "Paused — resumes in \(secs / 3600)h \((secs % 3600) / 60)m") }
+        if secs >= 60 { return String(localized: "Paused — resumes in \(secs / 60)m \(secs % 60)s") }
+        return String(localized: "Paused — resumes in \(secs)s")
     }
 
     // MARK: Target picker (connections + pools)
@@ -184,7 +185,7 @@ struct ConnectionView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if !appState.connections.isEmpty {
-                    pickerHeader("Connections")
+                    pickerHeader(String(localized: "Connections"))
                     ForEach(appState.connections) { c in
                         pickerRow(
                             title: c.name,
@@ -200,7 +201,7 @@ struct ConnectionView: View {
                 }
                 if !appState.pools.isEmpty {
                     Divider().padding(.vertical, 4)
-                    pickerHeader("Pools")
+                    pickerHeader(String(localized: "Pools"))
                     ForEach(appState.pools) { p in
                         pickerRow(
                             title: p.name,
@@ -335,7 +336,7 @@ struct ConnectionView: View {
         let labelName = status.activeMemberName.isEmpty ? status.connectionName : status.activeMemberName
         let flag = PoolHostnameLabels.flagEmoji(cc)
         let city = PoolHostnameLabels.cityFromHostname(labelName)
-        let country = PoolHostnameLabels.countryNameFromCode(cc)
+        let country = PoolHostnameLabels.countryNameFromCode(cc, locale: locale)
         // Endpoint host/IP (port stripped) — appended after the country so
         // the line reads e.g. "🇩🇪  Deutschland · zerotrust.privycs.com".
         let host = PoolImporter.endpointHost(formatEndpoint(status.serverEndpoint))
@@ -357,12 +358,12 @@ struct ConnectionView: View {
     private var statsRow: some View {
         HStack(spacing: 12) {
             TransferStatsCard(
-                title: "Download", icon: "arrow.down",
+                title: String(localized: "Download"), icon: "arrow.down",
                 totalBytes: status.rxBytes, speedBytesPerSec: appState.rxSpeed,
                 history: appState.rxHistory, tint: Color(hex: 0x22C55E)   // green-500 (Android parity)
             )
             TransferStatsCard(
-                title: "Upload", icon: "arrow.up",
+                title: String(localized: "Upload"), icon: "arrow.up",
                 totalBytes: status.txBytes, speedBytesPerSec: appState.txSpeed,
                 history: appState.txHistory, tint: Color(hex: 0x3B82F6)   // blue-500 (Android parity)
             )
@@ -377,13 +378,13 @@ struct ConnectionView: View {
     private var connectionDetails: some View {
         VStack(spacing: 0) {
             if !status.localAddress.isEmpty {
-                detailRow("VPN IP", value: status.localAddress)
+                detailRow(String(localized: "VPN IP"), value: status.localAddress)
             }
             if !status.serverEndpoint.isEmpty {
-                detailRow("Endpoint", value: formatEndpoint(status.serverEndpoint))
+                detailRow(String(localized: "Endpoint"), value: formatEndpoint(status.serverEndpoint))
             }
             if !status.lastHandshake.isEmpty {
-                detailRow("Last handshake", value: status.lastHandshake)
+                detailRow(String(localized: "Last handshake"), value: status.lastHandshake)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 2)

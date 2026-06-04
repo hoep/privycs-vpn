@@ -678,7 +678,21 @@ import {
 
 const vpn = useVpnStore()
 const poolStore = usePoolStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+// ISO 3166-1 alpha-2 → country name localized to the active UI language.
+// The browser/Electron runtime ships CLDR via Intl.DisplayNames, so we get
+// every country name in all six languages for free; the inline COUNTRY_NAMES
+// table is only a fallback for codes the runtime can't resolve.
+function localizedCountry(cc: string): string {
+  if (!cc) return ''
+  const code = cc.toUpperCase()
+  try {
+    const name = new Intl.DisplayNames([locale.value], { type: 'region' }).of(code)
+    if (name && name.toUpperCase() !== code) return name
+  } catch { /* unsupported region code or runtime — fall through */ }
+  return COUNTRY_NAMES[code] || code
+}
 
 // Pool indicator computed: only render once the store has the active
 // pool's name. The list refresh is fast enough that we render
@@ -814,7 +828,7 @@ const rotatorIntervalLabel = computed(() => {
 const serverLocation = computed(() => {
   const cc = vpn.status?.server_country_code || ''
   const city = vpn.status?.server_city || ''
-  const countryName = cc ? COUNTRY_NAMES[cc.toUpperCase()] || cc : ''
+  const countryName = localizedCountry(cc)
   if (city && countryName) return `${city}, ${countryName}`
   if (countryName) return countryName
   if (city) return city

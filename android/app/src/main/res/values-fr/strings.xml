@@ -627,4 +627,26 @@
     <string name="netrules_master_subtitle_off">L\'auto-connexion est désactivée. Connectez et déconnectez manuellement depuis l\'écran Connexion, ou activez ici pour que les règles ci-dessous s\'exécutent.</string>
     <string name="settings_crash_reports_label">Rapports de plantage anonymes</string>
     <string name="settings_crash_reports_desc">Aidez à améliorer Privycs en envoyant des rapports de plantage anonymes. SSID, clés API, IPs et chemins de fichiers sont caviardés sur l\'appareil avant l\'envoi à notre backend auto-hébergé.</string>
+
+    <string name="vpn_notification_connecting_to">Connexion à %1$s…</string>
+    <string name="vpn_notification_connecting_pool">Connexion au pool…</string>
+    <string name="vpn_notification_reconnecting">Reconnexion…</string>
+    <string name="vpn_notification_disconnecting">Déconnexion…</string>
+    <string name="vpn_notification_connected_protocol">Connecté à %1$s (%2$s)</string>
+    <string name="vpn_notification_connecting_protocol">Connexion %1$s (%2$s)…</string>
+    <string name="vpn_notification_openvpn_failed">Échec d\'OpenVPN</string>
+    <string name="vpn_notification_kill_switch_active">Kill Switch actif — trafic bloqué</string>
+    <string name="vpn_notification_kill_switch_failed">Le Kill Switch n\'a pas pu bloquer le trafic</string>
+    <string name="vpn_notification_kill_switch_unprotected">Le Kill Switch n\'a PAS pu bloquer le trafic — vous n\'êtes pas protégé. Touchez Réessayer.</string>
+    <string name="vpn_notification_kill_switch_no_network">Kill Switch actif — aucun réseau pour se connecter</string>
+    <string name="vpn_notification_cannot_connect_no_network">Connexion impossible — aucun réseau disponible</string>
+    <string name="vpn_notification_monitoring">Surveillance des changements de réseau pour les règles à la demande.</string>
+    <string name="vpn_notification_title_kill_switch_active">Privycs VPN — Kill Switch actif</string>
+    <string name="vpn_notification_title_kill_switch_inactive">Privycs VPN — Kill Switch NON actif</string>
+    <string name="vpn_notification_title_monitoring">Privycs VPN — Surveillance du réseau</string>
+    <string name="vpn_notification_action_stop_monitoring">Arrêter la surveillance</string>
+    <string name="vpn_notification_action_retry_connect">Réessayer la connexion</string>
+
+    <string name="vpn_error_unknown_protocol">Protocole inconnu : %1$s</string>
+    <string name="vpn_error_connection_failed">Échec de la connexion : %1$s</string>
 </resources>

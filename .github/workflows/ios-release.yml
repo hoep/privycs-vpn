@@ -182,10 +182,12 @@ jobs:
         env:
           PROFILE_APP_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_APP_BASE64 }}
           PROFILE_TUNNEL_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_TUNNEL_BASE64 }}
+          PROFILE_WIDGET_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_WIDGET_BASE64 }}
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "$PROFILE_APP_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/app.mobileprovision
           echo "$PROFILE_TUNNEL_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/tunnel.mobileprovision
+          echo "$PROFILE_WIDGET_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/widget.mobileprovision
 
       - name: Archive
         working-directory: ios
@@ -224,6 +226,7 @@ jobs:
             <dict>
               <key>com.privycs.vpn</key><string>Privycs VPN App Store</string>
               <key>com.privycs.vpn.tunnel</key><string>Privycs VPN Tunnel App Store</string>
+              <key>com.privycs.vpn.widget</key><string>Privycs VPN Widget App Store</string>
             </dict>
           </dict></plist>
           EOF

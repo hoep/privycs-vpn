@@ -279,7 +279,7 @@ class PrivycsVpnService : VpnService() {
                                     // Switch active" text.
                                     val name = currentConnectionName.takeIf { it.isNotBlank() } ?: "VPN"
                                     PrivycsLogger.i(TAG, "KS state SINKHOLE->ARMED: refreshing notification to connected")
-                                    updateNotification("Connected to $name")
+                                    updateNotification(getString(R.string.vpn_notification_connected, name))
                                 }
                                 else -> { /* unreachable - SINKHOLE handled above */ }
                             }
@@ -456,11 +456,11 @@ class PrivycsVpnService : VpnService() {
                     "enterSinkholeMode: establish() returned null — Kill Switch is NOT " +
                         "blocking traffic (VPN permission revoked?); watchdog will retry",
                 )
-                updateNotification("Kill Switch could not block traffic")
+                updateNotification(getString(R.string.vpn_notification_kill_switch_failed))
             } else {
                 sinkholeEstablishFailed = false
                 updateNotification(
-                    "Kill Switch active — traffic blocked",
+                    getString(R.string.vpn_notification_kill_switch_active),
                     sinkholeMode = true,
                 )
                 sendWidgetUpdate(connected = false)
@@ -530,7 +530,7 @@ class PrivycsVpnService : VpnService() {
         com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
         connectStartTime = 0L
         sendWidgetUpdate(connected = false)
-        updateNotification("Disconnected")
+        updateNotification(getString(R.string.vpn_notification_disconnected))
         PrivycsLogger.i(TAG, "Post-sinkhole teardown complete - plugin state cleared, UI reflects disconnected")
 
         // Post-teardown: if Connect-on-Demand is enabled and its
@@ -596,7 +596,7 @@ class PrivycsVpnService : VpnService() {
 
                 startForeground(
                     PrivycsApp.NOTIFICATION_ID_VPN,
-                    buildNotification("Connecting to $connectionName...")
+                    buildNotification(getString(R.string.vpn_notification_connecting_to, connectionName))
                 )
 
                 handleConnect(connectionId, protocolStr, configContent, connectionName)
@@ -621,7 +621,7 @@ class PrivycsVpnService : VpnService() {
                     startForeground(
                         PrivycsApp.NOTIFICATION_ID_VPN,
                         buildNotification(
-                            "Watching for network changes for on-demand rules.",
+                            getString(R.string.vpn_notification_monitoring),
                             monitorMode = true,
                         ),
                     )
@@ -693,7 +693,7 @@ class PrivycsVpnService : VpnService() {
                 // bug observed in v0.9.10.2).
                 startForeground(
                     PrivycsApp.NOTIFICATION_ID_VPN,
-                    buildNotification("Kill Switch active — traffic blocked", sinkholeMode = true),
+                    buildNotification(getString(R.string.vpn_notification_kill_switch_active), sinkholeMode = true),
                 )
                 // onCreate already called enterSinkholeMode if state
                 // was SINKHOLE at startup; this is idempotent
@@ -720,7 +720,7 @@ class PrivycsVpnService : VpnService() {
                 }
                 startForeground(
                     PrivycsApp.NOTIFICATION_ID_VPN,
-                    buildNotification("Connecting to pool...")
+                    buildNotification(getString(R.string.vpn_notification_connecting_pool))
                 )
                 handlePoolConnect(poolId)
             }
@@ -761,7 +761,7 @@ class PrivycsVpnService : VpnService() {
             else -> {
                 startForeground(
                     PrivycsApp.NOTIFICATION_ID_VPN,
-                    buildNotification("Reconnecting...")
+                    buildNotification(getString(R.string.vpn_notification_reconnecting))
                 )
                 // B-4 hybrid persistence: intent == null means the OS
                 // recreated this service via START_STICKY after our
@@ -1467,11 +1467,11 @@ class PrivycsVpnService : VpnService() {
                         com.privycs.vpn.util.ConnectCoordinator.markDisconnected()
                         if (sinkhole) {
                             updateNotification(
-                                "Kill Switch active — no network to connect on",
+                                getString(R.string.vpn_notification_kill_switch_no_network),
                                 sinkholeMode = true,
                             )
                         } else {
-                            updateNotification("Cannot connect — no network available")
+                            updateNotification(getString(R.string.vpn_notification_cannot_connect_no_network))
                         }
                         return@launch
                     }
@@ -1503,7 +1503,7 @@ class PrivycsVpnService : VpnService() {
                 if (newProtocol == null) {
                     PrivycsLogger.e(TAG, "Unknown protocol: $protocolStr")
                     val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
-                    manager.updateStatus(VpnStatus(error = "Unknown protocol: $protocolStr"))
+                    manager.updateStatus(VpnStatus(error = getString(R.string.vpn_error_unknown_protocol, protocolStr)))
                     stopSelf()
                     return@launch
                 }
@@ -1652,7 +1652,7 @@ class PrivycsVpnService : VpnService() {
                 // pretty banners.
                 PrivycsLogger.e(TAG, "Connect failed", e)
                 val manager = VpnServiceManager.getInstance(this@PrivycsVpnService)
-                manager.updateStatus(VpnStatus(error = "Connection failed: ${e.message}"))
+                manager.updateStatus(VpnStatus(error = getString(R.string.vpn_error_connection_failed, e.message ?: "")))
                 stopSelf()
             }
             } // tunnelMutex.withLock
@@ -1804,7 +1804,7 @@ class PrivycsVpnService : VpnService() {
         tunnel.connect(patchedConfig, "privycs0")
 
         connectStartTime = System.currentTimeMillis()
-        updateNotification("Connected to $currentConnectionName")
+        updateNotification(getString(R.string.vpn_notification_connected, currentConnectionName))
         sendWidgetUpdate(connected = true)
         startStatusPolling()
     }
@@ -2072,11 +2072,11 @@ class PrivycsVpnService : VpnService() {
             val connected = s == OpenVpnTunnel.State.CONNECTED
             manager.updateStatus(tunnel.getStatus(currentConnectionName, currentConnectionId))
             when (s) {
-                OpenVpnTunnel.State.CONNECTING -> updateNotification("Connecting $currentConnectionName (OpenVPN)...")
-                OpenVpnTunnel.State.CONNECTED  -> updateNotification("Connected to $currentConnectionName (OpenVPN)")
-                OpenVpnTunnel.State.DISCONNECTING -> updateNotification("Disconnecting...")
-                OpenVpnTunnel.State.DISCONNECTED -> updateNotification("Disconnected")
-                OpenVpnTunnel.State.FAILED -> updateNotification("OpenVPN failed")
+                OpenVpnTunnel.State.CONNECTING -> updateNotification(getString(R.string.vpn_notification_connecting_protocol, currentConnectionName, "OpenVPN"))
+                OpenVpnTunnel.State.CONNECTED  -> updateNotification(getString(R.string.vpn_notification_connected_protocol, currentConnectionName, "OpenVPN"))
+                OpenVpnTunnel.State.DISCONNECTING -> updateNotification(getString(R.string.vpn_notification_disconnecting))
+                OpenVpnTunnel.State.DISCONNECTED -> updateNotification(getString(R.string.vpn_notification_disconnected))
+                OpenVpnTunnel.State.FAILED -> updateNotification(getString(R.string.vpn_notification_openvpn_failed))
             }
             sendWidgetUpdate(connected = connected)
         }
@@ -2151,10 +2151,10 @@ class PrivycsVpnService : VpnService() {
             val connected = s == IpSecTunnel.State.CONNECTED
             manager.updateStatus(tunnel.getStatus(currentConnectionName, currentConnectionId))
             when (s) {
-                IpSecTunnel.State.CONNECTING -> updateNotification("Connecting $currentConnectionName (IPSec)...")
-                IpSecTunnel.State.CONNECTED  -> updateNotification("Connected to $currentConnectionName (IPSec)")
-                IpSecTunnel.State.DISCONNECTING -> updateNotification("Disconnecting...")
-                IpSecTunnel.State.DISCONNECTED -> updateNotification("Disconnected")
+                IpSecTunnel.State.CONNECTING -> updateNotification(getString(R.string.vpn_notification_connecting_protocol, currentConnectionName, "IPSec"))
+                IpSecTunnel.State.CONNECTED  -> updateNotification(getString(R.string.vpn_notification_connected_protocol, currentConnectionName, "IPSec"))
+                IpSecTunnel.State.DISCONNECTING -> updateNotification(getString(R.string.vpn_notification_disconnecting))
+                IpSecTunnel.State.DISCONNECTED -> updateNotification(getString(R.string.vpn_notification_disconnected))
             }
             sendWidgetUpdate(connected = connected)
         }
@@ -2433,7 +2433,7 @@ class PrivycsVpnService : VpnService() {
             if (com.privycs.vpn.util.KillSwitchManager.isSinkholeActive()) {
                 PrivycsLogger.i(TAG, "handleDisconnect: Kill Switch sinkhole engaged - keeping service alive in block-all mode")
                 updateNotification(
-                    "Kill Switch active — traffic blocked",
+                    getString(R.string.vpn_notification_kill_switch_active),
                     sinkholeMode = true,
                 )
                 return@launch
@@ -2456,7 +2456,7 @@ class PrivycsVpnService : VpnService() {
                 startForeground(
                     PrivycsApp.NOTIFICATION_ID_VPN,
                     buildNotification(
-                        "Watching for network changes for on-demand rules.",
+                        getString(R.string.vpn_notification_monitoring),
                         monitorMode = true,
                     ),
                 )
@@ -2730,7 +2730,7 @@ class PrivycsVpnService : VpnService() {
                         }
                         if (!stillTransient) {
                             PrivycsLogger.w(TAG, "Tunnel went down unexpectedly")
-                            updateNotification("Disconnected")
+                            updateNotification(getString(R.string.vpn_notification_disconnected))
                             break
                         }
                     }
@@ -2753,9 +2753,9 @@ class PrivycsVpnService : VpnService() {
         )
 
         val title = when {
-            sinkholeFailed -> "Privycs VPN — Kill Switch NOT active"
-            sinkholeMode -> "Privycs VPN — Kill Switch Active"
-            monitorMode -> "Privycs VPN — Monitoring network"
+            sinkholeFailed -> getString(R.string.vpn_notification_title_kill_switch_inactive)
+            sinkholeMode -> getString(R.string.vpn_notification_title_kill_switch_active)
+            monitorMode -> getString(R.string.vpn_notification_title_monitoring)
             else -> getString(R.string.vpn_notification_title)
         }
 
@@ -2792,7 +2792,7 @@ class PrivycsVpnService : VpnService() {
             )
             builder.addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
-                "Stop monitoring",
+                getString(R.string.vpn_notification_action_stop_monitoring),
                 pendingStop,
             )
             return builder.build()
@@ -2814,7 +2814,7 @@ class PrivycsVpnService : VpnService() {
             )
             builder.addAction(
                 android.R.drawable.ic_menu_rotate,
-                "Retry Connect",
+                getString(R.string.vpn_notification_action_retry_connect),
                 pendingRetry,
             )
         } else {
@@ -2850,8 +2850,8 @@ class PrivycsVpnService : VpnService() {
         val sinkholeFailed = killSwitchActive && sinkholeEstablishFailed
         val effectiveText = when {
             sinkholeFailed ->
-                "Kill Switch could NOT block traffic — you are unprotected. Tap Retry."
-            killSwitchActive -> "Kill Switch active — traffic blocked"
+                getString(R.string.vpn_notification_kill_switch_unprotected)
+            killSwitchActive -> getString(R.string.vpn_notification_kill_switch_active)
             else -> text
         }
         val effectiveSinkhole = sinkholeMode || killSwitchActive

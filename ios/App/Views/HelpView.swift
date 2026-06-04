@@ -8,7 +8,7 @@ struct HelpView: View {
                     NavigationLink {
                         MarkdownDocView(
                             url: URL(string: "https://www.privycs.com/docs/ios-client.md")!,
-                            title: "User Guide")
+                            title: String(localized: "User Guide"))
                     } label: {
                         Label("User Guide", systemImage: "book")
                     }

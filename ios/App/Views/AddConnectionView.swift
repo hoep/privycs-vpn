@@ -96,7 +96,7 @@ struct AddConnectionView: View {
             // String(contentsOf:encoding:) overload.
             guard let data = try? Data(contentsOf: url),
                   let raw = String(data: data, encoding: .utf8) else {
-                importErrorMessage = "Could not read \(url.lastPathComponent)"
+                importErrorMessage = String(localized: "Could not read \(url.lastPathComponent)")
                 continue
             }
             await appState.importConnection(
@@ -106,22 +106,22 @@ struct AddConnectionView: View {
             )
             count += 1
         }
-        if count > 0 { importedNote = "\(count) config\(count == 1 ? "" : "s") imported" }
+        if count > 0 { importedNote = String(localized: "\(count) config(s) imported") }
     }
 
     private func handleQRScan(_ raw: String) async {
         importErrorMessage = nil; importedNote = nil
         guard let payload = QRPayload.parse(raw) else {
-            importErrorMessage = "Unrecognized QR code"
+            importErrorMessage = String(localized: "Unrecognized QR code")
             return
         }
         switch payload {
         case .wireguard(let text), .amneziawg(let text), .openvpn(let text):
-            await appState.importConnection(name: "Scanned config", filename: "qr.conf", content: text)
-            importedNote = "Imported from QR"
+            await appState.importConnection(name: String(localized: "Scanned config"), filename: "qr.conf", content: text)
+            importedNote = String(localized: "Imported from QR")
         case .privycsEnrollment(let url, let apiKey):
             await appState.applyGatewayEnrollment(url: url, apiKey: apiKey)
-            importedNote = "Gateway enrolled — pull your configs"
+            importedNote = String(localized: "Gateway enrolled — pull your configs")
             showGatewaySheet = true
         }
     }
@@ -186,7 +186,7 @@ struct GatewayConfigSheet: View {
 
                 if !importedNames.isEmpty {
                     Section {
-                        Label("Imported \(importedNames.count) config\(importedNames.count == 1 ? "" : "s") — closing…",
+                        Label("Imported \(importedNames.count) config(s) — closing…",
                               systemImage: "checkmark.circle.fill")
                             .foregroundStyle(PrivycsColor.connected)
                     }
@@ -205,7 +205,7 @@ struct GatewayConfigSheet: View {
         loading = true; error = nil
         defer { loading = false }
         guard let client = appState.gatewayClient else {
-            error = "Gateway not configured. Set it in Settings."
+            error = String(localized: "Gateway not configured. Set it in Settings.")
             return
         }
         do { entries = try await client.listMyConfigs() }

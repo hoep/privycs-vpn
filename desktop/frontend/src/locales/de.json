@@ -820,6 +820,9 @@
       "preset-label": "Oder Vorgabe verwenden:",
       "pick-provider": "— Anbieter auswählen —"
     },
+    "dns-provider-badge": {
+      "generic-label": "DNS-Anbieter"
+    },
     "pool-import-toast": {
       "headline": {
         "extracting": "Archiv wird entpackt",

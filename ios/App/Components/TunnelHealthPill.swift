@@ -17,9 +17,9 @@ struct TunnelHealthPill: View {
 
     private var label: String {
         switch health {
-        case .healthy:    return "Healthy"
-        case .degraded:   return "Degraded"
-        case .recovering: return "Recovering…"
+        case .healthy:    return String(localized: "Healthy")
+        case .degraded:   return String(localized: "Degraded")
+        case .recovering: return String(localized: "Recovering…")
         }
     }
 

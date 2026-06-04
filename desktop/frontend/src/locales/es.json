@@ -758,6 +758,9 @@
       "preset-label": "O usa un preajuste:",
       "pick-provider": "— elige un proveedor —"
     },
+    "dns-provider-badge": {
+      "generic-label": "Proveedor de DNS"
+    },
     "pool-import-toast": {
       "headline": {
         "extracting": "Extrayendo archivo",

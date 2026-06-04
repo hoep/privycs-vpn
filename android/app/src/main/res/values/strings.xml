@@ -639,4 +639,32 @@
     <string name="netrules_master_subtitle_off">Auto-tunnel is off. Connect and disconnect manually from the Connect screen, or turn this on to let rules below run.</string>
     <string name="settings_crash_reports_label">Anonymous crash reports</string>
     <string name="settings_crash_reports_desc">Help improve Privycs by sending anonymous crash reports. SSIDs, API keys, IPs and file paths are redacted on-device before upload to our self-hosted backend.</string>
+
+    <!-- Foreground-service notification body / title / action strings.
+         Previously hard-coded English in PrivycsVpnService.kt; surfaced
+         in the ongoing VPN notification and its action buttons. -->
+    <string name="vpn_notification_connecting_to">Connecting to %1$s…</string>
+    <string name="vpn_notification_connecting_pool">Connecting to pool…</string>
+    <string name="vpn_notification_reconnecting">Reconnecting…</string>
+    <string name="vpn_notification_disconnecting">Disconnecting…</string>
+    <string name="vpn_notification_connected_protocol">Connected to %1$s (%2$s)</string>
+    <string name="vpn_notification_connecting_protocol">Connecting %1$s (%2$s)…</string>
+    <string name="vpn_notification_openvpn_failed">OpenVPN failed</string>
+    <string name="vpn_notification_kill_switch_active">Kill Switch active — traffic blocked</string>
+    <string name="vpn_notification_kill_switch_failed">Kill Switch could not block traffic</string>
+    <string name="vpn_notification_kill_switch_unprotected">Kill Switch could NOT block traffic — you are unprotected. Tap Retry.</string>
+    <string name="vpn_notification_kill_switch_no_network">Kill Switch active — no network to connect on</string>
+    <string name="vpn_notification_cannot_connect_no_network">Cannot connect — no network available</string>
+    <string name="vpn_notification_monitoring">Watching for network changes for on-demand rules.</string>
+    <string name="vpn_notification_title_kill_switch_active">Privycs VPN — Kill Switch Active</string>
+    <string name="vpn_notification_title_kill_switch_inactive">Privycs VPN — Kill Switch NOT active</string>
+    <string name="vpn_notification_title_monitoring">Privycs VPN — Monitoring network</string>
+    <string name="vpn_notification_action_stop_monitoring">Stop monitoring</string>
+    <string name="vpn_notification_action_retry_connect">Retry Connect</string>
+
+    <!-- Service-layer error banners surfaced via VpnStatus.error and
+         rendered in the red errorContainer Card on the Connect screen.
+         Previously hard-coded English in PrivycsVpnService.kt. -->
+    <string name="vpn_error_unknown_protocol">Unknown protocol: %1$s</string>
+    <string name="vpn_error_connection_failed">Connection failed: %1$s</string>
 </resources>

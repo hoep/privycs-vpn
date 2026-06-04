@@ -60,13 +60,13 @@ struct GatewaySettingsView: View {
         appState.settings = s
 
         guard let client = appState.gatewayClient else {
-            ok = false; result = "Invalid gateway URL"
+            ok = false; result = String(localized: "Invalid gateway URL")
             return
         }
         do {
             let configs = try await client.listMyConfigs()
             ok = true
-            result = "Connected — \(configs.count) config\(configs.count == 1 ? "" : "s") available"
+            result = String(localized: "Connected — \(configs.count) config(s) available")
         } catch {
             ok = false
             result = error.localizedDescription

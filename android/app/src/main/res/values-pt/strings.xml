@@ -627,4 +627,26 @@
     <string name="netrules_master_subtitle_off">Auto-conexão desativada. Conecte e desconecte manualmente pela tela Conectar, ou ative aqui para executar as regras abaixo.</string>
     <string name="settings_crash_reports_label">Relatórios de falha anónimos</string>
     <string name="settings_crash_reports_desc">Ajude a melhorar o Privycs enviando relatórios anónimos de falhas. SSIDs, chaves de API, IPs e caminhos de ficheiros são redigidos no dispositivo antes do envio para o nosso backend self-hosted.</string>
+
+    <string name="vpn_notification_connecting_to">A ligar a %1$s…</string>
+    <string name="vpn_notification_connecting_pool">A ligar ao pool…</string>
+    <string name="vpn_notification_reconnecting">A ligar novamente…</string>
+    <string name="vpn_notification_disconnecting">A desligar…</string>
+    <string name="vpn_notification_connected_protocol">Ligado a %1$s (%2$s)</string>
+    <string name="vpn_notification_connecting_protocol">A ligar %1$s (%2$s)…</string>
+    <string name="vpn_notification_openvpn_failed">OpenVPN falhou</string>
+    <string name="vpn_notification_kill_switch_active">Kill Switch ativo — tráfego bloqueado</string>
+    <string name="vpn_notification_kill_switch_failed">O Kill Switch não conseguiu bloquear o tráfego</string>
+    <string name="vpn_notification_kill_switch_unprotected">O Kill Switch NÃO conseguiu bloquear o tráfego — está desprotegido. Toque em Tentar novamente.</string>
+    <string name="vpn_notification_kill_switch_no_network">Kill Switch ativo — sem rede para ligar</string>
+    <string name="vpn_notification_cannot_connect_no_network">Não é possível ligar — nenhuma rede disponível</string>
+    <string name="vpn_notification_monitoring">A monitorizar alterações de rede para as regras a pedido.</string>
+    <string name="vpn_notification_title_kill_switch_active">Privycs VPN — Kill Switch ativo</string>
+    <string name="vpn_notification_title_kill_switch_inactive">Privycs VPN — Kill Switch NÃO ativo</string>
+    <string name="vpn_notification_title_monitoring">Privycs VPN — A monitorizar a rede</string>
+    <string name="vpn_notification_action_stop_monitoring">Parar monitorização</string>
+    <string name="vpn_notification_action_retry_connect">Tentar ligar novamente</string>
+
+    <string name="vpn_error_unknown_protocol">Protocolo desconhecido: %1$s</string>
+    <string name="vpn_error_connection_failed">Falha na ligação: %1$s</string>
 </resources>

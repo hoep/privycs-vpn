@@ -99,7 +99,7 @@ struct AddPoolView: View {
         var members = PoolImporter.makeMembers(configs)
         PrivycsLog.log("Pool import: \(pickedFiles.count) file(s) → \(configs.count) config(s) → \(members.count) member(s)")
         guard members.count >= 1 else {
-            errorMessage = "No valid config files found in the selection."
+            errorMessage = String(localized: "No valid config files found in the selection.")
             return
         }
         // Geolocate each member's server (IP→country via the bundled DB) so

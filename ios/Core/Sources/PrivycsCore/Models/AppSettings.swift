@@ -83,7 +83,7 @@ public struct AppSettings: Codable, Equatable, Hashable {
         activeProtocol: String = "",
         killSwitchEnabled: Bool = true,
         autoConnectOnStart: Bool = false,
-        networkRulesEnabled: Bool = true,
+        networkRulesEnabled: Bool = false,
         theme: String = "system",
         appLanguage: String = "",
         dnsOverride: String = "",
