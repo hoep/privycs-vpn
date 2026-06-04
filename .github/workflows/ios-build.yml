@@ -64,8 +64,12 @@ jobs:
           # destination resolves WireGuardKit. The fork's manifest lists
           # .iOS(...) / .macOS(...); add .tvOS(.v17) alongside .iOS if missing.
           PKG=.deps/wireguard-apple/Package.swift
+          # NB: .v15 (not .v17) — the fork's manifest is swift-tools-version:5.5,
+          # whose PackageDescription only knows tvOS up to .v15; .v16/.v17 need
+          # tools 5.7/5.9. A package min-platform of .v15 is fine: the tvOS app
+          # target still builds at its own 17.0 deployment target.
           if ! grep -q '\.tvOS' "$PKG"; then
-            perl -0pi -e 's/(\.iOS\([^)]*\))/$1, .tvOS(.v17)/' "$PKG"
+            perl -0pi -e 's/(\.iOS\([^)]*\))/$1, .tvOS(.v15)/' "$PKG"
             echo "Patched platforms line:"; grep -n 'platforms' "$PKG" || true
             grep -n '\.tvOS' "$PKG" || { echo "ERROR: tvOS platform patch did not apply"; exit 1; }
           fi

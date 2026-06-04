@@ -201,10 +201,11 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     // Compose for Android TV / Google TV (leanback form factor).
-    // tv-material3 is the focusable Material3-for-TV component set
-    // (Button / Card / OutlinedButton / Text used by ui/tv/). 1.0.0 is
-    // the stable release and is compatible with the Compose 1.7.x line
-    // pinned by the BOM above.
+    // The focusable Material3-for-TV component set (Button / Card /
+    // OutlinedButton / Text used by ui/tv/). NOTE the artifact is
+    // `androidx.tv:tv-material` (NOT tv-material3) — it ships the
+    // `androidx.tv.material3` package. 1.1.0 is the stable release built
+    // against the Compose 1.7.x line our BOM pins (1.0.x targeted 1.6.x).
     //
     // NOTE: we deliberately do NOT depend on androidx.tv:tv-foundation
     // (TvLazyColumn). Its last release (1.0.0-alpha12) was built against
@@ -213,7 +214,7 @@ dependencies {
     // at runtime on first TV-list compose. foundation 1.7 absorbed D-pad
     // focus + scrolling into the regular LazyColumn, which TvConnectScreen
     // uses instead.
-    implementation("androidx.tv:tv-material3:1.0.0")
+    implementation("androidx.tv:tv-material:1.1.0")
 
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
