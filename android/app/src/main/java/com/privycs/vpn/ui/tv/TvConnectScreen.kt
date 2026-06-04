@@ -27,12 +27,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.tv.material3.Button
-import androidx.tv.material3.Card
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
-import androidx.tv.material3.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
 import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.R
 import com.privycs.vpn.api.GatewayApiClient
@@ -59,7 +58,6 @@ import kotlinx.coroutines.launch
  * network-rules engine, IPSec setup. IPSec entries returned by the gateway
  * are filtered out of the pull list for v1.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvConnectScreen(
     vpnManager: VpnServiceManager,
@@ -197,7 +195,10 @@ fun TvConnectScreen(
             }
 
             Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = onRelink) {
+            OutlinedButton(
+                onClick = onRelink,
+                modifier = Modifier.tvFocusBorder(),
+            ) {
                 Text(stringResource(R.string.tv_connect_relink))
             }
         }
@@ -258,6 +259,7 @@ fun TvConnectScreen(
 
             val canConnect = registry.connections.isNotEmpty()
             Button(
+                modifier = Modifier.tvFocusBorder(),
                 onClick = {
                     if (isConnected) {
                         vpnManager.disconnect()
@@ -290,11 +292,14 @@ fun TvConnectScreen(
 }
 
 /**
- * A single focusable target row. androidx.tv.material3.Card gives the
- * built-in TV focus scaling / border treatment so D-pad navigation is
- * visually obvious without custom focus handling.
+ * A single focusable target row.
+ *
+ * Uses the regular [androidx.compose.material3.Card] clickable overload, which
+ * is focusable + D-pad-activatable on Android TV. material3 draws no visible
+ * focus state on its own, so [tvFocusBorder] adds a primary-colour border while
+ * the card holds D-pad focus — the affordance the androidx.tv library used to
+ * provide automatically.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvTargetCard(
     title: String,
@@ -304,7 +309,9 @@ private fun TvTargetCard(
 ) {
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(),
     ) {
         Box(modifier = Modifier.padding(16.dp)) {
             Column {

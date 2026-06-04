@@ -28,11 +28,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
-import androidx.tv.material3.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
 import com.privycs.vpn.PrivycsApp
 import com.privycs.vpn.R
 import com.privycs.vpn.api.TvDeviceEnrollment
@@ -59,7 +58,6 @@ import kotlinx.coroutines.launch
  * on a TV remote; we keep entry to the minimum (URL + token) and steer
  * users toward the device-code path.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvEnrollScreen(
     onEnrolled: () -> Unit,
@@ -210,10 +208,16 @@ fun TvEnrollScreen(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Button(onClick = { sessionAttempt++ }) {
+                Button(
+                    onClick = { sessionAttempt++ },
+                    modifier = Modifier.tvFocusBorder(),
+                ) {
                     Text(stringResource(R.string.tv_enroll_retry))
                 }
-                OutlinedButton(onClick = { showManual = true }) {
+                OutlinedButton(
+                    onClick = { showManual = true },
+                    modifier = Modifier.tvFocusBorder(),
+                ) {
                     Text(stringResource(R.string.tv_enroll_manual))
                 }
             }
@@ -227,8 +231,8 @@ fun TvEnrollScreen(
             )
             Spacer(Modifier.height(24.dp))
 
-            // androidx.tv.material3 has no TextField; reuse the standard
-            // Material3 one. Its on-screen IME is fully D-pad reachable.
+            // Standard Material3 OutlinedTextField; its on-screen IME is fully
+            // D-pad reachable on Android TV.
             androidx.compose.material3.OutlinedTextField(
                 value = manualUrl,
                 onValueChange = { manualUrl = it },
@@ -259,6 +263,7 @@ fun TvEnrollScreen(
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Button(
+                    modifier = Modifier.tvFocusBorder(),
                     onClick = {
                         if (manualUrl.isBlank() || manualToken.isBlank()) {
                             manualError = context.getString(R.string.tv_enroll_manual_incomplete)
@@ -288,10 +293,13 @@ fun TvEnrollScreen(
                     )
                 }
                 Spacer(Modifier.width(4.dp))
-                OutlinedButton(onClick = {
-                    showManual = false
-                    sessionAttempt++
-                }) {
+                OutlinedButton(
+                    modifier = Modifier.tvFocusBorder(),
+                    onClick = {
+                        showManual = false
+                        sessionAttempt++
+                    },
+                ) {
                     Text(stringResource(R.string.tv_enroll_back_to_code))
                 }
             }

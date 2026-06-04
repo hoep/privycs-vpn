@@ -82,6 +82,20 @@ jobs:
             mv "$HEADER.tmp" "$HEADER"
           fi
 
+          # WireGuardKit's DNSResolver / PacketTunnelSettingsGenerator /
+          # WireGuardAdapter #error("Unimplemented"/"Unsupported") on any
+          # platform other than iOS/macOS. tvOS has the same NetworkExtension +
+          # POSIX DNS (getaddrinfo) APIs as iOS, so route tvOS into the iOS
+          # branches. Fail loud if a repin moves these anchors.
+          WGK=.deps/wireguard-apple/Sources/WireGuardKit
+          perl -0pi -e 's/\Q#if os(iOS)\E/#if os(iOS) || os(tvOS)/' "$WGK/DNSResolver.swift"
+          perl -0pi -e 's/\Q#if os(iOS)\E/#if os(iOS) || os(tvOS)/' "$WGK/PacketTunnelSettingsGenerator.swift"
+          perl -0pi -e 's/\Q#elseif os(iOS)\E/#elseif os(iOS) || os(tvOS)/' "$WGK/WireGuardAdapter.swift"
+          for f in DNSResolver PacketTunnelSettingsGenerator WireGuardAdapter; do
+            grep -q 'os(tvOS)' "$WGK/$f.swift" || { echo "ERROR: tvOS guard patch did not apply to $f.swift (upstream changed)"; exit 1; }
+          done
+          echo "WireGuardKit tvOS guard patches applied."
+
           cd .deps/wireguard-apple/Sources/WireGuardKitGo
 
           echo "==> libwg-go.a for iphoneos arm64"
