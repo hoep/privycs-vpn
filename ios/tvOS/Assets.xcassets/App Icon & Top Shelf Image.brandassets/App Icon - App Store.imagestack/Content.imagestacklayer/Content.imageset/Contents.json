@@ -1,0 +1,13 @@
+{
+  "info": {
+    "author": "privycs",
+    "version": 1
+  },
+  "images": [
+    {
+      "idiom": "tv",
+      "filename": "icon.png",
+      "scale": "1x"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "info": {
+    "author": "privycs",
+    "version": 1
+  },
+  "layers": [
+    {
+      "filename": "Content.imagestacklayer"
+    }
+  ]
+}
