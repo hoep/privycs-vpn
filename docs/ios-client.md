@@ -147,6 +147,22 @@ Settings → **Backup & Restore**. Export an AES-256-GCM encrypted backup (PBKDF
 
 ---
 
+## Home-Screen Widgets
+
+Add a Privycs widget from the iOS widget gallery (long-press the home screen → **+**). Two sizes, mirroring the Android widget:
+
+- **Connect (small)** — a single connect disc. Tap it to **connect or disconnect right on the home screen**, no app launch. The disc shows the active protocol and turns teal when connected.
+- **Status (medium / large)** — the connect disc plus the active server (flag + country), the protocol pills, and a live **download / upload sparkline** with totals.
+
+The widgets are interactive (iOS 17+):
+
+- **Tap the disc** → toggles the tunnel in place (reconnects/disconnects the last-used connection).
+- **Tap a protocol pill** on the Status widget → **switches protocol in place** between WireGuard, AmneziaWG and OpenVPN without opening the app. IPSec opens the app instead (it uses a different system VPN path that can't be driven from a widget).
+
+Status is read from a shared App-Group snapshot the app and tunnel keep up to date, so the widget stays correct even when the app isn't running.
+
+---
+
 ## Privacy
 
 No accounts, no analytics, no tracking, no ads. Your configs, keys, gateway URL/API key and rule lists stay in the app's encrypted on-device storage (iOS Keychain + App Group) and are never transmitted to us. Wi-Fi SSID/BSSID values are evaluated only locally for your rules. Full details: **[iOS App Privacy Policy](/docs/ios-client-privacy)**.
@@ -186,6 +202,7 @@ Older iOS versions (below 17) are not supported due to the SwiftUI and NetworkEx
 
 The iOS client is in **TestFlight beta** (version space `v1.0.8-beta.x`). It shares its protocol engines, wire formats and encrypted-backup schema with the Android and Desktop clients, so configs and backups move between all three. Recent builds:
 
+- **v1.0.8.3** — **Home-screen widgets — with an in-place toggle *and* protocol switch.** Two widgets: a compact one-tap **Connect** disc (small) and a **Status** widget (medium/large) showing the active server with its flag, the protocol pills and a live download/upload sparkline. Both are interactive — tapping the disc connects/disconnects right on the home screen (no app launch), and on the Status widget you can **switch protocol in place** between WireGuard, AmneziaWG and OpenVPN (IPSec opens the app, since it uses a different system VPN path). Also in this build: the **On-Demand master toggle now defaults OFF**, so a fresh install connects the moment you tap Connect — previously, with the toggle on but no rules yet, on-demand could block the manual connect until you added a rule. The **backup-restore error** now tells a wrong passphrase apart from a backup that decrypts but is from a newer/incompatible version, **country names are localized** to your app language, and a **full localization pass** moved the last hard-coded English strings (status pills, pause labels, the Backup and Gateway screens, …) into all six languages.
 - **v1.0.8.1** — **Connect-screen protocol pills are now a single swipeable row.** With the full protocol names shown (1.0.8), a connection with several protocols wrapped the pill row onto two lines; it's now one horizontally-scrollable row you swipe left/right, matching the Android app.
 - **v1.0.8** — **First 1.0.8 release — the whole beta cycle, shipped.** Headline: a major **On-Demand & Network Rules** overhaul — iOS evaluates your Wi-Fi/SSID rules in the background, **top-rule-wins** priority, rule edits apply **immediately**, no more network-state flapping, a kill-switch-aware **Pause**, and the rules screen **fully localized** in 6 languages (with a Location prompt + a clear warning, since iOS only reveals the Wi-Fi name once Location is granted). Plus a **native iPad layout** (left sidebar + detail pane), **Connect-screen polish** (full protocol-name pills, endpoint host, active-only brand colour), bundled **offline IP→country flags**, in-app **Help** doc links that open correctly, and reliability fixes from device testing (tunnel-health, instant Logs, backup restore, a crash on first on-demand connect). Same protocol engines, wire format and encrypted backup as the Android & Desktop clients. Per-beta detail below.
 - **v1.0.8-beta.31** — **On-Demand rule edits take effect immediately.** Toggling, adding, deleting or reordering a rule now applies to the current network right away and re-arms the background on-demand profile — previously, re-enabling a "this Wi-Fi → no VPN" rule correctly showed *Disconnect* in the live evaluation but didn't tear down the connection that was already up (and reorder/delete only took effect on the next network change). Now any rule change reconciles the live tunnel and the background rules together.
