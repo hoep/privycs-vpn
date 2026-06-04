@@ -16,12 +16,12 @@ import Engine // gomobile xcframework (engine/ffi), prefix=Pvcs
 ///
 /// Every reference to a gomobile-generated symbol lives in this one file so a
 /// generated-binding name mismatch is a single-file fix. Expected Swift surface
-/// (prefix=Pvcs): `PvcsNewSession(_:) -> PvcsSession?`, and on PvcsSession:
+/// (prefix=Pvcs): `PvcsFfiNewSession(_:) -> PvcsFfiSession?`, and on PvcsFfiSession:
 /// `observeConnect()`, `observeDisconnect()`, `observeHealth(_:)`,
 /// `pollDecisions() -> String`, `close()`.
 @MainActor
 final class EngineShadow {
-    private var session: PvcsSession?
+    private var session: PvcsFfiSession?
     private var orderJSON = ""
 
     /// Build or refresh the session from the protocol-failover order. No-op
@@ -32,7 +32,7 @@ final class EngineShadow {
         let js = Self.orderToJSON(order)
         if session != nil && js == orderJSON { return }
         session?.close()
-        session = PvcsNewSession(js)
+        session = PvcsFfiNewSession(js)
         orderJSON = js
     }
 
