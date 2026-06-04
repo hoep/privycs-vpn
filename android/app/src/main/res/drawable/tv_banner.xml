@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android TV home-row banner placeholder.
+
+    Play / the TV launcher expect a 320x180 (16:9) banner. This vector
+    renders at that aspect ratio (viewport 320x180) so it scales cleanly
+    on any density. It is a PLACEHOLDER: a dark brand background, the
+    Privycs teal shield motif, and a wordmark block. For store-quality
+    art, replace this with a real 320x180 PNG at res/drawable-xhdpi/
+    tv_banner.png (and optionally the other density buckets) before the
+    Play TV form-factor submission — a flat raster banner is what Google
+    recommends for the launcher row. The manifest references
+    @drawable/tv_banner, so swapping the file keeps the reference valid.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- Background (brand dark) -->
+    <path
+        android:fillColor="#0F1419"
+        android:pathData="M0,0 H320 V180 H0 Z" />
+
+    <!-- Shield body (brand teal) -->
+    <path
+        android:fillColor="#00CDAB"
+        android:pathData="M60,38 L100,52 L100,96 C100,118 82,134 60,142 C38,134 20,118 20,96 L20,52 Z" />
+
+    <!-- Inner check mark (background color, knocked out of the shield) -->
+    <path
+        android:fillColor="#0F1419"
+        android:pathData="M44,92 L56,104 L80,72 L72,66 L55,90 L50,84 Z" />
+
+    <!-- Wordmark block (light) -->
+    <path
+        android:fillColor="#F8FAFB"
+        android:pathData="M132,82 H272 V90 H132 Z" />
+    <path
+        android:fillColor="#33D7BC"
+        android:pathData="M132,98 H224 V104 H132 Z" />
+</vector>

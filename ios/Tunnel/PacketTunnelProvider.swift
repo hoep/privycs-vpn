@@ -73,7 +73,19 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
         case .amneziawg:
             bridge = AmneziaWGBridge(provider: self)
         case .openvpn:
+            // OpenVPNAdapter (ss-abramchuk / OpenVPN3) is iOS/macOS-only — it
+            // does NOT build for tvOS. The tvOS tunnel target therefore does
+            // NOT link OpenVPNAdapter, so `canImport(OpenVPNAdapter)` is false
+            // there and the OpenVPN branch compiles out (the OpenVPNBridge body
+            // is likewise `#if canImport(OpenVPNAdapter)`-guarded). On iOS the
+            // tunnel links OpenVPNAdapter, so this branch is present unchanged.
+#if canImport(OpenVPNAdapter)
             bridge = OpenVPNBridge(provider: self)
+#else
+            logger.error("PTP: OpenVPN is not supported on this platform (tvOS)")
+            completionHandler(TunnelError.unsupportedProtocol(proto))
+            return
+#endif
         case .ipsec:
             // Sollte hier nie ankommen — IPSec geht via NEVPNManager
             // direkt, NICHT durch PTP. Defensive log + reject.

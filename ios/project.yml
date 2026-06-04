@@ -11,6 +11,7 @@ options:
   bundleIdPrefix: com.privycs.vpn
   deploymentTarget:
     iOS: "17.0"
+    tvOS: "17.0"
   developmentLanguage: en
   defaultConfig: Release
   groupSortPosition: bottom
@@ -213,3 +214,88 @@ targets:
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "Apple Distribution"
         PROVISIONING_PROFILE_SPECIFIER: "Privycs VPN Widget App Store"
+
+  # ───── Apple TV (tvOS) App ──────────────────────────────────────
+  # Universal Purchase: the tvOS app shares the iOS app's bundle id
+  # (com.privycs.vpn) on a different PLATFORM target, so a single App
+  # Store purchase / license cross-redeems. Living-room focus UI,
+  # gateway-pull only (device-code or manual enrollment), WG/AWG only.
+  # Embeds the tvOS packet-tunnel extension below.
+  PrivycsVPNtvOS:
+    type: application
+    platform: tvOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: tvOS
+    resources:
+      - path: tvOS/Localizable.xcstrings
+    info:
+      path: tvOS/Info.plist
+      properties:
+        CFBundleDisplayName: Privycs VPN
+        CFBundleLocalizations:
+          - en
+          - de
+          - es
+          - fr
+          - it
+          - pt
+        LSApplicationCategoryType: public.app-category.utilities
+        ITSAppUsesNonExemptEncryption: false
+        LicensePublicKeyHex: "$(LICENSE_PUBLIC_KEY_HEX)"
+    entitlements:
+      path: tvOS/PrivycsVPNtvOS.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.privycs.vpn
+        com.apple.developer.networking.vpn.api:
+          - allow-vpn
+    dependencies:
+      - package: PrivycsCore
+      - target: PrivycsVPNtvOSTunnel
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.privycs.vpn
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Distribution"
+        PROVISIONING_PROFILE_SPECIFIER: "Privycs VPN tvOS App Store"
+
+  # ───── Apple TV (tvOS) Packet Tunnel Extension ──────────────────
+  # Reuses the SAME Tunnel/ sources as the iOS tunnel. OpenVPNAdapter is
+  # NOT a dependency here (it doesn't build for tvOS) → `canImport(
+  # OpenVPNAdapter)` is false, so the OpenVPN bridge + dispatch compile
+  # out. IPSec is impossible on tvOS (no NEVPNManager Personal VPN). Net:
+  # WireGuard + AmneziaWG only (both via WireGuardKit, which supports tvOS).
+  PrivycsVPNtvOSTunnel:
+    type: app-extension
+    platform: tvOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tunnel
+    info:
+      path: Tunnel/InfoTV.plist
+      properties:
+        CFBundleDisplayName: Privycs VPN Tunnel
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PrivycsPacketTunnelProvider
+    entitlements:
+      path: tvOS/PrivycsVPNtvOSTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.privycs.vpn
+    dependencies:
+      - package: PrivycsCore
+      - package: WireGuardKit
+        product: WireGuardKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.privycs.vpn.tunnel
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Distribution"
+        PROVISIONING_PROFILE_SPECIFIER: "Privycs VPN tvOS Tunnel App Store"

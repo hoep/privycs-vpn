@@ -649,4 +649,35 @@
 
     <string name="vpn_error_unknown_protocol">Unbekanntes Protokoll: %1$s</string>
     <string name="vpn_error_connection_failed">Verbindung fehlgeschlagen: %1$s</string>
+
+    <!-- Android TV / Google TV (Leanback) UI-Texte. -->
+    <string name="tv_enroll_title">Diesen TV verknüpfen</string>
+    <string name="tv_enroll_requesting_code">Code wird angefordert …</string>
+    <string name="tv_enroll_waiting">Warten auf Bestätigung auf deinem Telefon …</string>
+    <string name="tv_enroll_linked">TV verknüpft! Server werden geladen …</string>
+    <string name="tv_enroll_expired">Der Code ist abgelaufen. Hole einen neuen.</string>
+    <string name="tv_enroll_error">Verknüpfung fehlgeschlagen: %1$s</string>
+    <string name="tv_enroll_instructions">Öffne auf deinem Telefon %1$s und gib diesen Code ein:</string>
+    <string name="tv_enroll_retry">Neuen Code holen</string>
+    <string name="tv_enroll_manual">Gateway manuell eingeben</string>
+    <string name="tv_enroll_manual_hint">Gib deine Gateway-Adresse und das Zugriffstoken ein.</string>
+    <string name="tv_enroll_field_gateway_url">Gateway-URL</string>
+    <string name="tv_enroll_field_token">Zugriffstoken</string>
+    <string name="tv_enroll_manual_incomplete">Gib sowohl Gateway-URL als auch Token ein.</string>
+    <string name="tv_enroll_save">Speichern</string>
+    <string name="tv_enroll_saving">Wird gespeichert …</string>
+    <string name="tv_enroll_back_to_code">Zurück zum Code</string>
+    <string name="tv_connect_servers_title">Server</string>
+    <string name="tv_connect_downloading">Wird hinzugefügt …</string>
+    <string name="tv_connect_tap_to_add">Zum Hinzufügen vom Gateway drücken</string>
+    <string name="tv_connect_add_failed">Diese Konfiguration konnte nicht hinzugefügt werden.</string>
+    <string name="tv_connect_relink">Neu verknüpfen oder Gateway ändern</string>
+    <string name="tv_connect_no_selection">Kein Server ausgewählt</string>
+    <string name="tv_connect_status_connecting">Verbinden …</string>
+    <string name="tv_connect_status_connected">Verbunden</string>
+    <string name="tv_connect_status_disconnected">Nicht verbunden</string>
+    <string name="tv_connect_button_disconnect">Trennen</string>
+    <string name="tv_connect_button_connecting">Verbinden …</string>
+    <string name="tv_connect_button_connect">Verbinden</string>
+    <string name="tv_connect_pick_a_server">Wähle links einen Server, um zu beginnen.</string>
 </resources>

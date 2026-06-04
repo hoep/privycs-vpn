@@ -53,12 +53,18 @@ fi
 gomobile init
 
 # 5. Build XCFramework
-#    Targets: ios (arm64), iossimulator (arm64), iossimulator (amd64)
-#    The output is a single .xcframework that Xcode can link from
-#    the PrivycsVPNTunnel target.
+#    Targets: ios (arm64), iossimulator (arm64 + amd64), tvos (arm64),
+#    tvossimulator (arm64 + amd64). The tvos/tvossimulator slices are
+#    required by the Apple TV port (PrivycsVPNtvOSTunnel) — AmneziaWG is the
+#    only obfuscated protocol on tvOS (OpenVPN is unavailable there), so the
+#    tvOS tunnel links this same XCFramework. gomobile builds a tvOS slice
+#    because amneziawg-go is pure Go (no platform-gated cgo); the tvOS SDK's
+#    higher minimum-version is set on the gomobile/Go side, not here.
+#    The output is a single multi-platform .xcframework that Xcode links from
+#    BOTH the iOS PrivycsVPNTunnel and the tvOS PrivycsVPNtvOSTunnel targets.
 echo "==> Running gomobile bind"
 (cd "$SRCDIR" && gomobile bind \
-    -target=ios,iossimulator \
+    -target=ios,iossimulator,tvos,tvossimulator \
     -o "$OUTDIR/AmneziaWG.xcframework" \
     -prefix=Amnezia \
     ./tun \

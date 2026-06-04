@@ -2,6 +2,13 @@ import Foundation
 import NetworkExtension
 import PrivycsCore
 import os
+
+// OpenVPNAdapter (ss-abramchuk / OpenVPN3) builds for iOS + macOS only — it
+// does NOT support tvOS. The tvOS tunnel target therefore does not link
+// OpenVPNAdapter, so `canImport(OpenVPNAdapter)` is false there and this
+// ENTIRE file compiles out (the PacketTunnelProvider's `.openvpn` dispatch is
+// likewise guarded). On iOS the tunnel links OpenVPNAdapter, so the file is
+// present and iOS behavior is unchanged.
 #if canImport(OpenVPNAdapter)
 import OpenVPNAdapter
 
@@ -16,7 +23,6 @@ import OpenVPNAdapter
 /// `@retroactive`. Single-app monopoly is fine here — no library will
 /// ship a conflicting conformance.
 extension NEPacketTunnelFlow: @retroactive OpenVPNAdapterPacketFlow {}
-#endif
 
 /// OpenVPN packet tunnel bridge via OpenVPNAdapter (Apache 2 via
 /// OpenVPN3). Vor dem Übergeben an OVPN3 läuft der Config-Inhalt
@@ -27,10 +33,8 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
     private let logger = Logger(subsystem: "com.privycs.vpn.tunnel", category: "OVPNBridge")
     private var connectContinuation: CheckedContinuation<Void, Error>?
 
-#if canImport(OpenVPNAdapter)
     private var adapter: OpenVPNAdapter?
     private var packetFlow: NEPacketTunnelFlow?
-#endif
 
     public init(provider: NEPacketTunnelProvider) {
         self.provider = provider
@@ -38,7 +42,6 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
     }
 
     public func start(providerConfig: [String: Any]) async throws {
-#if canImport(OpenVPNAdapter)
         guard let rawIn = providerConfig["config_content"] as? String, !rawIn.isEmpty else {
             throw TunnelError.missingProviderConfig
         }
@@ -101,21 +104,15 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
             connectContinuation = cont
             adapter.connect(using: provider.packetFlow)
         }
-#else
-        throw TunnelError.bridgeNotImplemented(.openvpn)
-#endif
     }
 
     public func stop(reason: NEProviderStopReason) async {
         logger.info("OVPN stop reason=\(reason.rawValue)")
-#if canImport(OpenVPNAdapter)
         adapter?.disconnect()
         adapter = nil
-#endif
     }
 }
 
-#if canImport(OpenVPNAdapter)
 extension OpenVPNBridge: OpenVPNAdapterDelegate {
     public func openVPNAdapter(
         _ adapter: OpenVPNAdapter,

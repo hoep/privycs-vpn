@@ -1,0 +1,236 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "tv.action.connect" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connect" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Verbinden" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Conectar" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Se connecter" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Connetti" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Ligar" } }
+      }
+    },
+    "tv.action.disconnect" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Disconnect" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Trennen" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Desconectar" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Se déconnecter" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Disconnetti" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Desligar" } }
+      }
+    },
+    "tv.enroll.code_expired" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The code expired. Try again." } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Der Code ist abgelaufen. Bitte erneut versuchen." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "El código ha caducado. Inténtalo de nuevo." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Le code a expiré. Réessayez." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Il codice è scaduto. Riprova." } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "O código expirou. Tente novamente." } }
+      }
+    },
+    "tv.enroll.device_code_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Linking by code is not available yet. Enter your gateway URL and token instead." } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Die Verknüpfung per Code ist noch nicht verfügbar. Gib stattdessen deine Gateway-URL und dein Token ein." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "La vinculación por código aún no está disponible. Introduce la URL de la puerta de enlace y el token." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "L’association par code n’est pas encore disponible. Saisissez plutôt l’URL de votre passerelle et votre jeton." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Il collegamento tramite codice non è ancora disponibile. Inserisci invece l’URL del gateway e il token." } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "A associação por código ainda não está disponível. Introduza o URL do gateway e o token." } }
+      }
+    },
+    "tv.enroll.enter_code" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "and enter this code:" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "und gib diesen Code ein:" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "e introduce este código:" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "et saisissez ce code :" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "e inserisci questo codice:" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "e introduza este código:" } }
+      }
+    },
+    "tv.enroll.gateway_url" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Gateway URL" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Gateway-URL" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "URL de la puerta de enlace" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "URL de la passerelle" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "URL del gateway" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "URL do gateway" } }
+      }
+    },
+    "tv.enroll.go_to" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "On your phone, go to:" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Öffne auf deinem Smartphone:" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "En tu teléfono, ve a:" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Sur votre téléphone, allez sur :" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Sul telefono, vai su:" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "No seu telemóvel, aceda a:" } }
+      }
+    },
+    "tv.enroll.link" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Link this TV" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Diesen TV verknüpfen" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Vincular este televisor" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Associer ce téléviseur" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Collega questa TV" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Associar esta TV" } }
+      }
+    },
+    "tv.enroll.manual_hint" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Paste the gateway URL and API token from your Privycs account." } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Füge die Gateway-URL und das API-Token aus deinem Privycs-Konto ein." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Pega la URL de la puerta de enlace y el token de API de tu cuenta de Privycs." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Collez l’URL de la passerelle et le jeton d’API de votre compte Privycs." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Incolla l’URL del gateway e il token API dal tuo account Privycs." } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Cole o URL do gateway e o token de API da sua conta Privycs." } }
+      }
+    },
+    "tv.enroll.manual_title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter manually" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Manuell eingeben" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Introducir manualmente" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Saisir manuellement" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Inserisci manualmente" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Introduzir manualmente" } }
+      }
+    },
+    "tv.enroll.retry" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Try again" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Erneut versuchen" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Reintentar" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Réessayer" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Riprova" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Tentar novamente" } }
+      }
+    },
+    "tv.enroll.subtitle" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Link this Apple TV to your Privycs account." } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Verknüpfe dieses Apple TV mit deinem Privycs-Konto." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Vincula este Apple TV con tu cuenta de Privycs." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Associez cet Apple TV à votre compte Privycs." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Collega questa Apple TV al tuo account Privycs." } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Associe esta Apple TV à sua conta Privycs." } }
+      }
+    },
+    "tv.enroll.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Welcome to Privycs VPN" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Willkommen bei Privycs VPN" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Te damos la bienvenida a Privycs VPN" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Bienvenue dans Privycs VPN" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Benvenuto in Privycs VPN" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Bem-vindo ao Privycs VPN" } }
+      }
+    },
+    "tv.enroll.token" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "API token" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "API-Token" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Token de API" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Jeton d’API" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Token API" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Token de API" } }
+      }
+    },
+    "tv.error.no_config" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No protocol config selected" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Keine Protokollkonfiguration ausgewählt" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "No se ha seleccionado ninguna configuración de protocolo" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Aucune configuration de protocole sélectionnée" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Nessuna configurazione di protocollo selezionata" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Nenhuma configuração de protocolo selecionada" } }
+      }
+    },
+    "tv.error.unsupported_protocol" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ is not supported on Apple TV. Use WireGuard or AmneziaWG." } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "%@ wird auf Apple TV nicht unterstützt. Verwende WireGuard oder AmneziaWG." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "%@ no es compatible con Apple TV. Usa WireGuard o AmneziaWG." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "%@ n’est pas pris en charge sur Apple TV. Utilisez WireGuard ou AmneziaWG." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "%@ non è supportato su Apple TV. Usa WireGuard o AmneziaWG." } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "%@ não é suportado na Apple TV. Use WireGuard ou AmneziaWG." } }
+      }
+    },
+    "tv.main.load_failed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn’t load your servers" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Server konnten nicht geladen werden" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "No se pudieron cargar tus servidores" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Impossible de charger vos serveurs" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Impossibile caricare i tuoi server" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Não foi possível carregar os seus servidores" } }
+      }
+    },
+    "tv.main.no_configs" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No servers available for your account." } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Keine Server für dein Konto verfügbar." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "No hay servidores disponibles para tu cuenta." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Aucun serveur disponible pour votre compte." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Nessun server disponibile per il tuo account." } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Não há servidores disponíveis para a sua conta." } }
+      }
+    },
+    "tv.main.refresh" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Refresh" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Aktualisieren" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Actualizar" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Actualiser" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Aggiorna" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Atualizar" } }
+      }
+    },
+    "tv.main.servers" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Servers" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Server" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Servidores" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Serveurs" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Server" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Servidores" } }
+      }
+    },
+    "tv.main.unlink" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unlink this TV" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Verknüpfung dieses TV aufheben" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Desvincular este televisor" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Dissocier ce téléviseur" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Scollega questa TV" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Desassociar esta TV" } }
+      }
+    },
+    "tv.status.connected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connected" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Verbunden" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Conectado" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Connecté" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Connesso" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Ligado" } }
+      }
+    },
+    "tv.status.disconnected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Not connected" } },
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Nicht verbunden" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "No conectado" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Non connecté" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Non connesso" } },
+        "pt" : { "stringUnit" : { "state" : "translated", "value" : "Não ligado" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
