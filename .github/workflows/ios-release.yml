@@ -461,6 +461,24 @@ jobs:
           echo "$PROFILE_TVOS_APP_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/tvos-app.mobileprovision
           echo "$PROFILE_TVOS_TUNNEL_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/tvos-tunnel.mobileprovision
 
+      # Decode the installed tvOS profiles so a signing mismatch self-explains
+      # in the log (Xcode matches by embedded Name + app-id + team + platform,
+      # not filename). v1.0.8.4 failed: "No profile matching 'Privycs VPN tvOS
+      # Tunnel App Store'". This prints what's ACTUALLY in the secrets.
+      - name: Diagnose installed tvOS profiles
+        run: |
+          for p in tvos-app tvos-tunnel; do
+            f="$HOME/Library/MobileDevice/Provisioning Profiles/$p.mobileprovision"
+            echo "===== $p.mobileprovision ====="
+            if [ ! -s "$f" ]; then echo "  !! MISSING or EMPTY (secret unset/blank)"; continue; fi
+            plist=$(security cms -D -i "$f" 2>/dev/null) || { echo "  !! not a valid .mobileprovision (bad base64?)"; continue; }
+            printf '%s' "$plist" | plutil -extract Name raw - 2>/dev/null | sed 's/^/  Name: /'
+            printf '%s' "$plist" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null | sed 's/^/  AppID: /'
+            printf '%s' "$plist" | plutil -extract TeamIdentifier.0 raw - 2>/dev/null | sed 's/^/  Team: /'
+            printf '%s' "$plist" | plutil -extract Platform.0 raw - 2>/dev/null | sed 's/^/  Platform: /' || true
+            printf '%s' "$plist" | grep -q ProvisionedDevices && echo "  Type: development/ad-hoc (has ProvisionedDevices)" || echo "  Type: app-store (no ProvisionedDevices)"
+          done
+
       - name: Archive
         working-directory: ios
         env:
