@@ -59,15 +59,20 @@ struct AddPoolView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .fileImporter(
-                isPresented: $fileImporterShown,
-                allowedContentTypes: [UTType.zip, UTType.data],
-                allowsMultipleSelection: true
-            ) { result in
-                if case .success(let urls) = result {
+            // iOS-15-safe picker: SwiftUI's `.fileImporter` opened from WITHIN
+            // this already-presented sheet mis-targets dismissal on iOS 15 and
+            // tears THIS sheet down when the picker closes ("kann importieren,
+            // beendet nur den Dialog"). DocumentPicker bridges UIDocumentPicker
+            // and presents via pure UIKit, so only the picker dismisses.
+            .background(
+                DocumentPicker(
+                    isPresented: $fileImporterShown,
+                    contentTypes: [UTType.zip, UTType.data],
+                    allowsMultiple: true
+                ) { urls in
                     pickedFiles = urls
                 }
-            }
+            )
         }
     }
 

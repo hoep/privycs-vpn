@@ -134,9 +134,17 @@ final class AppState: ObservableObject {
     }
 
     var selectedPool: Pool? {
-        guard selectedTargetID.hasPrefix("pool:") else { return nil }
-        let id = String(selectedTargetID.dropFirst("pool:".count))
-        return pools.first(where: { $0.id == id })
+        if selectedTargetID.hasPrefix("pool:") {
+            let id = String(selectedTargetID.dropFirst("pool:".count))
+            return pools.first(where: { $0.id == id })
+        }
+        // No explicit pick AND no single connection to default to → default to
+        // the first pool so a pool-only setup is connectable. Without this both
+        // selectedConnection (→ connections.first = nil) AND selectedPool were
+        // nil, so connectSelected() fell through both branches and did nothing:
+        // no saveToPreferences → iOS never showed the VPN-permission prompt
+        // ("verbindet nicht / fragt nicht nach Erlaubnis"). All iOS versions.
+        return connections.isEmpty ? pools.first : nil
     }
 
     /// Display label for the active picker selection.
@@ -832,6 +840,13 @@ final class AppState: ObservableObject {
         }
         // Seed the shadow engine's candidate set from the failover order.
         engineShadow.ensure(order: self.settings.protocolFailoverOrder)
+        // Feed runtime-failover failures into the engine's adaptive (P4) stats.
+        // Success is recorded by the status loop below, so this fires only for
+        // protocols that failed to establish during a failover walk.
+        tunnelManager.onConnectFailure = { [weak self] proto in
+            guard let self else { return }
+            self.engineShadow.recordOutcome(proto, success: false, iface: self.engineIface)
+        }
         // Detect the user's pre-VPN country for the engine's network-aware reason.
         Task { self.detectedCountry = await SelfIPDetector.shared.country() }
         await crashReporter.start(
