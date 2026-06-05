@@ -31,7 +31,7 @@ public enum PrivycsCoreInfo {
     // Crash-report appVersion + fallback for the Settings version row (the row
     // itself prefers the bundle's CFBundleShortVersionString). Keep in sync
     // with MARKETING_VERSION in ios/project.yml on each release.
-    public static let version = "1.1.1"
+    public static let version = "1.1.2"
     public static let appGroupIdentifier = KeychainSecretStore.defaultAppGroup
 
     /// ed25519 license public-key hex, injected at build time via the

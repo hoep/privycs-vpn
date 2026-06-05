@@ -1,2 +1,2 @@
-versionCode=10291
-versionName=1.1.1
+versionCode=10292
+versionName=1.1.2
