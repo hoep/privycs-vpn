@@ -26,8 +26,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
-    MARKETING_VERSION: "1.1.3"                  # CFBundleShortVersionString: Apple allows ONLY 3 integers (1.1.3.1 is rejected). Patch identity = build number below + git tag v1.1.3.1.
-    CURRENT_PROJECT_VERSION: "71"               # MUST increment every TestFlight upload (63 already used); 71 = the v1.1.3.1 patch build of marketing 1.1.3
+    MARKETING_VERSION: "1.1.3"                  # CFBundleShortVersionString — Apple allows at most 3 integers. Patch identity lives in the build number below.
+    CURRENT_PROJECT_VERSION: "75"               # MUST increment every TestFlight upload; this is the patch build of marketing 1.1.3
     # ed25519 license pubkey hex — overridden by CI from the
     # LICENSE_PUBLIC_KEY_HEX secret; empty default for local builds.
     LICENSE_PUBLIC_KEY_HEX: ""
