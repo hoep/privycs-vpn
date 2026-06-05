@@ -82,12 +82,14 @@ func PvcsEngineSelectProtocol(availableCSV, country, iface *C.char, metered C.in
 		metered != 0, C.GoString(excludeCSV)))
 }
 
-// PvcsEngineProtocolOrder returns the country-aware order as a CSV C string.
-// Caller MUST free with PvcsEngineFreeString.
+// PvcsEngineSelectOrder returns the context+roaming+stats-ranked order as a CSV
+// C string. Caller MUST free with PvcsEngineFreeString.
 //
-//export PvcsEngineProtocolOrder
-func PvcsEngineProtocolOrder(country *C.char) *C.char {
-	return C.CString(ffi.ProtocolOrder(C.GoString(country)))
+//export PvcsEngineSelectOrder
+func PvcsEngineSelectOrder(availableCSV, country, iface *C.char, metered C.int, excludeCSV, statsJSON *C.char, nowSec C.int64_t) *C.char {
+	return C.CString(ffi.SelectOrder(
+		C.GoString(availableCSV), C.GoString(country), C.GoString(iface),
+		metered != 0, C.GoString(excludeCSV), C.GoString(statsJSON), int64(nowSec)))
 }
 
 //export PvcsEngineFreeString
