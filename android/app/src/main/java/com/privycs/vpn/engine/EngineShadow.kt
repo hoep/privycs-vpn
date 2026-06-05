@@ -31,19 +31,21 @@ object EngineShadow {
     private const val TAG = "EngineShadow"
     private val json = Json { ignoreUnknownKeys = true }
 
-    // v1.1.3.1 NATIVE-CRASH FIX. Native SIGSEGV in libwg-go-awg.so (the
-    // AmneziaWG tunnel backend) on connect, BEFORE the tunnel comes up
-    // (vpn_active=false) — confirmed by the on-device native crash trace.
-    // Root cause: the engine's connect-path config OVERRIDE in
-    // PrivycsVpnService.handleConnect replaced the freshly-rendered config
-    // content with `ProtocolConfig.configContent` straight from the registry.
-    // For AmneziaWG that stored content lacks the rendered obfuscation params
-    // (Jc/Jmin/Jmax/S1/S2/H1-4), so the AWG Go backend gets a malformed config
-    // and segfaults (same class as desktop v0.9.15.62). Disabling the engine's
-    // connect-time reordering/override restores the pre-engine connect, which
-    // used the freshly-rendered active config and did not crash. The shadow
-    // engine (decisions panel) is unaffected. Re-enable only once the engine
-    // override re-renders AWG content before connecting.
+    // v1.1.3.1 NATIVE-CRASH FIX. Native SIGSEGV in libwg-go-awg.so on connect,
+    // BEFORE the tunnel comes up (vpn_active=false) — confirmed by the on-device
+    // native crash trace. (On Android wg-go-awg serves BOTH WireGuard and
+    // AmneziaWG, and it was reproduced with a plain WireGuard config selected.)
+    // Root cause: the engine's connect-path OVERRIDE in
+    // PrivycsVpnService.handleConnect re-derived protocol + content from the
+    // registry (orderedConfigs), DISCARDING the user's explicitly-selected
+    // config + the freshly-rendered content passed into the connect intent. The
+    // backend then got a config that differs from what the user picked (wrong
+    // awg flag and/or stale/raw content) and segfaulted — uncatchable by any
+    // Kotlin try/catch, and invisible to Bugsink (JVM-only); only sentry-native
+    // saw it. Disabling the override restores the pre-engine connect, which used
+    // the user's selected, freshly-rendered config and did not crash. The shadow
+    // engine (decisions panel) is unaffected. Re-enable only once the override
+    // honours the active config + re-renders its content before connecting.
     private val ENGINE_CONNECT_ORDERING = false
 
     /** Whether the engine may drive connect-time protocol selection. See

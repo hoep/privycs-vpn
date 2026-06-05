@@ -1548,11 +1548,15 @@ class PrivycsVpnService : VpnService() {
                 run {
                     val s = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
                     // v1.1.3.1: gated by EngineShadow.connectOrderingEnabled().
-                    // This override swaps in ProtocolConfig.configContent from the
-                    // registry, which for AmneziaWG is the RAW (non-AWG-rendered)
-                    // content → the AWG Go backend (libwg-go-awg.so) segfaults on
-                    // connect. While disabled we keep the freshly-rendered active
-                    // config that was passed in (pre-engine behaviour, no crash).
+                    // This override DISCARDS the user's selected config + the
+                    // freshly-rendered content passed in, re-deriving protocol +
+                    // content from the registry (orderedConfigs). Handing the
+                    // wg-go-awg backend (used for BOTH WireGuard and AmneziaWG on
+                    // Android) a config that differs from what the user picked —
+                    // wrong awg flag and/or stale/raw content — segfaults it on
+                    // connect (confirmed via native trace, even with a plain WG
+                    // config selected). While disabled we keep the user's selected,
+                    // freshly-rendered config (pre-engine behaviour, no crash).
                     if (s.autoProtocolSelection && com.privycs.vpn.engine.EngineShadow.connectOrderingEnabled()) {
                         val conn = PrivycsApp.instance.connectionRepository.getById(connectionId)
                         conn?.orderedConfigs(com.privycs.vpn.engine.EngineShadow.effectiveOrder(s, conn))
