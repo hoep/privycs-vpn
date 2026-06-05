@@ -137,7 +137,10 @@ final class VPNTunnelManager: ObservableObject {
                 // returns, the health monitor catches any later drop). With more
                 // candidates left, wait for the tunnel to actually establish and
                 // fail over to the next protocol if it doesn't.
-                if isLast || (await waitForConnected(conn, timeout: 12)) {
+                // (`||` can't short-circuit an await — its RHS is a non-async
+                // autoclosure — so evaluate the wait explicitly.)
+                let established = isLast ? true : await waitForConnected(conn, timeout: 12)
+                if established {
                     await reloadManagersAndRefresh()   // pick up the just-started manager
                     startPolling()
                     return
