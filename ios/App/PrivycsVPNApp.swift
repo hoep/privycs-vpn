@@ -195,7 +195,7 @@ final class AppState: ObservableObject {
                                                  dnsOverride: resolvedDNS(for: conn),
                                                  failoverOrder: settings.protocolFailoverOrder,
                                                  killSwitch: settings.killSwitchEnabled,
-                                                 rules: rules) }
+                                                 rules: rules, engineOrder: engineOrderIfActive) }
             catch { connectError = error.localizedDescription }
         }
     }
@@ -378,6 +378,14 @@ final class AppState: ObservableObject {
         if !detectedCountry.isEmpty { return detectedCountry }
         if #available(iOS 16, *) { return Locale.current.region?.identifier ?? "" }
         return Locale.current.regionCode ?? ""
+    }
+
+    /// The engine's country-aware protocol order when Automatic protocol
+    /// selection is on, else nil (manual path). Passed to tunnelManager.connect.
+    private var engineOrderIfActive: [VpnProtocol]? {
+        guard UserDefaults.standard.bool(forKey: "auto_protocol_selection") else { return nil }
+        let order = engineShadow.protocolOrder(country: userCountry)
+        return order.isEmpty ? nil : order
     }
 
     func connectPool(_ pool: Pool) async {
@@ -659,7 +667,7 @@ final class AppState: ObservableObject {
                                                       dnsOverride: self.resolvedDNS(for: conn),
                                                       failoverOrder: self.settings.protocolFailoverOrder,
                                                       killSwitch: self.settings.killSwitchEnabled,
-                                                      rules: self.rules)
+                                                      rules: self.rules, engineOrder: self.engineOrderIfActive)
             }
 
         case .pool:

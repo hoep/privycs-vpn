@@ -126,6 +126,16 @@ func (a *App) activeConnHasAWG() bool {
 	return false
 }
 
+// engineFailoverOrder returns the engine's country-aware protocol order as
+// tokens (most-preferred first) for driving failover when the engine is active.
+func (a *App) engineFailoverOrder() []string {
+	var out []string
+	for _, p := range eng.ProtocolOrder(a.SelfIPCountry()) {
+		out = append(out, p.Token())
+	}
+	return out
+}
+
 // EngineDecisions is the Wails-bound accessor for the recent Smart-Decision-
 // Engine decision log (newest last). Powers the Settings "Engine decisions"
 // panel.

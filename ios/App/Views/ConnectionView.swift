@@ -10,6 +10,9 @@ struct ConnectionView: View {
     @Environment(\.locale) private var locale
     @State private var showPicker = false
     @State private var showConfigSheet = false
+    /// When the Smart Decision Engine is active it owns protocol selection, so
+    /// the manual protocol pills are disabled. [v1.0.9]
+    @AppStorage("auto_protocol_selection") private var autoProtocolSelection = false
     @State private var showPauseSheet = false
 
     private var status: VpnStatus { appState.status }
@@ -284,6 +287,8 @@ struct ConnectionView: View {
                                       count: configCount(p))
                     }
                     .buttonStyle(.plain)
+                    .disabled(autoProtocolSelection)
+                    .opacity(autoProtocolSelection ? 0.5 : 1.0)
                 }
             }
             .padding(.horizontal, 2)

@@ -305,8 +305,9 @@ object TunnelHealthMonitor {
             // = AWG → WG → OVPN → IPSec). Snapshot the latest settings
             // value at recovery-fire time so a recent reorder takes
             // effect immediately.
-            val failoverOrder = PrivycsApp.instance.settingsRepository
-                .getSettingsBlocking().protocolFailoverOrder
+            // Smart Decision Engine drives the recovery order when Automatic is on. [v1.0.9]
+            val failoverOrder = com.privycs.vpn.engine.EngineShadow.effectiveOrder(
+                PrivycsApp.instance.settingsRepository.getSettingsBlocking())
             val ordered = connection.orderedConfigs(failoverOrder)
             val nextConfig = ordered.firstOrNull { it.id != deadConfigId }
             if (nextConfig != null) {

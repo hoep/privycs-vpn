@@ -72,6 +72,24 @@ func PvcsEnginePollDecisions(h C.int64_t) *C.char {
 	return C.CString(s.PollDecisions())
 }
 
+// PvcsEngineSelectProtocol is the pure active-mode selector. Returns a malloc'd
+// JSON C string the caller MUST free with PvcsEngineFreeString.
+//
+//export PvcsEngineSelectProtocol
+func PvcsEngineSelectProtocol(availableCSV, country, iface *C.char, metered C.int, excludeCSV *C.char) *C.char {
+	return C.CString(ffi.SelectProtocol(
+		C.GoString(availableCSV), C.GoString(country), C.GoString(iface),
+		metered != 0, C.GoString(excludeCSV)))
+}
+
+// PvcsEngineProtocolOrder returns the country-aware order as a CSV C string.
+// Caller MUST free with PvcsEngineFreeString.
+//
+//export PvcsEngineProtocolOrder
+func PvcsEngineProtocolOrder(country *C.char) *C.char {
+	return C.CString(ffi.ProtocolOrder(C.GoString(country)))
+}
+
 //export PvcsEngineFreeString
 func PvcsEngineFreeString(p *C.char) { C.free(unsafe.Pointer(p)) }
 

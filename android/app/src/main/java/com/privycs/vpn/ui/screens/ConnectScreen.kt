@@ -54,6 +54,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -141,6 +142,10 @@ fun ConnectScreen(
     val connectionRepo = remember { PrivycsApp.instance.connectionRepository }
     val registry by connectionRepo.registry.collectAsState()
     val connections = registry.connections
+    // Smart Decision Engine: when Automatic protocol selection is on, the engine
+    // owns the protocol, so the manual pills are disabled. [v1.0.9]
+    val appSettings by com.privycs.vpn.PrivycsApp.instance.settingsRepository.settingsFlow
+        .collectAsState(initial = com.privycs.vpn.PrivycsApp.instance.settingsRepository.defaultSettings())
     val activeConnection = connectionRepo.getActive()
 
     var showConnectionPicker by remember { mutableStateOf(false) }
@@ -685,6 +690,7 @@ fun ConnectScreen(
                 ProtocolBadges(
                     configs = activeConnection.orderedConfigs(),
                     activeConfigId = activeConnection.activeConfigId,
+                    enabled = !appSettings.autoProtocolSelection,
                     onSelect = { configId ->
                         vpnManager.switchConfig(configId)
                     }
@@ -1109,6 +1115,7 @@ private fun ConnectButton(
 private fun ProtocolBadges(
     configs: List<com.privycs.vpn.data.models.ProtocolConfig>,
     activeConfigId: String,
+    enabled: Boolean = true,
     onSelect: (String) -> Unit
 ) {
     // One pill = one protocol type. Configs of the same protocol
@@ -1162,13 +1169,14 @@ private fun ProtocolBadges(
                         if (isActive) Modifier.border(1.dp, badgeColor.copy(alpha = 0.3f), RoundedCornerShape(50))
                         else Modifier
                     )
-                    .clickable {
+                    .clickable(enabled = enabled) {
                         if (multi) {
                             openPickerProtocol = protocol
                         } else {
                             onSelect(groupConfigs.first().id)
                         }
                     }
+                    .alpha(if (enabled) 1f else 0.5f)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

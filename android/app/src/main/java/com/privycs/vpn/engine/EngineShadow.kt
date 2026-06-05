@@ -106,6 +106,36 @@ object EngineShadow {
         }
     }
 
+    /**
+     * Active-mode engine protocol order (country-aware), most-preferred first;
+     * empty on any error. Static engine call — no session needed.
+     */
+    fun protocolOrder(country: String): List<VpnProtocol> = try {
+        Ffi.protocolOrder(country).split(",").mapNotNull {
+            when (it.trim()) {
+                "wireguard" -> VpnProtocol.WIREGUARD
+                "amneziawg" -> VpnProtocol.AMNEZIAWG
+                "openvpn" -> VpnProtocol.OPENVPN
+                "ipsec" -> VpnProtocol.IPSEC
+                else -> null
+            }
+        }
+    } catch (t: Throwable) {
+        PrivycsLogger.w(TAG, "protocolOrder: ${t.message}")
+        emptyList()
+    }
+
+    /**
+     * The order to drive connect + failover: the engine's country-aware order
+     * when Automatic protocol selection is on, else the manual failover order.
+     * This is the single gate — OFF leaves the existing path untouched.
+     */
+    fun effectiveOrder(settings: com.privycs.vpn.data.models.AppSettings): List<VpnProtocol> {
+        if (!settings.autoProtocolSelection) return settings.protocolFailoverOrder
+        val cc = PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty()
+        return protocolOrder(cc).ifEmpty { settings.protocolFailoverOrder }
+    }
+
     /** Recent decisions (newest last); empty list on any error. */
     fun decisions(): List<EngineDecision> {
         ensure()
