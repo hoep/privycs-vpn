@@ -256,11 +256,12 @@ dependencies {
     // before a clean build to produce Android.common.mk + libcrypto_static.
     implementation(project(":strongswan-lib"))
 
-    // Smart Decision Engine (v1.0.9) — gomobile AAR built from the shared Go
-    // core (engine/ffi) by engine/scripts/build-engine-aar.sh into
-    // app/libs/engine.aar. Gitignored + rebuilt in CI (and locally) before
-    // gradle; needs Go on PATH. Exposes com.privycs.engine.ffi.{Ffi,Session}.
-    implementation(files("libs/engine.aar"))
+    // Smart Decision Engine — Android uses the PURE-KOTLIN port
+    // (engine/LocalEngine.kt), NOT the gomobile AAR. Two Go runtimes (the
+    // engine's libgojni.so + the WireGuard libwg-go-awg.so) in one process
+    // fought over signal handlers and crashed on connect; the Kotlin port
+    // removes the second Go runtime entirely. (iOS keeps the gomobile engine
+    // because its tunnel runs in a separate NE process.) No engine.aar here.
 
     // Ktor client
     implementation("io.ktor:ktor-client-core:2.3.8")
