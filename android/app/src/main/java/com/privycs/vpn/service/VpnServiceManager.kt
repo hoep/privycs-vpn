@@ -792,13 +792,27 @@ class VpnServiceManager private constructor(private val context: Context) {
             // Smart Decision Engine (shadow): feed the engine the REAL protocol
             // + the user's country + AmneziaWG availability for the network-aware
             // reason. [v1.0.9]
-            com.privycs.vpn.engine.EngineShadow.observeConnect(
-                status.activeProtocol,
-                PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty(),
-                connectionRepo.getById(status.connectionId)?.hasProtocol(VpnProtocol.AMNEZIAWG) ?: false,
-            )
-            // Adaptive engine stats (P4): this protocol connected on this network.
-            com.privycs.vpn.engine.EngineShadow.recordOutcome(status.activeProtocol, success = true)
+            //
+            // The engine is a SHADOW observer — it MUST NOT be able to crash the
+            // connect path. The argument evaluation here (selfIpDetector /
+            // connectionRepo) and the gomobile binding can throw a Throwable —
+            // including Errors (ExceptionInInitializerError / UnsatisfiedLinkError
+            // on first native-lib load) that a `catch (Exception)` upstream would
+            // miss — and this runs on the connect transition inside a
+            // handler-less coroutine scope, so an escape crashes the whole app on
+            // connect. Swallow everything: one missing decision-log entry is fine,
+            // crashing the VPN is not. [v1.1.3 crash fix]
+            try {
+                com.privycs.vpn.engine.EngineShadow.observeConnect(
+                    status.activeProtocol,
+                    PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty(),
+                    connectionRepo.getById(status.connectionId)?.hasProtocol(VpnProtocol.AMNEZIAWG) ?: false,
+                )
+                // Adaptive engine stats (P4): this protocol connected on this network.
+                com.privycs.vpn.engine.EngineShadow.recordOutcome(status.activeProtocol, success = true)
+            } catch (t: Throwable) {
+                PrivycsLogger.w(TAG, "engine observe-connect skipped: ${t.message}")
+            }
             // Tunnel is up: decide whether to start the periodic
             // ICMP-based liveness monitor based on user settings.
             //   - mode = "off": never run
@@ -1000,14 +1014,20 @@ class VpnServiceManager private constructor(private val context: Context) {
             }
             // Smart Decision Engine (shadow): feed the REAL protocol + country +
             // AmneziaWG availability for the network-aware reason. [v1.0.9]
-            com.privycs.vpn.engine.EngineShadow.observeConnect(
-                activeConn?.activeProtocol ?: _status.value.activeProtocol,
-                PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty(),
-                activeConn?.hasProtocol(VpnProtocol.AMNEZIAWG) ?: false,
-            )
-            // Adaptive engine stats (P4): connected on this network.
-            com.privycs.vpn.engine.EngineShadow.recordOutcome(
-                activeConn?.activeProtocol ?: _status.value.activeProtocol, success = true)
+            // Shadow observer must never crash the connect path — see the matching
+            // block above for why this is wrapped in catch(Throwable). [v1.1.3]
+            try {
+                com.privycs.vpn.engine.EngineShadow.observeConnect(
+                    activeConn?.activeProtocol ?: _status.value.activeProtocol,
+                    PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty(),
+                    activeConn?.hasProtocol(VpnProtocol.AMNEZIAWG) ?: false,
+                )
+                // Adaptive engine stats (P4): connected on this network.
+                com.privycs.vpn.engine.EngineShadow.recordOutcome(
+                    activeConn?.activeProtocol ?: _status.value.activeProtocol, success = true)
+            } catch (t: Throwable) {
+                PrivycsLogger.w(TAG, "engine observe-connect skipped: ${t.message}")
+            }
             return
         }
 

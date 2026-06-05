@@ -196,6 +196,30 @@ public extension SavedConnection {
         }
         return protocols.first
     }
+
+    /// All configs in failover order — every config whose protocol appears in
+    /// `order` (earliest-protocol-first), then any remaining configs whose
+    /// protocol wasn't listed. Drives the runtime auto-failover loop: try the
+    /// top candidate, and on a tunnel that never establishes, walk to the next.
+    /// Mirrors Android `VpnConnection.orderedConfigs` + desktop
+    /// `OrderedConfigsFor`. Empty `order` ⇒ per-connection override → built-in
+    /// default.
+    func orderedConfigs(order: [VpnProtocol] = []) -> [ProtocolConfig] {
+        let effective = !order.isEmpty
+            ? order
+            : (!protocolFailoverOrder.isEmpty ? protocolFailoverOrder : VpnProtocol.defaultFailoverOrder)
+        var out: [ProtocolConfig] = []
+        var seen = Set<String>()
+        for proto in effective {
+            for c in protocols where c.protocol == proto && !seen.contains(c.id) {
+                out.append(c); seen.insert(c.id)
+            }
+        }
+        for c in protocols where !seen.contains(c.id) {
+            out.append(c); seen.insert(c.id)
+        }
+        return out
+    }
 }
 
 /// One of four supported VPN protocol classes. Stable serialised

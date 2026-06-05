@@ -177,12 +177,16 @@ object EngineShadow {
         connection: com.privycs.vpn.data.models.VpnConnection?,
     ): List<VpnProtocol> {
         if (!settings.autoProtocolSelection) return settings.protocolFailoverOrder
-        val cc = PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty()
-        val avail = connection?.protocols?.map { tokenOf(it.protocol) }?.distinct()
-            ?.joinToString(",").orEmpty()
-        val iface = currentIface()
-        val now = System.currentTimeMillis() / 1000
+        // EVERYTHING engine-touching is inside the try: the selfIpDetector /
+        // connection reads, the gomobile call, and the parse — so any Throwable
+        // (incl. a lateinit/binding Error) degrades to the manual failover order
+        // instead of escaping to the caller. [v1.1.3]
         val order = try {
+            val cc = PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty()
+            val avail = connection?.protocols?.map { tokenOf(it.protocol) }?.distinct()
+                ?.joinToString(",").orEmpty()
+            val iface = currentIface()
+            val now = System.currentTimeMillis() / 1000
             Ffi.selectOrder(avail, cc, iface, false, "", statsJson(iface), now)
                 .split(",").mapNotNull {
                     when (it.trim()) {

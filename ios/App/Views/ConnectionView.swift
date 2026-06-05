@@ -216,7 +216,10 @@ struct ConnectionView: View {
                         pickerRow(
                             title: p.name,
                             subtitle: "\(p.policy.displayName) · \(p.members.count)",
-                            selected: appState.selectedTargetID == "pool:\(p.id)",
+                            selected: appState.selectedTargetID == "pool:\(p.id)"
+                                || (appState.selectedTargetID.isEmpty
+                                    && appState.connections.isEmpty
+                                    && appState.pools.first?.id == p.id),
                             accent: PrivycsColor.teal
                         ) {
                             showPicker = false

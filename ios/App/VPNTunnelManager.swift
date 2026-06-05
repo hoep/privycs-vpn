@@ -15,6 +15,12 @@ final class VPNTunnelManager: ObservableObject {
 
     @Published var status: VpnStatus = .disconnected
 
+    /// Called once per protocol that FAILED to establish during a failover
+    /// walk, so AppState can fold the outcome into the engine's adaptive (P4)
+    /// stats. Success is recorded separately by AppState's status loop, so this
+    /// fires only for failures (no double-count).
+    var onConnectFailure: ((VpnProtocol) -> Void)?
+
     private var statusContinuations: [UUID: AsyncStream<VpnStatus>.Continuation] = [:]
     private var observer: NSObjectProtocol?
 
@@ -93,35 +99,83 @@ final class VPNTunnelManager: ObservableObject {
     func connect(_ connection: SavedConnection, onDemand: Bool = false, dnsOverride: String = "",
                  failoverOrder: [VpnProtocol] = [], killSwitch: Bool = true,
                  rules: [NetworkRule] = [], engineOrder: [VpnProtocol]? = nil) async throws {
-        // Active Smart Decision Engine: when engineOrder is supplied (Automatic
-        // protocol selection ON), the engine picks the protocol — ignoring the
-        // manual activeConfigID pin. Otherwise honor the explicit active
-        // selection, then the effective protocol-failover order.
-        let picked: ProtocolConfig?
+        // Build the ordered candidate configs for runtime auto-failover.
+        //   • engineOrder set (Automatic protocol selection ON) → the engine's
+        //     country/roaming/adaptive order, IGNORING the manual activeConfigID.
+        //   • else → the explicit active pick leads, then the rest of the
+        //     protocols in the effective failover order.
+        // A single-config connection (or a synthesised pool member) yields ONE
+        // candidate, so the loop runs once and behaves exactly like the prior
+        // single-shot connect — pools keep their own member-failover in AppState.
+        let candidates: [ProtocolConfig]
         if let eo = engineOrder {
-            picked = connection.enginePickedConfig(order: eo)
+            candidates = connection.orderedConfigs(order: eo)
+        } else if let active = connection.resolvedActiveConfig(globalOrder: failoverOrder) {
+            candidates = [active] + connection.orderedConfigs(order: failoverOrder).filter { $0.id != active.id }
         } else {
-            picked = connection.resolvedActiveConfig(globalOrder: failoverOrder)
+            candidates = connection.orderedConfigs(order: failoverOrder)
         }
-        guard let config = picked else {
-            throw VPNError.noConfig
-        }
+        guard !candidates.isEmpty else { throw VPNError.noConfig }
+
         activeConnectionName = connection.name
         activeConnectionID = connection.id
-        activeProtocol = config.protocol
-        isPTPTunnel = config.protocol != .ipsec
         self.onDemandEnabled = onDemand
         self.dnsOverride = dnsOverride
         self.killSwitch = killSwitch
         self.pendingRules = rules
 
-        if config.protocol == .ipsec {
-            try await connectViaIKEv2(connection: connection, config: config)
-        } else {
-            try await connectViaPTP(connection: connection, config: config)
+        var lastError: Error?
+        for (idx, config) in candidates.enumerated() {
+            activeProtocol = config.protocol
+            isPTPTunnel = config.protocol != .ipsec
+            let isLast = idx == candidates.count - 1
+            do {
+                let conn: NEVPNConnection = config.protocol == .ipsec
+                    ? try await connectViaIKEv2(connection: connection, config: config).connection
+                    : try await connectViaPTP(connection: connection, config: config).connection
+                // Last/only candidate → fire-and-forget exactly as before (start
+                // returns, the health monitor catches any later drop). With more
+                // candidates left, wait for the tunnel to actually establish and
+                // fail over to the next protocol if it doesn't.
+                // (`||` can't short-circuit an await — its RHS is a non-async
+                // autoclosure — so evaluate the wait explicitly.)
+                let established = isLast ? true : await waitForConnected(conn, timeout: 12)
+                if established {
+                    await reloadManagersAndRefresh()   // pick up the just-started manager
+                    startPolling()
+                    return
+                }
+                PrivycsLog.log("connect: \(config.protocol.rawValue) did not establish — failing over")
+                onConnectFailure?(config.protocol)
+                lastError = VPNError.tunnelDidNotEstablish(config.protocol)
+                await stopTunnel()
+            } catch {
+                PrivycsLog.log("connect: \(config.protocol.rawValue) start error: \(error.localizedDescription)")
+                onConnectFailure?(config.protocol)
+                lastError = error
+                if !isLast { await stopTunnel() }
+            }
         }
-        await reloadManagersAndRefresh()   // pick up the just-started manager
-        startPolling()
+        throw lastError ?? VPNError.noConfig
+    }
+
+    /// Poll an NE connection until it reaches `.connected` or the window
+    /// elapses. Returns early-false if it went active (connecting/reasserting)
+    /// and then dropped back to disconnected — a real failure — so failover
+    /// doesn't burn the whole window on an obviously-dead endpoint.
+    private func waitForConnected(_ conn: NEVPNConnection, timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var sawActivity = false
+        while Date() < deadline {
+            switch conn.status {
+            case .connected: return true
+            case .connecting, .reasserting: sawActivity = true
+            case .disconnected, .invalid: if sawActivity { return false }
+            default: break
+            }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+        return conn.status == .connected
     }
 
     /// System-level on-demand rules. Translates the user's NetworkRules into
@@ -301,7 +355,8 @@ final class VPNTunnelManager: ObservableObject {
         }
     }
 
-    private func connectViaPTP(connection: SavedConnection, config: ProtocolConfig) async throws {
+    @discardableResult
+    private func connectViaPTP(connection: SavedConnection, config: ProtocolConfig) async throws -> NETunnelProviderManager {
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         let mgr = mgrs.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
@@ -329,6 +384,7 @@ final class VPNTunnelManager: ObservableObject {
         try await mgr.saveToPreferences()
         try await mgr.loadFromPreferences()
         try await startTunnelRetrying(mgr)
+        return mgr
     }
 
     /// Disarm persistent on-demand on every saved manager (master toggle off,
@@ -392,7 +448,8 @@ final class VPNTunnelManager: ObservableObject {
         PrivycsLog.log("on-demand armed (persistent config) — \(connection.name), rules=\(rules.count), enabled=\(onDemandWouldConnect())")
     }
 
-    private func connectViaIKEv2(connection: SavedConnection, config: ProtocolConfig) async throws {
+    @discardableResult
+    private func connectViaIKEv2(connection: SavedConnection, config: ProtocolConfig) async throws -> NEVPNManager {
         // Parse the gateway's .sswan JSON profile into IKEv2 attributes.
         let profile = try SswanProfile.parse(config.configContent)
 
@@ -459,6 +516,7 @@ final class VPNTunnelManager: ObservableObject {
         try await mgr.saveToPreferences()
         try await mgr.loadFromPreferences()
         try await startTunnelRetrying(mgr)
+        return mgr
     }
 
     private func refreshStatus() {
@@ -557,9 +615,12 @@ final class VPNTunnelManager: ObservableObject {
 
 enum VPNError: LocalizedError {
     case noConfig
+    case tunnelDidNotEstablish(VpnProtocol)
     var errorDescription: String? {
         switch self {
         case .noConfig: return String(localized: "No protocol config selected")
+        case .tunnelDidNotEstablish(let p):
+            return String(localized: "\(p.displayName) tunnel did not establish")
         }
     }
 }
