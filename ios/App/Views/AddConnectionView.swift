@@ -195,7 +195,7 @@ struct GatewayConfigSheet: View {
             .navigationTitle("Remote Configs")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
             }
             .task { await load() }
         }

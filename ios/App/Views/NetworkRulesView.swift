@@ -73,8 +73,8 @@ struct NetworkRulesView: View {
         }
         .navigationTitle("On-Demand & Network Rules")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { EditButton() }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .navigationBarLeading) { EditButton() }
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Button { showAddRule = true } label: { Image(systemName: "plus") }
             }
         }

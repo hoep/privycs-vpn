@@ -66,6 +66,7 @@ object EngineShadow {
      * hypothetical failover-order pick. Called from VpnServiceManager on the
      * confirmed-connect transition.
      */
+    @Synchronized
     fun observeConnect(proto: VpnProtocol?, country: String, awgAvailable: Boolean) {
         ensure()
         val token = when (proto) {
@@ -83,6 +84,7 @@ object EngineShadow {
     }
 
     /** Called from ConnectCoordinator.markDisconnected. */
+    @Synchronized
     fun observeDisconnect() {
         try {
             session?.observeDisconnect()
@@ -92,6 +94,7 @@ object EngineShadow {
     }
 
     /** Forwards a TunnelHealthMonitor transition; INACTIVE is ignored. */
+    @Synchronized
     fun observeHealth(state: TunnelHealthMonitor.State) {
         val token = when (state) {
             TunnelHealthMonitor.State.HEALTHY -> "healthy"
@@ -198,6 +201,7 @@ object EngineShadow {
     }
 
     /** Recent decisions (newest last); empty list on any error. */
+    @Synchronized
     fun decisions(): List<EngineDecision> {
         ensure()
         val raw = try {

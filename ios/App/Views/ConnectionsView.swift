@@ -208,7 +208,7 @@ struct AddProtocolSheet: View {
             }
             .navigationTitle("Add Protocol")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } } }
             .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [UTType.data], allowsMultipleSelection: false) { result in
                 Task { await handleFile(result) }
             }
@@ -315,8 +315,8 @@ struct EditConnectionSheet: View {
             .navigationTitle("Edit connection")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Save") { Task { await save() } } }
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) { Button("Save") { Task { await save() } } }
+                ToolbarItem(placement: .navigationBarLeading) { Button("Cancel") { dismiss() } }
             }
         }
     }
@@ -364,8 +364,8 @@ struct EditProtocolConfigSheet: View {
             .navigationTitle("Edit \(config.protocol.shortLabel)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Save") { Task { await save() } } }
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) { Button("Save") { Task { await save() } } }
+                ToolbarItem(placement: .navigationBarLeading) { Button("Cancel") { dismiss() } }
             }
         }
     }
