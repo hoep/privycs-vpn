@@ -31,6 +31,27 @@ object EngineShadow {
     private const val TAG = "EngineShadow"
     private val json = Json { ignoreUnknownKeys = true }
 
+    // v1.1.3.1 NATIVE-CRASH FIX. Native SIGSEGV in libwg-go-awg.so on connect,
+    // BEFORE the tunnel comes up (vpn_active=false) — confirmed by the on-device
+    // native crash trace. (On Android wg-go-awg serves BOTH WireGuard and
+    // AmneziaWG, and it was reproduced with a plain WireGuard config selected.)
+    // Root cause: the engine's connect-path OVERRIDE in
+    // PrivycsVpnService.handleConnect re-derived protocol + content from the
+    // registry (orderedConfigs), DISCARDING the user's explicitly-selected
+    // config + the freshly-rendered content passed into the connect intent. The
+    // backend then got a config that differs from what the user picked (wrong
+    // awg flag and/or stale/raw content) and segfaulted — uncatchable by any
+    // Kotlin try/catch, and invisible to Bugsink (JVM-only); only sentry-native
+    // saw it. Disabling the override restores the pre-engine connect, which used
+    // the user's selected, freshly-rendered config and did not crash. The shadow
+    // engine (decisions panel) is unaffected. Re-enable only once the override
+    // honours the active config + re-renders its content before connecting.
+    private val ENGINE_CONNECT_ORDERING = false
+
+    /** Whether the engine may drive connect-time protocol selection. See
+     *  ENGINE_CONNECT_ORDERING — OFF while the AWG-content crash is mitigated. */
+    fun connectOrderingEnabled(): Boolean = ENGINE_CONNECT_ORDERING
+
     @Volatile private var session: Session? = null
     @Volatile private var orderJson: String = ""
 
@@ -177,6 +198,9 @@ object EngineShadow {
         connection: com.privycs.vpn.data.models.VpnConnection?,
     ): List<VpnProtocol> {
         if (!settings.autoProtocolSelection) return settings.protocolFailoverOrder
+        // Native-crash mitigation: no gomobile on the connect path. See
+        // ENGINE_CONNECT_ORDERING. Falls back to the manual failover order.
+        if (!ENGINE_CONNECT_ORDERING) return settings.protocolFailoverOrder
         // EVERYTHING engine-touching is inside the try: the selfIpDetector /
         // connection reads, the gomobile call, and the parse — so any Throwable
         // (incl. a lateinit/binding Error) degrades to the manual failover order

@@ -13,12 +13,19 @@ struct AddConnectionView: View {
     @State private var showAddPool = false
     @State private var importErrorMessage: String?
     @State private var importedNote: String?
+    // Pool import: the tab-root .fileImporter is reused for pools (it presents
+    // reliably here and has no parent sheet to mis-dismiss on iOS 15). When this
+    // flag is set, a successful import hands the files to AddPoolView instead of
+    // importing them as single connections. [v1.1.4]
+    @State private var importingForPool = false
+    @State private var pickedPoolFiles: [URL] = []
 
     var body: some View {
         AdaptiveNavStack {
             List {
                 Section {
                     Button {
+                        importingForPool = false   // guard against a stale pool flag from a cancelled pick
                         showFileImporter = true
                     } label: {
                         Label("Import from file", systemImage: "doc.badge.plus")
@@ -43,7 +50,14 @@ struct AddConnectionView: View {
                 }
                 Section {
                     Button {
-                        showAddPool = true
+                        // Pick the pool files at the tab root FIRST (the
+                        // .fileImporter presents reliably here and has no parent
+                        // sheet to mis-dismiss), THEN open the pool-config sheet
+                        // with the chosen files. Sidesteps the iOS-15 nested-
+                        // importer bug entirely. [v1.1.4]
+                        importingForPool = true
+                        pickedPoolFiles = []
+                        showFileImporter = true
                     } label: {
                         Label("Create a VPN pool", systemImage: "circle.grid.3x3.fill")
                     }
@@ -77,12 +91,22 @@ struct AddConnectionView: View {
                 GatewayConfigSheet().environmentObject(appState)
             }
             .sheet(isPresented: $showAddPool) {
-                AddPoolView().environmentObject(appState)
+                AddPoolView(initialFiles: pickedPoolFiles).environmentObject(appState)
             }
         }
     }
 
     private func handleImport(_ result: Result<[URL], Error>) async {
+        // Pool-import branch: hand the chosen files to AddPoolView instead of
+        // importing them as single connections. [v1.1.4]
+        if importingForPool {
+            importingForPool = false
+            if case .success(let urls) = result, !urls.isEmpty {
+                pickedPoolFiles = urls
+                showAddPool = true
+            }
+            return
+        }
         importErrorMessage = nil; importedNote = nil
         guard case .success(let urls) = result else {
             if case .failure(let err) = result { importErrorMessage = err.localizedDescription }

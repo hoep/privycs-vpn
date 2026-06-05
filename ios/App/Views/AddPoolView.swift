@@ -7,9 +7,14 @@ struct AddPoolView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
+    /// Files chosen at the tab root BEFORE this sheet opened — the iOS-15-safe
+    /// flow (see AddConnectionView): the proven tab-root `.fileImporter` picks
+    /// the files, then this sheet opens with them already in hand. No picker is
+    /// presented from inside this sheet (that mis-dismisses on iOS 15).
+    let initialFiles: [URL]
+
     @State private var name = ""
     @State private var policy: PoolPolicy = .geoNearest
-    @State private var fileImporterShown = false
     @State private var pickedFiles: [URL] = []
     @State private var errorMessage: String?
 
@@ -27,18 +32,18 @@ struct AddPoolView: View {
                     }
                 }
                 Section {
-                    Button {
-                        fileImporterShown = true
-                    } label: {
-                        Label("Select configs or a .zip", systemImage: "doc.badge.plus")
-                    }
-                    if !pickedFiles.isEmpty {
+                    if pickedFiles.isEmpty {
+                        Text("No files selected — cancel and tap “Create a VPN pool” again.")
+                            .foregroundColor(.secondary).font(.caption)
+                    } else {
                         ForEach(pickedFiles, id: \.self) { url in
-                            Text(url.lastPathComponent).font(.caption2)
+                            Label(url.lastPathComponent, systemImage: "doc").font(.caption)
                         }
                     }
+                } header: {
+                    Text("Selected files (\(pickedFiles.count))")
                 } footer: {
-                    Text("Pick individual .conf/.ovpn/.sswan files, or a single .zip archive from your provider — all configs inside it become pool members. Country is parsed from each filename when possible.")
+                    Text("These become the pool members — a single .zip archive is expanded into all the configs inside it. Country is parsed from each filename when possible.")
                 }
                 if let msg = errorMessage {
                     Section {
@@ -59,20 +64,7 @@ struct AddPoolView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            // iOS-15-safe picker: SwiftUI's `.fileImporter` opened from WITHIN
-            // this already-presented sheet mis-targets dismissal on iOS 15 and
-            // tears THIS sheet down when the picker closes ("kann importieren,
-            // beendet nur den Dialog"). DocumentPicker bridges UIDocumentPicker
-            // and presents via pure UIKit, so only the picker dismisses.
-            .background(
-                DocumentPicker(
-                    isPresented: $fileImporterShown,
-                    contentTypes: [UTType.zip, UTType.data],
-                    allowsMultiple: true
-                ) { urls in
-                    pickedFiles = urls
-                }
-            )
+            .onAppear { if pickedFiles.isEmpty { pickedFiles = initialFiles } }
         }
     }
 

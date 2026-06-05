@@ -1547,7 +1547,17 @@ class PrivycsVpnService : VpnService() {
                 // override with its country-aware top choice. [v1.0.9]
                 run {
                     val s = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
-                    if (s.autoProtocolSelection) {
+                    // v1.1.3.1: gated by EngineShadow.connectOrderingEnabled().
+                    // This override DISCARDS the user's selected config + the
+                    // freshly-rendered content passed in, re-deriving protocol +
+                    // content from the registry (orderedConfigs). Handing the
+                    // wg-go-awg backend (used for BOTH WireGuard and AmneziaWG on
+                    // Android) a config that differs from what the user picked —
+                    // wrong awg flag and/or stale/raw content — segfaults it on
+                    // connect (confirmed via native trace, even with a plain WG
+                    // config selected). While disabled we keep the user's selected,
+                    // freshly-rendered config (pre-engine behaviour, no crash).
+                    if (s.autoProtocolSelection && com.privycs.vpn.engine.EngineShadow.connectOrderingEnabled()) {
                         val conn = PrivycsApp.instance.connectionRepository.getById(connectionId)
                         conn?.orderedConfigs(com.privycs.vpn.engine.EngineShadow.effectiveOrder(s, conn))
                             ?.firstOrNull()?.let { c ->
@@ -1650,7 +1660,17 @@ class PrivycsVpnService : VpnService() {
                 if (!success) {
                     throw (lastError ?: RuntimeException("connect failed (no candidates)"))
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // v1.1.3.1: widened from `Exception` to `Throwable`. The connect
+                // path now touches the gomobile Smart-Decision-Engine binding,
+                // whose first native-lib load can throw an *Error*
+                // (ExceptionInInitializerError / UnsatisfiedLinkError / NoClassDefFoundError)
+                // — NOT an Exception — which a `catch (Exception)` lets escape to
+                // this handler-less coroutine and crashes the whole app on
+                // connect ("crash before connected", Android-only since iOS uses
+                // a different binding). Catching Throwable turns any such failure
+                // into a visible connect-error banner instead of a process crash.
+                //
                 // Reverted in v0.9.14.59: the v0.9.14.54-introduced
                 // CancellationException catch-and-rethrow pattern was
                 // intended to silence "Connection failed: Job was
