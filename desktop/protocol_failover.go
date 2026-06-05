@@ -102,8 +102,12 @@ func (a *App) tryFailoverProtocol(excludeOriginalConfigID string) (string, error
 		return "", fmt.Errorf("failover: no active connection")
 	}
 	// v0.9.15.70 — read user-configured failover order (default =
-	// pre-v0.9.15.70 enum order when empty/nil).
+	// pre-v0.9.15.70 enum order when empty/nil). When the Smart Decision
+	// Engine is active it drives the order instead (country-aware).
 	failoverOrder := a.settings.ProtocolFailoverOrder
+	if a.settings.AutoProtocolSelection {
+		failoverOrder = a.engineFailoverOrder()
+	}
 	candidates := conn.OrderedConfigsFor(failoverOrder)
 	if len(candidates) <= 1 {
 		return "", fmt.Errorf("failover: connection %q has no alternate config", conn.Name)

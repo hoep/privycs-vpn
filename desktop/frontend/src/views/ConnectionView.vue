@@ -302,7 +302,8 @@
             <button
               :ref="(el) => setPillRef(group.protocol, el as HTMLElement | null)"
               @click.stop="onPillClick(group)"
-              :disabled="vpn.loading"
+              :disabled="vpn.loading || autoEngine"
+              :title="autoEngine ? $t('settings.engine.auto-on-note') : ''"
               class="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
               :class="isGroupActive(group)
                 ? protocolBadgeActive(group.protocol)
@@ -658,7 +659,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useVpnStore, formatSpeed } from '@/stores/vpn'
 import { usePoolStore, formatDuration } from '@/stores/pool'
-import { SelectProtocol, SelectConfig, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause, GetTunnelHealthState } from '../../wailsjs/go/main/App'
+import { SelectProtocol, SelectConfig, ListConnections, SwitchActiveConnection, GetActiveConfigContent, SaveActiveConfigContent, GetConnectOnDemandStatus, PauseFor, CancelPause, GetTunnelHealthState, GetSettings } from '../../wailsjs/go/main/App'
 import { EventsOn, LogPrint } from '../../wailsjs/runtime/runtime'
 import ProtocolIcon from '@/components/ProtocolIcon.vue'
 import SpeedSparkline from '@/components/SpeedSparkline.vue'
@@ -677,6 +678,15 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const vpn = useVpnStore()
+// When the Smart Decision Engine is active it owns protocol selection, so the
+// manual protocol pills are disabled. Refreshed on mount + every poll tick.
+const autoEngine = ref(false)
+async function refreshAuto() {
+  try {
+    const s: any = await GetSettings()
+    autoEngine.value = !!s?.auto_protocol_selection
+  } catch { /* keep last */ }
+}
 const poolStore = usePoolStore()
 const { t, locale } = useI18n()
 
@@ -1164,7 +1174,8 @@ onMounted(() => {
     dataLoaded.value = true
   })
   pollCod()
-  codInterval = setInterval(pollCod, 5000)
+  refreshAuto()
+  codInterval = setInterval(() => { pollCod(); refreshAuto() }, 5000)
   rotatorInterval = setInterval(() => poolStore.pollRotator(), 5000)
 
   // Backend emits "pool:rotated" right after a successful

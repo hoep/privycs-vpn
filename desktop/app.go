@@ -1028,6 +1028,19 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 		SaveSettings(a.settings)
 	}
 
+	// Active Smart Decision Engine: when "Automatic protocol selection" is on,
+	// the engine picks the protocol (network-aware) instead of the manual
+	// pill/saved choice — for single connections (pools keep their own member/
+	// protocol logic). OFF = the manual path above stays authoritative.
+	if a.settings != nil && a.settings.AutoProtocolSelection && a.activePoolID == "" {
+		if p := a.enginePickProtocol(nil); p != "" && p != a.activeProtocol {
+			log.Printf("Connect: engine auto-selected %q (was %q)", p, a.activeProtocol)
+			a.activeProtocol = p
+			a.settings.ActiveProtocol = p
+			SaveSettings(a.settings)
+		}
+	}
+
 	proto, ok := a.protocols[a.activeProtocol]
 	if !ok {
 		return nil, fmt.Errorf("no active protocol configured")

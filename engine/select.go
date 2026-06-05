@@ -47,6 +47,47 @@ func IfaceFromString(s string) IfaceClass {
 	return IfaceOther
 }
 
+// ProtocolOrder is the context-ranked protocol preference for a country
+// (most-preferred first) — the same ordering Select uses. Platforms use it to
+// drive failover ordering in active mode.
+func ProtocolOrder(country string) []Protocol {
+	if IsRestrictiveCountry(country) {
+		return []Protocol{ProtoAmnezia, ProtoOpenVPN, ProtoWireGuard, ProtoIPsec}
+	}
+	return []Protocol{ProtoWireGuard, ProtoAmnezia, ProtoOpenVPN, ProtoIPsec}
+}
+
+// Token is the canonical wire token for a protocol — matches the platform
+// config tokens (NB: AmneziaWG is "amneziawg" here, vs String()'s "amnezia").
+func (p Protocol) Token() string {
+	switch p {
+	case ProtoWireGuard:
+		return "wireguard"
+	case ProtoAmnezia:
+		return "amneziawg"
+	case ProtoOpenVPN:
+		return "openvpn"
+	case ProtoIPsec:
+		return "ipsec"
+	}
+	return ""
+}
+
+// ParseProtocol maps a wire token to a Protocol; ok=false for an unknown token.
+func ParseProtocol(token string) (Protocol, bool) {
+	switch token {
+	case "wireguard":
+		return ProtoWireGuard, true
+	case "amneziawg", "amnezia":
+		return ProtoAmnezia, true
+	case "openvpn":
+		return ProtoOpenVPN, true
+	case "ipsec":
+		return ProtoIPsec, true
+	}
+	return ProtoWireGuard, false
+}
+
 // Select returns the best available protocol for the context, plus the reason.
 func Select(in SelectInput) SelectResult {
 	excluded := make(map[Protocol]bool, len(in.Exclude))
@@ -63,14 +104,7 @@ func Select(in SelectInput) SelectResult {
 		return SelectResult{Found: false, ReasonKey: "decision.no_profile"}
 	}
 
-	var order []Protocol
-	if IsRestrictiveCountry(in.Country) {
-		order = []Protocol{ProtoAmnezia, ProtoOpenVPN, ProtoWireGuard, ProtoIPsec}
-	} else {
-		order = []Protocol{ProtoWireGuard, ProtoAmnezia, ProtoOpenVPN, ProtoIPsec}
-	}
-
-	for _, p := range order {
+	for _, p := range ProtocolOrder(in.Country) {
 		if usable[p] {
 			// awgAvailable reflects what is still usable this round, so once
 			// AmneziaWG itself has failed the reason stops recommending it.
