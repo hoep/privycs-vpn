@@ -18,7 +18,7 @@ struct ManualPauseSheet: View {
     ]
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             List {
                 Section {
                     ForEach(presets, id: \.label) { preset in

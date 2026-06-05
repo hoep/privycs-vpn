@@ -40,7 +40,7 @@ struct NetworkRulesView: View {
 
             Section {
                 Toggle("Auto-tunnel master", isOn: $masterEnabled)
-                    .onChange(of: masterEnabled) { _, new in
+                    .onChange(of: masterEnabled) { new in
                         Task {
                             var s = appState.settings
                             s.networkRulesEnabled = new

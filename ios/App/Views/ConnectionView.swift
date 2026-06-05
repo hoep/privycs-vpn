@@ -15,7 +15,7 @@ struct ConnectionView: View {
     private var status: VpnStatus { appState.status }
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             ZStack {
                 PrivycsColor.background.ignoresSafeArea()
                 ScrollView {
@@ -403,7 +403,7 @@ struct ConnectionView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 ForEach(parts, id: \.self) { part in
-                    Text(part).font(.system(size: 13)).fontDesign(.monospaced)
+                    Text(part).font(.system(size: 13, design: .monospaced))
                         .foregroundStyle(PrivycsColor.onSurface)
                         .lineLimit(1).truncationMode(.middle)
                 }
@@ -475,7 +475,7 @@ struct MultiConfigPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             List {
                 if let c = appState.selectedConnection {
                     ForEach(c.protocols) { cfg in

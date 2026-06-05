@@ -13,15 +13,24 @@ struct LicenseKeyImportSheet: View {
     @State private var isError = false
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             Form {
                 Section {
-                    TextField("Paste your license key", text: $keyText, axis: .vertical)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .lineLimit(4...12)
-                        .fontDesign(.monospaced)
-                        .font(.caption)
+                    // Multi-line growing TextField (axis:/lineLimit-range) is
+                    // iOS 16+; fall back to a TextEditor on iOS 15.
+                    if #available(iOS 16, *) {
+                        TextField("Paste your license key", text: $keyText, axis: .vertical)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .lineLimit(4...12)
+                            .font(.caption.monospaced())
+                    } else {
+                        TextEditor(text: $keyText)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.caption.monospaced())
+                            .frame(minHeight: 96)
+                    }
                 } footer: {
                     Text("License keys are ed25519-signed and verified offline. Paste the entire string including the .signature.")
                 }

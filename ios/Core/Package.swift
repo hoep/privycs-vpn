@@ -7,7 +7,7 @@ let package = Package(
     name: "PrivycsCore",
     defaultLocalization: "en",
     platforms: [
-        .iOS(.v17),
+        .iOS(.v15), // floor lowered to reach older iPads; tvOS targets pin 17
         .macOS(.v14), // optional: same framework reusable on macOS for parity
     ],
     products: [

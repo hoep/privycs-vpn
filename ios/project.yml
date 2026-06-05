@@ -10,7 +10,10 @@ name: PrivycsVPN
 options:
   bundleIdPrefix: com.privycs.vpn
   deploymentTarget:
-    iOS: "17.0"
+    # iOS 15 floor reaches older iPads (Air 2, mini 4, iPad 5, Pro 1st-gen).
+    # The interactive Widget keeps its own 17.0 (App Intents / Button(intent:)
+    # are iOS 17) so it's simply unavailable below 17 while the app runs fully.
+    iOS: "15.0"
     tvOS: "17.0"
   developmentLanguage: en
   defaultConfig: Release
@@ -206,6 +209,10 @@ targets:
   PrivycsVPNWidget:
     type: app-extension
     platform: iOS
+    # Interactive widgets (App Intents / Button(intent:)) are iOS 17-only, so
+    # the widget keeps a 17 floor even though the app targets 15. On iOS 15/16
+    # the widget is simply not offered; the app itself runs fully.
+    deploymentTarget: "17.0"
     sources:
       - path: WidgetExtension
     info:

@@ -15,7 +15,7 @@ struct AddConnectionView: View {
     @State private var importedNote: String?
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             List {
                 Section {
                     Button {
@@ -144,7 +144,7 @@ struct GatewayConfigSheet: View {
     @State private var importedNames: [String] = []
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             List {
                 if loading {
                     HStack { Spacer(); ProgressView(); Spacer() }

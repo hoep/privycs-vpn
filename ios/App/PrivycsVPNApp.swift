@@ -21,7 +21,7 @@ struct PrivycsVPNApp: App {
                     await appState.bootstrap()
                 }
                 .preferredColorScheme(appState.colorScheme)
-                .onChange(of: scenePhase) { _, phase in
+                .onChange(of: scenePhase) { phase in
                     appState.onScenePhase(phase == .active)
                 }
         }
