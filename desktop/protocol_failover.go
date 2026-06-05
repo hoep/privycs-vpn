@@ -108,7 +108,7 @@ func (a *App) tryFailoverProtocol(excludeOriginalConfigID string) (string, error
 	// Engine drives the order only for single connections; pools keep their
 	// own member/protocol failover logic.
 	if a.settings.AutoProtocolSelection && a.activePoolID == "" {
-		failoverOrder = a.engineFailoverOrder()
+		failoverOrder = a.engineSelectOrder(conn)
 	}
 	candidates := conn.OrderedConfigsFor(failoverOrder)
 	if len(candidates) <= 1 {

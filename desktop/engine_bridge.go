@@ -24,6 +24,62 @@ type decisionBridge struct {
 	mu       sync.Mutex
 	country  string // user's pre-VPN country for the network-aware reason
 	awgAvail bool   // active connection offers an AmneziaWG profile
+
+	// Adaptive (P4) stats: in-memory per-protocol success/fail learned on the
+	// CURRENT network. Reset when the network key changes (a new network may
+	// block differently). Process-lifetime only — persistence is a later step.
+	statsMu  sync.Mutex
+	stats    map[string]eng.ProtoStat // protocol token → stat
+	statsKey string                   // network key the stats belong to
+}
+
+// ensureStatsFor resets the stats map when the network changed. Caller holds statsMu.
+func (b *decisionBridge) ensureStatsFor(netKey string) {
+	if b.stats == nil || b.statsKey != netKey {
+		b.statsKey = netKey
+		b.stats = map[string]eng.ProtoStat{}
+	}
+}
+
+// recordOutcome folds a connect success/failure into the protocol's stat
+// (integer EWMA toward 1000/0; failures stamp LastFailSec).
+func (b *decisionBridge) recordOutcome(proto, netKey string, success bool, nowSec int64) {
+	if b == nil || proto == "" {
+		return
+	}
+	b.statsMu.Lock()
+	defer b.statsMu.Unlock()
+	b.ensureStatsFor(netKey)
+	st := b.stats[proto]
+	if st.SuccessEWMA == 0 && st.LastFailSec == 0 {
+		st.SuccessEWMA = 500 // neutral start
+	}
+	var val int32
+	if success {
+		val = 1000
+	}
+	st.SuccessEWMA = (st.SuccessEWMA*7 + val*3) / 10
+	if !success {
+		st.LastFailSec = nowSec
+	}
+	b.stats[proto] = st
+}
+
+// statsSnapshot returns the current network's stats keyed by Protocol.
+func (b *decisionBridge) statsSnapshot(netKey string) map[eng.Protocol]eng.ProtoStat {
+	if b == nil {
+		return nil
+	}
+	b.statsMu.Lock()
+	defer b.statsMu.Unlock()
+	b.ensureStatsFor(netKey)
+	out := make(map[eng.Protocol]eng.ProtoStat, len(b.stats))
+	for tok, st := range b.stats {
+		if p, ok := eng.ParseProtocol(tok); ok {
+			out[p] = st
+		}
+	}
+	return out
 }
 
 func newDecisionBridge(getOrder func() []string) *decisionBridge {
@@ -126,11 +182,53 @@ func (a *App) activeConnHasAWG() bool {
 	return false
 }
 
-// engineFailoverOrder returns the engine's country-aware protocol order as
-// tokens (most-preferred first) for driving failover when the engine is active.
-func (a *App) engineFailoverOrder() []string {
-	var out []string
-	for _, p := range eng.ProtocolOrder(a.SelfIPCountry()) {
+// engineNetKey is a coarse, non-PII key for the current network (type + SSID)
+// used to scope the adaptive stats.
+func (a *App) engineNetKey() string {
+	if a.autoConnect == nil {
+		return ""
+	}
+	nm := a.autoConnect.NetworkMonitor()
+	if nm == nil {
+		return ""
+	}
+	s := nm.CurrentState()
+	return s.NetworkType + "|" + s.SSID
+}
+
+// engineNetType returns the current network type ("wifi"/"ethernet"/"mobile"/"").
+func (a *App) engineNetType() string {
+	if a.autoConnect == nil {
+		return ""
+	}
+	nm := a.autoConnect.NetworkMonitor()
+	if nm == nil {
+		return ""
+	}
+	return nm.CurrentState().NetworkType
+}
+
+// engineSelectOrder returns the engine's ranked protocol order (tokens, most-
+// preferred first) for the active connection — context + roaming (interface) +
+// adaptive stats. Drives connect + failover when the engine is active.
+func (a *App) engineSelectOrder(conn *SavedConnection) []string {
+	var avail []eng.Protocol
+	if conn != nil {
+		for _, tok := range conn.AvailableProtocols() {
+			if p, ok := eng.ParseProtocol(tok); ok {
+				avail = append(avail, p)
+			}
+		}
+	}
+	order := eng.SelectOrder(eng.SelectInput{
+		Available: avail,
+		Country:   a.SelfIPCountry(),
+		Net:       eng.NetworkContext{Iface: eng.IfaceFromString(a.engineNetType())},
+		Stats:     a.engineBridge.statsSnapshot(a.engineNetKey()),
+		NowSec:    time.Now().Unix(),
+	})
+	out := make([]string, 0, len(order))
+	for _, p := range order {
 		out = append(out, p.Token())
 	}
 	return out
