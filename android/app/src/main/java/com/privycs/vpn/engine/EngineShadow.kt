@@ -31,26 +31,32 @@ object EngineShadow {
     private const val TAG = "EngineShadow"
     private val json = Json { ignoreUnknownKeys = true }
 
-    // v1.1.3.1 NATIVE-CRASH FIX. Native SIGSEGV in libwg-go-awg.so on connect,
-    // BEFORE the tunnel comes up (vpn_active=false) — confirmed by the on-device
-    // native crash trace. (On Android wg-go-awg serves BOTH WireGuard and
-    // AmneziaWG, and it was reproduced with a plain WireGuard config selected.)
-    // Root cause: the engine's connect-path OVERRIDE in
-    // PrivycsVpnService.handleConnect re-derived protocol + content from the
-    // registry (orderedConfigs), DISCARDING the user's explicitly-selected
-    // config + the freshly-rendered content passed into the connect intent. The
-    // backend then got a config that differs from what the user picked (wrong
-    // awg flag and/or stale/raw content) and segfaulted — uncatchable by any
-    // Kotlin try/catch, and invisible to Bugsink (JVM-only); only sentry-native
-    // saw it. Disabling the override restores the pre-engine connect, which used
-    // the user's selected, freshly-rendered config and did not crash. The shadow
-    // engine (decisions panel) is unaffected. Re-enable only once the override
-    // honours the active config + re-renders its content before connecting.
-    private val ENGINE_CONNECT_ORDERING = false
+    // NATIVE-CRASH KILL SWITCH. Deterministic SIGSEGV in libwg-go-awg.so on
+    // connect (vpn_active=false), confirmed by two on-device sentry-native
+    // traces (identical fault offset). Root cause: the Smart Decision Engine is
+    // a gomobile module → its OWN Go runtime in libgojni.so, running in the SAME
+    // process as the WireGuard/AmneziaWG Go runtime in libwg-go-awg.so. Two Go
+    // runtimes in one process is a known-fatal footgun — they fight over the
+    // process-wide signal handlers (Go uses SIGSEGV internally for nil-checks /
+    // stack growth and normally RECOVERS; with a second runtime that recovery
+    // turns fatal). That is why it appeared exactly when the engine landed
+    // ("vor der Engine nicht da"), is Android-only (iOS runs the tunnel in a
+    // separate NE process), native (no Kotlin try/catch can catch it) and never
+    // reached Bugsink (JVM-only; only sentry-native saw it).
+    //
+    // FIX: keep the gomobile engine binding (libgojni.so) from EVER loading on
+    // Android. With this OFF, NO Ffi.* call is reachable (ensure() returns before
+    // Ffi.newSession; effectiveOrder() returns before Ffi.selectOrder), so the
+    // class never initialises, the .so never loads, and only ONE Go runtime
+    // (wg-go) exists — the pre-engine state that did not crash. The engine goes
+    // fully inert on Android (no decisions panel, no active selection) until it
+    // is re-architected to NOT share the process with wg-go (separate process,
+    // or a pure-Kotlin port of the selection logic).
+    private val ENGINE_NATIVE_ENABLED = false
 
-    /** Whether the engine may drive connect-time protocol selection. See
-     *  ENGINE_CONNECT_ORDERING — OFF while the AWG-content crash is mitigated. */
-    fun connectOrderingEnabled(): Boolean = ENGINE_CONNECT_ORDERING
+    /** Whether the engine may drive connect-time protocol selection. OFF while
+     *  the gomobile engine is disabled (see ENGINE_NATIVE_ENABLED). */
+    fun connectOrderingEnabled(): Boolean = ENGINE_NATIVE_ENABLED
 
     @Volatile private var session: Session? = null
     @Volatile private var orderJson: String = ""
@@ -62,6 +68,10 @@ object EngineShadow {
      */
     @Synchronized
     fun ensure() {
+        // KILL SWITCH: do NOT touch the gomobile binding. Ffi.newSession below is
+        // the entry point that loads libgojni.so (a second Go runtime) — the
+        // crash source. Returning here keeps it unloaded. See ENGINE_NATIVE_ENABLED.
+        if (!ENGINE_NATIVE_ENABLED) return
         val order = try {
             PrivycsApp.instance.settingsRepository.getSettingsBlocking().protocolFailoverOrder
         } catch (t: Throwable) {
@@ -199,8 +209,9 @@ object EngineShadow {
     ): List<VpnProtocol> {
         if (!settings.autoProtocolSelection) return settings.protocolFailoverOrder
         // Native-crash mitigation: no gomobile on the connect path. See
-        // ENGINE_CONNECT_ORDERING. Falls back to the manual failover order.
-        if (!ENGINE_CONNECT_ORDERING) return settings.protocolFailoverOrder
+        // ENGINE_NATIVE_ENABLED. No gomobile (Ffi.selectOrder) on the connect
+        // path; falls back to the manual failover order.
+        if (!ENGINE_NATIVE_ENABLED) return settings.protocolFailoverOrder
         // EVERYTHING engine-touching is inside the try: the selfIpDetector /
         // connection reads, the gomobile call, and the parse — so any Throwable
         // (incl. a lateinit/binding Error) degrades to the manual failover order
