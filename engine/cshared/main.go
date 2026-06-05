@@ -82,6 +82,14 @@ func PvcsEngineSelectProtocol(availableCSV, country, iface *C.char, metered C.in
 		metered != 0, C.GoString(excludeCSV)))
 }
 
+// PvcsEngineProtocolOrder returns the country-aware order as a CSV C string.
+// Caller MUST free with PvcsEngineFreeString.
+//
+//export PvcsEngineProtocolOrder
+func PvcsEngineProtocolOrder(country *C.char) *C.char {
+	return C.CString(ffi.ProtocolOrder(C.GoString(country)))
+}
+
 //export PvcsEngineFreeString
 func PvcsEngineFreeString(p *C.char) { C.free(unsafe.Pointer(p)) }
 

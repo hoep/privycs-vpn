@@ -1542,6 +1542,22 @@ class PrivycsVpnService : VpnService() {
                 var attemptContent: String = configContent
                 var attemptConfigId: String = originalConfigId
 
+                // Smart Decision Engine (active): when Automatic protocol
+                // selection is on, the engine picks the FIRST protocol too —
+                // override with its country-aware top choice. [v1.0.9]
+                run {
+                    val s = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
+                    if (s.autoProtocolSelection) {
+                        val conn = PrivycsApp.instance.connectionRepository.getById(connectionId)
+                        conn?.orderedConfigs(com.privycs.vpn.engine.EngineShadow.effectiveOrder(s))
+                            ?.firstOrNull()?.let { c ->
+                                attemptProto = c.protocol
+                                attemptContent = c.configContent
+                                attemptConfigId = c.id
+                            }
+                    }
+                }
+
                 while (attemptProto != null) {
                     val proto: VpnProtocol = attemptProto!!
                     val label = "${proto.label}/${attemptConfigId.take(8)}"
@@ -1613,8 +1629,9 @@ class PrivycsVpnService : VpnService() {
                     // failover order (default = AWG → WG → OVPN →
                     // IPSec). v0.9.15.70.
                     val refreshed = PrivycsApp.instance.connectionRepository.getById(connectionId)
-                    val failoverOrder = PrivycsApp.instance.settingsRepository
-                        .getSettingsBlocking().protocolFailoverOrder
+                    // Smart Decision Engine drives the order when Automatic is on. [v1.0.9]
+                    val failoverOrder = com.privycs.vpn.engine.EngineShadow.effectiveOrder(
+                        PrivycsApp.instance.settingsRepository.getSettingsBlocking())
                     val nextCfg = refreshed?.orderedConfigs(failoverOrder)?.firstOrNull { cfg ->
                         cfg.id !in triedIds
                     }

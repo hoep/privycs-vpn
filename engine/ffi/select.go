@@ -39,6 +39,18 @@ func SelectProtocol(availableCSV, country, iface string, metered bool, excludeCS
 	return string(b)
 }
 
+// ProtocolOrder returns the engine's country-aware protocol preference as a
+// comma-separated token list (most-preferred first) — platforms use it to drive
+// failover ordering in active mode. Static call.
+func ProtocolOrder(country string) string {
+	order := eng.ProtocolOrder(country)
+	toks := make([]string, 0, len(order))
+	for _, p := range order {
+		toks = append(toks, tokenFromProto(p))
+	}
+	return strings.Join(toks, ",")
+}
+
 func protosFromCSV(csv string) []eng.Protocol {
 	csv = strings.TrimSpace(csv)
 	if csv == "" {
