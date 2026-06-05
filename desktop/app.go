@@ -1037,7 +1037,7 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 	// path above stays authoritative.
 	if a.settings != nil && a.settings.AutoProtocolSelection && a.activePoolID == "" {
 		if conn := a.connections.Active(); conn != nil {
-			if cfgs := conn.OrderedConfigsFor(a.engineFailoverOrder()); len(cfgs) > 0 {
+			if cfgs := conn.OrderedConfigsFor(a.engineSelectOrder(conn)); len(cfgs) > 0 {
 				top := cfgs[0]
 				if conn.ActiveConfigID != top.ID {
 					if err := a.connections.SetActiveConfig(conn.ID, top.ID); err != nil {
@@ -1149,6 +1149,8 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 		// up X" and then nothing, while the actual wg-quick stderr
 		// (passed back via helper IPC) was discarded.
 		log.Printf("Connect: %s.Up FAILED: %v", activeProto, upErr)
+		// Adaptive engine stats (P4): this protocol failed on this network.
+		a.engineBridge.recordOutcome(activeProto, a.engineNetKey(), false, time.Now().Unix())
 
 		// Multi-protocol failover: if the connection has alternate
 		// protocols configured, try them in order before surfacing
@@ -1437,6 +1439,8 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 			// shadow: feed the engine the real protocol + the user's country +
 			// whether AmneziaWG is available, for the network-aware reason.
 			a.engineBridge.observeConnect(activeProto, a.SelfIPCountry(), a.activeConnHasAWG())
+			// Adaptive engine stats (P4): this protocol connected on this network.
+			a.engineBridge.recordOutcome(activeProto, a.engineNetKey(), true, time.Now().Unix())
 			a.tunnelHealth.Start(target, a.settings.TunnelHealthPingIntervalSec, a.settings.TunnelHealthDeadThreshold, func() {
 				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + trying failover")
 				// Serialise against concurrent UI Connect/Disconnect.

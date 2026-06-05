@@ -195,7 +195,7 @@ final class AppState: ObservableObject {
                                                  dnsOverride: resolvedDNS(for: conn),
                                                  failoverOrder: settings.protocolFailoverOrder,
                                                  killSwitch: settings.killSwitchEnabled,
-                                                 rules: rules, engineOrder: engineOrderIfActive) }
+                                                 rules: rules, engineOrder: engineOrder(for: conn)) }
             catch { connectError = error.localizedDescription }
         }
     }
@@ -380,11 +380,23 @@ final class AppState: ObservableObject {
         return Locale.current.regionCode ?? ""
     }
 
-    /// The engine's country-aware protocol order when Automatic protocol
-    /// selection is on, else nil (manual path). Passed to tunnelManager.connect.
-    private var engineOrderIfActive: [VpnProtocol]? {
+    /// "wifi"/"cellular"/"ethernet"/"" — the engine's interface token for roaming.
+    var engineIface: String {
+        switch networkState.networkType {
+        case .wifi: return "wifi"
+        case .mobile: return "cellular"
+        case .ethernet: return "ethernet"
+        default: return ""
+        }
+    }
+
+    /// The engine's ranked protocol order for a connection (context + roaming +
+    /// adaptive stats) when Automatic protocol selection is on, else nil (manual
+    /// path). Passed to tunnelManager.connect.
+    private func engineOrder(for conn: SavedConnection) -> [VpnProtocol]? {
         guard UserDefaults.standard.bool(forKey: "auto_protocol_selection") else { return nil }
-        let order = engineShadow.protocolOrder(country: userCountry)
+        let avail = Array(Set(conn.protocols.map { $0.protocol }))
+        let order = engineShadow.selectOrder(available: avail, country: userCountry, iface: engineIface)
         return order.isEmpty ? nil : order
     }
 
@@ -667,7 +679,7 @@ final class AppState: ObservableObject {
                                                       dnsOverride: self.resolvedDNS(for: conn),
                                                       failoverOrder: self.settings.protocolFailoverOrder,
                                                       killSwitch: self.settings.killSwitchEnabled,
-                                                      rules: self.rules, engineOrder: self.engineOrderIfActive)
+                                                      rules: self.rules, engineOrder: self.engineOrder(for: conn))
             }
 
         case .pool:
@@ -885,6 +897,8 @@ final class AppState: ObservableObject {
                     let awg = connections.first(where: { $0.id == st.connectionID })?
                         .protocols.contains { $0.protocol == .amneziawg } ?? false
                     engineShadow.observeConnect(st.activeProtocol?.rawValue ?? "", country: userCountry, awgAvailable: awg)
+                    // Adaptive engine stats (P4): connected on this network.
+                    engineShadow.recordOutcome(st.activeProtocol, success: true, iface: engineIface)
                 } else if !st.connected && engineConnectedLatch {
                     engineShadow.observeDisconnect()
                 }

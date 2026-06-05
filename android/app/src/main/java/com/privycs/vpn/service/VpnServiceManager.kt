@@ -797,6 +797,8 @@ class VpnServiceManager private constructor(private val context: Context) {
                 PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty(),
                 connectionRepo.getById(status.connectionId)?.hasProtocol(VpnProtocol.AMNEZIAWG) ?: false,
             )
+            // Adaptive engine stats (P4): this protocol connected on this network.
+            com.privycs.vpn.engine.EngineShadow.recordOutcome(status.activeProtocol, success = true)
             // Tunnel is up: decide whether to start the periodic
             // ICMP-based liveness monitor based on user settings.
             //   - mode = "off": never run
@@ -1003,6 +1005,9 @@ class VpnServiceManager private constructor(private val context: Context) {
                 PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty(),
                 activeConn?.hasProtocol(VpnProtocol.AMNEZIAWG) ?: false,
             )
+            // Adaptive engine stats (P4): connected on this network.
+            com.privycs.vpn.engine.EngineShadow.recordOutcome(
+                activeConn?.activeProtocol ?: _status.value.activeProtocol, success = true)
             return
         }
 

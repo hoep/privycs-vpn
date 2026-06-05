@@ -58,7 +58,7 @@ struct LogsView: View {
         .navigationTitle("Logs")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button {
                         UIPasteboard.general.string = PrivycsLog.read()   // full log

@@ -82,3 +82,42 @@ func TestSelectDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectRoamingCellular(t *testing.T) {
+	all := []Protocol{ProtoWireGuard, ProtoAmnezia, ProtoOpenVPN, ProtoIPsec}
+	// Open network on cellular → IPSec bumped to 2nd (MOBIKE roaming).
+	order := SelectOrder(SelectInput{Available: all, Country: "DE", Net: NetworkContext{Iface: IfaceCellular}})
+	if len(order) < 2 || order[0] != ProtoWireGuard || order[1] != ProtoIPsec {
+		t.Errorf("cellular open: want [WG, IPSec, ...], got %v", order)
+	}
+	// Wi-Fi → standard speed order (IPSec last).
+	order = SelectOrder(SelectInput{Available: all, Country: "DE", Net: NetworkContext{Iface: IfaceWifi}})
+	if order[0] != ProtoWireGuard || order[1] != ProtoAmnezia {
+		t.Errorf("wifi open: want [WG, AWG, ...], got %v", order)
+	}
+	// Restrictive country stays evasion-first even on cellular.
+	order = SelectOrder(SelectInput{Available: all, Country: "CN", Net: NetworkContext{Iface: IfaceCellular}})
+	if order[0] != ProtoAmnezia {
+		t.Errorf("restrictive cellular: want AWG first, got %v", order)
+	}
+}
+
+func TestSelectAdaptiveStats(t *testing.T) {
+	all := []Protocol{ProtoWireGuard, ProtoAmnezia, ProtoOpenVPN}
+	now := int64(1_000_000)
+	// WireGuard failed 1 minute ago on this network → demoted below AmneziaWG.
+	stats := map[Protocol]ProtoStat{
+		ProtoWireGuard: {LastFailSec: now - 60, SuccessEWMA: 100},
+		ProtoAmnezia:   {SuccessEWMA: 900},
+	}
+	order := SelectOrder(SelectInput{Available: all, Country: "DE", Stats: stats, NowSec: now})
+	if order[0] != ProtoAmnezia {
+		t.Errorf("recent WG failure: want AmneziaWG first, got %v", order)
+	}
+	// Old failure (outside cooldown) → WireGuard back to context-first.
+	stats[ProtoWireGuard] = ProtoStat{LastFailSec: now - failCooldownSec - 1, SuccessEWMA: 100}
+	order = SelectOrder(SelectInput{Available: all, Country: "DE", Stats: stats, NowSec: now})
+	if order[0] != ProtoWireGuard {
+		t.Errorf("stale WG failure: want WireGuard first again, got %v", order)
+	}
+}

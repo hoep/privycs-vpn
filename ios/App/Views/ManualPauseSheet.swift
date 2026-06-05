@@ -46,7 +46,7 @@ struct ManualPauseSheet: View {
             .navigationTitle("Pause VPN")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .navigationBarLeading) { Button("Cancel") { dismiss() } }
             }
         }
     }

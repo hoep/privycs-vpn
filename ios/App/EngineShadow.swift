@@ -56,8 +56,40 @@ final class EngineShadow {
 
     /// Active-mode engine protocol order (country-aware), most-preferred first;
     /// empty on error. Static engine call — no session needed.
-    func protocolOrder(country: String) -> [VpnProtocol] {
-        PvcsFfiProtocolOrder(country)
+    // ── Adaptive (P4) stats: in-memory per-protocol success/fail on the current
+    // interface, reset on interface change. ──
+    private let statsLock = NSLock()
+    private var statsByProto: [String: (ewma: Int, lastFailSec: Int64)] = [:]
+    private var statsKey = ""
+
+    /// Fold a connect outcome into the protocol's stat (integer EWMA).
+    func recordOutcome(_ proto: VpnProtocol?, success: Bool, iface: String) {
+        guard let tok = proto?.rawValue else { return }
+        statsLock.lock(); defer { statsLock.unlock() }
+        if statsKey != iface { statsKey = iface; statsByProto = [:] }
+        var st = statsByProto[tok] ?? (ewma: 500, lastFailSec: 0)
+        let v = success ? 1000 : 0
+        st.ewma = (st.ewma * 7 + v * 3) / 10
+        if !success { st.lastFailSec = Int64(Date().timeIntervalSince1970) }
+        statsByProto[tok] = st
+    }
+
+    private func statsJSON(iface: String) -> String {
+        statsLock.lock(); defer { statsLock.unlock() }
+        if statsKey != iface { statsKey = iface; statsByProto = [:] }
+        if statsByProto.isEmpty { return "{}" }
+        let parts = statsByProto.map {
+            "\"\($0.key)\":{\"successEwma\":\($0.value.ewma),\"lastFailSec\":\($0.value.lastFailSec)}"
+        }
+        return "{" + parts.joined(separator: ",") + "}"
+    }
+
+    /// Active-mode ranked order (context + roaming-interface + adaptive stats)
+    /// over the connection's available protocols, most-preferred first.
+    func selectOrder(available: [VpnProtocol], country: String, iface: String) -> [VpnProtocol] {
+        let avail = available.map { $0.rawValue }.joined(separator: ",")
+        let now = Int64(Date().timeIntervalSince1970)
+        return PvcsFfiSelectOrder(avail, country, iface, false, "", statsJSON(iface: iface), now)
             .split(separator: ",")
             .compactMap { VpnProtocol(rawValue: String($0).trimmingCharacters(in: .whitespaces)) }
     }
