@@ -21,7 +21,7 @@ struct PrivycsVPNApp: App {
                     await appState.bootstrap()
                 }
                 .preferredColorScheme(appState.colorScheme)
-                .onChange(of: scenePhase) { _, phase in
+                .onChange(of: scenePhase) { phase in
                     appState.onScenePhase(phase == .active)
                 }
         }
@@ -56,6 +56,10 @@ final class AppState: ObservableObject {
     /// Connected-edge latch so the status stream's repeated emissions map to a
     /// single observeConnect()/observeDisconnect() per real transition.
     private var engineConnectedLatch = false
+    /// User's pre-VPN country (ISO alpha-2) from the IP→MMDB SelfIPDetector;
+    /// "" until detected. Feeds the engine's network-aware reason AND upgrades
+    /// Geo-Nearest from the locale proxy. See the userCountry computed property.
+    private var detectedCountry = ""
 
     @Published var settings: AppSettings = .default
     @Published var connections: [SavedConnection] = []
@@ -367,9 +371,11 @@ final class AppState: ObservableObject {
 
     // MARK: - Pool connect + rotation (Session 3)
 
-    /// Detected user country for Geo-Nearest. Locale region is a
-    /// reasonable proxy until a bundled MMDB + self-IP lookup lands.
+    /// Detected user country for Geo-Nearest + the engine's network-aware
+    /// reason. Prefers the real IP→MMDB result (detectedCountry); falls back to
+    /// the device locale region when offline / not yet probed.
     private var userCountry: String {
+        if !detectedCountry.isEmpty { return detectedCountry }
         if #available(iOS 16, *) { return Locale.current.region?.identifier ?? "" }
         return Locale.current.regionCode ?? ""
     }
@@ -806,6 +812,8 @@ final class AppState: ObservableObject {
         }
         // Seed the shadow engine's candidate set from the failover order.
         engineShadow.ensure(order: self.settings.protocolFailoverOrder)
+        // Detect the user's pre-VPN country for the engine's network-aware reason.
+        Task { self.detectedCountry = await SelfIPDetector.shared.country() }
         await crashReporter.start(
             optedIn: settings.crashReportsEnabled,
             appVersion: PrivycsCoreInfo.version
@@ -853,6 +861,9 @@ final class AppState: ObservableObject {
         Task {
             for await ns in await networkMonitor.observe() {
                 self.networkState = ns
+                // Network changed → the user may be in a different country now.
+                await SelfIPDetector.shared.invalidate()
+                Task { self.detectedCountry = await SelfIPDetector.shared.country() }
                 await self.evaluateAndApplyRules()
             }
         }
@@ -863,7 +874,9 @@ final class AppState: ObservableObject {
                 self.pushWidgetSnapshot()
                 // Shadow engine: map the status stream's edge to one observe.
                 if st.connected && !engineConnectedLatch {
-                    engineShadow.observeConnect(st.activeProtocol?.rawValue ?? "")
+                    let awg = connections.first(where: { $0.id == st.connectionID })?
+                        .protocols.contains { $0.protocol == .amneziawg } ?? false
+                    engineShadow.observeConnect(st.activeProtocol?.rawValue ?? "", country: userCountry, awgAvailable: awg)
                 } else if !st.connected && engineConnectedLatch {
                     engineShadow.observeDisconnect()
                 }

@@ -9,6 +9,7 @@ struct BackupView: View {
     @EnvironmentObject private var appState: AppState
     @State private var password = ""
     @State private var exportURL: URL?
+    @State private var showShare = false   // iOS 15 ShareLink fallback
     @State private var showImporter = false
     @State private var message: String?
     @State private var isError = false
@@ -32,7 +33,14 @@ struct BackupView: View {
                 } label: { Label("Create encrypted backup", systemImage: "square.and.arrow.up") }
                     .disabled(password.count < 4 || busy)
                 if let url = exportURL {
-                    ShareLink(item: url) { Label("Share backup file", systemImage: "paperplane") }
+                    if #available(iOS 16, *) {
+                        ShareLink(item: url) { Label("Share backup file", systemImage: "paperplane") }
+                    } else {
+                        Button { showShare = true } label: {
+                            Label("Share backup file", systemImage: "paperplane")
+                        }
+                        .sheet(isPresented: $showShare) { ShareSheet(items: [url]) }
+                    }
                 }
             }
 

@@ -14,7 +14,7 @@ struct AddPoolView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             Form {
                 Section("Name") {
                     TextField("Pool name", text: $name)

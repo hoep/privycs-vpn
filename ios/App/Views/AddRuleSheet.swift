@@ -16,7 +16,7 @@ struct AddRuleSheet: View {
     @State private var targetID = ""
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             Form {
                 Section("Name") {
                     TextField("Optional", text: $name)

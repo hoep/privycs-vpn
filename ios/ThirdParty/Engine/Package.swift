@@ -9,7 +9,7 @@ import PackageDescription
 let package = Package(
     name: "Engine",
     platforms: [
-        .iOS(.v17),
+        .iOS(.v15), // match the app floor; the gomobile slices build for ≤15
     ],
     products: [
         .library(name: "Engine", targets: ["Engine"]),

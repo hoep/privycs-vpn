@@ -30,9 +30,16 @@ struct EngineDecisionsView: View {
                             Text(shortTime(d.at))
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
-                            Text(decisionText(d))
-                                .font(.callout)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(decisionText(d))
+                                    .font(.callout)
+                                if let reason = reasonText(d) {
+                                    Text(reason)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
@@ -60,6 +67,26 @@ struct EngineDecisionsView: View {
     private func shortTime(_ at: String) -> String {
         guard let d = Self.isoParser.date(from: at) else { return "" }
         return Self.hms.string(from: d)
+    }
+
+    /// Network-aware reason line, with the country name resolved from its code.
+    /// nil when the decision carries no reason.
+    private func reasonText(_ d: EngineDecision) -> String? {
+        guard !d.reason.isEmpty, let code = d.reasonArgs.first else { return nil }
+        let country = PoolHostnameLabels.countryNameFromCode(code)
+        if country.isEmpty { return nil }
+        switch d.reason {
+        case "reason.country_open":
+            return String(localized: "\(country): no widespread VPN blocking — a fast protocol is fine here.")
+        case "reason.country_restrictive_awg":
+            return String(localized: "\(country) is known for DPI/censorship — AmneziaWG’s obfuscation is the right protocol here.")
+        case "reason.country_restrictive_use_awg":
+            return String(localized: "\(country) censors VPN traffic — AmneziaWG (obfuscated) is available; using it avoids detection.")
+        case "reason.country_restrictive_no_awg":
+            return String(localized: "\(country) censors VPN traffic — no AmneziaWG profile here, so this protocol may be blocked.")
+        default:
+            return nil
+        }
     }
 
     /// Map a protocol token to its proper brand label (never localized).

@@ -1,6 +1,86 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%@ censors VPN traffic — AmneziaWG (obfuscated) is available; using it avoids detection.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ zensiert VPN-Verkehr — AmneziaWG (verschleiert) ist verfügbar; damit wird Erkennung vermieden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censors VPN traffic — AmneziaWG (obfuscated) is available; using it avoids detection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censura el tráfico VPN — AmneziaWG (ofuscado) está disponible; usarlo evita la detección."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censure le trafic VPN — AmneziaWG (obfusqué) est disponible ; l’utiliser évite la détection."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censura il traffico VPN — AmneziaWG (offuscato) è disponibile; usarlo evita il rilevamento."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censura o tráfego VPN — o AmneziaWG (ofuscado) está disponível; usá-lo evita a deteção."
+          }
+        }
+      }
+    },
+    "%@ censors VPN traffic — no AmneziaWG profile here, so this protocol may be blocked.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ zensiert VPN-Verkehr — kein AmneziaWG-Profil hier, dieses Protokoll wird evtl. blockiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censors VPN traffic — no AmneziaWG profile here, so this protocol may be blocked."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censura el tráfico VPN — no hay perfil AmneziaWG aquí, así que este protocolo puede estar bloqueado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censure le trafic VPN — aucun profil AmneziaWG ici, ce protocole peut donc être bloqué."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censura il traffico VPN — nessun profilo AmneziaWG qui, quindi questo protocollo potrebbe essere bloccato."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ censura o tráfego VPN — não há perfil AmneziaWG aqui, por isso este protocolo pode estar bloqueado."
+          }
+        }
+      }
+    },
     "%@ did not pass traffic": {
       "localizations": {
         "de": {
@@ -37,6 +117,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ não passou tráfego"
+          }
+        }
+      }
+    },
+    "%@ is known for DPI/censorship — AmneziaWG’s obfuscation is the right protocol here.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist für DPI/Zensur bekannt — die Verschleierung von AmneziaWG ist hier das richtige Protokoll."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is known for DPI/censorship — AmneziaWG’s obfuscation is the right protocol here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ es conocido por DPI/censura — la ofuscación de AmneziaWG es el protocolo adecuado aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est connu pour le DPI/la censure — l’obfuscation d’AmneziaWG est le bon protocole ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è noto per DPI/censura — l’offuscamento di AmneziaWG è il protocollo giusto qui."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ é conhecido por DPI/censura — a ofuscação do AmneziaWG é o protocolo certo aqui."
+          }
+        }
+      }
+    },
+    "%@: no widespread VPN blocking — a fast protocol is fine here.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: keine flächendeckende VPN-Sperre — ein schnelles Protokoll ist hier in Ordnung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: no widespread VPN blocking — a fast protocol is fine here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: sin bloqueo de VPN generalizado — aquí un protocolo rápido está bien."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : pas de blocage VPN généralisé — un protocole rapide convient ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: nessun blocco VPN diffuso — qui un protocollo veloce va bene."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: sem bloqueio de VPN generalizado — um protocolo rápido serve aqui."
           }
         }
       }

@@ -1428,15 +1428,42 @@ private fun EngineDecisionsPanel() {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(
-                    text = engineDecisionText(d),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = engineDecisionText(d),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    val reason = engineReasonText(d)
+                    if (reason.isNotEmpty()) {
+                        Text(
+                            text = reason,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+/** Localized network-aware reason line (country name resolved from the code). */
+@Composable
+private fun engineReasonText(d: com.privycs.vpn.engine.EngineDecision): String {
+    val resId = when (d.reason.removePrefix("reason.")) {
+        "country_open" -> R.string.engine_reason_country_open
+        "country_restrictive_awg" -> R.string.engine_reason_country_restrictive_awg
+        "country_restrictive_use_awg" -> R.string.engine_reason_country_restrictive_use_awg
+        "country_restrictive_no_awg" -> R.string.engine_reason_country_restrictive_no_awg
+        else -> 0
+    }
+    if (resId == 0) return ""
+    val country = d.reasonArgs.firstOrNull()?.let { code ->
+        java.util.Locale("", code.uppercase()).getDisplayCountry(java.util.Locale.getDefault())
+            .ifEmpty { code }
+    } ?: ""
+    return stringResource(resId, country)
 }
 
 /** "20:45:03" from a decision's RFC3339 timestamp (empty if unparseable). */

@@ -721,4 +721,9 @@
     <string name="engine_decision_resumed_idle">Resumed</string>
     <string name="engine_decision_resumed_revalidate">Resumed — re-validating</string>
     <string name="engine_decision_no_profile">No usable protocol available</string>
+    <!-- Smart Decision Engine network-aware reasons (v1.0.9) -->
+    <string name="engine_reason_country_open">%1$s: no widespread VPN blocking — a fast protocol is fine here.</string>
+    <string name="engine_reason_country_restrictive_awg">%1$s is known for DPI/censorship — AmneziaWG’s obfuscation is the right protocol here.</string>
+    <string name="engine_reason_country_restrictive_use_awg">%1$s censors VPN traffic — AmneziaWG (obfuscated) is available; using it avoids detection.</string>
+    <string name="engine_reason_country_restrictive_no_awg">%1$s censors VPN traffic — no AmneziaWG profile here, so this protocol may be blocked.</string>
 </resources>

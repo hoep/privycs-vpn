@@ -377,7 +377,10 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
               class="text-[11px] flex items-start gap-2 px-2 py-1 rounded border border-gray-100 dark:border-gray-800"
             >
               <span class="text-gray-400 tabular-nums whitespace-nowrap">{{ fmtTime(d.at) }}</span>
-              <span class="flex-1 text-gray-700 dark:text-gray-200">{{ decisionText(d) }}</span>
+              <span class="flex-1">
+                <span class="text-gray-700 dark:text-gray-200">{{ decisionText(d) }}</span>
+                <span v-if="reasonText(d)" class="block text-gray-400 dark:text-gray-500">{{ reasonText(d) }}</span>
+              </span>
             </li>
           </ul>
         </template>
@@ -576,7 +579,7 @@ import { useEntitlement } from '@/composables/useEntitlement'
 // v1.0.0 Pro tier — entitlement state for the Pro section.
 const { entitlement } = useEntitlement()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 // v0.9.15.70 — Protocol failover order. Default mirrors the
 // pre-v0.9.15.70 hard-coded enum order (AmneziaWG first → safer on
@@ -957,6 +960,23 @@ function decisionText(d: any): string {
   // args carry protocol tokens — render their proper brand labels.
   const args = ((d?.args || []) as string[]).map(engineProtoLabel)
   return t('settings.engine.decision.' + key, args)
+}
+// Localized country name from an ISO alpha-2 code (e.g. "CN" → "China").
+function countryName(code: string): string {
+  if (!code) return ''
+  try {
+    const dn = new Intl.DisplayNames([String(locale.value) || 'en'], { type: 'region' })
+    return dn.of(String(code).toUpperCase()) || code
+  } catch {
+    return code
+  }
+}
+// Network-aware reason line (e.g. "China is known for DPI — AmneziaWG…").
+function reasonText(d: any): string {
+  const key = String(d?.reason || '').replace(/^reason\./, '')
+  if (!key) return ''
+  const args = ((d?.reasonArgs || []) as string[]).map((a, i) => (i === 0 ? countryName(a) : a))
+  return t('settings.engine.reason.' + key, args)
 }
 function fmtTime(iso: string): string {
   try {

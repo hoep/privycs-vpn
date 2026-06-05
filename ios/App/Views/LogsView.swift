@@ -51,7 +51,7 @@ struct LogsView: View {
                 }
             }
             .background(PrivycsColor.background)
-            .onChange(of: text) { _, _ in
+            .onChange(of: text) { _ in
                 if stickToBottom { withAnimation { proxy.scrollTo("logbottom", anchor: .bottom) } }
             }
         }

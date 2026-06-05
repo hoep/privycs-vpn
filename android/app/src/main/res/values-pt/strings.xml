@@ -703,4 +703,9 @@
     <string name="engine_decision_resumed_idle">Retomado</string>
     <string name="engine_decision_resumed_revalidate">Retomado — a revalidar</string>
     <string name="engine_decision_no_profile">Nenhum protocolo utilizável</string>
+    <!-- Smart Decision Engine network-aware reasons (v1.0.9) -->
+    <string name="engine_reason_country_open">%1$s: sem bloqueio de VPN generalizado — um protocolo rápido serve aqui.</string>
+    <string name="engine_reason_country_restrictive_awg">%1$s é conhecido por DPI/censura — a ofuscação do AmneziaWG é o protocolo certo aqui.</string>
+    <string name="engine_reason_country_restrictive_use_awg">%1$s censura o tráfego VPN — o AmneziaWG (ofuscado) está disponível; usá-lo evita a deteção.</string>
+    <string name="engine_reason_country_restrictive_no_awg">%1$s censura o tráfego VPN — não há perfil AmneziaWG aqui, por isso este protocolo pode estar bloqueado.</string>
 </resources>

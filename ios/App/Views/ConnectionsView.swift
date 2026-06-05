@@ -21,7 +21,7 @@ struct ConnectionsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             List {
                 if !appState.pools.isEmpty {
                     Section("Pools") {
@@ -91,7 +91,7 @@ struct ConnectionsView: View {
             // e.g. two WG entries shows both with their servers. Tap switches
             // the active config (reconnects if this connection is live). The
             // ×N grouped count lives only on the Connect screen.
-            FlowRow(spacing: 6) {
+            AdaptiveFlow(spacing: 6) {
                 ForEach(conn.protocols) { cfg in
                     // Badge + an explicit delete (×) button, grouped so they
                     // wrap together. The badge taps to switch the active
@@ -140,7 +140,7 @@ struct ConnectionsView: View {
             let withIP = conn.protocols.filter { !$0.localAddress.isEmpty }
             if !withIP.isEmpty {
                 Text(withIP.map { "\($0.protocol.shortLabel): \($0.localAddress)" }.joined(separator: " · "))
-                    .font(.caption2).fontDesign(.monospaced).foregroundStyle(.secondary)
+                    .font(.caption2.monospaced()).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
         }
@@ -191,7 +191,7 @@ struct AddProtocolSheet: View {
     @State private var note: String?
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             List {
                 Section {
                     Button {
@@ -232,13 +232,29 @@ struct AddProtocolSheet: View {
             intoConnectionID: connection.id
         )
         note = String(localized: "Added \(url.lastPathComponent)")
-        try? await Task.sleep(for: .seconds(0.8))
+        try? await Task.sleep(nanoseconds: UInt64(0.8 * 1_000_000_000))
         dismiss()
+    }
+}
+
+/// Wrapping pill row: the iOS 16 `Layout`-based FlowRow when available, else a
+/// plain HStack on iOS 15 (a connection has ≤4 protocol badges, which fit a row
+/// on the iPads that run iOS 15).
+struct AdaptiveFlow<Content: View>: View {
+    var spacing: CGFloat = 6
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        if #available(iOS 16, *) {
+            FlowRow(spacing: spacing) { content() }
+        } else {
+            HStack(spacing: spacing) { content() }
+        }
     }
 }
 
 /// Minimal wrapping HStack (SwiftUI has no native FlowLayout pre-iOS16
 /// Layout; this is a simple wrap using the iOS 16 Layout protocol).
+@available(iOS 16, *)
 struct FlowRow: Layout {
     var spacing: CGFloat = 6
 
@@ -283,7 +299,7 @@ struct EditConnectionSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             Form {
                 Section("Name") {
                     TextField("Name", text: $name)
@@ -333,7 +349,7 @@ struct EditProtocolConfigSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             VStack(spacing: 0) {
                 TextEditor(text: $text)
                     .font(.system(size: 12, design: .monospaced))

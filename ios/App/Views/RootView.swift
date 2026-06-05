@@ -36,9 +36,10 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if hSize == .regular {
+            if hSize == .regular, #available(iOS 16, *) {
                 splitView
             } else {
+                // iPhone, or iPad on iOS 15 (NavigationSplitView is 16+).
                 tabView
             }
         }
@@ -64,6 +65,7 @@ struct RootView: View {
 
     // MARK: iPad — sidebar + detail
 
+    @available(iOS 16, *)
     private var splitView: some View {
         NavigationSplitView {
             List(Tab.allCases, id: \.self, selection: sidebarSelection) { t in

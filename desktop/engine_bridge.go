@@ -20,6 +20,10 @@ type decisionBridge struct {
 	eng    *eng.Engine
 	cancel context.CancelFunc
 	store  *shadowStore
+
+	mu       sync.Mutex
+	country  string // user's pre-VPN country for the network-aware reason
+	awgAvail bool   // active connection offers an AmneziaWG profile
 }
 
 func newDecisionBridge(getOrder func() []string) *decisionBridge {
@@ -64,14 +68,16 @@ func (b *decisionBridge) stop() {
 // "what the engine decided & why" panel. Key is the stable i18n key the
 // frontend localizes (the engine never emits pre-translated text).
 type EngineDecisionDTO struct {
-	At     string   `json:"at"`
-	From   string   `json:"from"`
-	To     string   `json:"to"`
-	Rule   string   `json:"rule"`
-	Active string   `json:"active"`
-	Chosen string   `json:"chosen"`
-	Key    string   `json:"key"`
-	Args   []string `json:"args"`
+	At         string   `json:"at"`
+	From       string   `json:"from"`
+	To         string   `json:"to"`
+	Rule       string   `json:"rule"`
+	Active     string   `json:"active"`
+	Chosen     string   `json:"chosen"`
+	Key        string   `json:"key"`
+	Args       []string `json:"args"`
+	Reason     string   `json:"reason"`
+	ReasonArgs []string `json:"reasonArgs"`
 }
 
 func (b *decisionBridge) recent(n int) []EngineDecisionDTO {
@@ -79,20 +85,45 @@ func (b *decisionBridge) recent(n int) []EngineDecisionDTO {
 		return nil
 	}
 	recs := b.eng.Log().Recent(n)
+	b.mu.Lock()
+	country, awg := b.country, b.awgAvail
+	b.mu.Unlock()
 	out := make([]EngineDecisionDTO, 0, len(recs))
 	for _, r := range recs {
+		token := string(r.Chosen)
+		if token == "" {
+			token = string(r.Active)
+		}
+		reasonKey, reasonArgs := eng.ReasonFor(r.HumanKey, protoFromString(token), token != "", country, awg)
 		out = append(out, EngineDecisionDTO{
-			At:     r.At.Format(time.RFC3339),
-			From:   r.From.String(),
-			To:     r.To.String(),
-			Rule:   r.Rule,
-			Active: string(r.Active),
-			Chosen: string(r.Chosen),
-			Key:    r.HumanKey,
-			Args:   r.Args,
+			At:         r.At.Format(time.RFC3339),
+			From:       r.From.String(),
+			To:         r.To.String(),
+			Rule:       r.Rule,
+			Active:     string(r.Active),
+			Chosen:     string(r.Chosen),
+			Key:        r.HumanKey,
+			Args:       r.Args,
+			Reason:     reasonKey,
+			ReasonArgs: reasonArgs,
 		})
 	}
 	return out
+}
+
+// activeConnHasAWG reports whether the active connection offers an AmneziaWG
+// profile, so the engine can recommend it as the reason on restrictive networks.
+func (a *App) activeConnHasAWG() bool {
+	conn := a.connections.Active()
+	if conn == nil {
+		return false
+	}
+	for _, pc := range conn.Protocols {
+		if pc != nil && pc.Protocol == "amneziawg" {
+			return true
+		}
+	}
+	return false
 }
 
 // EngineDecisions is the Wails-bound accessor for the recent Smart-Decision-
@@ -111,11 +142,18 @@ func (a *App) EngineDecisions() []EngineDecisionDTO {
 // connected protocol token; it becomes the engine's sole candidate so the
 // decision log reflects reality ("Connected via <protocol>") instead of a
 // hypothetical failover-order pick.
-func (b *decisionBridge) observeConnect(protocol string) {
+// country is the user's pre-VPN country (ISO alpha-2, from selfip) and
+// awgAvailable reports whether the active connection has an AmneziaWG profile —
+// together they drive the network-aware decision reason.
+func (b *decisionBridge) observeConnect(protocol, country string, awgAvailable bool) {
 	if b == nil {
 		return
 	}
 	b.store.setActive(protocol)
+	b.mu.Lock()
+	b.country = country
+	b.awgAvail = awgAvailable
+	b.mu.Unlock()
 	b.eng.Submit(eng.Event{Kind: eng.EvUserConnect})
 	b.eng.Submit(eng.Event{Kind: eng.EvHandshakeOK})
 	b.eng.Submit(probeEvent(true, 30, 0)) // validate → Connected in shadow

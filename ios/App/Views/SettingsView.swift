@@ -25,13 +25,13 @@ struct SettingsView: View {
     ]
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             Form {
                 Section {
                     Toggle("Kill Switch", isOn: $killSwitch)
-                        .onChange(of: killSwitch) { _, new in persistKillSwitch(new) }
+                        .onChange(of: killSwitch) { new in persistKillSwitch(new) }
                     Toggle("Anonymous crash reports", isOn: $crashReportsEnabled)
-                        .onChange(of: crashReportsEnabled) { _, new in
+                        .onChange(of: crashReportsEnabled) { new in
                             persistCrashReports(new)
                         }
                 } header: {
@@ -58,7 +58,7 @@ struct SettingsView: View {
                     NavigationLink {
                         GatewaySettingsView().environmentObject(appState)
                     } label: {
-                        LabeledContent("Privycs Gateway") {
+                        LabeledRow("Privycs Gateway") {
                             // Text(LocalizedStringKey) localizes; the value:
                             // String overload was shown verbatim (English).
                             Text(appState.settings.gatewayURL.isEmpty ? "Not set" : "Configured")
@@ -76,16 +76,16 @@ struct SettingsView: View {
                         Text("Always on").tag("always")
                         Text("Off").tag("off")
                     }
-                    .onChange(of: tunnelHealthMode) { _, _ in persistHealth() }
+                    .onChange(of: tunnelHealthMode) { _ in persistHealth() }
                     if tunnelHealthMode != "off" {
-                        LabeledContent("Ping target") {
+                        LabeledRow("Ping target") {
                             TextField("1.1.1.1", text: $tunnelHealthTarget)
                                 .multilineTextAlignment(.trailing)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                                 // Persist on every change (not just on Return)
                                 // — typing then navigating away used to drop it.
-                                .onChange(of: tunnelHealthTarget) { _, _ in persistHealth() }
+                                .onChange(of: tunnelHealthTarget) { _ in persistHealth() }
                                 .onSubmit { persistHealth() }
                         }
                         Picker("Check interval", selection: $tunnelHealthInterval) {
@@ -95,14 +95,14 @@ struct SettingsView: View {
                             Text("30 seconds").tag(30)
                             Text("60 seconds").tag(60)
                         }
-                        .onChange(of: tunnelHealthInterval) { _, _ in persistHealth() }
+                        .onChange(of: tunnelHealthInterval) { _ in persistHealth() }
                         Picker("Mark dead after", selection: $tunnelHealthThreshold) {
                             Text("Default (3)").tag(0)
                             Text("2 misses").tag(2)
                             Text("3 misses").tag(3)
                             Text("5 misses").tag(5)
                         }
-                        .onChange(of: tunnelHealthThreshold) { _, _ in persistHealth() }
+                        .onChange(of: tunnelHealthThreshold) { _ in persistHealth() }
                     }
                 } header: {
                     Text("Tunnel Health")
@@ -116,12 +116,12 @@ struct SettingsView: View {
                         Text("Dark").tag("dark")
                         Text("Light").tag("light")
                     }
-                    .onChange(of: theme) { _, new in persistTheme(new) }
+                    .onChange(of: theme) { new in persistTheme(new) }
 
                     Picker("Language", selection: $appLanguage) {
                         ForEach(languages, id: \.code) { Text($0.label).tag($0.code) }
                     }
-                    .onChange(of: appLanguage) { _, new in persistLanguage(new) }
+                    .onChange(of: appLanguage) { new in persistLanguage(new) }
                 }
 
                 Section("Automation") {
@@ -148,7 +148,7 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    LabeledContent("Version", value: versionString)
+                    LabeledRow("Version", value: versionString)
                     Link("Privacy Policy", destination: URL(string: "https://www.privycs.com/docs/ios-client-privacy")!)
                     Link("Help", destination: URL(string: "https://www.privycs.com/docs/ios-client")!)
                 }

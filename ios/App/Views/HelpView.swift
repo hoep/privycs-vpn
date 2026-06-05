@@ -2,7 +2,7 @@ import SwiftUI
 
 struct HelpView: View {
     var body: some View {
-        NavigationStack {
+        AdaptiveNavStack {
             List {
                 Section("Documentation") {
                     NavigationLink {

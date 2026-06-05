@@ -141,7 +141,7 @@ jobs:
           cd .deps/wireguard-apple/Sources/WireGuardKitGo
           PLATFORM_NAME=iphoneos \
             ARCHS=arm64 \
-            IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
             DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mios-version-min \
             DEPLOYMENT_TARGET_CLANG_ENV_NAME=IPHONEOS_DEPLOYMENT_TARGET \
             SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \
@@ -404,7 +404,7 @@ jobs:
           echo "==> libwg-go.a for iphoneos arm64"
           mkdir -p /tmp/wg-out
           PLATFORM_NAME=iphoneos ARCHS=arm64 \
-            IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
             DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mios-version-min \
             DEPLOYMENT_TARGET_CLANG_ENV_NAME=IPHONEOS_DEPLOYMENT_TARGET \
             SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \

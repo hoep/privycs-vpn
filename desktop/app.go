@@ -1408,7 +1408,9 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 			// PickAndConnectActivePool's "wasConnected" path then
 			// no-ops on a phantom-running tunnel. Re-enabling the
 			// real recovery closes that hole.
-			a.engineBridge.observeConnect(activeProto) // shadow: feed the engine the real protocol
+			// shadow: feed the engine the real protocol + the user's country +
+			// whether AmneziaWG is available, for the network-aware reason.
+			a.engineBridge.observeConnect(activeProto, a.SelfIPCountry(), a.activeConnHasAWG())
 			a.tunnelHealth.Start(target, a.settings.TunnelHealthPingIntervalSec, a.settings.TunnelHealthDeadThreshold, func() {
 				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + trying failover")
 				// Serialise against concurrent UI Connect/Disconnect.
