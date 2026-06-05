@@ -23,6 +23,6 @@ struct LabeledRow<Content: View>: View {
 extension LabeledRow where Content == Text {
     /// Convenience for a plain string value (rendered secondary, like LabeledContent).
     init(_ label: LocalizedStringKey, value: String) {
-        self.init(label) { Text(value).foregroundStyle(.secondary) }
+        self.init(label) { Text(value).foregroundColor(.secondary) }
     }
 }

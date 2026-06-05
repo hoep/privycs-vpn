@@ -79,11 +79,20 @@ struct PoolDetailView: View {
                 }
                 .onChange(of: splitMode) { _ in persist() }
                 if splitMode != .off {
-                    TextField("Bypass CIDRs (comma-separated)", text: $splitCidrText, axis: .vertical)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.system(size: 13, design: .monospaced))
-                        .onSubmit { persist() }
+                    // axis: .vertical (growing field) is iOS 16+; TextEditor on 15.
+                    if #available(iOS 16, *) {
+                        TextField("Bypass CIDRs (comma-separated)", text: $splitCidrText, axis: .vertical)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(size: 13, design: .monospaced))
+                            .onSubmit { persist() }
+                    } else {
+                        TextEditor(text: $splitCidrText)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(size: 13, design: .monospaced))
+                            .frame(minHeight: 60)
+                    }
                     Toggle("Also bypass private networks", isOn: $excludePrivate)
                         .onChange(of: excludePrivate) { _ in persist() }
                 }
