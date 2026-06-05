@@ -92,11 +92,18 @@ final class VPNTunnelManager: ObservableObject {
     /// the app's auto-tunnel master (networkRulesEnabled).
     func connect(_ connection: SavedConnection, onDemand: Bool = false, dnsOverride: String = "",
                  failoverOrder: [VpnProtocol] = [], killSwitch: Bool = true,
-                 rules: [NetworkRule] = []) async throws {
-        // Pick the config honoring the explicit active selection, then the
-        // effective protocol-failover order (per-connection → global → default
-        // AmneziaWG-first) rather than just the first imported config.
-        guard let config = connection.resolvedActiveConfig(globalOrder: failoverOrder) else {
+                 rules: [NetworkRule] = [], engineOrder: [VpnProtocol]? = nil) async throws {
+        // Active Smart Decision Engine: when engineOrder is supplied (Automatic
+        // protocol selection ON), the engine picks the protocol — ignoring the
+        // manual activeConfigID pin. Otherwise honor the explicit active
+        // selection, then the effective protocol-failover order.
+        let picked: ProtocolConfig?
+        if let eo = engineOrder {
+            picked = connection.enginePickedConfig(order: eo)
+        } else {
+            picked = connection.resolvedActiveConfig(globalOrder: failoverOrder)
+        }
+        guard let config = picked else {
             throw VPNError.noConfig
         }
         activeConnectionName = connection.name

@@ -185,6 +185,17 @@ public extension SavedConnection {
         }
         return protocols.first
     }
+
+    /// The config the Smart Decision Engine picks in active mode: the first
+    /// config whose protocol comes earliest in `order` — deliberately IGNORING
+    /// the manual `activeConfigID` pin, because the engine owns the choice.
+    /// Falls back to the first imported config.
+    func enginePickedConfig(order: [VpnProtocol]) -> ProtocolConfig? {
+        for proto in order {
+            if let c = protocols.first(where: { $0.protocol == proto }) { return c }
+        }
+        return protocols.first
+    }
 }
 
 /// One of four supported VPN protocol classes. Stable serialised

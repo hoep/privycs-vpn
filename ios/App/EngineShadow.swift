@@ -54,6 +54,14 @@ final class EngineShadow {
         session?.observeHealth(token)
     }
 
+    /// Active-mode engine protocol order (country-aware), most-preferred first;
+    /// empty on error. Static engine call — no session needed.
+    func protocolOrder(country: String) -> [VpnProtocol] {
+        PvcsFfiProtocolOrder(country)
+            .split(separator: ",")
+            .compactMap { VpnProtocol(rawValue: String($0).trimmingCharacters(in: .whitespaces)) }
+    }
+
     /// Recent decisions (newest last); empty on any error.
     func decisions() -> [EngineDecision] {
         guard let raw = session?.pollDecisions(),
