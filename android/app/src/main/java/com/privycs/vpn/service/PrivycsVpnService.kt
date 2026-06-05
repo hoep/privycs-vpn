@@ -1549,7 +1549,7 @@ class PrivycsVpnService : VpnService() {
                     val s = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
                     if (s.autoProtocolSelection) {
                         val conn = PrivycsApp.instance.connectionRepository.getById(connectionId)
-                        conn?.orderedConfigs(com.privycs.vpn.engine.EngineShadow.effectiveOrder(s))
+                        conn?.orderedConfigs(com.privycs.vpn.engine.EngineShadow.effectiveOrder(s, conn))
                             ?.firstOrNull()?.let { c ->
                                 attemptProto = c.protocol
                                 attemptContent = c.configContent
@@ -1615,6 +1615,8 @@ class PrivycsVpnService : VpnService() {
                         break
                     } catch (e: Throwable) {
                         PrivycsLogger.w(TAG, "handleConnect: $label FAILED: ${e.message}")
+                        // Adaptive engine stats (P4): this protocol failed here.
+                        com.privycs.vpn.engine.EngineShadow.recordOutcome(proto, success = false)
                         triedIds.add(attemptConfigId)
                         lastError = e
                         // Each failed attempt may have left native
@@ -1631,7 +1633,7 @@ class PrivycsVpnService : VpnService() {
                     val refreshed = PrivycsApp.instance.connectionRepository.getById(connectionId)
                     // Smart Decision Engine drives the order when Automatic is on. [v1.0.9]
                     val failoverOrder = com.privycs.vpn.engine.EngineShadow.effectiveOrder(
-                        PrivycsApp.instance.settingsRepository.getSettingsBlocking())
+                        PrivycsApp.instance.settingsRepository.getSettingsBlocking(), refreshed)
                     val nextCfg = refreshed?.orderedConfigs(failoverOrder)?.firstOrNull { cfg ->
                         cfg.id !in triedIds
                     }

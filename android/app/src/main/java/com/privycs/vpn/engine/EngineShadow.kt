@@ -106,34 +106,95 @@ object EngineShadow {
         }
     }
 
-    /**
-     * Active-mode engine protocol order (country-aware), most-preferred first;
-     * empty on any error. Static engine call — no session needed.
-     */
-    fun protocolOrder(country: String): List<VpnProtocol> = try {
-        Ffi.protocolOrder(country).split(",").mapNotNull {
-            when (it.trim()) {
-                "wireguard" -> VpnProtocol.WIREGUARD
-                "amneziawg" -> VpnProtocol.AMNEZIAWG
-                "openvpn" -> VpnProtocol.OPENVPN
-                "ipsec" -> VpnProtocol.IPSEC
-                else -> null
-            }
+    // ── Adaptive (P4) stats: in-memory per-protocol success/fail on the
+    // CURRENT network (iface-scoped key), reset on network change. ──
+    private data class Stat(var ewma: Int = 500, var lastFailSec: Long = 0)
+    private val statsMu = Any()
+    private var stats = mutableMapOf<String, Stat>()
+    private var statsKey = ""
+
+    private fun ensureStats(netKey: String) {
+        if (statsKey != netKey) {
+            statsKey = netKey
+            stats = mutableMapOf()
+        }
+    }
+
+    /** Fold a connect outcome into the protocol's stat (integer EWMA). */
+    fun recordOutcome(proto: VpnProtocol?, success: Boolean) {
+        val tok = proto?.let { tokenOf(it) } ?: return
+        synchronized(statsMu) {
+            ensureStats(currentIface())
+            val st = stats.getOrPut(tok) { Stat() }
+            val v = if (success) 1000 else 0
+            st.ewma = (st.ewma * 7 + v * 3) / 10
+            if (!success) st.lastFailSec = System.currentTimeMillis() / 1000
+        }
+    }
+
+    private fun statsJson(netKey: String): String = synchronized(statsMu) {
+        ensureStats(netKey)
+        if (stats.isEmpty()) "{}"
+        else stats.entries.joinToString(prefix = "{", postfix = "}") { (tok, st) ->
+            "\"$tok\":{\"successEwma\":${st.ewma},\"lastFailSec\":${st.lastFailSec}}"
+        }
+    }
+
+    /** Current interface ("wifi"/"cellular"/"ethernet"/"") via ConnectivityManager. */
+    private fun currentIface(): String = try {
+        val cm = PrivycsApp.instance.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as android.net.ConnectivityManager
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+        when {
+            caps == null -> ""
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> ""
         }
     } catch (t: Throwable) {
-        PrivycsLogger.w(TAG, "protocolOrder: ${t.message}")
-        emptyList()
+        ""
+    }
+
+    private fun tokenOf(p: VpnProtocol): String = when (p) {
+        VpnProtocol.AMNEZIAWG -> "amneziawg"
+        VpnProtocol.WIREGUARD -> "wireguard"
+        VpnProtocol.OPENVPN -> "openvpn"
+        VpnProtocol.IPSEC -> "ipsec"
     }
 
     /**
-     * The order to drive connect + failover: the engine's country-aware order
-     * when Automatic protocol selection is on, else the manual failover order.
-     * This is the single gate — OFF leaves the existing path untouched.
+     * The order to drive connect + failover when Automatic protocol selection is
+     * on: the engine's ranked order (context + roaming-interface + adaptive
+     * stats) over the connection's available protocols. OFF / on error → the
+     * manual failover order (the single gate; existing path untouched).
      */
-    fun effectiveOrder(settings: com.privycs.vpn.data.models.AppSettings): List<VpnProtocol> {
+    fun effectiveOrder(
+        settings: com.privycs.vpn.data.models.AppSettings,
+        connection: com.privycs.vpn.data.models.VpnConnection?,
+    ): List<VpnProtocol> {
         if (!settings.autoProtocolSelection) return settings.protocolFailoverOrder
         val cc = PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty()
-        return protocolOrder(cc).ifEmpty { settings.protocolFailoverOrder }
+        val avail = connection?.protocols?.map { tokenOf(it.protocol) }?.distinct()
+            ?.joinToString(",").orEmpty()
+        val iface = currentIface()
+        val now = System.currentTimeMillis() / 1000
+        val order = try {
+            Ffi.selectOrder(avail, cc, iface, false, "", statsJson(iface), now)
+                .split(",").mapNotNull {
+                    when (it.trim()) {
+                        "wireguard" -> VpnProtocol.WIREGUARD
+                        "amneziawg" -> VpnProtocol.AMNEZIAWG
+                        "openvpn" -> VpnProtocol.OPENVPN
+                        "ipsec" -> VpnProtocol.IPSEC
+                        else -> null
+                    }
+                }
+        } catch (t: Throwable) {
+            PrivycsLogger.w(TAG, "selectOrder: ${t.message}")
+            emptyList()
+        }
+        return order.ifEmpty { settings.protocolFailoverOrder }
     }
 
     /** Recent decisions (newest last); empty list on any error. */
