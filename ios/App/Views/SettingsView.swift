@@ -196,10 +196,15 @@ struct SettingsView: View {
         Task { try? await appState.settingsRepo.save(s) }
     }
 
-    /// "1.0.8 (34)" — marketing version + CFBundleVersion build number.
+    /// "1.0.9 (65)" — marketing version + CFBundleVersion build number, read
+    /// from the app bundle (CFBundleShortVersionString = MARKETING_VERSION) so
+    /// it never goes stale against a hard-coded constant. Falls back to the
+    /// PrivycsCore constant only if the Info.plist value is missing.
     private var versionString: String {
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
-        return build.isEmpty ? PrivycsCoreInfo.version : "\(PrivycsCoreInfo.version) (\(build))"
+        let info = Bundle.main.infoDictionary
+        let marketing = (info?["CFBundleShortVersionString"] as? String) ?? PrivycsCoreInfo.version
+        let build = info?["CFBundleVersion"] as? String ?? ""
+        return build.isEmpty ? marketing : "\(marketing) (\(build))"
     }
 
     private func persistKillSwitch(_ v: Bool) {
