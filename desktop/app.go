@@ -384,6 +384,17 @@ func (a *App) startup(ctx context.Context) {
 				log.Printf("Startup: auto-selected last-used connection %q", mru.Name)
 			}
 		}
+		// Pool-only setup: no single connections at all but a pool exists →
+		// auto-select the pool so Connect works without the user opening Pool
+		// details to activate it first (parity with the iOS/Android pool-only
+		// connect fix).
+		if a.activePoolID == "" && a.connections.Active() == nil &&
+			len(a.connections.List()) == 0 && a.pools != nil && len(a.pools.List()) > 0 {
+			first := a.pools.List()[0]
+			a.activePoolID = first.ID
+			_ = a.pools.SetActiveID(first.ID)
+			log.Printf("Startup: pool-only setup — auto-selected pool %q", first.Name)
+		}
 	}
 
 	// Load saved connections and configure the active protocol handler

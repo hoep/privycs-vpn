@@ -173,9 +173,16 @@ class VpnServiceManager private constructor(private val context: Context) {
         // skipping pool routing in that case — explicit beats
         // implicit.
         if (connectionId == null) {
-            val activePoolId = poolRepo.registry.value.activeId
-            val activePool = poolRepo.registry.value.pools.firstOrNull { it.id == activePoolId }
-            if (activePoolId.isNotEmpty() && activePool != null) {
+            val reg = poolRepo.registry.value
+            // Resolve the pool to connect: the explicitly-active pool, OR — when
+            // there is no single connection to fall back to — the first pool, so a
+            // freshly-created pool-only setup connects without first opening Pool
+            // details to activate it. (Pool-only connect bug, parity with iOS.)
+            val activePool = reg.pools.firstOrNull { it.id == reg.activeId }
+                ?: if (connectionRepo.getById(connectionRepo.activeId) == null) reg.pools.firstOrNull() else null
+            if (activePool != null) {
+                val activePoolId = activePool.id
+                if (reg.activeId != activePoolId) scope.launch { poolRepo.setActiveId(activePoolId) }
                 PrivycsLogger.i(TAG, "connect() routing to pool path (poolId=$activePoolId)")
                 com.privycs.vpn.util.AlwaysOnDetector.clearPause(context)
 

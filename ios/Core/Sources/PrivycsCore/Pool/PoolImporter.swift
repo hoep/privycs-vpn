@@ -24,9 +24,44 @@ public enum PoolImporter {
             || l.hasSuffix(".sswan") || l.hasSuffix(".mobileconfig")
     }
 
+    /// Extract configs from ONE imported file's bytes. A ZIP — detected by its
+    /// MAGIC BYTES, not the filename extension (the file importer can hand back
+    /// a URL without a `.zip` suffix) — is expanded into all member configs;
+    /// otherwise the bytes are a single config when the name has a supported
+    /// extension. This is the entry point callers should use.
+    public static func extractConfigs(fromFileData data: Data, filename: String) -> [ExtractedConfig] {
+        if MiniZip.looksLikeZip(data) || filename.lowercased().hasSuffix(".zip") {
+            return extractZip(data)
+        }
+        let name = (filename as NSString).lastPathComponent
+        if isConfigFile(name), let s = String(data: data, encoding: .utf8), !s.isEmpty {
+            return [ExtractedConfig(filename: name, content: s)]
+        }
+        return []
+    }
+
     /// Extract every supported config file from a .zip archive's bytes.
-    /// Directories, oversized entries and non-UTF8 files are skipped.
+    /// Uses the dependency-free `MiniZip` reader first (ZIPFoundation silently
+    /// returned zero entries for some provider archives → "keine gültige
+    /// config"); ZIPFoundation is only a fallback when the primary finds nothing.
     public static func extractZip(_ data: Data) -> [ExtractedConfig] {
+        let primary = miniExtract(data)
+        return primary.isEmpty ? zipFoundationExtract(data) : primary
+    }
+
+    private static func miniExtract(_ data: Data) -> [ExtractedConfig] {
+        var out: [ExtractedConfig] = []
+        for entry in MiniZip.entries(data) {
+            let name = (entry.name as NSString).lastPathComponent
+            guard isConfigFile(name), entry.data.count <= maxConfigBytes else { continue }
+            if let s = String(data: entry.data, encoding: .utf8), !s.isEmpty {
+                out.append(ExtractedConfig(filename: name, content: s))
+            }
+        }
+        return out
+    }
+
+    private static func zipFoundationExtract(_ data: Data) -> [ExtractedConfig] {
         guard let archive = try? Archive(data: data, accessMode: .read) else { return [] }
         var out: [ExtractedConfig] = []
         for entry in archive where entry.type == .file {
