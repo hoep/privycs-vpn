@@ -114,14 +114,11 @@ struct AddConnectionView: View {
                     PrivycsLog.log("Pool import: could not read \(url.lastPathComponent)")
                     continue
                 }
-                if url.pathExtension.lowercased() == "zip" {
-                    let extracted = PoolImporter.extractZip(data)
-                    PrivycsLog.log("Pool import: zip \(url.lastPathComponent) → \(extracted.count) config(s)")
-                    collected += extracted
-                } else if let raw = String(data: data, encoding: .utf8),
-                          PoolImporter.isConfigFile(url.lastPathComponent) {
-                    collected.append(.init(filename: url.lastPathComponent, content: raw))
-                }
+                // Magic-byte ZIP detection (the importer may strip the .zip
+                // extension) + dependency-free reader; or a single loose config.
+                let extracted = PoolImporter.extractConfigs(fromFileData: data, filename: url.lastPathComponent)
+                PrivycsLog.log("Pool import: \(url.lastPathComponent) (\(data.count) B) → \(extracted.count) config(s)")
+                collected += extracted
             }
             pickedPoolConfigs = collected
             if collected.isEmpty {
