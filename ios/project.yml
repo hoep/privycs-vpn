@@ -26,8 +26,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
-    MARKETING_VERSION: "1.0.9"                  # synced with ios/latest_version.txt
-    CURRENT_PROJECT_VERSION: "67"               # MUST increment every TestFlight upload (63 already used)
+    MARKETING_VERSION: "1.1.1"                  # synced with ios/latest_version.txt
+    CURRENT_PROJECT_VERSION: "68"               # MUST increment every TestFlight upload (63 already used)
     # ed25519 license pubkey hex — overridden by CI from the
     # LICENSE_PUBLIC_KEY_HEX secret; empty default for local builds.
     LICENSE_PUBLIC_KEY_HEX: ""
