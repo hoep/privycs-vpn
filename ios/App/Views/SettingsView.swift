@@ -58,7 +58,7 @@ struct SettingsView: View {
                     NavigationLink {
                         GatewaySettingsView().environmentObject(appState)
                     } label: {
-                        LabeledContent("Privycs Gateway") {
+                        LabeledRow("Privycs Gateway") {
                             // Text(LocalizedStringKey) localizes; the value:
                             // String overload was shown verbatim (English).
                             Text(appState.settings.gatewayURL.isEmpty ? "Not set" : "Configured")
@@ -78,7 +78,7 @@ struct SettingsView: View {
                     }
                     .onChange(of: tunnelHealthMode) { _ in persistHealth() }
                     if tunnelHealthMode != "off" {
-                        LabeledContent("Ping target") {
+                        LabeledRow("Ping target") {
                             TextField("1.1.1.1", text: $tunnelHealthTarget)
                                 .multilineTextAlignment(.trailing)
                                 .textInputAutocapitalization(.never)
@@ -148,7 +148,7 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    LabeledContent("Version", value: versionString)
+                    LabeledRow("Version", value: versionString)
                     Link("Privacy Policy", destination: URL(string: "https://www.privycs.com/docs/ios-client-privacy")!)
                     Link("Help", destination: URL(string: "https://www.privycs.com/docs/ios-client")!)
                 }
