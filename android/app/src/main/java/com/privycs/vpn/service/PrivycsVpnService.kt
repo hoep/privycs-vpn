@@ -1650,7 +1650,17 @@ class PrivycsVpnService : VpnService() {
                 if (!success) {
                     throw (lastError ?: RuntimeException("connect failed (no candidates)"))
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // v1.1.3.1: widened from `Exception` to `Throwable`. The connect
+                // path now touches the gomobile Smart-Decision-Engine binding,
+                // whose first native-lib load can throw an *Error*
+                // (ExceptionInInitializerError / UnsatisfiedLinkError / NoClassDefFoundError)
+                // — NOT an Exception — which a `catch (Exception)` lets escape to
+                // this handler-less coroutine and crashes the whole app on
+                // connect ("crash before connected", Android-only since iOS uses
+                // a different binding). Catching Throwable turns any such failure
+                // into a visible connect-error banner instead of a process crash.
+                //
                 // Reverted in v0.9.14.59: the v0.9.14.54-introduced
                 // CancellationException catch-and-rethrow pattern was
                 // intended to silence "Connection failed: Job was
