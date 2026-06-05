@@ -163,6 +163,12 @@
         "resumed_idle": "Resumed",
         "resumed_revalidate": "Resumed — re-validating",
         "no_profile": "No usable protocol available"
+      },
+      "reason": {
+        "country_open": "{0}: no widespread VPN blocking — a fast protocol is fine here.",
+        "country_restrictive_awg": "{0} is known for DPI/censorship — AmneziaWG’s obfuscation is the right protocol here.",
+        "country_restrictive_use_awg": "{0} censors VPN traffic — AmneziaWG (obfuscated) is available; using it avoids detection.",
+        "country_restrictive_no_awg": "{0} censors VPN traffic — no AmneziaWG profile here, so this protocol may be blocked."
       }
     }
   },

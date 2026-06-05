@@ -48,8 +48,8 @@ func lookup(h C.int64_t) *ffi.Session {
 }
 
 //export PvcsEngineObserveConnect
-func PvcsEngineObserveConnect(h C.int64_t, protocol *C.char) {
-	lookup(h).ObserveConnect(C.GoString(protocol))
+func PvcsEngineObserveConnect(h C.int64_t, protocol, country *C.char, awgAvailable C.int) {
+	lookup(h).ObserveConnect(C.GoString(protocol), C.GoString(country), awgAvailable != 0)
 }
 
 //export PvcsEngineObserveDisconnect

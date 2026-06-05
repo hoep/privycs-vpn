@@ -66,7 +66,7 @@ object EngineShadow {
      * hypothetical failover-order pick. Called from VpnServiceManager on the
      * confirmed-connect transition.
      */
-    fun observeConnect(proto: VpnProtocol?) {
+    fun observeConnect(proto: VpnProtocol?, country: String, awgAvailable: Boolean) {
         ensure()
         val token = when (proto) {
             VpnProtocol.AMNEZIAWG -> "amneziawg"
@@ -76,7 +76,7 @@ object EngineShadow {
             null -> ""
         }
         try {
-            session?.observeConnect(token)
+            session?.observeConnect(token, country, awgAvailable)
         } catch (t: Throwable) {
             PrivycsLogger.w(TAG, "observeConnect: ${t.message}")
         }
@@ -154,4 +154,6 @@ data class EngineDecision(
     val chosen: String = "",
     val key: String = "",
     val args: List<String> = emptyList(),
+    val reason: String = "",
+    val reasonArgs: List<String> = emptyList(),
 )

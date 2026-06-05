@@ -36,7 +36,10 @@ final class EngineShadow {
         orderJSON = js
     }
 
-    func observeConnect(_ proto: String) { session?.observeConnect(proto) }
+    func observeConnect(_ proto: String, country: String, awgAvailable: Bool) {
+        // gomobile labels every arg after the first: observeConnect(_:country:awgAvailable:)
+        session?.observeConnect(proto, country: country, awgAvailable: awgAvailable)
+    }
 
     func observeDisconnect() { session?.observeDisconnect() }
 
@@ -81,11 +84,13 @@ struct EngineDecision: Codable, Identifiable {
     let chosen: String
     let key: String
     let args: [String]
+    let reason: String
+    let reasonArgs: [String]
 
     var id: String { at + "|" + key + "|" + to }
 
     private enum CodingKeys: String, CodingKey {
-        case at, from, to, rule, active, chosen, key, args
+        case at, from, to, rule, active, chosen, key, args, reason, reasonArgs
     }
 
     init(from decoder: Decoder) throws {
@@ -98,5 +103,7 @@ struct EngineDecision: Codable, Identifiable {
         chosen = try c.decodeIfPresent(String.self, forKey: .chosen) ?? ""
         key = try c.decodeIfPresent(String.self, forKey: .key) ?? ""
         args = try c.decodeIfPresent([String].self, forKey: .args) ?? []
+        reason = try c.decodeIfPresent(String.self, forKey: .reason) ?? ""
+        reasonArgs = try c.decodeIfPresent([String].self, forKey: .reasonArgs) ?? []
     }
 }

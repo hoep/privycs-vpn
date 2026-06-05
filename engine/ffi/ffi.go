@@ -27,22 +27,28 @@ type Session struct {
 	cancel context.CancelFunc
 	store  *shadowStore
 
-	mu  sync.Mutex
-	log []decisionDTO // drained from eng.Decisions(); newest last
-	cap int
+	mu       sync.Mutex
+	log      []decisionDTO // drained from eng.Decisions(); newest last
+	cap      int
+	country  string // user's pre-VPN country (for the network-aware reason)
+	awgAvail bool   // does the active connection offer an AmneziaWG profile
 }
 
 // decisionDTO is the wire shape returned by PollDecisions — identical JSON to
 // the desktop EngineDecisionDTO so all three UIs share one rendering contract.
+// reason/reasonArgs carry the network-aware explanation (a stable i18n key +
+// the country code) the UI renders as a secondary line.
 type decisionDTO struct {
-	At     string   `json:"at"`
-	From   string   `json:"from"`
-	To     string   `json:"to"`
-	Rule   string   `json:"rule"`
-	Active string   `json:"active"`
-	Chosen string   `json:"chosen"`
-	Key    string   `json:"key"`
-	Args   []string `json:"args"`
+	At         string   `json:"at"`
+	From       string   `json:"from"`
+	To         string   `json:"to"`
+	Rule       string   `json:"rule"`
+	Active     string   `json:"active"`
+	Chosen     string   `json:"chosen"`
+	Key        string   `json:"key"`
+	Args       []string `json:"args"`
+	Reason     string   `json:"reason"`
+	ReasonArgs []string `json:"reasonArgs"`
 }
 
 // NewSession builds a shadow-mode engine session. profilesJSON is the JSON
@@ -80,15 +86,18 @@ func (s *Session) drain(ctx context.Context) {
 			return
 		case d := <-s.eng.Decisions():
 			s.mu.Lock()
+			reasonKey, reasonArgs := reasonFor(d, s.country, s.awgAvail)
 			s.log = append(s.log, decisionDTO{
-				At:     d.At.Format(time.RFC3339),
-				From:   d.From.String(),
-				To:     d.To.String(),
-				Rule:   d.Rule,
-				Active: string(d.Active),
-				Chosen: string(d.Chosen),
-				Key:    d.HumanKey,
-				Args:   d.Args,
+				At:         d.At.Format(time.RFC3339),
+				From:       d.From.String(),
+				To:         d.To.String(),
+				Rule:       d.Rule,
+				Active:     string(d.Active),
+				Chosen:     string(d.Chosen),
+				Key:        d.HumanKey,
+				Args:       d.Args,
+				Reason:     reasonKey,
+				ReasonArgs: reasonArgs,
 			})
 			if len(s.log) > s.cap {
 				s.log = s.log[len(s.log)-s.cap:]
@@ -104,11 +113,18 @@ func (s *Session) drain(ctx context.Context) {
 // "openvpn"/"ipsec"); it becomes the engine's sole candidate so the decision
 // log reflects reality ("Connected via <protocol>") rather than a hypothetical
 // failover-order pick. Empty falls back to the configured order.
-func (s *Session) ObserveConnect(protocol string) {
+// country is the user's pre-VPN country code (ISO-3166-1 alpha-2; "" if
+// unknown) and awgAvailable reports whether the active connection offers an
+// AmneziaWG profile — together they drive the network-aware decision reason.
+func (s *Session) ObserveConnect(protocol, country string, awgAvailable bool) {
 	if s == nil {
 		return
 	}
 	s.store.setActive(protocol)
+	s.mu.Lock()
+	s.country = country
+	s.awgAvail = awgAvailable
+	s.mu.Unlock()
 	s.eng.Submit(eng.Event{Kind: eng.EvUserConnect})
 	s.eng.Submit(eng.Event{Kind: eng.EvHandshakeOK})
 	s.eng.Submit(probeEvent(true, 30, 0))
@@ -226,6 +242,20 @@ func (s *shadowStore) Snapshot() eng.ProfileSnapshot {
 }
 
 func (s *shadowStore) RecordOutcome(eng.ProfileID, eng.NetworkKey, bool, eng.FailKind) {}
+
+// reasonFor computes the network-aware reason for a decision from the user's
+// country + AmneziaWG availability. The protocol is taken from the decision's
+// chosen (or active) profile.
+func reasonFor(d eng.Decision, country string, awgAvail bool) (string, []string) {
+	token := string(d.Chosen)
+	if token == "" {
+		token = string(d.Active)
+	}
+	if token == "" {
+		return eng.ReasonFor(d.HumanKey, eng.ProtoWireGuard, false, country, awgAvail)
+	}
+	return eng.ReasonFor(d.HumanKey, protoFromString(token), true, country, awgAvail)
+}
 
 func protoFromString(p string) eng.Protocol {
 	switch p {

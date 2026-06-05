@@ -163,6 +163,12 @@
         "resumed_idle": "Retomado",
         "resumed_revalidate": "Retomado — a revalidar",
         "no_profile": "Nenhum protocolo utilizável"
+      },
+      "reason": {
+        "country_open": "{0}: sem bloqueio de VPN generalizado — um protocolo rápido serve aqui.",
+        "country_restrictive_awg": "{0} é conhecido por DPI/censura — a ofuscação do AmneziaWG é o protocolo certo aqui.",
+        "country_restrictive_use_awg": "{0} censura o tráfego VPN — o AmneziaWG (ofuscado) está disponível; usá-lo evita a deteção.",
+        "country_restrictive_no_awg": "{0} censura o tráfego VPN — não há perfil AmneziaWG aqui, por isso este protocolo pode estar bloqueado."
       }
     }
   },

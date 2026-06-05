@@ -790,8 +790,13 @@ class VpnServiceManager private constructor(private val context: Context) {
                 com.privycs.vpn.util.ConnectCoordinator.markConnected(status.connectionId)
             }
             // Smart Decision Engine (shadow): feed the engine the REAL protocol
-            // so its decision log reflects this connection. [v1.0.9]
-            com.privycs.vpn.engine.EngineShadow.observeConnect(status.activeProtocol)
+            // + the user's country + AmneziaWG availability for the network-aware
+            // reason. [v1.0.9]
+            com.privycs.vpn.engine.EngineShadow.observeConnect(
+                status.activeProtocol,
+                PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty(),
+                connectionRepo.getById(status.connectionId)?.hasProtocol(VpnProtocol.AMNEZIAWG) ?: false,
+            )
             // Tunnel is up: decide whether to start the periodic
             // ICMP-based liveness monitor based on user settings.
             //   - mode = "off": never run
@@ -991,9 +996,12 @@ class VpnServiceManager private constructor(private val context: Context) {
                     activeConn?.id ?: _status.value.connectionId,
                 )
             }
-            // Smart Decision Engine (shadow): feed the REAL protocol. [v1.0.9]
+            // Smart Decision Engine (shadow): feed the REAL protocol + country +
+            // AmneziaWG availability for the network-aware reason. [v1.0.9]
             com.privycs.vpn.engine.EngineShadow.observeConnect(
                 activeConn?.activeProtocol ?: _status.value.activeProtocol,
+                PrivycsApp.instance.selfIpDetector.cachedResult()?.country.orEmpty(),
+                activeConn?.hasProtocol(VpnProtocol.AMNEZIAWG) ?: false,
             )
             return
         }

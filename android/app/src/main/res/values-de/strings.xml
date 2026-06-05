@@ -703,4 +703,9 @@
     <string name="engine_decision_resumed_idle">Fortgesetzt</string>
     <string name="engine_decision_resumed_revalidate">Fortgesetzt – wird neu geprüft</string>
     <string name="engine_decision_no_profile">Kein nutzbares Protokoll verfügbar</string>
+    <!-- Smart Decision Engine network-aware reasons (v1.0.9) -->
+    <string name="engine_reason_country_open">%1$s: keine flächendeckende VPN-Sperre — ein schnelles Protokoll ist hier in Ordnung.</string>
+    <string name="engine_reason_country_restrictive_awg">%1$s ist für DPI/Zensur bekannt — die Verschleierung von AmneziaWG ist hier das richtige Protokoll.</string>
+    <string name="engine_reason_country_restrictive_use_awg">%1$s zensiert VPN-Verkehr — AmneziaWG (verschleiert) ist verfügbar; damit wird Erkennung vermieden.</string>
+    <string name="engine_reason_country_restrictive_no_awg">%1$s zensiert VPN-Verkehr — kein AmneziaWG-Profil hier, dieses Protokoll wird evtl. blockiert.</string>
 </resources>
