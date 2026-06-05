@@ -234,7 +234,7 @@ struct GatewayConfigSheet: View {
             if !importedNames.contains(entry.name) { importedNames.append(entry.name) }
             // Auto-close so the user lands back on the connections list
             // and sees the freshly-imported config.
-            try? await Task.sleep(for: .seconds(1.0))
+            try? await Task.sleep(nanoseconds: UInt64(1.0 * 1_000_000_000))
             dismiss()
         } catch {
             self.error = error.localizedDescription

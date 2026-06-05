@@ -232,7 +232,7 @@ struct AddProtocolSheet: View {
             intoConnectionID: connection.id
         )
         note = String(localized: "Added \(url.lastPathComponent)")
-        try? await Task.sleep(for: .seconds(0.8))
+        try? await Task.sleep(nanoseconds: UInt64(0.8 * 1_000_000_000))
         dismiss()
     }
 }

@@ -66,7 +66,7 @@ struct LicenseKeyImportSheet: View {
             result = String(localized: "License accepted — \(payload.sku) (\(payload.platforms.joined(separator: ", ")))")
             isError = false
             // Auto-dismiss nach kurzer Bestätigung
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(nanoseconds: UInt64(2 * 1_000_000_000))
             dismiss()
         } catch {
             result = error.localizedDescription
