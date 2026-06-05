@@ -1547,7 +1547,13 @@ class PrivycsVpnService : VpnService() {
                 // override with its country-aware top choice. [v1.0.9]
                 run {
                     val s = PrivycsApp.instance.settingsRepository.getSettingsBlocking()
-                    if (s.autoProtocolSelection) {
+                    // v1.1.3.1: gated by EngineShadow.connectOrderingEnabled().
+                    // This override swaps in ProtocolConfig.configContent from the
+                    // registry, which for AmneziaWG is the RAW (non-AWG-rendered)
+                    // content → the AWG Go backend (libwg-go-awg.so) segfaults on
+                    // connect. While disabled we keep the freshly-rendered active
+                    // config that was passed in (pre-engine behaviour, no crash).
+                    if (s.autoProtocolSelection && com.privycs.vpn.engine.EngineShadow.connectOrderingEnabled()) {
                         val conn = PrivycsApp.instance.connectionRepository.getById(connectionId)
                         conn?.orderedConfigs(com.privycs.vpn.engine.EngineShadow.effectiveOrder(s, conn))
                             ?.firstOrNull()?.let { c ->

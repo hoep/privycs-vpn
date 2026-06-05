@@ -31,6 +31,25 @@ object EngineShadow {
     private const val TAG = "EngineShadow"
     private val json = Json { ignoreUnknownKeys = true }
 
+    // v1.1.3.1 NATIVE-CRASH FIX. Native SIGSEGV in libwg-go-awg.so (the
+    // AmneziaWG tunnel backend) on connect, BEFORE the tunnel comes up
+    // (vpn_active=false) — confirmed by the on-device native crash trace.
+    // Root cause: the engine's connect-path config OVERRIDE in
+    // PrivycsVpnService.handleConnect replaced the freshly-rendered config
+    // content with `ProtocolConfig.configContent` straight from the registry.
+    // For AmneziaWG that stored content lacks the rendered obfuscation params
+    // (Jc/Jmin/Jmax/S1/S2/H1-4), so the AWG Go backend gets a malformed config
+    // and segfaults (same class as desktop v0.9.15.62). Disabling the engine's
+    // connect-time reordering/override restores the pre-engine connect, which
+    // used the freshly-rendered active config and did not crash. The shadow
+    // engine (decisions panel) is unaffected. Re-enable only once the engine
+    // override re-renders AWG content before connecting.
+    private val ENGINE_CONNECT_ORDERING = false
+
+    /** Whether the engine may drive connect-time protocol selection. See
+     *  ENGINE_CONNECT_ORDERING — OFF while the AWG-content crash is mitigated. */
+    fun connectOrderingEnabled(): Boolean = ENGINE_CONNECT_ORDERING
+
     @Volatile private var session: Session? = null
     @Volatile private var orderJson: String = ""
 
@@ -177,6 +196,9 @@ object EngineShadow {
         connection: com.privycs.vpn.data.models.VpnConnection?,
     ): List<VpnProtocol> {
         if (!settings.autoProtocolSelection) return settings.protocolFailoverOrder
+        // Native-crash mitigation: no gomobile on the connect path. See
+        // ENGINE_CONNECT_ORDERING. Falls back to the manual failover order.
+        if (!ENGINE_CONNECT_ORDERING) return settings.protocolFailoverOrder
         // EVERYTHING engine-touching is inside the try: the selfIpDetector /
         // connection reads, the gomobile call, and the parse — so any Throwable
         // (incl. a lateinit/binding Error) degrades to the manual failover order
