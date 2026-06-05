@@ -105,7 +105,9 @@ func (a *App) tryFailoverProtocol(excludeOriginalConfigID string) (string, error
 	// pre-v0.9.15.70 enum order when empty/nil). When the Smart Decision
 	// Engine is active it drives the order instead (country-aware).
 	failoverOrder := a.settings.ProtocolFailoverOrder
-	if a.settings.AutoProtocolSelection {
+	// Engine drives the order only for single connections; pools keep their
+	// own member/protocol failover logic.
+	if a.settings.AutoProtocolSelection && a.activePoolID == "" {
 		failoverOrder = a.engineFailoverOrder()
 	}
 	candidates := conn.OrderedConfigsFor(failoverOrder)

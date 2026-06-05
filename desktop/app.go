@@ -1029,15 +1029,28 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 	}
 
 	// Active Smart Decision Engine: when "Automatic protocol selection" is on,
-	// the engine picks the protocol (network-aware) instead of the manual
-	// pill/saved choice — for single connections (pools keep their own member/
-	// protocol logic). OFF = the manual path above stays authoritative.
+	// the engine picks the protocol (network-aware) for single connections
+	// (pools keep their own member/protocol logic). It picks the top CONFIG in
+	// the engine's order — protocol AND endpoint — so a connection holding
+	// several configs of the same protocol still resolves to a concrete one,
+	// then pins it active so the re-Configure below uses it. OFF = the manual
+	// path above stays authoritative.
 	if a.settings != nil && a.settings.AutoProtocolSelection && a.activePoolID == "" {
-		if p := a.enginePickProtocol(nil); p != "" && p != a.activeProtocol {
-			log.Printf("Connect: engine auto-selected %q (was %q)", p, a.activeProtocol)
-			a.activeProtocol = p
-			a.settings.ActiveProtocol = p
-			SaveSettings(a.settings)
+		if conn := a.connections.Active(); conn != nil {
+			if cfgs := conn.OrderedConfigsFor(a.engineFailoverOrder()); len(cfgs) > 0 {
+				top := cfgs[0]
+				if conn.ActiveConfigID != top.ID {
+					if err := a.connections.SetActiveConfig(conn.ID, top.ID); err != nil {
+						log.Printf("Connect: engine SetActiveConfig failed: %v", err)
+					}
+				}
+				if a.activeProtocol != top.Protocol {
+					log.Printf("Connect: engine auto-selected %q (config %s, was %q)", top.Protocol, top.ID, a.activeProtocol)
+					a.activeProtocol = top.Protocol
+					a.settings.ActiveProtocol = top.Protocol
+					SaveSettings(a.settings)
+				}
+			}
 		}
 	}
 

@@ -126,33 +126,6 @@ func (a *App) activeConnHasAWG() bool {
 	return false
 }
 
-// enginePickProtocol returns the engine's network-aware protocol token for the
-// active connection (excluding the given tokens, for failover), or "" if the
-// engine has no usable pick. Used only when AutoProtocolSelection is on.
-func (a *App) enginePickProtocol(exclude []string) string {
-	conn := a.connections.Active()
-	if conn == nil {
-		return ""
-	}
-	var avail []eng.Protocol
-	for _, tok := range conn.AvailableProtocols() {
-		if p, ok := eng.ParseProtocol(tok); ok {
-			avail = append(avail, p)
-		}
-	}
-	var excl []eng.Protocol
-	for _, tok := range exclude {
-		if p, ok := eng.ParseProtocol(tok); ok {
-			excl = append(excl, p)
-		}
-	}
-	res := eng.Select(eng.SelectInput{Available: avail, Country: a.SelfIPCountry(), Exclude: excl})
-	if !res.Found {
-		return ""
-	}
-	return res.Protocol.Token()
-}
-
 // engineFailoverOrder returns the engine's country-aware protocol order as
 // tokens (most-preferred first) for driving failover when the engine is active.
 func (a *App) engineFailoverOrder() []string {
