@@ -36,13 +36,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 2
+          # Full history so `origin/<base>` + merge-base resolve on PRs (a
+          # shallow fetch-depth: 2 has no origin/main → "Not a valid object
+          # name origin/main" on the first desktop-touching PR).
+          fetch-depth: 0
       - name: Classify changes
         id: changes
         run: |
           # On push, compare against the parent commit. On PR,
           # compare against the merge-base of base..HEAD.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --quiet origin "${{ github.base_ref }}" || true
             BASE_SHA=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
           else
             BASE_SHA="HEAD~1"
