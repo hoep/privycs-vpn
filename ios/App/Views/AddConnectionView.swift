@@ -18,7 +18,7 @@ struct AddConnectionView: View {
     // flag is set, a successful import hands the files to AddPoolView instead of
     // importing them as single connections. [v1.1.4]
     @State private var importingForPool = false
-    @State private var pickedPoolFiles: [URL] = []
+    @State private var pickedPoolConfigs: [PoolImporter.ExtractedConfig] = []
 
     var body: some View {
         AdaptiveNavStack {
@@ -56,7 +56,7 @@ struct AddConnectionView: View {
                         // with the chosen files. Sidesteps the iOS-15 nested-
                         // importer bug entirely. [v1.1.4]
                         importingForPool = true
-                        pickedPoolFiles = []
+                        pickedPoolConfigs = []
                         showFileImporter = true
                     } label: {
                         Label("Create a VPN pool", systemImage: "circle.grid.3x3.fill")
@@ -91,7 +91,7 @@ struct AddConnectionView: View {
                 GatewayConfigSheet().environmentObject(appState)
             }
             .sheet(isPresented: $showAddPool) {
-                AddPoolView(initialFiles: pickedPoolFiles).environmentObject(appState)
+                AddPoolView(initialConfigs: pickedPoolConfigs).environmentObject(appState)
             }
         }
     }
@@ -101,8 +101,32 @@ struct AddConnectionView: View {
         // importing them as single connections. [v1.1.4]
         if importingForPool {
             importingForPool = false
-            if case .success(let urls) = result, !urls.isEmpty {
-                pickedPoolFiles = urls
+            guard case .success(let urls) = result, !urls.isEmpty else { return }
+            // Read + extract the configs NOW, inside the file-importer security
+            // scope. Deferring the read to AddPoolView's Save was unreliable (the
+            // security-scoped grant can lapse → 0 configs → Save stayed disabled),
+            // so we hand AddPoolView already-read content instead of URLs. [v1.1.3.3]
+            var collected: [PoolImporter.ExtractedConfig] = []
+            for url in urls {
+                let access = url.startAccessingSecurityScopedResource()
+                defer { if access { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url) else {
+                    PrivycsLog.log("Pool import: could not read \(url.lastPathComponent)")
+                    continue
+                }
+                if url.pathExtension.lowercased() == "zip" {
+                    let extracted = PoolImporter.extractZip(data)
+                    PrivycsLog.log("Pool import: zip \(url.lastPathComponent) → \(extracted.count) config(s)")
+                    collected += extracted
+                } else if let raw = String(data: data, encoding: .utf8),
+                          PoolImporter.isConfigFile(url.lastPathComponent) {
+                    collected.append(.init(filename: url.lastPathComponent, content: raw))
+                }
+            }
+            pickedPoolConfigs = collected
+            if collected.isEmpty {
+                importErrorMessage = String(localized: "No valid config files found in the selection.")
+            } else {
                 showAddPool = true
             }
             return

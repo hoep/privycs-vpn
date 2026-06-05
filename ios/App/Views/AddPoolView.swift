@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import PrivycsCore
 
 /// Pool aus Multi-File-Import (ZIP oder einzelne Configs).
@@ -7,15 +6,18 @@ struct AddPoolView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
-    /// Files chosen at the tab root BEFORE this sheet opened — the iOS-15-safe
-    /// flow (see AddConnectionView): the proven tab-root `.fileImporter` picks
-    /// the files, then this sheet opens with them already in hand. No picker is
-    /// presented from inside this sheet (that mis-dismisses on iOS 15).
-    let initialFiles: [URL]
+    /// Config contents already EXTRACTED at the tab root before this sheet
+    /// opened (see AddConnectionView). The files are read there, inside the
+    /// `.fileImporter` security scope — reading them later (at Save time) is
+    /// unreliable because the security-scoped grant can lapse, which left
+    /// `pickedFiles` effectively empty and the Save button permanently disabled
+    /// ("bei Speichern passiert nix"). So this sheet only ever works with
+    /// already-read content; no file URL is touched here.
+    let initialConfigs: [PoolImporter.ExtractedConfig]
 
     @State private var name = ""
     @State private var policy: PoolPolicy = .geoNearest
-    @State private var pickedFiles: [URL] = []
+    @State private var configs: [PoolImporter.ExtractedConfig] = []
     @State private var errorMessage: String?
 
     var body: some View {
@@ -32,16 +34,16 @@ struct AddPoolView: View {
                     }
                 }
                 Section {
-                    if pickedFiles.isEmpty {
-                        Text("No files selected — cancel and tap “Create a VPN pool” again.")
+                    if configs.isEmpty {
+                        Text("No configs found — cancel and tap “Create a VPN pool” again.")
                             .foregroundColor(.secondary).font(.caption)
                     } else {
-                        ForEach(pickedFiles, id: \.self) { url in
-                            Label(url.lastPathComponent, systemImage: "doc").font(.caption)
+                        ForEach(configs, id: \.filename) { c in
+                            Label(c.filename, systemImage: "doc").font(.caption)
                         }
                     }
                 } header: {
-                    Text("Selected files (\(pickedFiles.count))")
+                    Text("Selected configs (\(configs.count))")
                 } footer: {
                     Text("These become the pool members — a single .zip archive is expanded into all the configs inside it. Country is parsed from each filename when possible.")
                 }
@@ -58,43 +60,21 @@ struct AddPoolView: View {
                     Button("Save") {
                         Task { await save() }
                     }
-                    .disabled(name.isEmpty || pickedFiles.isEmpty)
+                    .disabled(name.isEmpty || configs.isEmpty)
                 }
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .onAppear { if pickedFiles.isEmpty { pickedFiles = initialFiles } }
+            .onAppear { if configs.isEmpty { configs = initialConfigs } }
         }
     }
 
     private func save() async {
-        // Collect configs from every picked file — a .zip is expanded into
-        // all its member configs (Android PoolImporter parity), loose files
-        // are taken as-is.
-        var configs: [PoolImporter.ExtractedConfig] = []
-        for url in pickedFiles {
-            // Read regardless of the access-grant result — for fileImporter
-            // URLs startAccessing often returns false yet the file IS readable;
-            // a hard `continue` here silently dropped every file → "0 configs"
-            // (the reported "pools can't even be imported" bug).
-            let access = url.startAccessingSecurityScopedResource()
-            defer { if access { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else {
-                PrivycsLog.log("Pool import: could not read \(url.lastPathComponent)")
-                continue
-            }
-            if url.pathExtension.lowercased() == "zip" {
-                let extracted = PoolImporter.extractZip(data)
-                PrivycsLog.log("Pool import: zip \(url.lastPathComponent) → \(extracted.count) config(s)")
-                configs += extracted
-            } else if let raw = String(data: data, encoding: .utf8),
-                      PoolImporter.isConfigFile(url.lastPathComponent) {
-                configs.append(.init(filename: url.lastPathComponent, content: raw))
-            }
-        }
+        // Configs were already extracted at pick time (tab root) — just build
+        // the members, geolocate, and persist. No file reading here.
         var members = PoolImporter.makeMembers(configs)
-        PrivycsLog.log("Pool import: \(pickedFiles.count) file(s) → \(configs.count) config(s) → \(members.count) member(s)")
+        PrivycsLog.log("Pool save: \(configs.count) config(s) → \(members.count) member(s)")
         guard members.count >= 1 else {
             errorMessage = String(localized: "No valid config files found in the selection.")
             return
