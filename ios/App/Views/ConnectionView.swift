@@ -175,9 +175,16 @@ struct ConnectionView: View {
         // the brief connect transition.
         .disabled(appState.connecting)
         .popover(isPresented: $showPicker, arrowEdge: .top) {
-            pickerList
-                .frame(minWidth: 300, minHeight: 220)
-                .presentationCompactAdaptation(.popover)
+            // presentationCompactAdaptation keeps it a popover on iPhone, but is
+            // iOS 16.4+; on iOS 15 the popover adapts to a sheet (default).
+            if #available(iOS 16.4, *) {
+                pickerList
+                    .frame(minWidth: 300, minHeight: 220)
+                    .presentationCompactAdaptation(.popover)
+            } else {
+                pickerList
+                    .frame(minWidth: 300, minHeight: 220)
+            }
         }
     }
 
