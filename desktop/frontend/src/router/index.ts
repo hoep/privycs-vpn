@@ -60,6 +60,11 @@ const routes = [
     name: 'Pro',
     component: () => import('@/views/ProUpgradeView.vue'),
   },
+  {
+    path: '/licenses',
+    name: 'Licenses',
+    component: () => import('@/views/LicensesView.vue'),
+  },
 ]
 
 const router = createRouter({

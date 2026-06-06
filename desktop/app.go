@@ -2058,6 +2058,11 @@ func (a *App) ImportConfig(protocol string, content string, filename string, con
 
 // ListConnections returns all saved VPN connections
 func (a *App) ListConnections() []*SavedConnection {
+	// Guard the registry under a.mu like every other access site — the
+	// connect / pool-keepalive / status goroutines mutate it under a.mu, so a
+	// lock-free read here raced them (Blocker #3, 2026-05 audit).
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.connections.List()
 }
 
@@ -2426,6 +2431,8 @@ func (a *App) SwitchConnectionProtocol(protocol string) error {
 
 // RenameConnection changes the display name of a saved connection
 func (a *App) RenameConnection(id string, newName string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	conn := a.connections.Get(id)
 	if conn == nil {
 		return fmt.Errorf("connection not found: %s", id)
@@ -2464,6 +2471,8 @@ func (a *App) GetTunnelHealthState() string {
 // pipeline reads this via resolveDnsOverride which walks
 // pool > connection > global.
 func (a *App) SetConnectionDnsOverride(id string, dns string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	conn := a.connections.Get(id)
 	if conn == nil {
 		return fmt.Errorf("connection not found: %s", id)
@@ -2480,6 +2489,8 @@ func (a *App) SetConnectionDnsOverride(id string, dns string) error {
 
 // DeleteConnection removes a saved connection
 func (a *App) DeleteConnection(id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	// Snapshot the IPSec/macOS hint inputs before delete: once
 	// connections.Delete returns, the SavedConnection is gone and we
 	// can no longer read its Name or check whether it carried IPSec.
@@ -2502,6 +2513,8 @@ func (a *App) DeleteConnection(id string) error {
 
 // RemoveProtocolFromConnection removes a single protocol config from a connection
 func (a *App) RemoveProtocolFromConnection(connectionID string, protocol string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	// IPSec-on-macOS leaves a System-Settings VPN profile behind that
 	// no longer corresponds to anything in Privycs. Surface the hint
 	// before clearing the protocol so the user can act while the

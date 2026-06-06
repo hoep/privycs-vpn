@@ -128,7 +128,8 @@
       "app-label": "App",
       "app-name": "Privycs VPN Client",
       "version-label": "Version",
-      "protocol-label": "Protocol"
+      "protocol-label": "Protocol",
+      "licenses": "Open-Source Licenses"
     },
     "language": {
       "label": "Language",
@@ -884,5 +885,10 @@
         "camera-failed": "Could not open camera: {error}"
       }
     }
+  },
+  "licenses": {
+    "title": "Open-Source Licenses",
+    "intro": "Privycs VPN is free software licensed under the GNU GPL-3.0. The full source code is available at:",
+    "deps-heading": "Bundled & invoked components"
   }
 }

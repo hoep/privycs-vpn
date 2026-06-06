@@ -128,7 +128,8 @@
       "app-label": "App",
       "app-name": "Cliente VPN Privycs",
       "version-label": "Versão",
-      "protocol-label": "Protocolo"
+      "protocol-label": "Protocolo",
+      "licenses": "Licenças de código aberto"
     },
     "language": {
       "label": "Idioma",
@@ -884,5 +885,10 @@
         "camera-failed": "Não foi possível abrir a câmera: {error}"
       }
     }
+  },
+  "licenses": {
+    "title": "Licenças de código aberto",
+    "intro": "O Privycs VPN é software livre sob a GNU GPL-3.0. O código-fonte completo está disponível em:",
+    "deps-heading": "Componentes incluídos e invocados"
   }
 }
