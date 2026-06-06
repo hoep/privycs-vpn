@@ -128,7 +128,8 @@
       "app-label": "App",
       "app-name": "Cliente VPN de Privycs",
       "version-label": "Versión",
-      "protocol-label": "Protocolo"
+      "protocol-label": "Protocolo",
+      "licenses": "Licencias de código abierto"
     },
     "language": {
       "label": "Idioma",
@@ -884,5 +885,10 @@
     "subtitle": "Desbloquea las seis funciones Pro con una sola compra única.",
     "notNow": "Ahora no",
     "viewPro": "Ver Pro"
+  },
+  "licenses": {
+    "title": "Licencias de código abierto",
+    "intro": "Privycs VPN es software libre bajo la GNU GPL-3.0. El código fuente completo está disponible en:",
+    "deps-heading": "Componentes incluidos e invocados"
   }
 }

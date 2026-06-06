@@ -558,6 +558,13 @@ sudo pkill -9 -f "privycs.*--helper" 2&gt;/dev/null</pre>
             <span class="text-xs text-gray-500">{{ $t('settings.about.protocol-label') }}</span>
             <span class="text-xs text-gray-600 dark:text-gray-300">{{ vpn.status?.active_protocol || '-' }}</span>
           </div>
+          <button
+            class="w-full flex justify-between items-center pt-2 mt-1 border-t border-gray-100 dark:border-gray-800 -mx-1 px-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+            @click="$router.push({ name: 'Licenses' })"
+          >
+            <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('settings.about.licenses') }}</span>
+            <span class="text-xs text-gray-400">→</span>
+          </button>
         </div>
       </div>
     </div>
