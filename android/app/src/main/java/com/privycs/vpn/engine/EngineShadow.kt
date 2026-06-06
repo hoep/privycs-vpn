@@ -41,6 +41,7 @@ object EngineShadow {
         key: String,
         active: String = "",
         chosen: String = "",
+        args: List<String> = emptyList(),
         reason: String = "",
         reasonArgs: List<String> = emptyList(),
     ) {
@@ -49,6 +50,7 @@ object EngineShadow {
             active = active,
             chosen = chosen,
             key = key,
+            args = args,
             reason = reason,
             reasonArgs = reasonArgs,
         )
@@ -67,8 +69,11 @@ object EngineShadow {
         try {
             val (rk, ra) = LocalEngine.countryReason(country, proto, awgAvailable)
             val tok = proto?.let { tokenOf(it) } ?: ""
-            addDecision("decision.connecting", chosen = tok, reason = rk, reasonArgs = ra)
-            addDecision("decision.connected", active = tok, reason = rk, reasonArgs = ra)
+            // args carry the protocol token → the UI substitutes it into the
+            // "Connecting/Connected via %1$s" strings (and renders the brand label).
+            val a = if (tok.isEmpty()) emptyList() else listOf(tok)
+            addDecision("decision.connecting", chosen = tok, args = a, reason = rk, reasonArgs = ra)
+            addDecision("decision.connected", active = tok, args = a, reason = rk, reasonArgs = ra)
         } catch (t: Throwable) {
             PrivycsLogger.w(TAG, "observeConnect: ${t.message}")
         }

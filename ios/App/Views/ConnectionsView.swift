@@ -30,6 +30,7 @@ struct ConnectionsView: View {
                                 PoolDetailView(pool: pool).environmentObject(appState)
                             } label: { poolRow(pool) }
                         }
+                        .onDelete(perform: deletePools)
                     }
                 }
                 Section("Connections") {
@@ -175,6 +176,21 @@ struct ConnectionsView: View {
         Task {
             for id in ids { try? await appState.connectionRepo.delete(id) }
             appState.connections = (try? await appState.connectionRepo.loadAll()) ?? []
+        }
+    }
+
+    private func deletePools(at offsets: IndexSet) {
+        let ids = offsets.map { appState.pools[$0].id }
+        Task {
+            for id in ids {
+                try? await appState.poolRepo.delete(id)
+                if appState.activePool?.id == id {
+                    appState.activePool = nil
+                    appState.activePoolMember = nil
+                    appState.selectedTargetID = ""
+                }
+            }
+            appState.pools = (try? await appState.poolRepo.loadAll()) ?? []
         }
     }
 }

@@ -106,6 +106,7 @@ fun ConnectionsScreen(
     val scope = rememberCoroutineScope()
 
     var deleteTarget by remember { mutableStateOf<VpnConnection?>(null) }
+    var poolDeleteTarget by remember { mutableStateOf<com.privycs.vpn.data.models.Pool?>(null) }
     var renameTarget by remember { mutableStateOf<VpnConnection?>(null) }
     var renameDraft by remember { mutableStateOf("") }
     // Per-connection DNS override draft. Bundled with the rename
@@ -292,6 +293,29 @@ fun ConnectionsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { deleteTarget = null }) {
+                    Text(stringResource(R.string.connections_cancel))
+                }
+            }
+        )
+    }
+
+    // Pool delete confirmation (list-level; mirrors the connection dialog above).
+    if (poolDeleteTarget != null) {
+        AlertDialog(
+            onDismissRequest = { poolDeleteTarget = null },
+            title = { Text(stringResource(R.string.pooldetail_delete_dialog_title)) },
+            text = { Text(stringResource(R.string.pooldetail_delete_dialog_text)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val id = poolDeleteTarget!!.id
+                    poolDeleteTarget = null
+                    scope.launch { poolRepo.delete(id) }
+                }) {
+                    Text(stringResource(R.string.pooldetail_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { poolDeleteTarget = null }) {
                     Text(stringResource(R.string.connections_cancel))
                 }
             }
@@ -551,7 +575,8 @@ fun ConnectionsScreen(
                                     .switchActivePool(p.id)
                                 onNavigateToConnect()
                             },
-                            onEdit = { onNavigateToPoolDetail(p.id) }
+                            onEdit = { onNavigateToPoolDetail(p.id) },
+                            onDelete = { poolDeleteTarget = p }
                         )
                     }
                     if (pools.isNotEmpty()) {
@@ -650,7 +675,8 @@ private fun PoolListCard(
     pool: com.privycs.vpn.data.models.Pool,
     isActive: Boolean,
     onTap: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -714,6 +740,19 @@ private fun PoolListCard(
                     Icons.Filled.Edit,
                     contentDescription = stringResource(R.string.connections_edit_pool_cd),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            // Delete from the list (parity with connection cards + desktop) so a
+            // pool is removable without opening its detail screen.
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = stringResource(R.string.pooldetail_delete),
+                    tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(18.dp)
                 )
             }

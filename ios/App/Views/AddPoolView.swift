@@ -71,17 +71,15 @@ struct AddPoolView: View {
     }
 
     private func save() async {
-        // Configs were already extracted at pick time (tab root) — just build
-        // the members, geolocate, and persist. No file reading here.
-        var members = PoolImporter.makeMembers(configs)
+        // Configs were already extracted at pick time (tab root) — just build the
+        // members and persist. Country geolocation happens in the BACKGROUND
+        // afterwards (see below); it must NOT be awaited here.
+        let members = PoolImporter.makeMembers(configs)
         PrivycsLog.log("Pool save: \(configs.count) config(s) → \(members.count) member(s)")
         guard members.count >= 1 else {
             errorMessage = String(localized: "No valid config files found in the selection.")
             return
         }
-        // Geolocate each member's server (IP→country via the bundled DB) so
-        // country flags show even when the filename has no <cc>- prefix.
-        members = await PoolImporter.enrichCountries(members)
         let pool = Pool(id: UUID().uuidString, name: name, policy: policy, members: members)
         do {
             try await appState.poolRepo.save(pool)
@@ -89,6 +87,24 @@ struct AddPoolView: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+            return
+        }
+        // Geolocate endpoints (IP→country via the bundled DB) in the BACKGROUND
+        // and re-save. Previously this ran inline before dismiss — and
+        // enrichCountries does blocking getaddrinfo with NO timeout, so a pool
+        // whose member hosts don't resolve hung Save forever ("bei Speichern
+        // passiert gar nichts"). The pool already shows filename-parsed country
+        // codes; the flags refine when this finishes. `@MainActor` keeps the
+        // pools-array mutation on the main actor; the DNS work itself runs off
+        // the main thread inside firstIP, so the UI stays responsive.
+        let state = appState
+        let poolID = pool.id, poolName = name, poolPolicy = policy
+        Task { @MainActor in
+            let enriched = await PoolImporter.enrichCountries(members)
+            guard enriched.contains(where: { !$0.country.isEmpty }) else { return }
+            let updated = Pool(id: poolID, name: poolName, policy: poolPolicy, members: enriched)
+            try? await state.poolRepo.save(updated)
+            state.pools = (try? await state.poolRepo.loadAll()) ?? []
         }
     }
 }
