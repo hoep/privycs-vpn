@@ -427,8 +427,8 @@
             <ArrowDownTrayIcon class="w-3 h-3 text-primary-400" />
             <span class="text-[10px] text-gray-500">{{ $t('connect.stats.download') }}</span>
           </div>
-          <span class="text-base font-semibold text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_rx) }}</span>
-          <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestRxSpeed) }}</div>
+          <span class="text-base font-mono font-semibold tabular-nums text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_rx) }}</span>
+          <div class="text-[10px] font-mono tabular-nums text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestRxSpeed) }}</div>
           <!-- #34d4b2 = primary-400 (Privycs teal). Sparkline takes a
                raw hex because echarts itemStyle.color does not resolve
                Tailwind tokens at runtime. Mirrors the icon color above. -->
@@ -439,8 +439,8 @@
             <ArrowUpTrayIcon class="w-3 h-3 text-secondary-500" />
             <span class="text-[10px] text-gray-500">{{ $t('connect.stats.upload') }}</span>
           </div>
-          <span class="text-base font-semibold text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_tx) }}</span>
-          <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestTxSpeed) }}</div>
+          <span class="text-base font-mono font-semibold tabular-nums text-gray-900 dark:text-white">{{ formatBytes(vpn.status?.bytes_tx) }}</span>
+          <div class="text-[10px] font-mono tabular-nums text-gray-500 dark:text-gray-400 mb-1">{{ formatSpeed(latestTxSpeed) }}</div>
           <!-- #1f8efa = secondary-500 (Privycs accent blue). -->
           <SpeedSparkline :data="vpn.txSpeedHistory" color="#1f8efa" />
         </div>

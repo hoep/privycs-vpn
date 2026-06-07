@@ -27,7 +27,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.1.3"                  # CFBundleShortVersionString — Apple allows at most 3 integers. Patch identity lives in the build number below.
-    CURRENT_PROJECT_VERSION: "78"               # MUST increment every TestFlight upload; this is the patch build of marketing 1.1.3
+    CURRENT_PROJECT_VERSION: "79"               # MUST increment every TestFlight upload; this is the patch build of marketing 1.1.3
     # ed25519 license pubkey hex — overridden by CI from the
     # LICENSE_PUBLIC_KEY_HEX secret; empty default for local builds.
     LICENSE_PUBLIC_KEY_HEX: ""
@@ -120,6 +120,17 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UILaunchScreen:
           UIImageRespectsSafeAreaInsets: true
+        # Design-system fonts — bundled under App/Resources/Fonts/
+        # (Inter sans + Fira Code mono). Registered so Font.custom can
+        # resolve them by PostScript name (see App/Theme/PrivycsFont.swift).
+        UIAppFonts:
+          - Inter-Regular.ttf
+          - Inter-Medium.ttf
+          - Inter-SemiBold.ttf
+          - Inter-Bold.ttf
+          - FiraCode-Regular.ttf
+          - FiraCode-Medium.ttf
+          - FiraCode-SemiBold.ttf
     entitlements:
       path: App/PrivycsVPN.entitlements
       properties:

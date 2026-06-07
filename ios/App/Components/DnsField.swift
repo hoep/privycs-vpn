@@ -24,7 +24,7 @@ struct DnsField: View {
                 TextField("e.g. 1.1.1.1, 9.9.9.9", text: $value)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .font(.system(size: 14, design: .monospaced))
+                    .font(PrivycsFont.mono(14))
                     .onSubmit { onCommit() }
                 Menu {
                     Button("Clear (use default)") { value = ""; onCommit() }
@@ -38,7 +38,7 @@ struct DnsField: View {
                 } label: {
                     Image(systemName: "list.bullet.circle")
                         .font(.system(size: 18))
-                        .foregroundStyle(PrivycsColor.teal)
+                        .foregroundStyle(PrivycsColor.accent)
                 }
             }
 

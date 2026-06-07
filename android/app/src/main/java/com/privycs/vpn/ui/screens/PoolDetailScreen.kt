@@ -365,7 +365,7 @@ private fun MemberRow(member: PoolMember, isActive: Boolean, isUnreachable: Bool
                     Text(
                         member.name,
                         style = MaterialTheme.typography.titleSmall,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = com.privycs.vpn.ui.theme.FiraCodeFamily
                     )
                 }
                 Spacer(Modifier.height(4.dp))

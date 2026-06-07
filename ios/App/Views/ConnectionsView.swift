@@ -61,7 +61,7 @@ struct ConnectionsView: View {
 
     private func poolRow(_ pool: Pool) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "circle.grid.3x3.fill").foregroundStyle(PrivycsColor.teal)
+            Image(systemName: "circle.grid.3x3.fill").foregroundStyle(PrivycsColor.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text(pool.name).font(.body)
                 Text("\(pool.policy.displayName) · \(pool.members.count) servers")
@@ -69,7 +69,7 @@ struct ConnectionsView: View {
             }
             if appState.activePool?.id == pool.id {
                 Spacer()
-                Text("Active").font(.caption2.weight(.semibold)).foregroundStyle(PrivycsColor.teal)
+                Text("Active").font(.caption2.weight(.semibold)).foregroundStyle(PrivycsColor.accent)
             }
         }
     }
@@ -79,7 +79,7 @@ struct ConnectionsView: View {
             HStack {
                 Text(conn.name).font(.body)
                 if !conn.dnsOverride.isEmpty {
-                    Image(systemName: "lock.shield").font(.caption2).foregroundStyle(PrivycsColor.teal)
+                    Image(systemName: "lock.shield").font(.caption2).foregroundStyle(PrivycsColor.accent)
                 }
                 Spacer()
                 Button { editConnFor = conn } label: {
@@ -132,7 +132,7 @@ struct ConnectionsView: View {
                     }
                 }
                 Button { addProtocolFor = conn } label: {
-                    Image(systemName: "plus.circle").font(.system(size: 16)).foregroundStyle(PrivycsColor.teal)
+                    Image(systemName: "plus.circle").font(.system(size: 16)).foregroundStyle(PrivycsColor.accent)
                 }
                 .buttonStyle(.borderless)
             }
@@ -368,7 +368,7 @@ struct EditProtocolConfigSheet: View {
         AdaptiveNavStack {
             VStack(spacing: 0) {
                 TextEditor(text: $text)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(PrivycsFont.mono(12))
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .padding(8)

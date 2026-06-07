@@ -48,7 +48,7 @@ struct ConnectionView: View {
                                 // detail panel).
                                 if status.uptime > 0 {
                                     Text(formatUptime(status.uptime))
-                                        .font(.system(size: 16, weight: .medium).monospacedDigit())
+                                        .font(PrivycsFont.mono(16, .medium))
                                         .foregroundStyle(PrivycsColor.onSurface)
                                 }
                                 if let pool = appState.activePool {
@@ -144,14 +144,14 @@ struct ConnectionView: View {
         } label: {
             HStack(spacing: 10) {
                 if let p = appState.selectedPool {
-                    Image(systemName: "circle.grid.3x3.fill").foregroundStyle(PrivycsColor.teal)
+                    Image(systemName: "circle.grid.3x3.fill").foregroundStyle(PrivycsColor.accent)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(p.name).font(.system(size: 15, weight: .semibold))
                         Text("\(p.policy.displayName) · \(p.members.count) servers")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 } else if let c = appState.selectedConnection {
-                    Image(systemName: "shield.lefthalf.filled").foregroundStyle(PrivycsColor.teal)
+                    Image(systemName: "shield.lefthalf.filled").foregroundStyle(PrivycsColor.accent)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(c.name).font(.system(size: 15, weight: .semibold))
                         // All protocols this connection holds (not just the
@@ -418,7 +418,7 @@ struct ConnectionView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 ForEach(parts, id: \.self) { part in
-                    Text(part).font(.system(size: 13, design: .monospaced))
+                    Text(part).font(PrivycsFont.mono(13))
                         .foregroundStyle(PrivycsColor.onSurface)
                         .lineLimit(1).truncationMode(.middle)
                 }
@@ -507,7 +507,7 @@ struct MultiConfigPickerSheet: View {
                             Spacer()
                             if cfg.id == c.activeConfigID {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(PrivycsColor.teal)
+                                    .foregroundStyle(PrivycsColor.accent)
                             }
                         }
                         .contentShape(Rectangle())

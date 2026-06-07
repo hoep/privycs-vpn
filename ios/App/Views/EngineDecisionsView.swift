@@ -28,7 +28,7 @@ struct EngineDecisionsView: View {
                     ForEach(Array(decisions.reversed().prefix(20))) { d in
                         HStack(alignment: .top, spacing: 8) {
                             Text(shortTime(d.at))
-                                .font(.caption.monospacedDigit())
+                                .font(PrivycsFont.mono(12, relativeTo: .caption))
                                 .foregroundStyle(.secondary)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(decisionText(d))

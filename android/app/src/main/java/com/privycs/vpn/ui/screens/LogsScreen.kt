@@ -199,7 +199,7 @@ fun LogsScreen(
                 Text(
                     text = line,
                     style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = com.privycs.vpn.ui.theme.FiraCodeFamily,
                     fontSize = 10.sp,
                     color = color,
                     modifier = Modifier

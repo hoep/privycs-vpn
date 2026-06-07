@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -18,6 +18,16 @@
     -webkit-font-smoothing: antialiased;
     user-select: none;
     overflow: hidden;
+    /* Design-system page canvas: light = teal-tinted #EDF3F2, dark =
+       command-console ink #070B0E. Page-level so views without an
+       explicit bg inherit the CI base. */
+    @apply bg-[#EDF3F2] text-gray-900 dark:bg-[#070B0E] dark:text-gray-100;
+  }
+
+  /* Teal selection — design system (#00CDAB @ 30%). */
+  ::selection {
+    background: rgba(0, 205, 171, 0.3);
+    color: #fff;
   }
 
   *:focus-visible {
@@ -44,9 +54,11 @@
     @apply btn bg-red-500 hover:bg-red-600 text-white;
   }
 
-  /* Cards — matching web dashboard light/dark */
+  /* Cards — design system surface + hairline border. Dark uses a
+     translucent-white hairline (white@8%, --line) for the "techy"
+     console look instead of a solid gray border. */
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700/50;
+    @apply bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-white/[0.08];
   }
 
   /* Input fields — matching web dashboard */
@@ -110,11 +122,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: #17242e; /* surface-3 */
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: #3c4e58; /* fg-4 */
 }
 
 /* Animations */
@@ -148,7 +160,9 @@
 }
 .connect-glow {
   animation: glow-fade-in 600ms ease-out forwards;
-  background: radial-gradient(closest-side, rgba(59, 130, 246, 0.45), transparent 70%);
+  /* Design-system teal glow (#00CDAB) — "secure / alive" accent,
+     was blue; teal matches the brand command-console CI. */
+  background: radial-gradient(closest-side, rgba(0, 205, 171, 0.45), transparent 70%);
   filter: blur(8px);
 }
 

@@ -1,31 +1,27 @@
-v1.1.3.5 (build 78) — VPN pools, ZIP import, and the Smart Decision Engine.
+v1.1.3.7 (build 79) — New Privycs design system: colors + typography.
 
-Please focus testing on these recently-fixed areas:
+This build rolls the new Privycs design system across the whole app
+(matching Desktop + Android). Please look at the LOOK & FEEL on top of
+normal functionality.
 
-1. VPN POOLS — IMPORT
-   • Add tab → "Create a VPN pool" → pick a provider .zip (or several
-     .conf/.ovpn/.sswan files) → name it → Save.
-   • Save must respond IMMEDIATELY (it used to hang forever on some archives).
-   • Confirm the pool appears with the right server count; country flags may
-     fill in a moment later (geolocation runs in the background now).
+1. NEW VISUAL THEME
+   • Dark mode: deeper, teal-tinted "command-console" background with
+     hairline borders (was a flatter blue-grey). Light mode: clean white
+     with a faint teal tint.
+   • Teal accents on light backgrounds are now a darker teal so text and
+     icons stay readable (they used to be too light on white).
+   • Switch Settings → Theme between System / Dark / Light and confirm both
+     modes look right and text is legible everywhere.
 
-2. VPN POOLS — DELETE
-   • On the Configs screen, SWIPE LEFT on a pool row → Delete. (iOS had no way
-     to delete a pool before.) Confirm it disappears and stays gone.
+2. NEW FONTS
+   • The app now ships Inter (UI text) and Fira Code (for numbers/labels:
+     uptime, transfer counters, IP addresses, logs, config text).
+   • Check that text renders correctly — no missing glyphs, no clipped or
+     overlapping labels — on the Connect, Configs, Pool detail, Logs and
+     Settings screens.
 
-3. POOL-ONLY CONNECT
-   • With ONLY a pool configured (no single connection), tap Connect. It must
-     connect (pick a pool member) and prompt for VPN permission on first use.
-
-4. SMART DECISION ENGINE (Settings → Automatic protocol selection ON)
-   • After connecting, the "what the engine decided & why" panel should show
-     readable lines like "Connected via WireGuard" + a reason such as
-     "Austria — not a monitored country; a fast protocol is fine".
-   • In an open (non-monitored) country WireGuard is preferred; AmneziaWG is
-     only chosen if the connection has no WireGuard profile or WireGuard
-     recently failed on this network.
-
-5. GENERAL
+3. REGRESSION CHECK (should be unchanged)
    • Connect/disconnect over WireGuard, AmneziaWG, OpenVPN and IPSec.
-   • On older devices (iOS 15 / older iPads): adding pools, the Save/Cancel
-     buttons, and the file picker should all work.
+   • VPN pools: import a .zip, swipe-left to delete, pool-only connect.
+   • Smart Decision Engine panel (Settings → Automatic protocol selection).
+   • On older devices (iOS 15 / older iPads) everything should still work.

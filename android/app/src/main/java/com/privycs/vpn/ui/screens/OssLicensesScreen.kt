@@ -250,7 +250,7 @@ private fun LicenseText(
             Text(
                 text,
                 style = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = com.privycs.vpn.ui.theme.FiraCodeFamily,
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),

@@ -81,7 +81,7 @@ struct MDBlock: Identifiable {
             .fixedSize(horizontal: false, vertical: true)
         case .code(let s):
             Text(s)
-                .font(.system(size: 12, design: .monospaced))
+                .font(PrivycsFont.mono(12))
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.12)))

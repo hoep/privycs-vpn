@@ -30,7 +30,7 @@ struct ManualPauseSheet: View {
                         } label: {
                             HStack {
                                 Image(systemName: preset.seconds == nil ? "pause.circle" : "clock")
-                                    .foregroundStyle(PrivycsColor.teal)
+                                    .foregroundStyle(PrivycsColor.accent)
                                 Text(preset.label)
                                 Spacer()
                             }

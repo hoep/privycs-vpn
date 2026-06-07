@@ -221,7 +221,7 @@ struct GatewayConfigSheet: View {
                                 } else if importedNames.contains(entry.name) {
                                     Image(systemName: "checkmark.circle.fill").foregroundStyle(PrivycsColor.connected)
                                 } else {
-                                    Image(systemName: "arrow.down.circle").foregroundStyle(PrivycsColor.teal)
+                                    Image(systemName: "arrow.down.circle").foregroundStyle(PrivycsColor.accent)
                                 }
                             }
                         }

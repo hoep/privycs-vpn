@@ -226,7 +226,7 @@ fun ConnectionsScreen(
                             .fillMaxWidth()
                             .heightIn(min = 200.dp, max = 400.dp),
                         textStyle = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            fontFamily = com.privycs.vpn.ui.theme.FiraCodeFamily
                         ),
                         label = { Text(editPc.filename) },
                         singleLine = false

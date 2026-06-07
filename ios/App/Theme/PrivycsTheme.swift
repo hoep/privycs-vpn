@@ -10,10 +10,16 @@ import PrivycsCore
 /// (matching Android, where PrivycsTeal is identical in both).
 enum PrivycsColor {
 
-    // MARK: Brand
-    static let teal      = Color(hex: 0x00CDAB)
-    static let tealDark  = Color(hex: 0x00A88C)
-    static let tealLight = Color(hex: 0x33D7BC)
+    // MARK: Brand — design system teal family (--teal / --teal-2 / --teal-deep)
+    static let teal       = Color(hex: 0x00CDAB)   // brand / dark accent / fills
+    static let tealDark   = Color(hex: 0x00A88C)
+    static let tealLight  = Color(hex: 0x33D7BC)
+    static let tealBright = Color(hex: 0x16E0BE)   // --teal-2 (glow / gradients)
+    static let tealDeep   = Color(hex: 0x0F766E)   // --teal-deep
+    /// Teal accent that darkens to #0a8f78 on LIGHT surfaces (where the
+    /// bright #00CDAB fails contrast) and stays bright #00CDAB in dark —
+    /// use for teal *foreground* (text/icons/links), per the design system.
+    static let accent     = Color(light: 0x0A8F78, dark: 0x00CDAB)
 
     // MARK: Status
     static let connected    = Color(hex: 0x00CDAB)
@@ -27,15 +33,17 @@ enum PrivycsColor {
     static let ipsec      = Color(hex: 0x2563EB)
     static let amneziaWG  = Color(hex: 0x6366F1)
 
-    // MARK: Adaptive background / surface
-    static let background = Color(light: 0xF8FAFB, dark: 0x0F1419)
-    static let surface    = Color(light: 0xFFFFFF, dark: 0x1A1F2E)
-    static let surfaceVariant = Color(light: 0xF0F2F5, dark: 0x242938)
+    // MARK: Adaptive background / surface — "command-console" ramp
+    // (light --ink/--surface/--surface-2 · dark --ink/--surface/--surface-3)
+    static let background     = Color(light: 0xEDF3F2, dark: 0x070B0E)
+    static let surface        = Color(light: 0xFFFFFF, dark: 0x0E161C)
+    static let surfaceVariant = Color(light: 0xF2F7F6, dark: 0x17242E)
 
-    // MARK: Adaptive on-surface text
-    static let onSurface       = Color(light: 0x111827, dark: 0xE5E7EB)
-    static let onSurfaceVariant = Color(light: 0x6B7280, dark: 0x9CA3AF)
-    static let outline         = Color(light: 0xD1D5DB, dark: 0x374151)
+    // MARK: Adaptive on-surface text (--fg / --fg-2)
+    static let onSurface        = Color(light: 0x08191C, dark: 0xEAF1F3)
+    static let onSurfaceVariant = Color(light: 0x44585E, dark: 0x9DB2BD)
+    // Hairline border — faint, design-system --line look.
+    static let outline          = Color(light: 0xE2E8E7, dark: 0x1F2D36)
 }
 
 extension VpnProtocol {

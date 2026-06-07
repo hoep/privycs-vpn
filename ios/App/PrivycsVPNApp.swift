@@ -17,6 +17,10 @@ struct PrivycsVPNApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(appState)
+                // Design-system default typeface: Inter as the inherited
+                // app font (Text/labels without an explicit .font pick it
+                // up). Explicit per-view fonts use PrivycsFont.inter/.mono.
+                .font(PrivycsFont.inter(17))
                 .task {
                     await appState.bootstrap()
                 }

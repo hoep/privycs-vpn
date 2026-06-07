@@ -29,7 +29,7 @@ struct PoolIndicatorCard: View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "circle.grid.3x3.fill")
-                    .foregroundStyle(PrivycsColor.teal)
+                    .foregroundStyle(PrivycsColor.accent)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(poolName).font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(PrivycsColor.onSurface)
@@ -39,8 +39,8 @@ struct PoolIndicatorCard: View {
                 Spacer()
                 if let countdown {
                     VStack(alignment: .trailing, spacing: 1) {
-                        Text(countdown).font(.system(size: 13, weight: .semibold).monospacedDigit())
-                            .foregroundStyle(PrivycsColor.teal)
+                        Text(countdown).font(PrivycsFont.mono(13, .semibold))
+                            .foregroundStyle(PrivycsColor.accent)
                         Text("next rotation").font(.system(size: 9)).foregroundStyle(.secondary)
                     }
                 }
@@ -65,7 +65,7 @@ struct PoolIndicatorCard: View {
                         .font(.system(size: 12, weight: .medium))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(PrivycsColor.teal)
+                .foregroundStyle(PrivycsColor.accent)
             }
         }
         .padding(14)

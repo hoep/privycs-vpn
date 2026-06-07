@@ -29,7 +29,7 @@ struct OssLicensesView: View {
                         Text(c.name).font(.system(size: 15, weight: .semibold))
                         Text(c.purpose).font(.system(size: 12)).foregroundStyle(.secondary)
                         Text(c.license).font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(PrivycsColor.teal)
+                            .foregroundStyle(PrivycsColor.accent)
                     }
                     .padding(.vertical, 2)
                 }

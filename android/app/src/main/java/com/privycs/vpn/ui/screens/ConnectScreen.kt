@@ -439,7 +439,7 @@ fun ConnectScreen(
             Text(
                 text = formatUptime(status.uptime),
                 style = MaterialTheme.typography.titleMedium,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = com.privycs.vpn.ui.theme.FiraCodeFamily,
                 color = MaterialTheme.colorScheme.onBackground
             )
             // v0.9.14.17: tighter spacer below uptime — was 8dp,
@@ -1451,7 +1451,7 @@ private fun DetailRow(label: String, value: String) {
                 Text(
                     text = part,
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = com.privycs.vpn.ui.theme.FiraCodeFamily,
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.End,
                 )

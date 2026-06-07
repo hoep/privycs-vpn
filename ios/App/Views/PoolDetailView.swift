@@ -37,7 +37,7 @@ struct PoolDetailView: View {
                         systemImage: appState.activePool?.id == pool.id && appState.status.connected
                             ? "checkmark.circle.fill" : "bolt.circle"
                     )
-                    .foregroundStyle(PrivycsColor.teal)
+                    .foregroundStyle(PrivycsColor.accent)
                 }
                 .disabled(pool.members.isEmpty)
 
@@ -84,13 +84,13 @@ struct PoolDetailView: View {
                         TextField("Bypass CIDRs (comma-separated)", text: $splitCidrText, axis: .vertical)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .font(.system(size: 13, design: .monospaced))
+                            .font(PrivycsFont.mono(13))
                             .onSubmit { persist() }
                     } else {
                         TextEditor(text: $splitCidrText)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .font(.system(size: 13, design: .monospaced))
+                            .font(PrivycsFont.mono(13))
                             .frame(minHeight: 60)
                     }
                     Toggle("Also bypass private networks", isOn: $excludePrivate)
