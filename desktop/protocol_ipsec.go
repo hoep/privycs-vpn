@@ -805,39 +805,38 @@ func base64StdDecode(s string) ([]byte, error) {
 // Linux: strongSwan swanctl
 // ============================================================================
 
+// linuxFullTS is the dual-stack full tunnel: both families captured.
+const linuxFullTS = "0.0.0.0/0, ::/0"
+
 // computeLinuxRemoteTS turns the .sswan split-tunneling (bypass) CIDRs into the
-// strongSwan child remote_ts. With no bypass it returns the full IPv4 tunnel
-// "0.0.0.0/0"; with bypass nets it returns the IPv4 complement of those nets
-// (comma-separated) so strongSwan's start_action=trap never traps the bypass
-// CIDRs -- they flow via the local gateway. IPv4-only on purpose: this matches
-// the prior 0.0.0.0/0 behaviour (no ::/0 tunnel), so v6 bypass entries are
-// ignored (v6 isn't tunnelled anyway). Malformed entries are skipped.
+// strongSwan child remote_ts. With no bypass it returns the full dual-stack
+// tunnel "0.0.0.0/0, ::/0"; with bypass nets it returns the v4+v6 complement of
+// those nets so strongSwan's start_action=trap never traps the bypass CIDRs --
+// they flow via the local gateway. IPv6 is now tunnelled (Variant B): the v6
+// bypass entries are honoured and ::/0 is captured. If the gateway IKE peer
+// only negotiates a v4 child SA, the v6 trap simply has no SA and v6 traffic is
+// dropped (contained, not leaked) until the server offers v6. Malformed entries
+// are skipped.
 func computeLinuxRemoteTS(bypass []string) string {
-	const full = "0.0.0.0/0"
-	if len(bypass) == 0 {
-		return full
-	}
 	var nets []Cidr
 	for _, s := range bypass {
 		c, err := ParseCidr(s)
-		if err != nil || !c.IsV4() {
+		if err != nil {
 			continue
 		}
 		nets = append(nets, c)
 	}
 	if len(nets) == 0 {
-		return full
+		return linuxFullTS
 	}
 	var parts []string
 	for _, c := range SubtractFromUniverse(nets) {
-		if c.IsV4() {
-			parts = append(parts, c.String())
-		}
+		parts = append(parts, c.String())
 	}
 	if len(parts) == 0 {
-		// Bypass covered the entire IPv4 space -> nothing to tunnel. Fall back
-		// to the full tunnel rather than emitting an empty remote_ts.
-		return full
+		// Bypass covered the entire address space -> nothing to tunnel. Fall
+		// back to the full tunnel rather than emitting an empty remote_ts.
+		return linuxFullTS
 	}
 	return strings.Join(parts, ", ")
 }
@@ -853,14 +852,20 @@ func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
 	}
 
 	remoteTS := computeLinuxRemoteTS(cfg.BypassNetworks)
-	if remoteTS != "0.0.0.0/0" {
+	if remoteTS != linuxFullTS {
 		log.Printf("IPSec Linux split-tunnel: bypass carved out, remote_ts=%s", remoteTS)
 	}
 
+	// Request a dual-stack virtual IP (v4 + v6) via IKEv2 config-mode so the
+	// tunnel has a v6 source address to carry ::/0. The server assigns from
+	// whichever pools it has; a v4-only server simply ignores the :: request
+	// (no v6 vip -> v6 stays contained). Mirrors the Windows/macOS/Android
+	// clients, which always request a config-mode address.
 	swanctlConf := fmt.Sprintf(`connections {
     %s {
         version = 2
         remote_addrs = %s
+        vips = 0.0.0.0, ::
         encap = yes
         mobike = yes
         dpd_delay = 60s

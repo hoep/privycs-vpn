@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os/user"
 	"runtime"
 	"strings"
 	"time"
@@ -380,19 +379,21 @@ func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName st
 					if connectionDisplayName == "" {
 						connectionDisplayName = stableID
 					}
-					scriptB64 := base64.StdEncoding.EncodeToString([]byte(winRoutes))
-					// Pass our own username so the SYSTEM-run helper re-launches
-					// the setup script in THIS user's context -- otherwise the
-					// per-user VPN connection lands in SYSTEM's profile, invisible
-					// to the user. This GUI process runs as the logged-in user.
-					targetUser := ""
-					if u, uerr := user.Current(); uerr == nil {
-						targetUser = u.Username
-					}
+					// Adapt the per-user server script to ALL-USER so the SYSTEM
+					// helper runs it WITHOUT UAC, yet the connection is visible/
+					// dialable by the logged-in user AND named to the app's slot
+					// (gw-ipsec-N) — so the script's Remove+Add REPLACES the app's
+					// own bare all-user create instead of duplicating it (the
+					// "two connections, one without bypass" bug). All-user creation
+					// needs admin, so it must run as SYSTEM — we deliberately do
+					// NOT pass target_user (dropping to the unelevated user would
+					// make -AllUserConnection fail). See rewriteWindowsSetupScriptAllUser.
+					connName := sanitizeTunnelName(stableID)
+					allUserScript := rewriteWindowsSetupScriptAllUser(winRoutes, connName)
+					scriptB64 := base64.StdEncoding.EncodeToString([]byte(allUserScript))
 					resp, ierr := client.SendCommand("ipsec_install_windows_profile", map[string]string{
 						"connection_name": connectionDisplayName,
 						"script_b64":      scriptB64,
-						"target_user":     targetUser,
 					})
 					if ierr != nil {
 						log.Printf("DownloadAndImportConfig: Windows IPSec auto-setup IPC failed: %v", ierr)

@@ -116,13 +116,17 @@ func (h *PrivilegedHelper) cmdIPSecInstallWindowsRoutes(cmd HelperCommand) Helpe
 	b.WriteString("$ok = 0\n$fail = 0\n")
 	// One-shot split-tunnel enable. Errors here are surfaced (it is
 	// the gate that makes Add-VpnConnectionRoute have any effect).
+	// All-User scope: the connection is created by the SYSTEM helper in the
+	// machine-wide phonebook (visible/dialable by the logged-in user). The
+	// previous -AllUserConnection:$false targeted a per-user entry that no
+	// longer exists, so split-tunneling + routes silently missed.
 	fmt.Fprintf(&b,
-		"Set-VpnConnection -Name '%s' -SplitTunneling $true -AllUserConnection:$false -PassThru -ErrorAction Stop | Out-Null\n",
+		"Set-VpnConnection -Name '%s' -SplitTunneling $true -AllUserConnection -PassThru -ErrorAction Stop | Out-Null\n",
 		connName,
 	)
 	for _, c := range clean {
 		fmt.Fprintf(&b,
-			"try { Add-VpnConnectionRoute -ConnectionName '%s' -DestinationPrefix '%s' -PassThru -ErrorAction Stop | Out-Null; $ok++ } catch { $fail++ }\n",
+			"try { Add-VpnConnectionRoute -ConnectionName '%s' -DestinationPrefix '%s' -AllUserConnection -PassThru -ErrorAction Stop | Out-Null; $ok++ } catch { $fail++ }\n",
 			connName, c,
 		)
 	}

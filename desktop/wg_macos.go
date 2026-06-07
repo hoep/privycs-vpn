@@ -36,6 +36,7 @@ type wgDarwinTunnel struct {
 	addedRoutesV4 []string             // CIDRs we added on darwin via /sbin/route
 	addedRoutesV6 []string
 	endpointBypassV4 string             // /32 host route to the WG server's IP
+	endpointBypassV6 string             // /128 host route to the WG server's IPv6
 	savedDNS     map[string][]string   // network-service → previous DNS server list
 	savedSearch  map[string][]string   // network-service → previous search domains
 }
@@ -121,14 +122,19 @@ func wgDarwinUp(friendlyName, configContent string) (string, error) {
 	// otherwise the very first handshake packet to the server would match
 	// 0.0.0.0/1 and loop into the tunnel that's still trying to handshake.
 	var endpointIPv4 string
+	var endpointIPv6 string
 	if len(cfg.Peers) > 0 && cfg.Peers[0].Endpoint != "" {
 		ep, err := resolveEndpoint(cfg.Peers[0].Endpoint)
 		if err != nil {
 			return "", fmt.Errorf("resolve endpoint: %w", err)
 		}
 		host, _, _ := net.SplitHostPort(ep)
-		if ip := net.ParseIP(host); ip != nil && ip.To4() != nil {
-			endpointIPv4 = ip.String()
+		if ip := net.ParseIP(host); ip != nil {
+			if ip.To4() != nil {
+				endpointIPv4 = ip.String()
+			} else {
+				endpointIPv6 = ip.String()
+			}
 		}
 	}
 
@@ -223,6 +229,25 @@ func wgDarwinUp(friendlyName, configContent string) (string, error) {
 		}
 	}
 
+	// IPv6 endpoint bypass — same rationale as v4: when the server endpoint
+	// resolves to v6 AND the tunnel routes ::/0 (dual-stack config from the
+	// gateway), the WG transport packets to the server would otherwise match
+	// the in-tunnel ::/0 route and loop. Pin a /128 host route via the real
+	// v6 default gateway so the handshake escapes.
+	if endpointIPv6 != "" {
+		if gw := defaultGatewayIPv6(); gw != "" {
+			args := []string{"-q", "-n", "add", "-inet6", endpointIPv6 + "/128", "-gateway", gw}
+			if out, err := exec.Command("/sbin/route", args...).CombinedOutput(); err == nil {
+				state.endpointBypassV6 = endpointIPv6
+				log.Printf("wgDarwinUp[%s]: endpoint bypass route %s/128 via %s installed", friendlyName, endpointIPv6, gw)
+			} else {
+				log.Printf("wgDarwinUp[%s]: v6 endpoint bypass install warning: %v: %s", friendlyName, err, strings.TrimSpace(string(out)))
+			}
+		} else {
+			log.Printf("wgDarwinUp[%s]: no IPv6 default gateway found, skipping v6 endpoint bypass — handshake may loop", friendlyName)
+		}
+	}
+
 	// Catch-all routes for each peer's AllowedIPs. We add each CIDR as
 	// directly-attached to the utun. wg-quick on Mac splits 0.0.0.0/0 into
 	// /1+/1 to avoid replacing the system default; we do the same here so
@@ -302,6 +327,9 @@ func rollbackUp(state *wgDarwinTunnel) {
 	if state.endpointBypassV4 != "" {
 		exec.Command("/sbin/route", "-q", "-n", "delete", "-inet", state.endpointBypassV4+"/32").Run()
 	}
+	if state.endpointBypassV6 != "" {
+		exec.Command("/sbin/route", "-q", "-n", "delete", "-inet6", state.endpointBypassV6+"/128").Run()
+	}
 	for svc, saved := range state.savedDNS {
 		_ = setDNSServers(svc, saved)
 	}
@@ -333,6 +361,9 @@ func wgDarwinDown(friendlyName string) error {
 	}
 	if state.endpointBypassV4 != "" {
 		exec.Command("/sbin/route", "-q", "-n", "delete", "-inet", state.endpointBypassV4+"/32").Run()
+	}
+	if state.endpointBypassV6 != "" {
+		exec.Command("/sbin/route", "-q", "-n", "delete", "-inet6", state.endpointBypassV6+"/128").Run()
 	}
 	for svc, saved := range state.savedDNS {
 		if len(saved) == 0 {
@@ -398,6 +429,23 @@ func splitDefaultRoute(cidr string) []string {
 // "gateway:" line. Used for endpoint bypass route construction.
 func defaultGatewayIPv4() string {
 	out, err := exec.Command("/sbin/route", "-n", "get", "default").CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "gateway:") {
+			return strings.TrimSpace(strings.TrimPrefix(t, "gateway:"))
+		}
+	}
+	return ""
+}
+
+// defaultGatewayIPv6 returns the current IPv6 default gateway (may be a
+// link-local fe80::… with a %zone suffix), or "" if none. Reads
+// `route -n get -inet6 default`. Used for the v6 endpoint bypass route.
+func defaultGatewayIPv6() string {
+	out, err := exec.Command("/sbin/route", "-n", "get", "-inet6", "default").CombinedOutput()
 	if err != nil {
 		return ""
 	}
