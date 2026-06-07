@@ -128,6 +128,10 @@ type IPSecConfig struct {
 	CACertPEM      string `json:"ca_cert_pem"`
 	ClientCertPEM  string `json:"client_cert_pem"`
 	ClientKeyPEM   string `json:"client_key_pem"`
+	// BypassNetworks are the .sswan split-tunneling CIDRs that must NOT go
+	// through the tunnel (e.g. site-to-site 10.x). On Linux they are carved
+	// out of remote_ts so strongSwan's trap policy never captures them.
+	BypassNetworks []string `json:"bypass_networks"`
 }
 
 // NewIPSecProtocol creates a new IPSec protocol handler
@@ -635,6 +639,7 @@ func (i *IPSecProtocol) configureLinuxFromSSwan(profile *sswanProfile) error {
 		RemoteAddress:  profile.Remote.Addr,
 		RemoteID:       profile.Remote.ID,
 		LocalID:        profile.Local.ID,
+		BypassNetworks: profile.SplitTunneling,
 	}
 	return i.configureLinux(ipsecCfg)
 }
@@ -800,6 +805,43 @@ func base64StdDecode(s string) ([]byte, error) {
 // Linux: strongSwan swanctl
 // ============================================================================
 
+// computeLinuxRemoteTS turns the .sswan split-tunneling (bypass) CIDRs into the
+// strongSwan child remote_ts. With no bypass it returns the full IPv4 tunnel
+// "0.0.0.0/0"; with bypass nets it returns the IPv4 complement of those nets
+// (comma-separated) so strongSwan's start_action=trap never traps the bypass
+// CIDRs -- they flow via the local gateway. IPv4-only on purpose: this matches
+// the prior 0.0.0.0/0 behaviour (no ::/0 tunnel), so v6 bypass entries are
+// ignored (v6 isn't tunnelled anyway). Malformed entries are skipped.
+func computeLinuxRemoteTS(bypass []string) string {
+	const full = "0.0.0.0/0"
+	if len(bypass) == 0 {
+		return full
+	}
+	var nets []Cidr
+	for _, s := range bypass {
+		c, err := ParseCidr(s)
+		if err != nil || !c.IsV4() {
+			continue
+		}
+		nets = append(nets, c)
+	}
+	if len(nets) == 0 {
+		return full
+	}
+	var parts []string
+	for _, c := range SubtractFromUniverse(nets) {
+		if c.IsV4() {
+			parts = append(parts, c.String())
+		}
+	}
+	if len(parts) == 0 {
+		// Bypass covered the entire IPv4 space -> nothing to tunnel. Fall back
+		// to the full tunnel rather than emitting an empty remote_ts.
+		return full
+	}
+	return strings.Join(parts, ", ")
+}
+
 func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
 	ikeProposals := cfg.IKEProposals
 	if ikeProposals == "" {
@@ -808,6 +850,11 @@ func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
 	espProposals := cfg.ESPProposals
 	if espProposals == "" {
 		espProposals = "aes256-sha256-modp2048"
+	}
+
+	remoteTS := computeLinuxRemoteTS(cfg.BypassNetworks)
+	if remoteTS != "0.0.0.0/0" {
+		log.Printf("IPSec Linux split-tunnel: bypass carved out, remote_ts=%s", remoteTS)
 	}
 
 	swanctlConf := fmt.Sprintf(`connections {
@@ -828,7 +875,7 @@ func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
         }
         children {
             %s {
-                remote_ts = 0.0.0.0/0
+                remote_ts = %s
                 start_action = trap
                 dpd_action = restart
                 esp_proposals = %s
@@ -838,7 +885,7 @@ func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
     }
 }
 `, cfg.ConnectionName, cfg.RemoteAddress, cfg.LocalID, cfg.RemoteID,
-		cfg.ConnectionName, espProposals, ikeProposals)
+		cfg.ConnectionName, remoteTS, espProposals, ikeProposals)
 
 	client := NewHelperClient()
 	if !client.IsHelperReachable() {
