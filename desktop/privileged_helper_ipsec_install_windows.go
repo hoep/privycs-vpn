@@ -129,8 +129,19 @@ func (h *PrivilegedHelper) cmdIPSecInstallWindowsProfile(cmd HelperCommand) Help
 	// Execute. The polyglot detects cmd-mode and self-loads as
 	// PowerShell with -ExecutionPolicy Bypass; we just need cmd.exe.
 	// Combined output gives us a single buffer for redaction.
-	log.Printf("ipsec_install_windows_profile: executing %s for connection %q", scriptPath, connName)
-	out, runErr := exec.Command("cmd.exe", "/c", scriptPath).CombinedOutput()
+	//
+	// The helper runs as SYSTEM, so a per-user Add-VpnConnection in the script
+	// would land in SYSTEM's profile (invisible to the user). We pass the
+	// caller's username via PRIVYCS_TARGET_USER; the script re-launches itself
+	// as that interactive user so the connection lands in the right profile.
+	// If absent the script falls back to console-user detection.
+	targetUser := strings.TrimSpace(cmd.Args["target_user"])
+	log.Printf("ipsec_install_windows_profile: executing %s for connection %q (target user %q)", scriptPath, connName, targetUser)
+	execCmd := exec.Command("cmd.exe", "/c", scriptPath)
+	if targetUser != "" {
+		execCmd.Env = append(os.Environ(), "PRIVYCS_TARGET_USER="+targetUser)
+	}
+	out, runErr := execCmd.CombinedOutput()
 	redacted := pkcs12Base64Pattern.ReplaceAllString(string(out), "[REDACTED]")
 	// Trim and truncate the captured output for log sanity — full
 	// script output for a 300-route install can be tens of KB.

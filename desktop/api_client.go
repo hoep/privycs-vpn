@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os/user"
 	"runtime"
 	"strings"
 	"time"
@@ -380,9 +381,18 @@ func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName st
 						connectionDisplayName = stableID
 					}
 					scriptB64 := base64.StdEncoding.EncodeToString([]byte(winRoutes))
+					// Pass our own username so the SYSTEM-run helper re-launches
+					// the setup script in THIS user's context -- otherwise the
+					// per-user VPN connection lands in SYSTEM's profile, invisible
+					// to the user. This GUI process runs as the logged-in user.
+					targetUser := ""
+					if u, uerr := user.Current(); uerr == nil {
+						targetUser = u.Username
+					}
 					resp, ierr := client.SendCommand("ipsec_install_windows_profile", map[string]string{
 						"connection_name": connectionDisplayName,
 						"script_b64":      scriptB64,
+						"target_user":     targetUser,
 					})
 					if ierr != nil {
 						log.Printf("DownloadAndImportConfig: Windows IPSec auto-setup IPC failed: %v", ierr)
