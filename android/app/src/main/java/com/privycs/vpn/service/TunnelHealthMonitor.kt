@@ -306,8 +306,12 @@ object TunnelHealthMonitor {
             // value at recovery-fire time so a recent reorder takes
             // effect immediately.
             // Smart Decision Engine drives the recovery order when Automatic is on. [v1.0.9]
-            val failoverOrder = com.privycs.vpn.engine.EngineShadow.effectiveOrder(
+            var failoverOrder = com.privycs.vpn.engine.EngineShadow.effectiveOrder(
                 PrivycsApp.instance.settingsRepository.getSettingsBlocking(), connection)
+            // Same-protocol-first: try the dead protocol's OTHER configs before
+            // switching protocol. Promote it to the front of the order (orderedConfigs
+            // distinct()s it; the order already groups other protocols' configs).
+            failoverOrder = listOf(connection.activeProtocol) + failoverOrder
             val ordered = connection.orderedConfigs(failoverOrder)
             val nextConfig = ordered.firstOrNull { it.id != deadConfigId }
             if (nextConfig != null) {

@@ -1642,8 +1642,19 @@ class PrivycsVpnService : VpnService() {
                     // IPSec). v0.9.15.70.
                     val refreshed = PrivycsApp.instance.connectionRepository.getById(connectionId)
                     // Smart Decision Engine drives the order when Automatic is on. [v1.0.9]
-                    val failoverOrder = com.privycs.vpn.engine.EngineShadow.effectiveOrder(
+                    var failoverOrder = com.privycs.vpn.engine.EngineShadow.effectiveOrder(
                         PrivycsApp.instance.settingsRepository.getSettingsBlocking(), refreshed)
+                    // Same-protocol-first: exhaust the originally-active protocol's
+                    // OTHER configs (e.g. a second WireGuard endpoint) before switching
+                    // protocol. Promote that protocol to the front of the order;
+                    // orderedConfigs() distinct()s it so a duplicate is harmless, and the
+                    // order already groups every other protocol's configs together. Without
+                    // this, a low-ranked active protocol would jump to a higher-ranked OTHER
+                    // protocol before trying its own siblings (the reported bug).
+                    val originalProto = refreshed?.protocols?.firstOrNull { it.id == originalConfigId }?.protocol
+                    if (originalProto != null) {
+                        failoverOrder = listOf(originalProto) + failoverOrder
+                    }
                     val nextCfg = refreshed?.orderedConfigs(failoverOrder)?.firstOrNull { cfg ->
                         cfg.id !in triedIds
                     }

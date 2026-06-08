@@ -1,27 +1,25 @@
-v1.1.3.7 (build 79) — New Privycs design system: colors + typography.
+v1.1.3.9 (build 80) — Same-protocol-first failover.
 
-This build rolls the new Privycs design system across the whole app
-(matching Desktop + Android). Please look at the LOOK & FEEL on top of
-normal functionality.
+This build fixes how automatic failover chooses the next server when a
+connection has MULTIPLE configs of the same protocol (e.g. two WireGuard
+endpoints) inside one connection.
 
-1. NEW VISUAL THEME
-   • Dark mode: deeper, teal-tinted "command-console" background with
-     hairline borders (was a flatter blue-grey). Light mode: clean white
-     with a faint teal tint.
-   • Teal accents on light backgrounds are now a darker teal so text and
-     icons stay readable (they used to be too light on white).
-   • Switch Settings → Theme between System / Dark / Light and confirm both
-     modes look right and text is legible everywhere.
+WHAT CHANGED
+- When the active config fails, failover now tries the OTHER configs of the
+  SAME protocol first (a second WireGuard endpoint, etc.) BEFORE switching to a
+  different protocol. Previously it could jump to another protocol before
+  exhausting the same-protocol alternates.
 
-2. NEW FONTS
-   • The app now ships Inter (UI text) and Fira Code (for numbers/labels:
-     uptime, transfer counters, IP addresses, logs, config text).
-   • Check that text renders correctly — no missing glyphs, no clipped or
-     overlapping labels — on the Connect, Configs, Pool detail, Logs and
-     Settings screens.
+HOW TO TEST
+1. Create ONE connection that holds several configs, including two of the same
+   protocol — e.g. WireGuard-ServerA + WireGuard-ServerB + an OpenVPN config.
+2. Connect, then make the active endpoint fail (e.g. ServerA unreachable / wrong
+   port, or pull it mid-session so the health monitor recovers).
+3. Confirm it fails over to the OTHER WireGuard endpoint (ServerB) FIRST, and
+   only moves to OpenVPN if BOTH WireGuard endpoints fail.
+4. Check the failover toast/notification names the server it landed on.
 
-3. REGRESSION CHECK (should be unchanged)
-   • Connect/disconnect over WireGuard, AmneziaWG, OpenVPN and IPSec.
-   • VPN pools: import a .zip, swipe-left to delete, pool-only connect.
-   • Smart Decision Engine panel (Settings → Automatic protocol selection).
-   • On older devices (iOS 15 / older iPads) everything should still work.
+REGRESSION CHECK (should be unchanged)
+- Normal connect/disconnect over WireGuard, AmneziaWG, OpenVPN, IPSec.
+- Single-config connections and pools behave exactly as before.
+- Manual protocol pill switch still works.

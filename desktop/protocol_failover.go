@@ -110,6 +110,18 @@ func (a *App) tryFailoverProtocol(excludeOriginalConfigID string) (string, error
 	if a.settings.AutoProtocolSelection && a.activePoolID == "" {
 		failoverOrder = a.engineSelectOrder(conn)
 	}
+	// Same-protocol-first: exhaust the active/failed protocol's OTHER
+	// configs (e.g. a second WireGuard endpoint) before switching protocol.
+	// Promote the failed config's protocol to the front of the failover
+	// order — OrderedConfigsFor dedups so a duplicate is harmless, and the
+	// global order already groups every other protocol's configs together.
+	// Without this, a failed config whose protocol ranks LOW in the order
+	// would jump to a higher-ranked OTHER protocol before trying its own
+	// siblings (the reported bug). append() builds a NEW slice, so the
+	// settings/engine order is never mutated.
+	if ex := conn.GetConfigByID(excludeOriginalConfigID); ex != nil && ex.Protocol != "" {
+		failoverOrder = append([]string{ex.Protocol}, failoverOrder...)
+	}
 	candidates := conn.OrderedConfigsFor(failoverOrder)
 	if len(candidates) <= 1 {
 		return "", fmt.Errorf("failover: connection %q has no alternate config", conn.Name)

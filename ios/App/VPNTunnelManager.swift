@@ -109,9 +109,19 @@ final class VPNTunnelManager: ObservableObject {
         // single-shot connect — pools keep their own member-failover in AppState.
         let candidates: [ProtocolConfig]
         if let eo = engineOrder {
+            // Engine order already leads with the chosen protocol, so
+            // orderedConfigs groups that protocol's configs first — same-
+            // protocol-first holds.
             candidates = connection.orderedConfigs(order: eo)
         } else if let active = connection.resolvedActiveConfig(globalOrder: failoverOrder) {
-            candidates = [active] + connection.orderedConfigs(order: failoverOrder).filter { $0.id != active.id }
+            // Same-protocol-first: exhaust the active protocol's OTHER configs
+            // (e.g. a second WireGuard endpoint) before switching protocol.
+            // Promote the active protocol to the front of the order so its
+            // siblings sort ahead of every other protocol; without this a
+            // low-ranked active protocol would jump to a higher-ranked OTHER
+            // protocol before trying its own siblings (the reported bug).
+            let promoted = [active.protocol] + failoverOrder
+            candidates = [active] + connection.orderedConfigs(order: promoted).filter { $0.id != active.id }
         } else {
             candidates = connection.orderedConfigs(order: failoverOrder)
         }
