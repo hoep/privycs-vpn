@@ -746,7 +746,10 @@ final class VPNTunnelManager: ObservableObject {
                 let hdr = base.advanced(by: off).assumingMemoryBound(to: if_msghdr.self)
                 let msglen = Int(hdr.pointee.ifm_msglen)
                 if msglen <= 0 { break }
-                if hdr.pointee.ifm_type == UInt8(RTM_IFINFO2) {
+                // RTM_IFINFO2 == 0x12 (from <net/route.h>); the constant isn't
+                // surfaced in the Swift Darwin module on this SDK, so use the
+                // literal. if_msghdr2/if_data64 ARE available.
+                if hdr.pointee.ifm_type == UInt8(0x12) {
                     let m2 = base.advanced(by: off).assumingMemoryBound(to: if_msghdr2.self)
                     var nameBuf = [CChar](repeating: 0, count: Int(IFNAMSIZ))
                     if if_indextoname(UInt32(m2.pointee.ifm_index), &nameBuf) != nil,
