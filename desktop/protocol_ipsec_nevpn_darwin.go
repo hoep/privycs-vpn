@@ -45,8 +45,9 @@ func macosUpNEVPN(i *IPSecProtocol, _ context.Context) error {
 	if err := nevpnStart(); err != nil {
 		return fmt.Errorf("NEVPNManager start: %w", err)
 	}
-	// Poll up to 20s for the IKE_SA to come up. NEVPNStatus 3 = connected.
-	deadline := time.Now().Add(20 * time.Second)
+	// Poll up to 30s for the IKE_SA to come up (public-cert validation can be
+	// slower; parity with the iOS waitForConnected timeout). NEVPNStatus 3 = connected.
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if nevpnStatusRaw() == 3 {
 			i.connectedAt = time.Now()

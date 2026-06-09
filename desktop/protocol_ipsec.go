@@ -80,6 +80,12 @@ type IPSecProtocol struct {
 	// own kernel-driven counters that don't have this gap).
 	stickyMaxBytesRx int64
 	stickyMaxBytesTx int64
+	// macOS IPSec traffic: NEVPNManager exposes no inner-IP, so we identify
+	// the tunnel utun by diffing the utun set captured just before connect vs
+	// once connected (the new one is the tunnel). macosTunIface is then read
+	// for rx/tx via netstat. macOS-only.
+	macosPreUtuns  map[string]bool
+	macosTunIface  string
 }
 
 // SetDnsOverride records the user's manual DNS server list (from
@@ -231,19 +237,20 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 			if vip != "" {
 				i.localAddr = vip
 				status.LocalAddress = vip
-				if iface := darwinUtunForIP(vip); iface != "" {
-					rx, tx := darwinIfaceBytes(iface)
-					// Sticky-max so a netstat blip / wrap never makes the
-					// counter jump backwards (mirrors the swanctl path).
-					if rx > i.stickyMaxBytesRx {
-						i.stickyMaxBytesRx = rx
-					}
-					if tx > i.stickyMaxBytesTx {
-						i.stickyMaxBytesTx = tx
-					}
-					status.BytesRx = i.stickyMaxBytesRx
-					status.BytesTx = i.stickyMaxBytesTx
+			}
+			// Traffic: read the tunnel utun identified at connect (upMacOS
+			// snapshot-diff) — macosStatusNEVPN gives no inner IP. Sticky-max
+			// so a netstat blip never makes the counter jump backwards.
+			if i.macosTunIface != "" {
+				rx, tx := darwinIfaceBytes(i.macosTunIface)
+				if rx > i.stickyMaxBytesRx {
+					i.stickyMaxBytesRx = rx
 				}
+				if tx > i.stickyMaxBytesTx {
+					i.stickyMaxBytesTx = tx
+				}
+				status.BytesRx = i.stickyMaxBytesRx
+				status.BytesTx = i.stickyMaxBytesTx
 			}
 		}
 	case "windows":
@@ -978,10 +985,25 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 	// installs its own routing (incl. the default route + DNS pushed
 	// in the IKE_AUTH CFG_REPLY), so the manual swanctl-era split-
 	// tunnel + v6-default-route helper calls are no longer needed.
-	return macosUpNEVPN(i, ctx)
+	// Snapshot utuns first so we can identify the tunnel utun (for the
+	// traffic counter) as the new one that appears after connect.
+	i.macosPreUtuns = darwinUtunNames()
+	i.macosTunIface = ""
+	if err := macosUpNEVPN(i, ctx); err != nil {
+		return err
+	}
+	for name := range darwinUtunNames() {
+		if !i.macosPreUtuns[name] {
+			i.macosTunIface = name
+			break
+		}
+	}
+	return nil
 }
 
 func (i *IPSecProtocol) downMacOS(ctx context.Context) error {
+	i.macosTunIface = ""
+	i.macosPreUtuns = nil
 	return macosDownNEVPN(i, ctx)
 }
 

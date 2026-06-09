@@ -28,38 +28,22 @@ import (
 	"strings"
 )
 
-// darwinUtunForIP returns the name of the utun interface that holds the given
-// (inner/VPN) IP — used to identify the IKEv2 tunnel interface for traffic
-// counting (NEVPNManager exposes no byte API). Pure Go (compiles everywhere;
-// only meaningful on macOS where the IKEv2 tunnel is a utun).
-func darwinUtunForIP(ip string) string {
-	target := net.ParseIP(ip)
-	if target == nil {
-		return ""
-	}
+// darwinUtunNames returns the set of current utun interface names. Used to
+// identify the IKEv2 tunnel utun by diffing the set before vs after connect
+// (NEVPNManager exposes no inner-IP, so a VIP match isn't possible). Pure Go
+// (compiles everywhere; only meaningful on macOS).
+func darwinUtunNames() map[string]bool {
+	out := map[string]bool{}
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return ""
+		return out
 	}
 	for _, ifc := range ifaces {
-		if !strings.HasPrefix(ifc.Name, "utun") {
-			continue
-		}
-		addrs, _ := ifc.Addrs()
-		for _, a := range addrs {
-			var aip net.IP
-			switch v := a.(type) {
-			case *net.IPNet:
-				aip = v.IP
-			case *net.IPAddr:
-				aip = v.IP
-			}
-			if aip != nil && aip.Equal(target) {
-				return ifc.Name
-			}
+		if strings.HasPrefix(ifc.Name, "utun") {
+			out[ifc.Name] = true
 		}
 	}
-	return ""
+	return out
 }
 
 // darwinIfaceBytes returns rx/tx byte counters for an interface by parsing
