@@ -78,12 +78,18 @@ static char* privycs_nevpn_configure(const char* name, const char* server,
         p.enablePFS = YES;
         p.deadPeerDetectionRate = NEVPNIKEv2DeadPeerDetectionRateMedium;
 
-        p.IKESecurityAssociationParameters.encryptionAlgorithm = NEVPNIKEv2EncryptionAlgorithmAES256GCM;
+        // Match the GATEWAY's documented IKE/ESP proposal exactly:
+        // aes256-sha256-modp2048 (AES-256-CBC + SHA256 + DH group 14). Forcing
+        // AES256-GCM + group19 (the prior values) offered something the gateway
+        // does not accept → no common proposal → IKE_SA_INIT timed out. Mirrors
+        // the iOS fix (VPNTunnelManager.connectViaIKEv2). CBC needs an explicit
+        // integrity algorithm (GCM is AEAD).
+        p.IKESecurityAssociationParameters.encryptionAlgorithm = NEVPNIKEv2EncryptionAlgorithmAES256;
         p.IKESecurityAssociationParameters.integrityAlgorithm = NEVPNIKEv2IntegrityAlgorithmSHA256;
-        p.IKESecurityAssociationParameters.diffieHellmanGroup = NEVPNIKEv2DiffieHellmanGroup19;
-        p.childSecurityAssociationParameters.encryptionAlgorithm = NEVPNIKEv2EncryptionAlgorithmAES256GCM;
+        p.IKESecurityAssociationParameters.diffieHellmanGroup = NEVPNIKEv2DiffieHellmanGroup14;
+        p.childSecurityAssociationParameters.encryptionAlgorithm = NEVPNIKEv2EncryptionAlgorithmAES256;
         p.childSecurityAssociationParameters.integrityAlgorithm = NEVPNIKEv2IntegrityAlgorithmSHA256;
-        p.childSecurityAssociationParameters.diffieHellmanGroup = NEVPNIKEv2DiffieHellmanGroup19;
+        p.childSecurityAssociationParameters.diffieHellmanGroup = NEVPNIKEv2DiffieHellmanGroup14;
 
         mgr.protocolConfiguration = p;
         mgr.localizedDescription = [NSString stringWithUTF8String:name];
