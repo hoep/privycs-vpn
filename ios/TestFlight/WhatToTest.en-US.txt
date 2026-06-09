@@ -1,16 +1,23 @@
-v1.1.3.18 (build 87) — App ↔ iOS-VPN profile sync.
+v1.1.3.19 (build 88) — one VPN at a time + IPSec profile switching.
 
-On launch the app now reflects the VPN that's ACTUALLY running in iOS, so its
-selected/active connection matches reality (e.g. a tunnel iOS brought up on its
-own, or one left running from a previous session). One-shot at launch — it never
-overrides a live switch you make in the app.
+Fixes two related issues:
+- The app could start TWO VPNs at once (IPSec AND WireGuard) — a stale
+  on-demand-armed WireGuard profile fired while IPSec came up.
+- Switching to a DIFFERENT IPSec profile didn't take effect (the still-armed
+  WireGuard raced the IPSec slot).
+
+WHAT CHANGED
+- Before bringing up a tunnel, the app now DISABLES every other VPN profile
+  (the IPSec personal VPN when starting WireGuard/AmneziaWG/OpenVPN, and all
+  packet-tunnel profiles when starting IPSec) → exactly one VPN active.
 
 HOW TO TEST
-- With a VPN already connected, force-quit and relaunch the app: the Connect
-  screen should show the correct connection as the active/selected one (not a
-  different/default one).
-- Connect/disconnect/switch normally afterwards — behaviour unchanged.
+1. Connection with both IPSec and WireGuard configs: connect IPSec → in
+   iOS Settings ▸ VPN only the IPSec/personal VPN should be up (no WireGuard
+   starting alongside).
+2. Switch between two IPSec profiles (e.g. ipsShield1 → ipsShield2): the new
+   one should take over the single IPSec slot and connect.
+3. Switch IPSec ↔ WireGuard back and forth — only one runs at a time.
 
 REGRESSION CHECK
-- IPSec stays connected (v1.1.3.16 fix), traffic counter, WG/AWG/OVPN, pools,
-  on-demand rules all unchanged.
+- WG/AWG/OVPN connect/disconnect, pools, on-demand rules, traffic counter.

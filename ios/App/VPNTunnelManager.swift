@@ -356,6 +356,43 @@ final class VPNTunnelManager: ObservableObject {
         await reloadManagersAndRefresh()
     }
 
+    /// Enforce a SINGLE active VPN before starting one: disable every manager
+    /// that isn't the one we're about to bring up. iOS happily keeps multiple
+    /// managers `isEnabled` + on-demand-armed at once — so a stale WireGuard
+    /// NETunnelProviderManager (armed from a prior session) fires while we bring
+    /// up the IPSec NEVPNManager → "both start at the same time". This also made
+    /// switching between IPSec profiles look broken: the injector overwrites the
+    /// single NEVPNManager slot fine, but a still-armed WG manager raced it.
+    /// Called from connectViaPTP / connectViaIKEv2 before arming the active one.
+    private func deactivateOtherManagers(active: VpnProtocol, activeName: String) async {
+        let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+        for m in mgrs {
+            // Keep the active PTP manager (matched by name) armed; disable all
+            // other PTP managers, and ALL PTP managers when IPSec is active.
+            if active != .ipsec, m.localizedDescription == activeName { continue }
+            let st = m.connection.status
+            if m.isEnabled || m.isOnDemandEnabled || st == .connected || st == .connecting || st == .reasserting {
+                m.connection.stopVPNTunnel()
+                m.isOnDemandEnabled = false
+                m.isEnabled = false
+                try? await m.saveToPreferences()
+            }
+        }
+        // Disable the IPSec personal VPN when starting a PTP tunnel (the reverse
+        // — disabling PTP when IPSec is active — is the loop above).
+        if active != .ipsec {
+            let ike = NEVPNManager.shared()
+            try? await ike.loadFromPreferences()
+            let st = ike.connection.status
+            if ike.isEnabled || ike.isOnDemandEnabled || st == .connected || st == .connecting || st == .reasserting {
+                ike.connection.stopVPNTunnel()
+                ike.isOnDemandEnabled = false
+                ike.isEnabled = false
+                try? await ike.saveToPreferences()
+            }
+        }
+    }
+
     /// Remove the OS-level VPN configuration(s) for a deleted connection so they
     /// don't orphan in iOS Settings ▸ VPN after the user deletes the connection
     /// in-app. PTP protocols (WG/AWG/OpenVPN) use a per-connection
@@ -411,6 +448,9 @@ final class VPNTunnelManager: ObservableObject {
 
     @discardableResult
     private func connectViaPTP(connection: SavedConnection, config: ProtocolConfig) async throws -> NETunnelProviderManager {
+        // Single active VPN: turn off the IPSec NEVPNManager + any other PTP
+        // manager so iOS doesn't run two tunnels at once.
+        await deactivateOtherManagers(active: config.protocol, activeName: connection.name)
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         let mgr = mgrs.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
@@ -514,6 +554,10 @@ final class VPNTunnelManager: ObservableObject {
         ipsecTunIface = nil
         ipsecBaseRx = 0; ipsecBaseTx = 0
         ipsecTrafficLogged = false
+
+        // Single active VPN: turn off every PTP manager so a stale on-demand-
+        // armed WireGuard doesn't start alongside this IPSec tunnel.
+        await deactivateOtherManagers(active: .ipsec, activeName: connection.name)
 
         let mgr = NEVPNManager.shared()
         try await mgr.loadFromPreferences()
