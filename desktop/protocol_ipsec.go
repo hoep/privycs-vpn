@@ -222,16 +222,28 @@ func (i *IPSecProtocol) Status() ProtocolStatus {
 		}
 	case "darwin":
 		// macOS NEVPNManager: connected-state from NEVPNConnection.status.
-		// Apple's IKEv2 Personal-VPN exposes no public byte counters and
-		// no easy inner-IP accessor, so BytesRx/Tx stay 0 and LocalAddress
-		// stays empty (same limitation as the iOS IKEv2 path). The system
-		// VPN icon + System Settings show the live state.
+		// Apple's IKEv2 Personal-VPN exposes no byte API, so we read the
+		// tunnel utun's kernel counters: macosStatusNEVPN gives the inner VPN
+		// IP, we find the utun holding it, and read its rx/tx via netstat.
 		if connected, vip := macosStatusNEVPN(i); connected {
 			status.Connected = true
 			status.ConnectedAt = i.connectedAt.Format(time.RFC3339)
 			if vip != "" {
 				i.localAddr = vip
 				status.LocalAddress = vip
+				if iface := darwinUtunForIP(vip); iface != "" {
+					rx, tx := darwinIfaceBytes(iface)
+					// Sticky-max so a netstat blip / wrap never makes the
+					// counter jump backwards (mirrors the swanctl path).
+					if rx > i.stickyMaxBytesRx {
+						i.stickyMaxBytesRx = rx
+					}
+					if tx > i.stickyMaxBytesTx {
+						i.stickyMaxBytesTx = tx
+					}
+					status.BytesRx = i.stickyMaxBytesRx
+					status.BytesTx = i.stickyMaxBytesTx
+				}
 			}
 		}
 	case "windows":

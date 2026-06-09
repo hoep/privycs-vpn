@@ -19,12 +19,70 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 )
+
+// darwinUtunForIP returns the name of the utun interface that holds the given
+// (inner/VPN) IP — used to identify the IKEv2 tunnel interface for traffic
+// counting (NEVPNManager exposes no byte API). Pure Go (compiles everywhere;
+// only meaningful on macOS where the IKEv2 tunnel is a utun).
+func darwinUtunForIP(ip string) string {
+	target := net.ParseIP(ip)
+	if target == nil {
+		return ""
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, ifc := range ifaces {
+		if !strings.HasPrefix(ifc.Name, "utun") {
+			continue
+		}
+		addrs, _ := ifc.Addrs()
+		for _, a := range addrs {
+			var aip net.IP
+			switch v := a.(type) {
+			case *net.IPNet:
+				aip = v.IP
+			case *net.IPAddr:
+				aip = v.IP
+			}
+			if aip != nil && aip.Equal(target) {
+				return ifc.Name
+			}
+		}
+	}
+	return ""
+}
+
+// darwinIfaceBytes returns rx/tx byte counters for an interface by parsing
+// `netstat -ibn` (the <Link#…> row carries the totals). Returns (0,0) on any
+// parse miss — never errors out the status path. macOS-only at runtime.
+func darwinIfaceBytes(iface string) (rx, tx int64) {
+	out, err := exec.Command("netstat", "-ibn").CombinedOutput()
+	if err != nil {
+		return 0, 0
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		// Link row: Name Mtu Network Ipkts Ierrs Ibytes Opkts Oerrs Obytes [Coll]
+		// (no Address column) → Ibytes=f[5], Obytes=f[8].
+		if len(f) < 9 || f[0] != iface || !strings.HasPrefix(f[2], "<Link") {
+			continue
+		}
+		ib, _ := strconv.ParseInt(f[5], 10, 64)
+		ob, _ := strconv.ParseInt(f[8], 10, 64)
+		return ib, ob
+	}
+	return 0, 0
+}
 
 // isMacOSVPNConfigInstalled returns true when the macOS profile store
 // shows our VPN service. Two detection sources, OR'd, because Apple

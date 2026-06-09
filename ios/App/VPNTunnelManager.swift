@@ -46,6 +46,14 @@ final class VPNTunnelManager: ObservableObject {
     /// that the app never started itself).
     private var managers: [NETunnelProviderManager] = []
 
+    // IPSec (IKEv2) traffic: NEVPNConnection has no byte API, so we read the
+    // tunnel's utun interface counters. Identify the utun by diffing the utun
+    // set captured just before the IKEv2 start against the set once connected.
+    private var ipsecPreUtuns: Set<String> = []
+    private var ipsecTunIface: String?
+    private var ipsecBaseRx: Int64 = 0
+    private var ipsecBaseTx: Int64 = 0
+
     init() {
         // System-side NEVPNStatusDidChange observer. CRITICAL: only re-derive
         // status from the ALREADY-CACHED managers here — do NOT reload from
@@ -327,6 +335,8 @@ final class VPNTunnelManager: ObservableObject {
         TunnelStatsStore.clear()
         activeProtocol = nil
         isPTPTunnel = false
+        ipsecTunIface = nil
+        ipsecPreUtuns = []
         await reloadManagersAndRefresh()
     }
 
@@ -480,6 +490,13 @@ final class VPNTunnelManager: ObservableObject {
     private func connectViaIKEv2(connection: SavedConnection, config: ProtocolConfig) async throws -> NEVPNManager {
         // Parse the gateway's .sswan JSON profile into IKEv2 attributes.
         let profile = try SswanProfile.parse(config.configContent)
+
+        // Snapshot utun interfaces so we can identify the NEW one the IKEv2
+        // tunnel creates, for traffic counting (NEVPNConnection has no byte
+        // API). See buildIKEv2Status.
+        ipsecPreUtuns = Self.utunNames()
+        ipsecTunIface = nil
+        ipsecBaseRx = 0; ipsecBaseTx = 0
 
         let mgr = NEVPNManager.shared()
         try await mgr.loadFromPreferences()
@@ -656,15 +673,92 @@ final class VPNTunnelManager: ObservableObject {
         } else {
             uptime = 0
         }
+
+        // Traffic: IKEv2 has no NE byte API, so read the tunnel utun's 64-bit
+        // kernel counters (sysctl NET_RT_IFLIST2 / if_data64). Lazily identify
+        // the utun (the one that appeared since the pre-connect snapshot),
+        // capture a baseline, then report current-minus-baseline.
+        var rx: Int64 = 0, tx: Int64 = 0
+        if connected {
+            if ipsecTunIface == nil {
+                let fresh = Self.utunNames().subtracting(ipsecPreUtuns)
+                if let iface = fresh.sorted().first {
+                    ipsecTunIface = iface
+                    if let c = Self.interfaceByteCounts(iface) {
+                        ipsecBaseRx = c.rx; ipsecBaseTx = c.tx
+                    }
+                }
+            }
+            if let iface = ipsecTunIface, let c = Self.interfaceByteCounts(iface) {
+                rx = max(0, c.rx - ipsecBaseRx)
+                tx = max(0, c.tx - ipsecBaseTx)
+            }
+        } else {
+            ipsecTunIface = nil
+        }
+
         self.status = VpnStatus(
             connected: connected,
             connectionName: activeConnectionName,
             connectionID: activeConnectionID,
             activeProtocol: activeProtocol ?? .ipsec,
             uptime: uptime,
+            rxBytes: rx,
+            txBytes: tx,
             localAddress: status.localAddress,
             serverEndpoint: status.serverEndpoint
         )
+    }
+
+    // MARK: - utun byte counters (IKEv2 traffic)
+
+    /// Current utun interface names (the IKEv2 tunnel uses a utun).
+    private static func utunNames() -> Set<String> {
+        var names = Set<String>()
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let start = head else { return names }
+        defer { freeifaddrs(head) }
+        var cur: UnsafeMutablePointer<ifaddrs>? = start
+        while let p = cur {
+            if String(cString: p.pointee.ifa_name).hasPrefix("utun") {
+                names.insert(String(cString: p.pointee.ifa_name))
+            }
+            cur = p.pointee.ifa_next
+        }
+        return names
+    }
+
+    /// 64-bit kernel rx/tx byte counters for an interface via
+    /// sysctl(NET_RT_IFLIST2) → if_msghdr2.if_data64 (ifi_ibytes/ifi_obytes are
+    /// u_int64_t). Avoids the 32-bit getifaddrs if_data wrap at 4 GB. nil if
+    /// not found.
+    private static func interfaceByteCounts(_ ifname: String) -> (rx: Int64, tx: Int64)? {
+        var mib: [Int32] = [CTL_NET, AF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
+        var len = 0
+        guard sysctl(&mib, 6, nil, &len, nil, 0) == 0, len > 0 else { return nil }
+        var buf = [UInt8](repeating: 0, count: len)
+        let ok = buf.withUnsafeMutableBytes { sysctl(&mib, 6, $0.baseAddress, &len, nil, 0) == 0 }
+        guard ok else { return nil }
+        return buf.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> (Int64, Int64)? in
+            guard let base = raw.baseAddress else { return nil }
+            var off = 0
+            while off + MemoryLayout<if_msghdr>.size <= len {
+                let hdr = base.advanced(by: off).assumingMemoryBound(to: if_msghdr.self)
+                let msglen = Int(hdr.pointee.ifm_msglen)
+                if msglen <= 0 { break }
+                if hdr.pointee.ifm_type == UInt8(RTM_IFINFO2) {
+                    let m2 = base.advanced(by: off).assumingMemoryBound(to: if_msghdr2.self)
+                    var nameBuf = [CChar](repeating: 0, count: Int(IFNAMSIZ))
+                    if if_indextoname(UInt32(m2.pointee.ifm_index), &nameBuf) != nil,
+                       String(cString: nameBuf) == ifname {
+                        let d = m2.pointee.ifm_data
+                        return (Int64(bitPattern: d.ifi_ibytes), Int64(bitPattern: d.ifi_obytes))
+                    }
+                }
+                off += msglen
+            }
+            return nil
+        }
     }
 }
 

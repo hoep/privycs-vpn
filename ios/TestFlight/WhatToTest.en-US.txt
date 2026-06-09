@@ -1,25 +1,19 @@
-v1.1.3.12 (build 83) — IPSec connect fix + VPN cleanup on delete.
+v1.1.3.14 (build 84) — IPSec traffic counter.
 
-Two fixes:
+Adds a live download/upload + speed graph for IPSec/IKEv2 connections (which
+previously always showed 0 B, because Apple's built-in IKEv2 exposes no byte
+API). We now read the tunnel's network-interface byte counters (64-bit).
 
-1) IPSEC (IKEv2) SHOULD ACTUALLY CONNECT NOW
-   The previous build offered the wrong crypto to the gateway (AES-GCM + DH
-   group 19), which the gateway doesn't accept — so IKE silently timed out and
-   it failed over to WireGuard. This build matches the gateway's crypto exactly
-   (AES-256-CBC + SHA-256 + DH group 14).
-   • Pull a fresh IPSec config from the gateway, connect, and confirm it
-     ESTABLISHES and stays up (no more instant failover to WireGuard).
-   • IMPORTANT: if it STILL fails, please grab a device/Console log
-     (process "nesessionmanager" / "NEIKEv2") of one attempt. "no proposal
-     chosen" vs "AUTHENTICATION_FAILED / certificate untrusted" tells us
-     whether anything remains (the latter would be a server-cert-trust issue
-     needing a gateway change).
+NOTE: this only becomes visible once IPSec actually CONNECTS. If your IPSec
+still fails to connect, that's the separate server-certificate-trust item being
+fixed on the gateway — this build only adds the counter, it doesn't change
+whether IPSec connects.
 
-2) DELETING A CONNECTION NOW REMOVES ITS VPN FROM iOS SETTINGS
-   • Delete a connection (or a pool) in the app, then open
-     Settings ▸ General ▸ VPN & Device Management ▸ VPN.
-   • Confirm the corresponding VPN entry is GONE (it used to orphan there).
+HOW TO TEST (once IPSec connects)
+- Connect over IPSec, generate some traffic (load a page / speed test).
+- Confirm the Connect screen shows non-zero download/upload + a live speed
+  graph for IPSec (like it does for WireGuard).
 
 REGRESSION CHECK
-- WireGuard / AmneziaWG / OpenVPN connect/disconnect unchanged.
-- Traffic counter, pools, on-demand rules behave as before.
+- WireGuard / AmneziaWG / OpenVPN traffic counters unchanged.
+- Connect/disconnect, pools, deleting connections behave as before.
