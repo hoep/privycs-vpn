@@ -1,7 +1,6 @@
 import Foundation
 import NetworkExtension
 import PrivycsCore
-import Security
 
 /// App-side wrapper um NEVPNManager + NETunnelProviderManager.
 /// Steuert das Installieren der VPN-Profile (Personal-VPN-Prompt
@@ -331,6 +330,24 @@ final class VPNTunnelManager: ObservableObject {
         await reloadManagersAndRefresh()
     }
 
+    /// Remove the OS-level VPN configuration(s) for a deleted connection so they
+    /// don't orphan in iOS Settings ▸ VPN after the user deletes the connection
+    /// in-app. PTP protocols (WG/AWG/OpenVPN) use a per-connection
+    /// NETunnelProviderManager matched by `localizedDescription`; IPSec uses the
+    /// shared NEVPNManager personal-VPN slot. Best-effort + idempotent.
+    func removeOSConfigs(connectionName: String) async {
+        let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+        for m in mgrs where m.localizedDescription == connectionName {
+            try? await m.removeFromPreferences()
+        }
+        let ike = NEVPNManager.shared()
+        try? await ike.loadFromPreferences()
+        if ike.localizedDescription == connectionName {
+            try? await ike.removeFromPreferences()
+        }
+        await reloadManagersAndRefresh()
+    }
+
     /// While a tunnel is up, poll the App Group stats store (PTP) once
     /// a second so the Connect screen shows live throughput. IKEv2 has
     /// no public byte API, so its rx/tx stay 0 (matches the Android
@@ -459,57 +476,6 @@ final class VPNTunnelManager: ObservableObject {
         PrivycsLog.log("on-demand armed (persistent config) — \(connection.name), rules=\(rules.count), enabled=\(onDemandWouldConnect())")
     }
 
-    /// Import a PKCS#12 (client cert + key + CA chain) into the keychain and
-    /// return a PERSISTENT REFERENCE to the resulting identity, for
-    /// NEVPNProtocolIKEv2.identityReference. Idempotent per `label`: a prior
-    /// install under the same label is removed first so reconnects don't
-    /// accumulate keychain items. Returns nil on any failure (caller falls
-    /// back to inline identityData). The CA chain is added best-effort so iOS
-    /// can build the cert path (does NOT grant trusted-root status — apps
-    /// can't — but helps path-building on some iOS versions).
-    private static func installIKEv2Identity(p12: Data, password: String, label: String) -> Data? {
-        var items: CFArray?
-        let status = SecPKCS12Import(
-            p12 as CFData,
-            [kSecImportExportPassphrase as String: password] as CFDictionary,
-            &items
-        )
-        guard status == errSecSuccess,
-              let arr = items as? [[String: Any]], let first = arr.first,
-              let idObj = first[kSecImportItemIdentity as String] else {
-            PrivycsLog.log("IPSec/IKEv2: SecPKCS12Import failed status=\(status)")
-            return nil
-        }
-        let identity = idObj as! SecIdentity
-
-        // Clean any prior install under this label (identity + chain certs).
-        SecItemDelete([kSecClass as String: kSecClassIdentity,
-                       kSecAttrLabel as String: label] as CFDictionary)
-        SecItemDelete([kSecClass as String: kSecClassCertificate,
-                       kSecAttrLabel as String: label] as CFDictionary)
-
-        if let chain = first[kSecImportItemCertChain as String] as? [SecCertificate] {
-            for cert in chain {
-                SecItemAdd([kSecValueRef as String: cert,
-                            kSecAttrLabel as String: label] as CFDictionary, nil)
-            }
-        }
-
-        var ref: CFTypeRef?
-        // Canonical Apple pattern: add a SecIdentity by value-ref (no kSecClass)
-        // and request a persistent ref back.
-        let addStatus = SecItemAdd([
-            kSecValueRef as String: identity,
-            kSecAttrLabel as String: label,
-            kSecReturnPersistentRef as String: true,
-        ] as CFDictionary, &ref)
-        guard addStatus == errSecSuccess, let persistent = ref as? Data else {
-            PrivycsLog.log("IPSec/IKEv2: keychain identity add failed status=\(addStatus)")
-            return nil
-        }
-        return persistent
-    }
-
     @discardableResult
     private func connectViaIKEv2(connection: SavedConnection, config: ProtocolConfig) async throws -> NEVPNManager {
         // Parse the gateway's .sswan JSON profile into IKEv2 attributes.
@@ -525,30 +491,21 @@ final class VPNTunnelManager: ObservableObject {
             proto.localIdentifier = localID
         }
 
-        // Certificate auth. NEVPNProtocolIKEv2's inline identityData path is
-        // notoriously unreliable (frequently rejected → connect fails → the
-        // session flaps). The robust path is a PERSISTENT KEYCHAIN REFERENCE:
-        // import the PKCS#12 into the keychain and hand iOS identityReference.
-        // We also install the CA chain from the p12 — for a self-signed
-        // gateway CA that is the only client-side lever (an App Store app
-        // cannot add a TRUSTED ROOT, so if server-cert validation against the
-        // self-signed CA is the blocker, that part needs a publicly-trusted
-        // gateway server cert; the chain-presence still helps some iOS builds).
+        // Certificate auth via inline PKCS#12 (client cert + key + CA chain).
+        // The device log (v1.1.3.11) confirms the CLIENT-cert method is NOT the
+        // IPSec blocker: inline reaches IKE but the SA never establishes within
+        // the watchdog → the failure is server-side IKE negotiation (server-cert
+        // trust of the self-signed gateway CA, or a DH/proposal mismatch). The
+        // earlier keychain identityReference attempt was a no-op (SecItemAdd
+        // succeeded but returned no usable persistent ref → always fell back
+        // here) so it's removed. Re-add a correct keychain path only if a system
+        // (NEIKEv2) log shows client-auth is actually the problem.
         guard let p12 = profile.pkcs12Data else {
             throw SswanError.missingCertificate
         }
         proto.authenticationMethod = .certificate
-        let keychainLabel = "privycs-ipsec-\(connection.id)"
-        if let ref = Self.installIKEv2Identity(p12: p12, password: profile.local.p12Password ?? "", label: keychainLabel) {
-            proto.identityReference = ref
-            PrivycsLog.log("IPSec/IKEv2: using keychain identityReference (\(keychainLabel))")
-        } else {
-            // Fallback to the inline path if the keychain import failed — no
-            // worse than before.
-            proto.identityData = p12
-            proto.identityDataPassword = profile.local.p12Password
-            PrivycsLog.log("IPSec/IKEv2: keychain import failed — falling back to inline identityData")
-        }
+        proto.identityData = p12
+        proto.identityDataPassword = profile.local.p12Password
         proto.useExtendedAuthentication = false
 
         // Harden defaults — strong IKE/ESP ciphers, MOBIKE, PFS, DPD.
@@ -557,14 +514,21 @@ final class VPNTunnelManager: ObservableObject {
         proto.disableRedirect = false
         proto.enablePFS = true
         proto.deadPeerDetectionRate = .medium
+        // Match the GATEWAY's documented IKE/ESP proposal exactly:
+        // `aes256-sha256-modp2048` (AES-256-CBC + SHA256 + DH group 14), per the
+        // Linux swanctl config + the Windows setup (NegotiateDH2048). The prior
+        // values here forced AES256-GCM + DH group 19, which the gateway does
+        // NOT offer → no common proposal → IKE_SA_INIT silently times out (the
+        // clean ~12s "did not establish" with no handshake seen in the device
+        // log v1.1.3.11). CBC needs an explicit integrity alg (GCM is AEAD).
         let ike = proto.ikeSecurityAssociationParameters
-        ike.encryptionAlgorithm = .algorithmAES256GCM
+        ike.encryptionAlgorithm = .algorithmAES256
         ike.integrityAlgorithm = .SHA256
-        ike.diffieHellmanGroup = .group19
+        ike.diffieHellmanGroup = .group14
         let esp = proto.childSecurityAssociationParameters
-        esp.encryptionAlgorithm = .algorithmAES256GCM
+        esp.encryptionAlgorithm = .algorithmAES256
         esp.integrityAlgorithm = .SHA256
-        esp.diffieHellmanGroup = .group19
+        esp.diffieHellmanGroup = .group14
         if let mtu = profile.mtu, mtu > 0 {
             // NEVPNProtocolIKEv2 has no MTU knob; server-pushed config
             // governs it. Logged for parity, applied where supported.

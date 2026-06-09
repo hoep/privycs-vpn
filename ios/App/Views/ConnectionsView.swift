@@ -172,19 +172,28 @@ struct ConnectionsView: View {
     }
 
     private func deleteConnections(at offsets: IndexSet) {
-        let ids = offsets.map { appState.connections[$0].id }
+        // Capture name+id BEFORE delete: the OS VPN config (NETunnelProviderManager
+        // / NEVPNManager) is matched by the connection name and must be removed
+        // too, else it orphans in iOS Settings ▸ VPN after an in-app delete.
+        let targets = offsets.map { (id: appState.connections[$0].id, name: appState.connections[$0].name) }
         Task {
-            for id in ids { try? await appState.connectionRepo.delete(id) }
+            for t in targets {
+                try? await appState.connectionRepo.delete(t.id)
+                await appState.tunnelManager.removeOSConfigs(connectionName: t.name)
+            }
             appState.connections = (try? await appState.connectionRepo.loadAll()) ?? []
         }
     }
 
     private func deletePools(at offsets: IndexSet) {
-        let ids = offsets.map { appState.pools[$0].id }
+        let targets = offsets.map { (id: appState.pools[$0].id, name: appState.pools[$0].name) }
         Task {
-            for id in ids {
-                try? await appState.poolRepo.delete(id)
-                if appState.activePool?.id == id {
+            for t in targets {
+                try? await appState.poolRepo.delete(t.id)
+                // Pool connects run under a synth connection named after the pool,
+                // so its OS VPN config is keyed by the pool name — remove it too.
+                await appState.tunnelManager.removeOSConfigs(connectionName: t.name)
+                if appState.activePool?.id == t.id {
                     appState.activePool = nil
                     appState.activePoolMember = nil
                     appState.selectedTargetID = ""

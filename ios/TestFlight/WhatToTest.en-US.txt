@@ -1,29 +1,25 @@
-v1.1.3.11 (build 82) — IPSec (IKEv2) certificate handling.
+v1.1.3.12 (build 83) — IPSec connect fix + VPN cleanup on delete.
 
-Targets the IPSec connection that connected as a "Personal VPN" and then
-flapped (reconnected over and over). This build reworks the client certificate
-handling for IPSec.
+Two fixes:
 
-WHAT CHANGED
-- The client certificate (PKCS#12) is now imported into the keychain and
-  referenced properly (identityReference) instead of passed inline — the inline
-  path is unreliable for IKEv2 and was a likely cause of the failed
-  connect/flap.
-- The CA chain from the profile is imported too.
-- Gateway IPSec configs are now named "gw-ipsec-<id>" (like Android) instead of
-  a random id, so re-downloading updates in place instead of duplicating.
+1) IPSEC (IKEv2) SHOULD ACTUALLY CONNECT NOW
+   The previous build offered the wrong crypto to the gateway (AES-GCM + DH
+   group 19), which the gateway doesn't accept — so IKE silently timed out and
+   it failed over to WireGuard. This build matches the gateway's crypto exactly
+   (AES-256-CBC + SHA-256 + DH group 14).
+   • Pull a fresh IPSec config from the gateway, connect, and confirm it
+     ESTABLISHES and stays up (no more instant failover to WireGuard).
+   • IMPORTANT: if it STILL fails, please grab a device/Console log
+     (process "nesessionmanager" / "NEIKEv2") of one attempt. "no proposal
+     chosen" vs "AUTHENTICATION_FAILED / certificate untrusted" tells us
+     whether anything remains (the latter would be a server-cert-trust issue
+     needing a gateway change).
 
-HOW TO TEST
-1. Remove any old IPSec config, then pull a fresh IPSec config from the gateway.
-2. Connect. Watch whether it establishes and STAYS up (no endless flapping).
-3. Connect/disconnect a few times.
+2) DELETING A CONNECTION NOW REMOVES ITS VPN FROM iOS SETTINGS
+   • Delete a connection (or a pool) in the app, then open
+     Settings ▸ General ▸ VPN & Device Management ▸ VPN.
+   • Confirm the corresponding VPN entry is GONE (it used to orphan there).
 
-IMPORTANT — if it STILL flaps, please grab a device log of one attempt
-(Settings reachable, or Console): the IKE/IKE_AUTH error code tells us whether
-the remaining blocker is SERVER certificate trust. iOS (unlike Android's
-strongSwan) validates the gateway's server certificate against the system trust
-store, and an app cannot install a trusted root for a self-signed gateway CA —
-that part would need a publicly-trusted server certificate on the gateway. The
-log will confirm which it is.
-
-NOTE: WireGuard / AmneziaWG / OpenVPN are unaffected by this change.
+REGRESSION CHECK
+- WireGuard / AmneziaWG / OpenVPN connect/disconnect unchanged.
+- Traffic counter, pools, on-demand rules behave as before.
