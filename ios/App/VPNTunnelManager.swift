@@ -53,6 +53,7 @@ final class VPNTunnelManager: ObservableObject {
     private var ipsecTunIface: String?
     private var ipsecBaseRx: Int64 = 0
     private var ipsecBaseTx: Int64 = 0
+    private var ipsecTrafficLogged = false
 
     init() {
         // System-side NEVPNStatusDidChange observer. CRITICAL: only re-derive
@@ -157,7 +158,12 @@ final class VPNTunnelManager: ObservableObject {
                 // fail over to the next protocol if it doesn't.
                 // (`||` can't short-circuit an await — its RHS is a non-async
                 // autoclosure — so evaluate the wait explicitly.)
-                let established = isLast ? true : await waitForConnected(conn, timeout: 12)
+                // IKEv2 (esp. with public-cert validation) can take longer to
+                // establish than PTP and may blip through .disconnected during
+                // the stale-config reload — give it more time + blip tolerance
+                // so we don't falsely fail over to WireGuard.
+                let waitTimeout: TimeInterval = config.protocol == .ipsec ? 30 : 12
+                let established = isLast ? true : await waitForConnected(conn, timeout: waitTimeout)
                 if established {
                     await reloadManagersAndRefresh()   // pick up the just-started manager
                     startPolling()
@@ -184,11 +190,20 @@ final class VPNTunnelManager: ObservableObject {
     private func waitForConnected(_ conn: NEVPNConnection, timeout: TimeInterval) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         var sawActivity = false
+        var downStreak = 0
         while Date() < deadline {
             switch conn.status {
             case .connected: return true
-            case .connecting, .reasserting: sawActivity = true
-            case .disconnected, .invalid: if sawActivity { return false }
+            case .connecting, .reasserting: sawActivity = true; downStreak = 0
+            case .disconnected, .invalid:
+                if sawActivity {
+                    // Tolerate a transient blip (IKEv2 stale-config reload bounces
+                    // through .disconnected); only treat as failed once it
+                    // persists (~1.2s) so we don't fail over a tunnel that's
+                    // about to come up.
+                    downStreak += 1
+                    if downStreak >= 4 { return false }
+                }
             default: break
             }
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -337,6 +352,7 @@ final class VPNTunnelManager: ObservableObject {
         isPTPTunnel = false
         ipsecTunIface = nil
         ipsecPreUtuns = []
+        ipsecTrafficLogged = false
         await reloadManagersAndRefresh()
     }
 
@@ -497,6 +513,7 @@ final class VPNTunnelManager: ObservableObject {
         ipsecPreUtuns = Self.utunNames()
         ipsecTunIface = nil
         ipsecBaseRx = 0; ipsecBaseTx = 0
+        ipsecTrafficLogged = false
 
         let mgr = NEVPNManager.shared()
         try await mgr.loadFromPreferences()
@@ -586,15 +603,21 @@ final class VPNTunnelManager: ObservableObject {
             default: return false
             }
         }
-        if let m = livePTP {
+        let ikeStatus = NEVPNManager.shared().connection.status
+        let ikeLive = ikeStatus == .connected || ikeStatus == .connecting || ikeStatus == .reasserting
+        // Prefer the IKEv2 personal-VPN status when IPSec is the active protocol
+        // (its connection is the single NEVPNManager.shared() slot the injector
+        // owns). Without this, a stale/connecting PTP manager MASKS a live IPSec
+        // → the app thinks nothing is up → tears it down + fails over to
+        // WireGuard (the reported "app doesn't recognise the personal VPN" bug).
+        if activeProtocol == .ipsec, ikeLive {
+            buildIKEv2Status()
+        } else if let m = livePTP {
             buildPTPStatus(from: m)
+        } else if ikeLive {
+            buildIKEv2Status()
         } else {
-            let ikeStatus = NEVPNManager.shared().connection.status
-            if ikeStatus == .connected || ikeStatus == .connecting || ikeStatus == .reasserting {
-                buildIKEv2Status()
-            } else {
-                self.status = .disconnected
-            }
+            self.status = .disconnected
         }
         // Keep the throughput poller alive whenever the tunnel is UP — including
         // tunnels iOS brought up via on-demand AFTER a manual disconnect, which
@@ -681,12 +704,17 @@ final class VPNTunnelManager: ObservableObject {
         var rx: Int64 = 0, tx: Int64 = 0
         if connected {
             if ipsecTunIface == nil {
-                let fresh = Self.utunNames().subtracting(ipsecPreUtuns)
-                if let iface = fresh.sorted().first {
-                    ipsecTunIface = iface
-                    if let c = Self.interfaceByteCounts(iface) {
-                        ipsecBaseRx = c.rx; ipsecBaseTx = c.tx
-                    }
+                let all = Self.utunNames()
+                let fresh = all.subtracting(ipsecPreUtuns).sorted()
+                ipsecTunIface = fresh.first
+                if let iface = ipsecTunIface, let c = Self.interfaceByteCounts(iface) {
+                    ipsecBaseRx = c.rx; ipsecBaseTx = c.tx
+                }
+                // One-time diagnostic so a device log tells us exactly which
+                // utun set we saw and which we picked (if the counter reads 0).
+                if !ipsecTrafficLogged {
+                    ipsecTrafficLogged = true
+                    PrivycsLog.log("IPSec traffic: iface=\(ipsecTunIface ?? "none") pre=\(ipsecPreUtuns.sorted()) now=\(all.sorted())")
                 }
             }
             if let iface = ipsecTunIface, let c = Self.interfaceByteCounts(iface) {

@@ -1,19 +1,25 @@
-v1.1.3.15 (build 85) — IPSec traffic counter (build fix).
+v1.1.3.16 (build 86) — IPSec stays connected + traffic counter prerequisite.
 
-Adds a live download/upload + speed graph for IPSec/IKEv2 connections (which
-previously always showed 0 B, because Apple's built-in IKEv2 exposes no byte
-API). We now read the tunnel's network-interface byte counters (64-bit).
+Fixes the bug where IPSec connected but the app didn't recognise the personal
+VPN and switched to WireGuard (tearing IPSec down).
 
-NOTE: this only becomes visible once IPSec actually CONNECTS. If your IPSec
-still fails to connect, that's the separate server-certificate-trust item being
-fixed on the gateway — this build only adds the counter, it doesn't change
-whether IPSec connects.
+WHAT CHANGED
+- The app now correctly reports IPSec as the active VPN instead of letting a
+  stale/connecting WireGuard manager mask it.
+- IPSec gets more time to establish (and tolerates a brief reconnect blip)
+  before any failover, so it no longer falsely fails over to WireGuard.
 
-HOW TO TEST (once IPSec connects)
-- Connect over IPSec, generate some traffic (load a page / speed test).
-- Confirm the Connect screen shows non-zero download/upload + a live speed
-  graph for IPSec (like it does for WireGuard).
+HOW TO TEST
+1. Select your IPSec connection, connect.
+2. Confirm it ESTABLISHES and STAYS on IPSec (no automatic switch to WireGuard;
+   in iOS Settings ▸ VPN the IPSec/personal VPN stays up).
+3. Generate traffic and check the download/upload + speed graph for IPSec.
+
+NOTE ON THE TRAFFIC COUNTER: it can only update once the app is actually staying
+on IPSec (this build's fix). If it still shows 0 while IPSec is correctly
+connected, please send a device log — this build adds a one-time
+"IPSec traffic: iface=…" line that tells us which tunnel interface was picked,
+so we can fix the counter precisely.
 
 REGRESSION CHECK
-- WireGuard / AmneziaWG / OpenVPN traffic counters unchanged.
-- Connect/disconnect, pools, deleting connections behave as before.
+- WireGuard / AmneziaWG / OpenVPN connect/disconnect, failover, pools unchanged.
