@@ -549,6 +549,21 @@ final class VPNTunnelManager: ObservableObject {
                 self.status = .disconnected
             }
         }
+        // Keep the throughput poller alive whenever the tunnel is UP — including
+        // tunnels iOS brought up via on-demand AFTER a manual disconnect, which
+        // never go through connect()/startPolling(). This observer fires on
+        // NEVPNStatusDidChange, so a reconnect we didn't start (re)starts the
+        // poller here; otherwise rx/tx froze until the app was killed+relaunched.
+        // Stop it when down so we don't poll an idle tunnel. Cheap + leak-free
+        // (reads cached managers + the App Group stats store; no preference
+        // reload). The poller calls refreshStatus itself, but the pollTask==nil
+        // guard prevents re-spawning each tick.
+        if self.status.connected {
+            if pollTask == nil { startPolling() }
+        } else if pollTask != nil {
+            pollTask?.cancel()
+            pollTask = nil
+        }
         for (_, c) in statusContinuations {
             c.yield(self.status)
         }

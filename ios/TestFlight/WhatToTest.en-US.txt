@@ -1,25 +1,21 @@
-v1.1.3.9 (build 80) — Same-protocol-first failover.
+v1.1.3.10 (build 81) — Live traffic counter after auto-reconnect.
 
-This build fixes how automatic failover chooses the next server when a
-connection has MULTIPLE configs of the same protocol (e.g. two WireGuard
-endpoints) inside one connection.
-
-WHAT CHANGED
-- When the active config fails, failover now tries the OTHER configs of the
-  SAME protocol first (a second WireGuard endpoint, etc.) BEFORE switching to a
-  different protocol. Previously it could jump to another protocol before
-  exhausting the same-protocol alternates.
+Fixes a bug where the live traffic counter (download/upload bytes + speed
+graph) froze after the VPN reconnected on its own.
 
 HOW TO TEST
-1. Create ONE connection that holds several configs, including two of the same
-   protocol — e.g. WireGuard-ServerA + WireGuard-ServerB + an OpenVPN config.
-2. Connect, then make the active endpoint fail (e.g. ServerA unreachable / wrong
-   port, or pull it mid-session so the health monitor recovers).
-3. Confirm it fails over to the OTHER WireGuard endpoint (ServerB) FIRST, and
-   only moves to OpenVPN if BOTH WireGuard endpoints fail.
-4. Check the failover toast/notification names the server it landed on.
+1. Settings: turn ON the auto-tunnel / Network Rules, with a rule that connects
+   on your current network. Connect (WireGuard, AmneziaWG or OpenVPN).
+2. Tap Disconnect manually. The app should auto-reconnect within a few seconds
+   (on-demand).
+3. Confirm the download/upload counters and the speed graph KEEP UPDATING after
+   that automatic reconnect — they should no longer freeze. (Previously you had
+   to kill and relaunch the app to get live numbers back.)
+4. Repeat over WireGuard, AmneziaWG and OpenVPN.
 
-REGRESSION CHECK (should be unchanged)
-- Normal connect/disconnect over WireGuard, AmneziaWG, OpenVPN, IPSec.
-- Single-config connections and pools behave exactly as before.
-- Manual protocol pill switch still works.
+NOTE: IPSec/IKEv2 shows 0 B for traffic by design — Apple's built-in IKEv2 does
+not expose byte counters. That is unchanged and unrelated to this fix.
+
+REGRESSION CHECK
+- Normal connect/disconnect; counter live during a normal session.
+- Pools and single connections behave as before.
