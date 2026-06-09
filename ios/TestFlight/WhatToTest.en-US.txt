@@ -1,23 +1,19 @@
-v1.1.3.19 (build 88) — one VPN at a time + IPSec profile switching.
+v1.1.3.20 (build 89) — IPSec traffic counter + really stop the other VPN.
 
-Fixes two related issues:
-- The app could start TWO VPNs at once (IPSec AND WireGuard) — a stale
-  on-demand-armed WireGuard profile fired while IPSec came up.
-- Switching to a DIFFERENT IPSec profile didn't take effect (the still-armed
-  WireGuard raced the IPSec slot).
-
-WHAT CHANGED
-- Before bringing up a tunnel, the app now DISABLES every other VPN profile
-  (the IPSec personal VPN when starting WireGuard/AmneziaWG/OpenVPN, and all
-  packet-tunnel profiles when starting IPSec) → exactly one VPN active.
+Two fixes from a device log:
+- IPSec traffic counter stayed 0. The counter watched for a "utun" interface,
+  but Apple's IKEv2 personal VPN brings up an "ipsec0" interface instead — so
+  the tunnel was never found. Now it watches ipsec* too → real rx/tx.
+- When starting one VPN, the other (e.g. an on-demand WireGuard) could pop back
+  up and fight it. We now disarm on-demand + disable + SAVE before stopping it,
+  so it can't auto-restart on the route change.
 
 HOW TO TEST
-1. Connection with both IPSec and WireGuard configs: connect IPSec → in
-   iOS Settings ▸ VPN only the IPSec/personal VPN should be up (no WireGuard
-   starting alongside).
-2. Switch between two IPSec profiles (e.g. ipsShield1 → ipsShield2): the new
-   one should take over the single IPSec slot and connect.
-3. Switch IPSec ↔ WireGuard back and forth — only one runs at a time.
+1. Connect IPSec → the traffic counter should climb (not stuck at 0) while you
+   browse.
+2. Connect IPSec → in iOS Settings ▸ VPN exactly ONE VPN is active and stays
+   that way (no WireGuard creeping back), and connectivity works.
+3. Switch IPSec ↔ WireGuard and between two IPSec profiles — one at a time.
 
 REGRESSION CHECK
-- WG/AWG/OVPN connect/disconnect, pools, on-demand rules, traffic counter.
+- WG/AWG/OVPN counters + connect/disconnect, pools, on-demand rules.

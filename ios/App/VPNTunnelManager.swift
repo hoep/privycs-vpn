@@ -372,10 +372,14 @@ final class VPNTunnelManager: ObservableObject {
             if active != .ipsec, m.localizedDescription == activeName { continue }
             let st = m.connection.status
             if m.isEnabled || m.isOnDemandEnabled || st == .connected || st == .connecting || st == .reasserting {
-                m.connection.stopVPNTunnel()
+                // Disarm on-demand + disable AND SAVE *before* stopping. Stopping
+                // an on-demand-armed tunnel makes iOS re-trigger it on the route
+                // change our other tunnel causes — so it'd come right back up and
+                // fight the VPN we're starting. Save first → no auto-restart.
                 m.isOnDemandEnabled = false
                 m.isEnabled = false
                 try? await m.saveToPreferences()
+                m.connection.stopVPNTunnel()
             }
         }
         // Disable the IPSec personal VPN when starting a PTP tunnel (the reverse
@@ -385,10 +389,10 @@ final class VPNTunnelManager: ObservableObject {
             try? await ike.loadFromPreferences()
             let st = ike.connection.status
             if ike.isEnabled || ike.isOnDemandEnabled || st == .connected || st == .connecting || st == .reasserting {
-                ike.connection.stopVPNTunnel()
                 ike.isOnDemandEnabled = false
                 ike.isEnabled = false
                 try? await ike.saveToPreferences()
+                ike.connection.stopVPNTunnel()
             }
         }
     }
@@ -741,10 +745,11 @@ final class VPNTunnelManager: ObservableObject {
             uptime = 0
         }
 
-        // Traffic: IKEv2 has no NE byte API, so read the tunnel utun's 64-bit
-        // kernel counters (sysctl NET_RT_IFLIST2 / if_data64). Lazily identify
-        // the utun (the one that appeared since the pre-connect snapshot),
-        // capture a baseline, then report current-minus-baseline.
+        // Traffic: IKEv2 has no NE byte API, so read the tunnel interface's
+        // 64-bit kernel counters (sysctl NET_RT_IFLIST2 / if_data64). The IKEv2
+        // Personal VPN uses `ipsec0` (not a utun); identify it as the interface
+        // that appeared since the pre-connect snapshot, capture a baseline, then
+        // report current-minus-baseline.
         var rx: Int64 = 0, tx: Int64 = 0
         if connected {
             if ipsecTunIface == nil {
@@ -784,7 +789,11 @@ final class VPNTunnelManager: ObservableObject {
 
     // MARK: - utun byte counters (IKEv2 traffic)
 
-    /// Current utun interface names (the IKEv2 tunnel uses a utun).
+    /// Current VPN tunnel interface names. Apple's IKEv2 *Personal VPN*
+    /// (NEVPNManager) brings up an `ipsec0` interface — NOT a `utun` (those are
+    /// for packet-tunnel providers like WireGuard). A device log proved the
+    /// connect added no new utun (`iface=none`), so we must watch `ipsec*` too;
+    /// the snapshot-diff then finds `ipsec0` as the freshly-appeared interface.
     private static func utunNames() -> Set<String> {
         var names = Set<String>()
         var head: UnsafeMutablePointer<ifaddrs>?
@@ -792,8 +801,9 @@ final class VPNTunnelManager: ObservableObject {
         defer { freeifaddrs(head) }
         var cur: UnsafeMutablePointer<ifaddrs>? = start
         while let p = cur {
-            if String(cString: p.pointee.ifa_name).hasPrefix("utun") {
-                names.insert(String(cString: p.pointee.ifa_name))
+            let n = String(cString: p.pointee.ifa_name)
+            if n.hasPrefix("utun") || n.hasPrefix("ipsec") {
+                names.insert(n)
             }
             cur = p.pointee.ifa_next
         }
