@@ -548,10 +548,13 @@ final class AppState: ObservableObject {
     /// Import a raw config (file / QR / gateway). `intoConnectionID` nil
     /// = new connection; non-nil = add this protocol to that existing
     /// connection (Android addOrUpdate semantics).
-    func importConnection(name: String, filename: String, content: String, intoConnectionID: String? = nil) async {
+    func importConnection(name: String, filename: String, content: String, intoConnectionID: String? = nil, configID: String? = nil) async {
         let proto = ConfigImport.detectProtocol(filename: filename, content: content)
         let cfg = ProtocolConfig(
-            id: UUID().uuidString,
+            // Gateway imports pass a STABLE id ("gw-<proto>-<id>", like Android)
+            // so a re-download matches+updates the existing config instead of
+            // creating a duplicate; file/QR imports get a fresh UUID.
+            id: configID ?? UUID().uuidString,
             protocol: proto,
             filename: filename,
             configContent: content,

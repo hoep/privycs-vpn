@@ -269,11 +269,16 @@ struct GatewayConfigSheet: View {
             case .ipsec: ext = "sswan"
             default: ext = "conf"
             }
+            // Stable, gateway-indexed id like Android ("gw-<proto>-<id>") so a
+            // re-download matches+updates in place instead of duplicating, and
+            // the config is identifiable (gw-ipsec-42) rather than a random UUID.
+            let stableID = "gw-\(entry.protocolRaw)-\(entry.id)"
             await appState.importConnection(
                 name: entry.name,
-                filename: "\(entry.name).\(ext)",
+                filename: "\(stableID).\(ext)",
                 content: raw,
-                intoConnectionID: targetConnectionID
+                intoConnectionID: targetConnectionID,
+                configID: stableID
             )
             // Visible feedback (the import used to silently sit there).
             if !importedNames.contains(entry.name) { importedNames.append(entry.name) }

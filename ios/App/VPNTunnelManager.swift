@@ -1,6 +1,7 @@
 import Foundation
 import NetworkExtension
 import PrivycsCore
+import Security
 
 /// App-side wrapper um NEVPNManager + NETunnelProviderManager.
 /// Steuert das Installieren der VPN-Profile (Personal-VPN-Prompt
@@ -458,6 +459,57 @@ final class VPNTunnelManager: ObservableObject {
         PrivycsLog.log("on-demand armed (persistent config) — \(connection.name), rules=\(rules.count), enabled=\(onDemandWouldConnect())")
     }
 
+    /// Import a PKCS#12 (client cert + key + CA chain) into the keychain and
+    /// return a PERSISTENT REFERENCE to the resulting identity, for
+    /// NEVPNProtocolIKEv2.identityReference. Idempotent per `label`: a prior
+    /// install under the same label is removed first so reconnects don't
+    /// accumulate keychain items. Returns nil on any failure (caller falls
+    /// back to inline identityData). The CA chain is added best-effort so iOS
+    /// can build the cert path (does NOT grant trusted-root status — apps
+    /// can't — but helps path-building on some iOS versions).
+    private static func installIKEv2Identity(p12: Data, password: String, label: String) -> Data? {
+        var items: CFArray?
+        let status = SecPKCS12Import(
+            p12 as CFData,
+            [kSecImportExportPassphrase as String: password] as CFDictionary,
+            &items
+        )
+        guard status == errSecSuccess,
+              let arr = items as? [[String: Any]], let first = arr.first,
+              let idObj = first[kSecImportItemIdentity as String] else {
+            PrivycsLog.log("IPSec/IKEv2: SecPKCS12Import failed status=\(status)")
+            return nil
+        }
+        let identity = idObj as! SecIdentity
+
+        // Clean any prior install under this label (identity + chain certs).
+        SecItemDelete([kSecClass as String: kSecClassIdentity,
+                       kSecAttrLabel as String: label] as CFDictionary)
+        SecItemDelete([kSecClass as String: kSecClassCertificate,
+                       kSecAttrLabel as String: label] as CFDictionary)
+
+        if let chain = first[kSecImportItemCertChain as String] as? [SecCertificate] {
+            for cert in chain {
+                SecItemAdd([kSecValueRef as String: cert,
+                            kSecAttrLabel as String: label] as CFDictionary, nil)
+            }
+        }
+
+        var ref: CFTypeRef?
+        // Canonical Apple pattern: add a SecIdentity by value-ref (no kSecClass)
+        // and request a persistent ref back.
+        let addStatus = SecItemAdd([
+            kSecValueRef as String: identity,
+            kSecAttrLabel as String: label,
+            kSecReturnPersistentRef as String: true,
+        ] as CFDictionary, &ref)
+        guard addStatus == errSecSuccess, let persistent = ref as? Data else {
+            PrivycsLog.log("IPSec/IKEv2: keychain identity add failed status=\(addStatus)")
+            return nil
+        }
+        return persistent
+    }
+
     @discardableResult
     private func connectViaIKEv2(connection: SavedConnection, config: ProtocolConfig) async throws -> NEVPNManager {
         // Parse the gateway's .sswan JSON profile into IKEv2 attributes.
@@ -473,16 +525,30 @@ final class VPNTunnelManager: ObservableObject {
             proto.localIdentifier = localID
         }
 
-        // Certificate auth via inline PKCS#12 (client cert + key + CA
-        // chain). identityData/identityDataPassword is exactly the
-        // NEVPNProtocolIKEv2 inline-credential path — no Keychain
-        // pre-install dance like Android needs.
+        // Certificate auth. NEVPNProtocolIKEv2's inline identityData path is
+        // notoriously unreliable (frequently rejected → connect fails → the
+        // session flaps). The robust path is a PERSISTENT KEYCHAIN REFERENCE:
+        // import the PKCS#12 into the keychain and hand iOS identityReference.
+        // We also install the CA chain from the p12 — for a self-signed
+        // gateway CA that is the only client-side lever (an App Store app
+        // cannot add a TRUSTED ROOT, so if server-cert validation against the
+        // self-signed CA is the blocker, that part needs a publicly-trusted
+        // gateway server cert; the chain-presence still helps some iOS builds).
         guard let p12 = profile.pkcs12Data else {
             throw SswanError.missingCertificate
         }
         proto.authenticationMethod = .certificate
-        proto.identityData = p12
-        proto.identityDataPassword = profile.local.p12Password
+        let keychainLabel = "privycs-ipsec-\(connection.id)"
+        if let ref = Self.installIKEv2Identity(p12: p12, password: profile.local.p12Password ?? "", label: keychainLabel) {
+            proto.identityReference = ref
+            PrivycsLog.log("IPSec/IKEv2: using keychain identityReference (\(keychainLabel))")
+        } else {
+            // Fallback to the inline path if the keychain import failed — no
+            // worse than before.
+            proto.identityData = p12
+            proto.identityDataPassword = profile.local.p12Password
+            PrivycsLog.log("IPSec/IKEv2: keychain import failed — falling back to inline identityData")
+        }
         proto.useExtendedAuthentication = false
 
         // Harden defaults — strong IKE/ESP ciphers, MOBIKE, PFS, DPD.
