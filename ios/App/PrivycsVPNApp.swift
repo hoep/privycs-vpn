@@ -60,6 +60,9 @@ final class AppState: ObservableObject {
     /// Connected-edge latch so the status stream's repeated emissions map to a
     /// single observeConnect()/observeDisconnect() per real transition.
     private var engineConnectedLatch = false
+    /// Profile sync: reconcile the app's selection to the VPN actually up in
+    /// iOS once at launch (one-shot, so live user switches aren't overridden).
+    private var didReconcileActiveFromOS = false
     /// User's pre-VPN country (ISO alpha-2) from the IP→MMDB SelfIPDetector;
     /// "" until detected. Feeds the engine's network-aware reason AND upgrades
     /// Geo-Nearest from the locale proxy. See the userCountry computed property.
@@ -914,6 +917,20 @@ final class AppState: ObservableObject {
                 self.status = st
                 self.ingestSpeedSample(st)
                 self.pushWidgetSnapshot()
+                // Profile sync (Settings → App): on first launch, reflect the
+                // VPN that's ACTUALLY up in iOS so the app's selected/active
+                // connection matches reality (e.g. one brought up by iOS
+                // on-demand or a prior session). One-shot — never fight a live
+                // user switch. Pool restore is handled separately in bootstrap.
+                if !didReconcileActiveFromOS, st.connected, !st.connectionID.isEmpty {
+                    didReconcileActiveFromOS = true
+                    if !selectedTargetID.hasPrefix("pool:"),
+                       selectedTargetID != st.connectionID,
+                       connections.contains(where: { $0.id == st.connectionID }) {
+                        selectedTargetID = st.connectionID
+                        pushWidgetSnapshot()
+                    }
+                }
                 // Shadow engine: map the status stream's edge to one observe.
                 if st.connected && !engineConnectedLatch {
                     let awg = connections.first(where: { $0.id == st.connectionID })?

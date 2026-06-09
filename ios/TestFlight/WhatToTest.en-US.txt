@@ -1,25 +1,16 @@
-v1.1.3.16 (build 86) — IPSec stays connected + traffic counter prerequisite.
+v1.1.3.18 (build 87) — App ↔ iOS-VPN profile sync.
 
-Fixes the bug where IPSec connected but the app didn't recognise the personal
-VPN and switched to WireGuard (tearing IPSec down).
-
-WHAT CHANGED
-- The app now correctly reports IPSec as the active VPN instead of letting a
-  stale/connecting WireGuard manager mask it.
-- IPSec gets more time to establish (and tolerates a brief reconnect blip)
-  before any failover, so it no longer falsely fails over to WireGuard.
+On launch the app now reflects the VPN that's ACTUALLY running in iOS, so its
+selected/active connection matches reality (e.g. a tunnel iOS brought up on its
+own, or one left running from a previous session). One-shot at launch — it never
+overrides a live switch you make in the app.
 
 HOW TO TEST
-1. Select your IPSec connection, connect.
-2. Confirm it ESTABLISHES and STAYS on IPSec (no automatic switch to WireGuard;
-   in iOS Settings ▸ VPN the IPSec/personal VPN stays up).
-3. Generate traffic and check the download/upload + speed graph for IPSec.
-
-NOTE ON THE TRAFFIC COUNTER: it can only update once the app is actually staying
-on IPSec (this build's fix). If it still shows 0 while IPSec is correctly
-connected, please send a device log — this build adds a one-time
-"IPSec traffic: iface=…" line that tells us which tunnel interface was picked,
-so we can fix the counter precisely.
+- With a VPN already connected, force-quit and relaunch the app: the Connect
+  screen should show the correct connection as the active/selected one (not a
+  different/default one).
+- Connect/disconnect/switch normally afterwards — behaviour unchanged.
 
 REGRESSION CHECK
-- WireGuard / AmneziaWG / OpenVPN connect/disconnect, failover, pools unchanged.
+- IPSec stays connected (v1.1.3.16 fix), traffic counter, WG/AWG/OVPN, pools,
+  on-demand rules all unchanged.
