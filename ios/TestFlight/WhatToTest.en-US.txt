@@ -1,16 +1,19 @@
-v1.1.3.25 (build 91) — IPSec traffic counter on IPSec→IPSec switch.
+v1.1.3.26 (build 92) — IPSec traffic counter on profile→profile switch (+ health).
 
-The IPSec traffic counter previously only worked when you connected IPSec coming
-from another protocol. Switching directly from one IPSec profile to another left
-it stuck at 0 (the tunnel reused the same network interface, so nothing looked
-"new"). It now also picks up the live IPSec interface on a profile-to-profile
-switch, so the counter climbs every time.
+build 91's fix didn't trigger on an IPSec→IPSec switch because that path reuses
+the same network interface AND doesn't reset the counter's tracking, so it stayed
+pinned to the previous session and clamped to 0. It now re-identifies + re-baselines
+whenever a NEW IKE session starts (detected via the connection's connected-date),
+independent of how the switch was triggered.
+
+Knock-on: the tunnel-health pill treats live traffic as a "healthy" signal, so a
+stuck-at-0 counter could make it falsely show degraded/recovering. With the counter
+fixed, health reflects reality again.
 
 HOW TO TEST
-- Connect IPSec profile A → counter climbs. Switch directly to IPSec profile B →
-  counter should climb too (not stay at 0).
-- WireGuard → IPSec and IPSec → WireGuard → IPSec still work as before.
+- Connect IPSec profile A → counter climbs, health = healthy.
+- Switch DIRECTLY to IPSec profile B → counter climbs (not 0), health stays healthy.
+- WireGuard ↔ IPSec still fine.
 
 REGRESSION CHECK
-- Single active VPN (no two tunnels at once), WG/AWG/OVPN counters, pools,
-  delete cleanup.
+- Single active VPN, WG/AWG/OVPN counters + health, pools, delete cleanup.

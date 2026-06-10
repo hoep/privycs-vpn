@@ -54,6 +54,11 @@ final class VPNTunnelManager: ObservableObject {
     private var ipsecBaseRx: Int64 = 0
     private var ipsecBaseTx: Int64 = 0
     private var ipsecTrafficLogged = false
+    // connectedDate of the session we last identified/baselined. When it
+    // advances a NEW IKE session is up (incl. an IPSec→IPSec profile switch that
+    // reuses the same ipsec0 without routing through connectViaIKEv2's reset),
+    // so we re-identify the interface + re-baseline instead of clamping to 0.
+    private var ipsecSessionDate: Date?
 
     init() {
         // System-side NEVPNStatusDidChange observer. CRITICAL: only re-derive
@@ -752,6 +757,18 @@ final class VPNTunnelManager: ObservableObject {
         // report current-minus-baseline.
         var rx: Int64 = 0, tx: Int64 = 0
         if connected {
+            // New IKE session (connectedDate advanced) → fresh tunnel. Force a
+            // re-identify + re-baseline. This is the path-independent fix for the
+            // IPSec→IPSec switch: the switch reuses the same ipsec0 and does not
+            // always run connectViaIKEv2's reset, so ipsecTunIface/baseline stayed
+            // pinned to the previous session and the byte delta clamped to 0 (the
+            // diagnostic below never even fired because the identify block was
+            // skipped). connectedDate changing is the reliable "new tunnel" signal.
+            if let since = connection.connectedDate, since != ipsecSessionDate {
+                ipsecSessionDate = since
+                ipsecTunIface = nil
+                ipsecTrafficLogged = false
+            }
             if ipsecTunIface == nil {
                 let all = Self.utunNames()
                 let fresh = all.subtracting(ipsecPreUtuns).sorted()
@@ -779,6 +796,7 @@ final class VPNTunnelManager: ObservableObject {
             }
         } else {
             ipsecTunIface = nil
+            ipsecSessionDate = nil
         }
 
         self.status = VpnStatus(
