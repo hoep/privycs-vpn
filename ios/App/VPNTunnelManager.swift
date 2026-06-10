@@ -46,18 +46,18 @@ final class VPNTunnelManager: ObservableObject {
     /// that the app never started itself).
     private var managers: [NETunnelProviderManager] = []
 
-    // IPSec (IKEv2) traffic: NEVPNConnection has no byte API, so we read the
-    // tunnel's utun interface counters. Identify the utun by diffing the utun
-    // set captured just before the IKEv2 start against the set once connected.
-    private var ipsecPreUtuns: Set<String> = []
-    private var ipsecTunIface: String?
-    private var ipsecBaseRx: Int64 = 0
-    private var ipsecBaseTx: Int64 = 0
+    // IPSec (IKEv2) traffic: NEVPNConnection has no byte API, so we sum the
+    // 64-bit kernel counters of the tunnel's ipsec* interface(s). We do NOT try
+    // to pick the one live interface — an IPSec→IPSec switch moves the tunnel
+    // ipsec0→ipsec1 with the old one lingering, and guessing wrong left the
+    // counter at 0. Instead keep a per-interface baseline (first-sight) and sum
+    // each interface's GROWTH since the session started: the dying interface
+    // contributes ~0, the live one the real session bytes.
+    private var ipsecIfaceBase: [String: (rx: Int64, tx: Int64)] = [:]
     private var ipsecTrafficLogged = false
-    // connectedDate of the session we last identified/baselined. When it
-    // advances a NEW IKE session is up (incl. an IPSec→IPSec profile switch that
-    // reuses the same ipsec0 without routing through connectViaIKEv2's reset),
-    // so we re-identify the interface + re-baseline instead of clamping to 0.
+    // connectedDate of the session we last baselined. Advancing = a NEW IKE
+    // session (incl. an IPSec→IPSec profile switch), so drop the per-interface
+    // baselines and re-capture against the new session.
     private var ipsecSessionDate: Date?
 
     init() {
@@ -355,8 +355,8 @@ final class VPNTunnelManager: ObservableObject {
         TunnelStatsStore.clear()
         activeProtocol = nil
         isPTPTunnel = false
-        ipsecTunIface = nil
-        ipsecPreUtuns = []
+        ipsecIfaceBase.removeAll()
+        ipsecSessionDate = nil
         ipsecTrafficLogged = false
         await reloadManagersAndRefresh()
     }
@@ -556,12 +556,11 @@ final class VPNTunnelManager: ObservableObject {
         // Parse the gateway's .sswan JSON profile into IKEv2 attributes.
         let profile = try SswanProfile.parse(config.configContent)
 
-        // Snapshot utun interfaces so we can identify the NEW one the IKEv2
-        // tunnel creates, for traffic counting (NEVPNConnection has no byte
-        // API). See buildIKEv2Status.
-        ipsecPreUtuns = Self.utunNames()
-        ipsecTunIface = nil
-        ipsecBaseRx = 0; ipsecBaseTx = 0
+        // Reset the IPSec traffic baselines for the new session. buildIKEv2Status
+        // re-captures a per-ipsec-interface baseline and sums growth (also re-armed
+        // by a connectedDate change, so a switch that bypasses this path is covered).
+        ipsecIfaceBase.removeAll()
+        ipsecSessionDate = nil
         ipsecTrafficLogged = false
 
         // Single active VPN: turn off every PTP manager so a stale on-demand-
@@ -757,45 +756,37 @@ final class VPNTunnelManager: ObservableObject {
         // report current-minus-baseline.
         var rx: Int64 = 0, tx: Int64 = 0
         if connected {
-            // New IKE session (connectedDate advanced) → fresh tunnel. Force a
-            // re-identify + re-baseline. This is the path-independent fix for the
-            // IPSec→IPSec switch: the switch reuses the same ipsec0 and does not
-            // always run connectViaIKEv2's reset, so ipsecTunIface/baseline stayed
-            // pinned to the previous session and the byte delta clamped to 0 (the
-            // diagnostic below never even fired because the identify block was
-            // skipped). connectedDate changing is the reliable "new tunnel" signal.
+            // New IKE session (connectedDate advanced) → fresh tunnel; drop the
+            // per-interface baselines so growth is measured from this session.
+            // This is the path-independent re-arm for an IPSec→IPSec switch (which
+            // doesn't always run connectViaIKEv2's reset).
             if let since = connection.connectedDate, since != ipsecSessionDate {
                 ipsecSessionDate = since
-                ipsecTunIface = nil
+                ipsecIfaceBase.removeAll()
                 ipsecTrafficLogged = false
             }
-            if ipsecTunIface == nil {
-                let all = Self.utunNames()
-                let fresh = all.subtracting(ipsecPreUtuns).sorted()
-                // Prefer a freshly-appeared interface. But on an IPSec→IPSec
-                // profile switch the SAME `ipsec0` is reused — it was already up
-                // (the old tunnel) when we snapshotted ipsecPreUtuns, so nothing
-                // is "fresh" and the counter stuck at 0. Fall back to the live
-                // `ipsec*` interface; the baseline captured below (current bytes)
-                // makes the session count start at ~0 and climb regardless of
-                // whether the interface was reused or recreated.
-                ipsecTunIface = fresh.first ?? all.first(where: { $0.hasPrefix("ipsec") })
-                if let iface = ipsecTunIface, let c = Self.interfaceByteCounts(iface) {
-                    ipsecBaseRx = c.rx; ipsecBaseTx = c.tx
-                }
-                // One-time diagnostic so a device log tells us exactly which
-                // utun set we saw and which we picked (if the counter reads 0).
-                if !ipsecTrafficLogged {
-                    ipsecTrafficLogged = true
-                    PrivycsLog.log("IPSec traffic: iface=\(ipsecTunIface ?? "none") pre=\(ipsecPreUtuns.sorted()) now=\(all.sorted())")
-                }
+            // Sum the GROWTH of every live ipsec* interface since the session
+            // started. We don't assume which one carries the tunnel (a switch
+            // moves ipsec0→ipsec1 with the old lingering): each gets a first-sight
+            // baseline, so the dying interface contributes ~0 and the live one the
+            // real session bytes.
+            var diag: [String] = []
+            for ifn in Self.utunNames().filter({ $0.hasPrefix("ipsec") }).sorted() {
+                guard let c = Self.interfaceByteCounts(ifn) else { continue }
+                let base = ipsecIfaceBase[ifn] ?? c
+                if ipsecIfaceBase[ifn] == nil { ipsecIfaceBase[ifn] = c }
+                rx += max(0, c.rx - base.rx)
+                tx += max(0, c.tx - base.tx)
+                diag.append("\(ifn):rx=\(c.rx),tx=\(c.tx)")
             }
-            if let iface = ipsecTunIface, let c = Self.interfaceByteCounts(iface) {
-                rx = max(0, c.rx - ipsecBaseRx)
-                tx = max(0, c.tx - ipsecBaseTx)
+            // One-time diagnostic: absolute bytes of every ipsec* interface so a
+            // device log shows which one actually accounts traffic if rx/tx stay 0.
+            if !ipsecTrafficLogged {
+                ipsecTrafficLogged = true
+                PrivycsLog.log("IPSec traffic: ifaces=[\(diag.joined(separator: " "))] -> session rx=\(rx) tx=\(tx)")
             }
         } else {
-            ipsecTunIface = nil
+            ipsecIfaceBase.removeAll()
             ipsecSessionDate = nil
         }
 
