@@ -128,6 +128,14 @@ type App struct {
 	forceQuit            bool           // set by tray Quit to bypass minimize-to-tray
 	logFile              *os.File       // log file handle for proper cleanup on shutdown
 	wg                   sync.WaitGroup // tracks background goroutines for clean shutdown
+	// sessionGen is a monotonically-increasing tunnel-session counter
+	// bumped on every connect-success and every disconnect (under
+	// a.mu). Delayed background goroutines (e.g. the 3 s post-disconnect
+	// sinkhole engage) capture it at spawn time and bail if it has
+	// since changed — that means a subsequent connect/disconnect raced
+	// in and the delayed action would otherwise apply to the wrong
+	// session (e.g. sinkholing a freshly-reconnected tunnel).
+	sessionGen uint64
 	// Periodic tunnel-liveness probe. Started after a successful
 	// Connect, stopped from Disconnect / disconnectInternal. Closes
 	// the "tunnel up but no traffic" gap that OpenVPN / IPSec do
@@ -1307,21 +1315,28 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 	// 	return nil, fmt.Errorf("%s", errMsg)
 	// }
 
-	a.connected = true
-	a.connectedAt = time.Now()
-
 	// v0.9.14.96: enable IPv6 leak killswitch if the tunnel is
 	// IPv4-only and the OS has live IPv6 connectivity. The decision
 	// is made INSIDE applyIPv6Killswitch — it consults the user
 	// setting + interface state and is a no-op when block isn't
 	// warranted. tunV4 is the protocol's reported LocalAddress
-	// (the inner v4 of the tunnel). Run in a goroutine so the
-	// connect path returns to the UI quickly; the helper RPC takes
-	// 50-200 ms typically.
-	go func() {
-		tunV4 := proto.Status().LocalAddress
-		a.applyIPv6Killswitch(tunV4)
-	}()
+	// (the inner v4 of the tunnel).
+	//
+	// Hardening (production-readiness): run this SYNCHRONOUSLY *before*
+	// declaring the session connected. Previously it ran in a detached
+	// goroutine after a.connected=true, opening a leak window: for an
+	// IPv4-only tunnel the user was already "Connected" while raw IPv6
+	// traffic could still egress on the physical NIC for the 50-200 ms
+	// the helper RPC takes. applyIPv6Killswitch is a no-op for dual-
+	// stack tunnels (decision is internal), so dual-stack behaviour is
+	// unchanged. The scan + single helper RPC are cheap; blocking the
+	// connect path on them is the correct trade for closing the leak.
+	tunV4 := proto.Status().LocalAddress
+	a.applyIPv6Killswitch(tunV4)
+
+	a.connected = true
+	a.connectedAt = time.Now()
+	a.sessionGen++ // new session — invalidates any pending delayed-disconnect action
 
 	// Persist the runtime-assigned VPN IP back to the connection
 	// registry so the Configs page can show it after reload, even
@@ -1332,13 +1347,10 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 	// server) leaves the previous value intact rather than wiping it.
 	if status := proto.Status(); status.LocalAddress != "" {
 		if conn := a.connections.Active(); conn != nil {
-			for idx, pc := range conn.Protocols {
-				if pc.Protocol == activeProto && pc.LocalAddress != status.LocalAddress {
-					conn.Protocols[idx].LocalAddress = status.LocalAddress
-					a.connections.Save()
-					break
-				}
-			}
+			// Route the field write + Save through the registry lock
+			// rather than mutating the shared *SavedConnection pointer
+			// directly — keeps the registry's internal mutex authoritative.
+			a.connections.UpdateConfigLocalAddress(conn.ID, activeProto, status.LocalAddress)
 		}
 	}
 
@@ -1358,7 +1370,9 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 	// tunnel is up; the user just loses the bypass + IPv6 routing
 	// niceties for this session. Logged so post-mortem is possible.
 	if activeProto == "ipsec" && runtime.GOOS == "windows" {
+		a.wg.Add(1)
 		go func() {
+			defer a.wg.Done()
 			a.mu.RLock()
 			conn := a.connections.Active()
 			var routesScript, connName string
@@ -1679,6 +1693,8 @@ func (a *App) disconnectInternal() error {
 	}
 
 	a.connected = false
+	a.sessionGen++ // session ended — capture below to guard the delayed sinkhole
+	disconnectGen := a.sessionGen
 
 	// v0.9.14.96: clear IPv6 leak killswitch firewall rules. Always
 	// called — clearIPv6Killswitch is idempotent so it's safe even
@@ -1706,8 +1722,21 @@ func (a *App) disconnectInternal() error {
 	// disconnect to finish, the sinkhole just slides in
 	// underneath afterwards.
 	if a.settings.KillSwitchEnabled && a.ksManager != nil {
+		a.wg.Add(1)
 		go func() {
+			defer a.wg.Done()
 			time.Sleep(3 * time.Second)
+			// Session-change guard: if a connect (or another disconnect)
+			// raced in during the 3 s settle window, sessionGen will have
+			// moved past disconnectGen. Engaging the sinkhole now would
+			// blackhole a freshly-reconnected tunnel — bail instead.
+			a.mu.RLock()
+			curGen := a.sessionGen
+			a.mu.RUnlock()
+			if curGen != disconnectGen {
+				log.Printf("Delayed sinkhole: session changed during settle window (gen %d→%d) — skipping engage", disconnectGen, curGen)
+				return
+			}
 			a.ksManager.ForceSinkhole("user-initiated disconnect with KS enabled (delayed for NDIS settle)")
 		}()
 	}
@@ -2598,6 +2627,15 @@ func (a *App) GetSettings() *AppSettings {
 // the spawn loop produced visible console-window flashing on the
 // user's screen.
 func (a *App) UpdateSettings(settings *AppSettings) error {
+	// HTTPS-only guard for the gateway URL before we persist anything —
+	// reject the save with a clear error rather than storing a plain
+	// http:// URL that would later send the API key in the clear.
+	if settings != nil {
+		if err := validateGatewayURL(settings.GatewayURL); err != nil {
+			return err
+		}
+	}
+
 	// SNAPSHOT phase: capture prevs, swap a.settings, persist.
 	// Side-effects below run AFTER the lock is released — they do
 	// not touch App state directly, only OS resources (firewall,

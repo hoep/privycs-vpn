@@ -193,6 +193,10 @@ final class AppState: ObservableObject {
     }
 
     func connectSelected() async {
+        // Re-entrancy guard: a double-tap (or an overlapping rule-driven +
+        // manual connect) must not launch two connect walks against the single
+        // shared NEVPNManager slot at once. `connecting` is the in-flight latch.
+        guard !connecting else { return }
         connectError = nil
         // A manual connect cancels any active pause.
         pausedUntil = nil; pauseTimer?.cancel(); pauseTimer = nil
@@ -308,7 +312,11 @@ final class AppState: ObservableObject {
         let wasConnected = status.connected
         selectedTargetID = id
         pushWidgetSnapshot()
-        guard wasConnected else { return }
+        // Don't kick off a live switch while a connect walk is already in flight
+        // — that would tear down a tunnel mid-establish and race the shared
+        // NEVPNManager slot. The new selection is recorded above; the user can
+        // re-tap once the in-flight attempt settles.
+        guard wasConnected, !connecting else { return }
         await teardownTunnel(armManualCooldown: false)
         await connectSelected()
     }
@@ -629,7 +637,13 @@ final class AppState: ObservableObject {
         // Without this, the OS VPN profile (NETunnelProviderManager / NEVPNManager)
         // orphans in iOS Settings ▸ VPN — same cleanup the list-delete path does.
         if let name, !connections.contains(where: { $0.id == connectionID }) {
-            await tunnelManager.removeOSConfigs(connectionName: name)
+            // The IKEv2 personal-VPN slot is shared by ALL IPSec connections
+            // (matched only by name). Don't remove it if another saved IPSec
+            // connection still relies on it.
+            let otherIPSecRemain = connections.contains { c in
+                c.protocols.contains { $0.protocol == .ipsec }
+            }
+            await tunnelManager.removeOSConfigs(connectionName: name, otherIPSecConnectionsRemain: otherIPSecRemain)
         }
     }
 
@@ -798,10 +812,16 @@ final class AppState: ObservableObject {
             // Only emit packet-tunnel protocols the widget can reconfigure
             // in-place (WG/AWG/OpenVPN); IPSec is handled by opening the app.
             if TunnelProviderConfig.isInPlaceSwitchable(cfg.protocol.rawValue) {
+                // SECURITY: do NOT put the raw VPN config (WG/OpenVPN PrivateKeys)
+                // into the App Group UserDefaults snapshot — UserDefaults is
+                // unencrypted and recoverable from device backups. The widget's
+                // protocol-switch intent re-reads the config from the Keychain
+                // (App Group, ThisDeviceOnly, not backup-recoverable) at switch
+                // time using snapshot.connectionId + this target's configId.
                 targets.append(WidgetSwitchTarget(
                     protocolRaw: cfg.protocol.rawValue,
                     configId: cfg.id,
-                    configContent: cfg.configContent,
+                    configContent: "",
                     serverAddress: cfg.serverAddress,
                     dnsOverride: dns
                 ))

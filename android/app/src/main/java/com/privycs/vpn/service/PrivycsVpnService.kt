@@ -100,6 +100,15 @@ class PrivycsVpnService : VpnService() {
     // pool rotation. v0.9.14.16 fix.
     private var statusPollingJob: kotlinx.coroutines.Job? = null
 
+    // v6-leak detection for IPSec runs after a 5s delay so the IKE_AUTH
+    // traffic-selector negotiation has settled. On a fast disconnect /
+    // protocol switch the tunnel is already gone before the delay fires,
+    // so the deferred check would emit a false-positive "IPv6 leak"
+    // banner against a torn-down tunnel. Tracked here and cancelled in
+    // teardownAllProtocols; the body also re-checks live tunnel state
+    // before emitting, as a belt-and-braces guard.
+    private var ipsecV6LeakJob: kotlinx.coroutines.Job? = null
+
     // v0.9.15.46: vanilla WireGuard is now also served by the
     // amneziawg-android GoBackend (AmneziaWG-go is a strict superset of
     // wireguard-go; the Config parser accepts vanilla WG configs with
@@ -1802,6 +1811,10 @@ class PrivycsVpnService : VpnService() {
     }
 
     private suspend fun teardownAllProtocols() {
+        // Cancel the deferred IPSec v6-leak check so it can't fire a
+        // false-positive banner against a tunnel we're tearing down.
+        ipsecV6LeakJob?.cancel()
+        ipsecV6LeakJob = null
         val hadSomething = amneziaTunnel != null ||
             openVpnTunnel != null || ipSecTunnel != null
         // v0.9.15.46: single AmneziaWG-backed tunnel serves both WG and
@@ -2235,8 +2248,21 @@ class PrivycsVpnService : VpnService() {
         // determines whether the negotiated tunnel actually captured
         // v6, and warns the user if not. WireGuard / OpenVPN don't
         // need this — their routes are unilateral, no negotiation.
-        scope.launch {
+        // Cancel any prior deferred check (rapid reconnect) before arming
+        // a fresh one, then keep the handle so teardown can cancel it.
+        ipsecV6LeakJob?.cancel()
+        ipsecV6LeakJob = scope.launch {
             kotlinx.coroutines.delay(5_000) // wait for tunnel to fully establish
+            // Re-check live tunnel state after the delay: a fast
+            // disconnect / protocol switch may have torn the IPSec tunnel
+            // down (or switched protocol) while we slept. Emitting then
+            // would surface a false-positive banner against a dead tunnel.
+            val stillIpsecUp = currentProtocol == VpnProtocol.IPSEC &&
+                ipSecTunnel?.getState() == IpSecTunnel.State.CONNECTED
+            if (!stillIpsecUp) {
+                PrivycsLogger.d(TAG, "ipv6-leak check skipped: IPSec tunnel no longer connected (fast disconnect/switch)")
+                return@launch
+            }
             if (detectV6Leak()) {
                 PrivycsLogger.w(TAG, "ipv6-leak-warning: IPSec tunnel does not capture v6, native v6 default route active")
                 // Surface to UI via VpnServiceManager error field; UI
@@ -2705,10 +2731,15 @@ class PrivycsVpnService : VpnService() {
             // callback's one-shot values for the rest of the session.
             delay(STATUS_POLL_INTERVAL_MS)
             val loopStart = System.currentTimeMillis()
+            // One concise lifecycle line at INFO; the per-iteration trace
+            // is DEBUG so it doesn't force a file write every 1000ms for
+            // the whole session (each PrivycsLogger.i used to append to
+            // the rotating log file every tick). DEBUG still reaches
+            // logcat for live diagnosis but is not persisted at INFO spam.
             PrivycsLogger.i(TAG, "startStatusPolling: loop starting, scope.isActive=$isActive, currentProtocol=$currentProtocol")
             while (isActive) {
                 iter++
-                PrivycsLogger.i(TAG, "startStatusPolling: iteration=$iter protocol=$currentProtocol")
+                PrivycsLogger.d(TAG, "startStatusPolling: iteration=$iter protocol=$currentProtocol")
                 val status = when (currentProtocol) {
                     VpnProtocol.WIREGUARD -> {
                         amneziaTunnel?.getStatus(currentConnectionName, currentConnectionId, VpnProtocol.WIREGUARD)

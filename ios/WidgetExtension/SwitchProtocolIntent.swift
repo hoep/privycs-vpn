@@ -29,6 +29,22 @@ struct SwitchProtocolIntent: AppIntent {
         else {
             return .result()
         }
+        // SECURITY: the snapshot intentionally carries NO config content (it lives
+        // in the unencrypted App Group UserDefaults). Re-read the raw config from
+        // the Keychain (App Group, ThisDeviceOnly) at switch time, keyed by the
+        // connection + config id the snapshot carries. Without it there is no
+        // config to start, so bail (the app can perform the switch instead).
+        let configContent: String
+        if !target.configContent.isEmpty {
+            // Defensive: honour an inline value if a future writer ever sets one.
+            configContent = target.configContent
+        } else {
+            let key = KeychainKey.protocolConfig(connectionID: snap.connectionId, configID: target.configId)
+            guard let stored = try? await KeychainSecretStore().get(key), !stored.isEmpty else {
+                return .result()
+            }
+            configContent = stored
+        }
         let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         let mgr = managers.first(where: { $0.localizedDescription == snap.connectionName })
             ?? managers.first(where: { $0.isEnabled })
@@ -40,7 +56,7 @@ struct SwitchProtocolIntent: AppIntent {
         proto.serverAddress = target.serverAddress
         proto.providerConfiguration = TunnelProviderConfig.make(
             protocolRaw: target.protocolRaw,
-            configContent: target.configContent,
+            configContent: configContent,
             connectionId: snap.connectionId,
             configId: target.configId,
             dnsOverride: target.dnsOverride,

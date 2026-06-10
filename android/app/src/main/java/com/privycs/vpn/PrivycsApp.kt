@@ -171,6 +171,26 @@ class PrivycsApp : StrongSwanApplication() {
         connectionRepository = ConnectionRepository(this)
         settingsRepository = SettingsRepository(this)
 
+        // Pre-warm the SettingsRepository @Volatile cache off the main
+        // thread at app start. getSettingsBlocking() falls back to a
+        // runBlocking { settingsFlow.first() } DataStore read when its
+        // cache is still cold; ConnectCoordinator calls it inside
+        // mutex.withLock on Dispatchers.Main, so a first connect/disconnect
+        // that lands before the cache warms would block the main thread on
+        // disk I/O (cold-start ANR window). The repository's own init
+        // collector warms the cache eventually; this just forces the very
+        // first read to happen here, on IO, before the user can tap
+        // Connect. Cache semantics are unchanged — this only fills it
+        // earlier. Cheap and idempotent (the value is also kept current by
+        // the repository's settingsFlow collector).
+        appScope.launch {
+            try {
+                settingsRepository.getSettingsBlocking()
+            } catch (t: Throwable) {
+                Log.w("PrivycsApp", "Settings cache pre-warm failed: ${t.message}")
+            }
+        }
+
         // Smart Decision Engine (shadow, v1.0.9): forward every tunnel-health
         // transition to the engine so it can explain what it WOULD do. The
         // StateFlow only emits on change, so this is one cheap observer; the

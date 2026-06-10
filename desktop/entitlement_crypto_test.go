@@ -26,13 +26,20 @@ func freshTestKeypair(t *testing.T) ed25519.PrivateKey {
 	return priv
 }
 
+// issueKey signs a payload inline using the package's canonical-JSON
+// encoder. We intentionally do NOT call license.Issue here — the
+// private-key signer lives behind the `licensegen` build tag and is
+// not present in the default (shipped-client) build, so the verify
+// tests must construct their own test vectors using the public
+// CanonicalJSON + EncodeBase32 primitives plus a local ed25519.Sign.
 func issueKey(t *testing.T, priv ed25519.PrivateKey, pl *license.Payload) string {
 	t.Helper()
-	key, err := license.Issue(pl, priv)
+	canon, err := license.CanonicalJSON(pl)
 	if err != nil {
-		t.Fatalf("issue: %v", err)
+		t.Fatalf("canonicalize: %v", err)
 	}
-	return key
+	sig := ed25519.Sign(priv, canon)
+	return license.Prefix + license.Sep + license.EncodeBase32(canon) + license.Sep + license.EncodeBase32(sig)
 }
 
 func validPayload() *license.Payload {

@@ -42,8 +42,16 @@ class AmneziaTunnel(
     }
 
     private var tunnelName: String = "privycs0"
+    // @Volatile: written on the GoBackend callback thread (onStateChange)
+    // and on Dispatchers.IO (connect/parseConfig), read by the
+    // status-poll coroutine (getStatus, Dispatchers.Default). Without the
+    // memory barrier the poll thread can observe a stale state/timestamp.
+    // Mirrors IpSecTunnel's @Volatile state/connectedSince annotations.
+    @Volatile
     private var config: Config? = null
+    @Volatile
     private var currentState: Tunnel.State = Tunnel.State.DOWN
+    @Volatile
     private var connectedSince: Long = 0L
 
     override fun getName(): String = tunnelName

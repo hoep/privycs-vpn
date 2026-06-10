@@ -32,9 +32,32 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
     private unowned let provider: NEPacketTunnelProvider
     private let logger = Logger(subsystem: "com.privycs.vpn.tunnel", category: "OVPNBridge")
     private var connectContinuation: CheckedContinuation<Void, Error>?
+    /// Serialises continuation access across the adapter-delegate callbacks and
+    /// the timeout watchdog (this type is `@unchecked Sendable`).
+    private let contLock = NSLock()
 
     private var adapter: OpenVPNAdapter?
     private var packetFlow: NEPacketTunnelFlow?
+
+    /// Seconds to wait for a terminal connect event before failing the start.
+    /// Without this the CheckedContinuation only resumes on connected /
+    /// disconnected / error — if OpenVPN3 never emits any of those (e.g. it
+    /// silently stalls in IKE/TLS negotiation) the extension wedges forever.
+    private let connectTimeout: TimeInterval = 20
+
+    /// Resume the connect continuation exactly once. The delegate callbacks and
+    /// the timeout watchdog can race; whoever wins resumes, the rest no-op.
+    private func resumeConnect(_ result: Result<Void, Error>) {
+        contLock.lock()
+        let cont = connectContinuation
+        connectContinuation = nil
+        contLock.unlock()
+        guard let cont else { return }
+        switch result {
+        case .success: cont.resume(returning: ())
+        case .failure(let e): cont.resume(throwing: e)
+        }
+    }
 
     public init(provider: NEPacketTunnelProvider) {
         self.provider = provider
@@ -97,11 +120,25 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
             throw TunnelError.nativeFault("OpenVPN config apply: \(error.localizedDescription)")
         }
 
+        // Watchdog: if no terminal event (connected / disconnected / error)
+        // arrives within `connectTimeout`, fail the start so the extension can
+        // report failure instead of wedging forever. Fires through the same
+        // single-resume path as the delegate callbacks (whoever wins, wins).
+        let watchdog = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((self?.connectTimeout ?? 20) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.logger.error("OVPN connect timed out — no terminal event")
+            self?.resumeConnect(.failure(TunnelError.nativeFault("OpenVPN connect timed out")))
+        }
+        defer { watchdog.cancel() }
+
         // Wait for the delegate to fire its connected callback. The
-        // bridge resumes the continuation in `openVPNAdapterDidConnect`
-        // OR with throw on error / disconnect-before-connect.
+        // bridge resumes the continuation in the `.connected` event OR with
+        // throw on error / disconnect-before-connect / the timeout above.
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            contLock.lock()
             connectContinuation = cont
+            contLock.unlock()
             adapter.connect(using: provider.packetFlow)
         }
     }
@@ -134,11 +171,9 @@ extension OpenVPNBridge: OpenVPNAdapterDelegate {
         logger.info("OVPN event=\(event.rawValue) msg=\(message ?? "", privacy: .public)")
         switch event {
         case .connected:
-            connectContinuation?.resume(returning: ())
-            connectContinuation = nil
+            resumeConnect(.success(()))
         case .disconnected:
-            connectContinuation?.resume(throwing: TunnelError.nativeFault("OpenVPN disconnected before connect"))
-            connectContinuation = nil
+            resumeConnect(.failure(TunnelError.nativeFault("OpenVPN disconnected before connect")))
         default:
             break
         }
@@ -146,8 +181,7 @@ extension OpenVPNBridge: OpenVPNAdapterDelegate {
 
     public func openVPNAdapter(_ adapter: OpenVPNAdapter, handleError error: Error) {
         logger.error("OVPN error: \(error.localizedDescription, privacy: .public)")
-        connectContinuation?.resume(throwing: error)
-        connectContinuation = nil
+        resumeConnect(.failure(error))
     }
 
     public func openVPNAdapter(_ adapter: OpenVPNAdapter, handleLogMessage logMessage: String) {

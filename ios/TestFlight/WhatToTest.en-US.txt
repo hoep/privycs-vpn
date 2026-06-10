@@ -1,20 +1,18 @@
-v1.1.4.1 (build 95) — in-app language now applies everywhere.
+v1.1.5 (build 96) — security & stability hardening.
 
-Fixes strings that ignored your in-app language choice and stayed in the device
-language: the Connect-screen picker ("Connections"/"Pools"), the detail rows
-("Endpoint", "Last handshake"), relative times ("1 minute ago"), and the
-tunnel-health pill ("Healthy"). These used String(localized:), which bypasses
-the in-app language override (only Text/NSLocalizedString went through it). All
-~111 such strings now resolve against the chosen language.
+Main change: the home-screen widget no longer stores VPN config (which can
+include private keys) in unencrypted shared storage — it now reads the config
+from the Keychain at protocol-switch time. Plus a double-tap-connect guard and
+an OpenVPN connect timeout.
 
 HOW TO TEST
-- Set the app language (Settings ▸ Appearance ▸ Language) to one different from
-  your device language.
-- Connect screen: the protocol picker tabs, Endpoint / Last handshake labels,
-  the "… ago" time, and the health pill should all be in the CHOSEN language —
-  not your device language.
-- Switch language again → everything updates without a restart.
+- Widget protocol switch STILL WORKS: from the widget, switch between protocols
+  of a connection → it connects with the right protocol (now sourced from the
+  Keychain).
+- Double-tap Connect rapidly → only one connection attempt, no flapping.
+- OpenVPN: connect to a reachable + an unreachable server → unreachable fails
+  cleanly within ~20s instead of hanging.
 
 REGRESSION CHECK
-- All other screens still localize correctly; widget protocol icons; IPSec
-  counter; delete cleanup.
+- Connect/disconnect all protocols, IPSec counter, single-active-VPN, pools,
+  in-app language, delete cleanup, widget icons.

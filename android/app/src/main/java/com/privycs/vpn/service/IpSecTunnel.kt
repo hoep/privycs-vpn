@@ -15,7 +15,9 @@ import com.privycs.vpn.data.models.VpnStatus
 import com.privycs.vpn.util.PrivycsLogger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -127,7 +129,12 @@ class IpSecTunnel(private val context: Context) {
     // declarations.
     @Volatile
     private var state: State = State.DISCONNECTED
+    // @Volatile: written in connect()/parseConfig() on Dispatchers.IO,
+    // read in getStatus() on the polling coroutine. Same cross-thread
+    // memory-visibility reasoning as state/connectedSince above.
+    @Volatile
     private var sswanConfig: SswanConfig? = null
+    @Volatile
     private var profileUuid: UUID? = null
     @Volatile
     private var connectedSince: Long = 0L
@@ -663,9 +670,23 @@ class IpSecTunnel(private val context: Context) {
             val svcIntent = Intent(context, VpnStateService::class.java)
             context.bindService(svcIntent, fallbackConn, Context.BIND_AUTO_CREATE)
             try {
-                bound.await().disconnect()
+                // Bound await with a timeout: if bindService never delivers
+                // onServiceConnected (service refuses to start, process under
+                // memory pressure), bound.await() would otherwise hang this
+                // coroutine forever — blocking teardown/disconnect for good.
+                // 5s is generous for a local same-process service bind.
+                withTimeout(5_000) {
+                    bound.await().disconnect()
+                }
+            } catch (e: TimeoutCancellationException) {
+                PrivycsLogger.w(
+                    TAG,
+                    "disconnect fallback bind timed out after 5s; cleaning up"
+                )
             } finally {
-                context.unbindService(fallbackConn)
+                try {
+                    context.unbindService(fallbackConn)
+                } catch (_: IllegalArgumentException) { /* never bound, tolerate */ }
             }
         }
         // The listener will flip state to DISCONNECTED once charon reports

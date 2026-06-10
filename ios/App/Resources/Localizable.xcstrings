@@ -161,6 +161,46 @@
         }
       }
     },
+    "%@ tunnel did not establish": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@-Tunnel konnte nicht aufgebaut werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tunnel did not establish"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo establecer el túnel %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tunnel %@ n’a pas pu être établi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile stabilire il tunnel %@"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível estabelecer o túnel %@"
+          }
+        }
+      }
+    },
     "%@: no widespread VPN blocking — a fast protocol is fine here.": {
       "localizations": {
         "de": {

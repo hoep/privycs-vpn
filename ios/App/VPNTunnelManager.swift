@@ -177,12 +177,15 @@ final class VPNTunnelManager: ObservableObject {
                 PrivycsLog.log("connect: \(config.protocol.rawValue) did not establish — failing over")
                 onConnectFailure?(config.protocol)
                 lastError = VPNError.tunnelDidNotEstablish(config.protocol)
-                await stopTunnel()
+                // Mid-loop teardown: skip the XPC manager reload — the next
+                // candidate reloads preferences itself, and a successful connect
+                // reloads once. (Reduces the redundant per-candidate reload.)
+                await stopTunnelSessions(reload: false)
             } catch {
                 PrivycsLog.log("connect: \(config.protocol.rawValue) start error: \(error.localizedDescription)")
                 onConnectFailure?(config.protocol)
                 lastError = error
-                if !isLast { await stopTunnel() }
+                if !isLast { await stopTunnelSessions(reload: false) }
             }
         }
         throw lastError ?? VPNError.noConfig
@@ -347,6 +350,19 @@ final class VPNTunnelManager: ObservableObject {
     /// keeps respecting the rules). Pause/master-off disarm explicitly via
     /// `disarmOnDemand()`.
     func stopTunnel() async {
+        await stopTunnelSessions(reload: true)
+    }
+
+    /// Stop the running session(s) and reset session state. `reload` controls
+    /// the trailing `reloadManagersAndRefresh()` (an XPC preference reload):
+    ///   • true  — public teardown (manual disconnect / pause / protocol-switch
+    ///     / rule disconnect): refresh the cached managers so status reflects
+    ///     the now-down tunnel.
+    ///   • false — mid-failover-loop teardown in `connect()`: the very next
+    ///     candidate's connectVia*/start reloads preferences anyway, and the
+    ///     on-success branch reloads once; skipping the per-candidate reload
+    ///     avoids a redundant XPC round-trip in the failover walk.
+    private func stopTunnelSessions(reload: Bool) async {
         pollTask?.cancel()
         pollTask = nil
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
@@ -358,7 +374,7 @@ final class VPNTunnelManager: ObservableObject {
         ipsecIfaceBase.removeAll()
         ipsecSessionDate = nil
         ipsecTrafficLogged = false
-        await reloadManagersAndRefresh()
+        if reload { await reloadManagersAndRefresh() }
     }
 
     /// Enforce a SINGLE active VPN before starting one: disable every manager
@@ -407,15 +423,23 @@ final class VPNTunnelManager: ObservableObject {
     /// in-app. PTP protocols (WG/AWG/OpenVPN) use a per-connection
     /// NETunnelProviderManager matched by `localizedDescription`; IPSec uses the
     /// shared NEVPNManager personal-VPN slot. Best-effort + idempotent.
-    func removeOSConfigs(connectionName: String) async {
+    /// `otherIPSecConnectionsRemain` — true when at least one OTHER saved
+    /// connection still has an IPSec config. All IPSec connections share the
+    /// SINGLE NEVPNManager personal-VPN slot (matched only by name), so removing
+    /// it on delete would wipe the slot another IPSec connection depends on the
+    /// next time it connects. Only tear the IKEv2 slot down when no other IPSec
+    /// connection is left AND the slot's name matches the deleted one.
+    func removeOSConfigs(connectionName: String, otherIPSecConnectionsRemain: Bool = false) async {
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         for m in mgrs where m.localizedDescription == connectionName {
             try? await m.removeFromPreferences()
         }
-        let ike = NEVPNManager.shared()
-        try? await ike.loadFromPreferences()
-        if ike.localizedDescription == connectionName {
-            try? await ike.removeFromPreferences()
+        if !otherIPSecConnectionsRemain {
+            let ike = NEVPNManager.shared()
+            try? await ike.loadFromPreferences()
+            if ike.localizedDescription == connectionName {
+                try? await ike.removeFromPreferences()
+            }
         }
         await reloadManagersAndRefresh()
     }

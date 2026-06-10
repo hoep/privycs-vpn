@@ -9,6 +9,8 @@ import java.io.PrintWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
 
 /**
  * Tee logger: writes every line to Android logcat AND to a rotating log
@@ -29,7 +31,28 @@ object PrivycsLogger {
     private const val MAX_SIZE_BYTES = 200_000L
     private const val KEEP_LAST_LINES = 500
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
-    private val writeLock = Any()
+
+    // Single-thread executor that owns ALL file I/O (append + rotate).
+    // Moving the FileWriter/rotate off the caller thread fixes the
+    // synchronous-disk-I/O-on-the-caller problem: d/i/w/e used to open,
+    // write and close a FileWriter (and occasionally readLines()+rewrite
+    // the whole file in rotate) under a global lock on whatever thread
+    // called them — including the per-second service poll loop and the
+    // Compose UI thread. The executor's FIFO queue preserves log
+    // ordering (one consumer thread, tasks run in submit order), and
+    // dateFormat is only ever touched on this one thread so it stays
+    // de-facto single-threaded (SimpleDateFormat is not thread-safe).
+    // The timestamp is captured at CALL time (see log()) and only
+    // FORMATTED here, so reordering relative to call order cannot happen.
+    // Daemon thread so it never blocks process exit; the OS flushes the
+    // FileWriter on close in each task, so a process kill loses at most
+    // the entries still queued — same crash-window as the old
+    // append-and-close-per-line design.
+    private val writeExecutor = Executors.newSingleThreadExecutor(
+        ThreadFactory { r ->
+            Thread(r, "PrivycsLogger-io").apply { isDaemon = true }
+        }
+    )
 
     fun d(tag: String, msg: String) = log("DEBUG", tag, msg) { Log.d(tag, msg) }
     fun i(tag: String, msg: String) = log("INFO ", tag, msg) { Log.i(tag, msg) }
@@ -68,24 +91,43 @@ object PrivycsLogger {
                 "PrivycsApp.instance not initialized yet; skipping log file write for [$tag] $msg")
             return
         }
-        synchronized(writeLock) {
-            try {
-                val file = File(ctx.filesDir, LOG_FILE)
-                if (file.exists() && file.length() > MAX_SIZE_BYTES) {
-                    rotate(file)
-                }
-                PrintWriter(FileWriter(file, true)).use { out ->
-                    val ts = dateFormat.format(Date())
-                    out.println("$ts [$tag] $level $msg")
-                }
-            } catch (e: Exception) {
-                // Log to logcat so `adb logcat -s PrivycsLogger` reveals
-                // WHY the file write failed (permissions, full disk, etc.)
-                // - silent failure was exactly what left the in-app Logs
-                // screen empty in v0.9.1.5 / v0.9.1.6.
-                Log.e("PrivycsLogger",
-                    "Failed to append to ${ctx.filesDir}/$LOG_FILE: ${e.message}", e)
+        // Capture the wall-clock at CALL time so the file line's timestamp
+        // reflects when the caller logged, not when the I/O thread happens
+        // to drain the queue. Everything else (formatting + the actual
+        // FileWriter) runs on the single-thread executor below, off the
+        // caller thread, in submit order.
+        val now = Date()
+        val filesDir = ctx.filesDir
+        try {
+            writeExecutor.execute { writeLine(filesDir, now, level, tag, msg) }
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            // Executor shut down (process tearing down). Drop quietly —
+            // logcat already has the line.
+            Log.w("PrivycsLogger", "log write rejected (executor down): $msg")
+        }
+    }
+
+    /**
+     * Runs on the single I/O thread. Appends one line and rotates when
+     * the file outgrows MAX_SIZE_BYTES. No external lock needed: the
+     * single-thread executor serialises every call here.
+     */
+    private fun writeLine(filesDir: File, ts: Date, level: String, tag: String, msg: String) {
+        try {
+            val file = File(filesDir, LOG_FILE)
+            if (file.exists() && file.length() > MAX_SIZE_BYTES) {
+                rotate(file)
             }
+            PrintWriter(FileWriter(file, true)).use { out ->
+                out.println("${dateFormat.format(ts)} [$tag] $level $msg")
+            }
+        } catch (e: Exception) {
+            // Log to logcat so `adb logcat -s PrivycsLogger` reveals
+            // WHY the file write failed (permissions, full disk, etc.)
+            // - silent failure was exactly what left the in-app Logs
+            // screen empty in v0.9.1.5 / v0.9.1.6.
+            Log.e("PrivycsLogger",
+                "Failed to append to $filesDir/$LOG_FILE: ${e.message}", e)
         }
     }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -209,8 +210,26 @@ func (c *SavedConnection) HasProtocol(protocol string) bool {
 	return c.GetProtocol(protocol) != nil
 }
 
-// ConnectionRegistry manages multiple saved VPN connections
+// ConnectionRegistry manages multiple saved VPN connections.
+//
+// Locking: `mu` guards ALL access to Connections + ActiveID. Every
+// exported method takes mu (RLock for reads, Lock for mutations) and
+// delegates the actual work to unexported `*Locked` helpers that
+// assume mu is already held — this keeps the lock non-reentrant-safe
+// even though methods call each other internally (AddOrUpdate→getLocked
+// →saveLocked, RemoveConfig→deleteLocked, …).
+//
+// This lock is INDEPENDENT of App.mu. App.mu still serialises the
+// higher-level connect/disconnect state machine; the registry lock
+// closes the gap where untracked background goroutines (Windows-IPSec
+// routes / gateway-import) touch the registry concurrently with the
+// UI thread. Accessors that hand out *SavedConnection pointers do NOT
+// deep-copy (too many callers mutate in place under App.mu); instead
+// all field writes that happen OUTSIDE App.mu are routed through a
+// registry mutation method (e.g. UpdateConfigLocalAddress,
+// SetConfigWindowsRoutesScript) that locks + saves atomically.
 type ConnectionRegistry struct {
+	mu          sync.RWMutex       `json:"-"`
 	Connections []*SavedConnection `json:"connections"`
 	ActiveID    string             `json:"active_id"`
 	filePath    string
@@ -225,13 +244,20 @@ func NewConnectionRegistry() *ConnectionRegistry {
 	return r
 }
 
-// List returns all saved connections
+// List returns a snapshot slice of all saved connections. The slice
+// header is a copy (safe to range without holding the lock), but the
+// *SavedConnection elements are shared — callers that mutate them must
+// do so under App.mu, matching the existing convention.
 func (r *ConnectionRegistry) List() []*SavedConnection {
-	return r.Connections
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]*SavedConnection, len(r.Connections))
+	copy(out, r.Connections)
+	return out
 }
 
-// Get returns a connection by ID
-func (r *ConnectionRegistry) Get(id string) *SavedConnection {
+// getLocked returns a connection by ID. Caller MUST hold r.mu.
+func (r *ConnectionRegistry) getLocked(id string) *SavedConnection {
 	for _, c := range r.Connections {
 		if c.ID == id {
 			return c
@@ -240,9 +266,18 @@ func (r *ConnectionRegistry) Get(id string) *SavedConnection {
 	return nil
 }
 
-// Active returns the currently active connection
+// Get returns a connection by ID.
+func (r *ConnectionRegistry) Get(id string) *SavedConnection {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.getLocked(id)
+}
+
+// Active returns the currently active connection.
 func (r *ConnectionRegistry) Active() *SavedConnection {
-	return r.Get(r.ActiveID)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.getLocked(r.ActiveID)
 }
 
 // AddOrUpdate adds a protocol config to a connection (creates connection if connID is empty).
@@ -251,10 +286,13 @@ func (r *ConnectionRegistry) Active() *SavedConnection {
 // caller's pc has a non-empty ID matching an existing entry;
 // otherwise append a new entry (different ID → different config).
 func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *ProtocolConfig) (*SavedConnection, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	var conn *SavedConnection
 
 	if connID != "" {
-		conn = r.Get(connID)
+		conn = r.getLocked(connID)
 		if conn == nil {
 			return nil, fmt.Errorf("connection not found: %s", connID)
 		}
@@ -383,7 +421,7 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 		conn.ActiveProtocol = pc.Protocol
 	}
 
-	r.Save()
+	r.saveLocked()
 	return conn, nil
 }
 
@@ -392,7 +430,14 @@ func (r *ConnectionRegistry) AddOrUpdate(connID string, name string, pc *Protoco
 // the connection. Also updates the legacy ActiveProtocol field for
 // back-compat with code paths that still read it.
 func (r *ConnectionRegistry) SetActiveConfig(connID string, configID string) error {
-	conn := r.Get(connID)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.setActiveConfigLocked(connID, configID)
+}
+
+// setActiveConfigLocked is the lock-held body of SetActiveConfig.
+func (r *ConnectionRegistry) setActiveConfigLocked(connID string, configID string) error {
+	conn := r.getLocked(connID)
 	if conn == nil {
 		return fmt.Errorf("connection not found: %s", connID)
 	}
@@ -402,7 +447,7 @@ func (r *ConnectionRegistry) SetActiveConfig(connID string, configID string) err
 	}
 	conn.ActiveConfigID = configID
 	conn.ActiveProtocol = cfg.Protocol
-	r.Save()
+	r.saveLocked()
 	return nil
 }
 
@@ -411,13 +456,15 @@ func (r *ConnectionRegistry) SetActiveConfig(connID string, configID string) err
 // callers that care about WHICH config (when there are several of
 // the same protocol type) should use SetActiveConfig instead.
 func (r *ConnectionRegistry) SetActiveProtocol(connID string, protocol string) error {
-	conn := r.Get(connID)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.getLocked(connID)
 	if conn == nil {
 		return fmt.Errorf("connection not found: %s", connID)
 	}
 	for _, p := range conn.OrderedConfigs() {
 		if p.Protocol == protocol {
-			return r.SetActiveConfig(connID, p.ID)
+			return r.setActiveConfigLocked(connID, p.ID)
 		}
 	}
 	return fmt.Errorf("protocol %s not configured for this connection", protocol)
@@ -425,19 +472,28 @@ func (r *ConnectionRegistry) SetActiveProtocol(connID string, protocol string) e
 
 // SetActive marks a connection as active
 func (r *ConnectionRegistry) SetActive(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.ActiveID = id
-	r.Save()
+	r.saveLocked()
 }
 
 // Delete removes a connection by ID
 func (r *ConnectionRegistry) Delete(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.deleteLocked(id)
+}
+
+// deleteLocked is the lock-held body of Delete.
+func (r *ConnectionRegistry) deleteLocked(id string) error {
 	for i, c := range r.Connections {
 		if c.ID == id {
 			r.Connections = append(r.Connections[:i], r.Connections[i+1:]...)
 			if r.ActiveID == id {
 				r.ActiveID = ""
 			}
-			r.Save()
+			r.saveLocked()
 			return nil
 		}
 	}
@@ -448,13 +504,15 @@ func (r *ConnectionRegistry) Delete(id string) error {
 // type from a connection. Back-compat for callers that don't know
 // about per-config ids. New code should use RemoveConfig.
 func (r *ConnectionRegistry) RemoveProtocol(connID string, protocol string) error {
-	conn := r.Get(connID)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.getLocked(connID)
 	if conn == nil {
 		return fmt.Errorf("connection not found: %s", connID)
 	}
 	for _, p := range conn.Protocols {
 		if p.Protocol == protocol {
-			return r.RemoveConfig(connID, p.ID)
+			return r.removeConfigLocked(connID, p.ID)
 		}
 	}
 	return nil
@@ -464,7 +522,14 @@ func (r *ConnectionRegistry) RemoveProtocol(connID string, protocol string) erro
 // removed config was the active one and others remain, repick;
 // when no configs remain, delete the whole connection.
 func (r *ConnectionRegistry) RemoveConfig(connID string, configID string) error {
-	conn := r.Get(connID)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.removeConfigLocked(connID, configID)
+}
+
+// removeConfigLocked is the lock-held body of RemoveConfig.
+func (r *ConnectionRegistry) removeConfigLocked(connID string, configID string) error {
+	conn := r.getLocked(connID)
 	if conn == nil {
 		return fmt.Errorf("connection not found: %s", connID)
 	}
@@ -480,15 +545,17 @@ func (r *ConnectionRegistry) RemoveConfig(connID string, configID string) error 
 		}
 	}
 	if len(conn.Protocols) == 0 {
-		return r.Delete(connID)
+		return r.deleteLocked(connID)
 	}
-	r.Save()
+	r.saveLocked()
 	return nil
 }
 
 // RenameConfig sets the user-editable nickname on a specific config.
 func (r *ConnectionRegistry) RenameConfig(connID string, configID string, nickname string) error {
-	conn := r.Get(connID)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.getLocked(connID)
 	if conn == nil {
 		return fmt.Errorf("connection not found: %s", connID)
 	}
@@ -497,12 +564,67 @@ func (r *ConnectionRegistry) RenameConfig(connID string, configID string, nickna
 		return fmt.Errorf("config %s not on connection %s", configID, connID)
 	}
 	cfg.Nickname = nickname
-	r.Save()
+	r.saveLocked()
 	return nil
 }
 
-// Save persists the registry to disk
+// UpdateConfigLocalAddress sets the runtime-learned VPN inner IP on the
+// first config of the given protocol on the named connection, then
+// persists. Routes the field write through the registry lock so the
+// connect path (and any background goroutine) can update the learned
+// address without holding App.mu and without racing other registry
+// mutations. No-op (returns false) if the connection / matching config
+// isn't found or the value is unchanged.
+func (r *ConnectionRegistry) UpdateConfigLocalAddress(connID, protocol, localAddr string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.getLocked(connID)
+	if conn == nil {
+		return false
+	}
+	for _, pc := range conn.Protocols {
+		if pc.Protocol == protocol && pc.LocalAddress != localAddr {
+			pc.LocalAddress = localAddr
+			r.saveLocked()
+			return true
+		}
+	}
+	return false
+}
+
+// SetConfigWindowsRoutesScript attaches the gateway-supplied Windows
+// PowerShell .cmd companion (Add-VpnConnectionRoute directives) to the
+// config whose ID matches configID, across all connections, then
+// persists. Used by the IPSec gateway-import path which runs partly in
+// a background goroutine. Returns true when a matching config was
+// found and updated.
+func (r *ConnectionRegistry) SetConfigWindowsRoutesScript(configID, script string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, conn := range r.Connections {
+		for _, pc := range conn.Protocols {
+			if pc.ID == configID {
+				pc.WindowsRoutesScript = script
+				r.saveLocked()
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Save persists the registry to disk. Locks r.mu — callers that
+// already hold the lock must use saveLocked instead.
 func (r *ConnectionRegistry) Save() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.saveLocked()
+}
+
+// saveLocked persists the registry to disk. Caller MUST hold r.mu.
+// json.Marshal skips the mutex field (json:"-") so this is safe even
+// though it runs while r.mu is held.
+func (r *ConnectionRegistry) saveLocked() {
 	os.MkdirAll(filepath.Dir(r.filePath), 0700)
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
@@ -517,6 +639,8 @@ func (r *ConnectionRegistry) Save() {
 // load reads the registry from disk. EncryptedReadFile transparently
 // handles pre-migration plaintext and v1.0.0+ encrypted blobs.
 func (r *ConnectionRegistry) load() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	data, err := EncryptedReadFile(r.filePath)
 	if err != nil {
 		return

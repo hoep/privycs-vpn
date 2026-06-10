@@ -43,7 +43,9 @@ extension AppState {
                         : (fails >= dead ? .recovering : .degraded)
                     // Shadow engine (v1.0.9): forward the health verdict.
                     self.engineShadow.observeHealth(self.tunnelHealth)
-                    PrivycsLog.log("health: probe \(target):443 ok=\(ok) live=\(live) fails=\(fails)")
+                    // Don't log the resolved probe host — it can be a private
+                    // hostname (PII). Log only the verdict counters.
+                    PrivycsLog.log("health: probe ok=\(ok) live=\(live) fails=\(fails)")
                 }
                 let interval = self.settings.tunnelHealthPingIntervalSec > 0
                     ? self.settings.tunnelHealthPingIntervalSec : 10

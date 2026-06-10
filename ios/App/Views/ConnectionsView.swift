@@ -176,10 +176,18 @@ struct ConnectionsView: View {
         // / NEVPNManager) is matched by the connection name and must be removed
         // too, else it orphans in iOS Settings ▸ VPN after an in-app delete.
         let targets = offsets.map { (id: appState.connections[$0].id, name: appState.connections[$0].name) }
+        let deletedIDs = Set(targets.map { $0.id })
+        // Connections that will SURVIVE this delete and still use IPSec. The
+        // IKEv2 personal-VPN slot is shared by every IPSec connection (matched
+        // only by name), so it must not be torn down while another IPSec
+        // connection still needs it.
+        let otherIPSecRemain = appState.connections.contains { c in
+            !deletedIDs.contains(c.id) && c.protocols.contains { $0.protocol == .ipsec }
+        }
         Task {
             for t in targets {
                 try? await appState.connectionRepo.delete(t.id)
-                await appState.tunnelManager.removeOSConfigs(connectionName: t.name)
+                await appState.tunnelManager.removeOSConfigs(connectionName: t.name, otherIPSecConnectionsRemain: otherIPSecRemain)
             }
             appState.connections = (try? await appState.connectionRepo.loadAll()) ?? []
             // If the deleted connection was selected, repick + refresh the widget

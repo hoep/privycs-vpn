@@ -70,3 +70,6 @@ ios/ThirdParty/AmneziaWG/
 # Smart Decision Engine gomobile artefacts (rebuilt in CI)
 android/app/libs/engine.aar
 ios/ThirdParty/Engine/Engine.xcframework/
+
+# Website-only design-system bundles dropped at repo root (not app source).
+*.zip

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -94,6 +95,51 @@ var allowedActions = map[string]bool{
 // per-user data directory. Shell metacharacters ($, ;, |, &, `, etc.) remain blocked,
 // and the path is always passed as an exec.Cmd argument (no shell interpolation).
 var safePathPattern = regexp.MustCompile(`^[a-zA-Z0-9 /_\-\.\\:]+$`)
+
+// pathContainsTraversal reports whether p contains a ".." path
+// segment in either Unix or Windows form. safePathPattern alone allows
+// "." and "/" (legitimate for absolute config paths) and so lets
+// "../../etc/passwd" through — this is the directory-traversal gate
+// that complements it. Checks the raw string AND the filepath.Clean'd
+// form so that obfuscated traversals (e.g. "a/../../b") are caught.
+func pathContainsTraversal(p string) bool {
+	norm := strings.ReplaceAll(p, `\`, `/`)
+	for _, seg := range strings.Split(norm, "/") {
+		if seg == ".." {
+			return true
+		}
+	}
+	cleaned := strings.ReplaceAll(filepath.Clean(p), `\`, `/`)
+	for _, seg := range strings.Split(cleaned, "/") {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// validateHelperFilePath is the hardened path gate for root-side file
+// operations: it requires an absolute path, rejects any ".." traversal
+// segment, and rejects shell-metacharacter / non-allowed-character
+// paths via safePathPattern. Returns nil when the path is safe to act
+// on as root. An empty path is the caller's "not supplied" sentinel
+// and is rejected here — callers that allow empty must check that
+// first.
+func validateHelperFilePath(p string) error {
+	if p == "" {
+		return fmt.Errorf("empty path")
+	}
+	if !safePathPattern.MatchString(p) {
+		return fmt.Errorf("path contains disallowed characters")
+	}
+	if pathContainsTraversal(p) {
+		return fmt.Errorf("path contains '..' traversal")
+	}
+	if !filepath.IsAbs(p) {
+		return fmt.Errorf("path must be absolute")
+	}
+	return nil
+}
 
 // safeInterfacePattern validates interface names (alphanumeric, dash, underscore).
 // Length is bounded at 64 chars — enough for any sanitized connection name
@@ -266,7 +312,14 @@ func (h *PrivilegedHelper) handleConnection(conn net.Conn) {
 		peerUID = uid
 	}
 
-	decoder := json.NewDecoder(conn)
+	// Bound the per-connection read so a hostile / buggy local client
+	// cannot stream gigabytes at the root helper and OOM it. The
+	// largest legitimate command is an IPSec Windows-profile script
+	// (base64 of a few hundred Add-VpnConnectionRoute lines + cert
+	// material), comfortably under 4 MB. Anything larger is rejected
+	// by the decoder hitting EOF mid-token.
+	const maxCommandBytes = 4 << 20 // 4 MB
+	decoder := json.NewDecoder(io.LimitReader(conn, maxCommandBytes))
 	var cmd HelperCommand
 	if err := decoder.Decode(&cmd); err != nil {
 		h.sendResponse(conn, HelperResponse{Success: false, Error: "invalid JSON command"})
@@ -373,9 +426,14 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("unknown action: %s", cmd.Action)}
 	}
 
-	// Validate inputs to prevent injection
-	if cmd.ConfigPath != "" && !safePathPattern.MatchString(cmd.ConfigPath) {
-		return HelperResponse{Success: false, Error: "invalid config path"}
+	// Validate inputs to prevent injection + directory traversal.
+	// ConfigPath, when supplied, must be an absolute path with no ".."
+	// segment and only allow-listed characters — a root-side file op
+	// must never act on "../../etc/..." or a relative path.
+	if cmd.ConfigPath != "" {
+		if err := validateHelperFilePath(cmd.ConfigPath); err != nil {
+			return HelperResponse{Success: false, Error: fmt.Sprintf("invalid config path: %v", err)}
+		}
 	}
 	if cmd.Interface != "" && !safeInterfacePattern.MatchString(cmd.Interface) {
 		return HelperResponse{Success: false, Error: "invalid interface name"}
@@ -552,7 +610,9 @@ func (h *PrivilegedHelper) cmdClearLogs(cmd HelperCommand) HelperResponse {
 		// metacharacters, only ASCII filename chars).
 		if !strings.HasSuffix(p, ".log") ||
 			!strings.Contains(p, "privycs-vpn") ||
-			!safePathPattern.MatchString(p) {
+			!safePathPattern.MatchString(p) ||
+			pathContainsTraversal(p) ||
+			!filepath.IsAbs(p) {
 			skipped++
 			continue
 		}
@@ -1036,16 +1096,67 @@ func (h *PrivilegedHelper) disconnectOpenVPN(cmd HelperCommand) HelperResponse {
 	if err == nil {
 		var pid int
 		if _, err := fmt.Sscan(strings.TrimSpace(string(pidData)), &pid); err == nil && pid > 0 {
+			// Recycled-PID guard: a stale PID file can name a PID the
+			// OS has since reassigned to an unrelated process. Since we
+			// run as root, an unguarded Kill could SIGKILL that victim.
+			// Verify the process image still looks like openvpn before
+			// signalling; if the check is inconclusive we DO still send
+			// the gentle Interrupt (SIGINT is mostly benign) but SKIP the
+			// hard Kill so we never SIGKILL a misidentified process.
+			isOpenVPN := processImageLooksLikeOpenVPN(pid)
 			if proc, err := os.FindProcess(pid); err == nil {
-				proc.Signal(os.Interrupt)
-				time.Sleep(1 * time.Second)
-				proc.Kill()
+				if isOpenVPN {
+					proc.Signal(os.Interrupt)
+					time.Sleep(1 * time.Second)
+					proc.Kill()
+				} else {
+					log.Printf("disconnectOpenVPN: pid %d does not look like openvpn (recycled PID?) — sending SIGINT only, skipping Kill", pid)
+					proc.Signal(os.Interrupt)
+				}
 			}
 		}
 		os.Remove(pidPath)
 	}
 
 	return HelperResponse{Success: true, Output: "openvpn stopped"}
+}
+
+// processImageLooksLikeOpenVPN returns true when the running process
+// with the given PID has an executable image / command line that
+// contains "openvpn" (case-insensitive). Best-effort + non-blocking:
+// a quick `ps`/`tasklist` lookup with no retries. Returns false if the
+// process is gone or the lookup fails — callers treat that as "do not
+// hard-Kill" rather than "definitely not openvpn", so a recycled PID
+// is never SIGKILL'd on our behalf.
+func processImageLooksLikeOpenVPN(pid int) bool {
+	switch runtime.GOOS {
+	case "linux":
+		// /proc/<pid>/cmdline is NUL-separated argv.
+		if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+			return strings.Contains(strings.ToLower(string(data)), "openvpn")
+		}
+		// Fallback: resolve the exe symlink.
+		if dst, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid)); err == nil {
+			return strings.Contains(strings.ToLower(dst), "openvpn")
+		}
+		return false
+	case "darwin":
+		out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").CombinedOutput()
+		if err != nil {
+			return false
+		}
+		return strings.Contains(strings.ToLower(string(out)), "openvpn")
+	case "windows":
+		// tasklist filtered by PID; the image-name column carries the
+		// exe name (openvpn.exe) when this is the daemon we started.
+		out, err := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH").CombinedOutput()
+		if err != nil {
+			return false
+		}
+		return strings.Contains(strings.ToLower(string(out)), "openvpn")
+	default:
+		return false
+	}
 }
 
 // connectIPSec starts an IPSec/IKEv2 connection.

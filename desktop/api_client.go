@@ -6,13 +6,49 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// validateGatewayURL enforces HTTPS-only for the gateway base URL so
+// the per-user API key never travels in the clear via the
+// "Authorization: Bearer <key>" header. Plain http:// is permitted
+// ONLY when the host is a loopback address (localhost / 127.0.0.1 /
+// ::1) — the dev-against-local-gateway case where there is no network
+// to sniff. Any other scheme (http to a remote host, ws, file, …) or
+// an unparseable URL is rejected with a clear error. Empty input is
+// allowed (callers treat "" as "not configured").
+func validateGatewayURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("gateway URL is not a valid URL: %w", err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		host := u.Hostname()
+		if host == "localhost" {
+			return nil
+		}
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			return nil
+		}
+		return fmt.Errorf("gateway URL must use https:// (plain http is only allowed for localhost) — refusing to send the API key over an unencrypted connection")
+	default:
+		return fmt.Errorf("gateway URL must use https:// (got scheme %q)", u.Scheme)
+	}
+}
 
 // RemoteConfigEntry represents a VPN config from the gateway API
 type RemoteConfigEntry struct {
@@ -49,10 +85,17 @@ func (a *App) apiRequest(method, path string) ([]byte, error) {
 		return nil, fmt.Errorf("gateway URL and API key must be configured in settings")
 	}
 
-	url := strings.TrimRight(settings.GatewayURL, "/") + path
+	// HTTPS-only guard at request-build time: never put the Bearer API
+	// key onto an unencrypted http connection to a remote host.
+	if err := validateGatewayURL(settings.GatewayURL); err != nil {
+		log.Printf("apiRequest: gateway URL rejected: %v", err)
+		return nil, err
+	}
+
+	reqURL := strings.TrimRight(settings.GatewayURL, "/") + path
 
 	client := &http.Client{Timeout: 15 * time.Second}
-	req, err := http.NewRequest(method, url, nil)
+	req, err := http.NewRequest(method, reqURL, nil)
 	if err != nil {
 		log.Printf("apiRequest: NewRequest FAILED: %v", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -322,27 +365,15 @@ func (a *App) DownloadAndImportConfig(protocol string, configID int, peerName st
 		}
 		if winRoutes != "" {
 			stableID := fmt.Sprintf("gw-%s-%d", protocol, configID)
-			a.mu.Lock()
-			updated := false
-			for _, conn := range a.connections.List() {
-				for _, pc := range conn.Protocols {
-					if pc.ID == stableID {
-						pc.WindowsRoutesScript = winRoutes
-						updated = true
-						break
-					}
-				}
-				if updated {
-					break
-				}
-			}
-			if updated {
-				a.connections.Save()
+			// Route the field write + Save through the registry lock
+			// (handles its own locking + persistence atomically), so
+			// this background-import path no longer mutates shared
+			// *SavedConnection pointers directly under a.mu.
+			if a.connections.SetConfigWindowsRoutesScript(stableID, winRoutes) {
 				log.Printf("DownloadAndImportConfig: stored Windows routes script (%d bytes) on config %s", len(winRoutes), stableID)
 			} else {
 				log.Printf("DownloadAndImportConfig: could not locate freshly-imported config %s for Windows routes attachment", stableID)
 			}
-			a.mu.Unlock()
 
 			// v1.0.5.19: on Windows ONLY, send the script to the
 			// privileged helper for full RAS VPN provisioning at

@@ -124,17 +124,11 @@ func Verify(rawKey string, pub ed25519.PublicKey, expectedPlatform string) (*Pay
 	return &pl, nil
 }
 
-// Issue signs the payload with priv and returns the wire-format
-// license key string. Used by the cmd/license-gen dev tool and (via
-// the gateway repo) the LemonSqueezy webhook handler.
-func Issue(pl *Payload, priv ed25519.PrivateKey) (string, error) {
-	canon, err := CanonicalJSON(pl)
-	if err != nil {
-		return "", err
-	}
-	sig := ed25519.Sign(priv, canon)
-	return Prefix + Sep + EncodeBase32(canon) + Sep + EncodeBase32(sig), nil
-}
+// NOTE: Issue() — the ed25519 PRIVATE-key signer — has been moved out
+// of the default build. It now lives in signer.go behind the
+// `licensegen` build tag so the shipped client binary contains ONLY
+// the verify side. The dev signing tool / webhook builds with
+// `-tags licensegen` to pull it back in. See signer.go.
 
 // CanonicalJSON serialises a Payload with keys in lexicographic order
 // and no whitespace — the exact byte sequence that ed25519 signs and
