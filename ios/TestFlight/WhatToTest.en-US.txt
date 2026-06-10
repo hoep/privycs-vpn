@@ -1,20 +1,17 @@
-v1.1.3.27 (build 93) — IPSec traffic counter, finally robust across switches.
+v1.1.4 (build 94) — home-screen widget protocol icons.
 
-Earlier builds tried to identify the ONE tunnel interface and read it. But an
-IPSec→IPSec switch moves the tunnel from ipsec0 to ipsec1 (the old one lingers),
-and picking the wrong one left the counter at 0. This build stops guessing: it
-sums the byte GROWTH of EVERY ipsec* interface since the session started (each
-gets its own baseline), so whichever interface carries the new tunnel is counted
-and the dying one contributes nothing. Re-armed on every new IKE session.
-
-Tunnel-health note: the health pill uses live traffic (rx/tx > 0) as a "healthy"
-signal, so a stuck-at-0 counter could make it falsely show degraded/recovering.
-With the counter fixed this should clear too.
+The widget's connect button and the protocol-switch pills used generic system
+symbols before. They now show the REAL WireGuard / AmneziaWG / OpenVPN / IPSec
+brand logos (template-tinted — white when connected, grey when idle), matching
+the in-app Connect button and the Android widget. Two remaining pool-import
+hints are now localized into all six languages too.
 
 HOW TO TEST
-- Other protocol → IPSec: counter climbs (now also without a manual reconnect).
-- IPSec profile A → directly to IPSec profile B: counter climbs (not 0).
-- Health pill stays green while traffic flows.
+- Add the home-screen widget. Connect each protocol → the disc shows THAT
+  protocol's logo (not a generic system glyph), white while connected.
+- The protocol-switch pills show the matching per-protocol logos.
+- Disconnected: the logo is grey.
 
 REGRESSION CHECK
-- WG/AWG/OVPN counters + health, single active VPN, pools, delete cleanup.
+- Widget connect/disconnect + protocol switch work; traffic + sparkline; IPSec
+  counter on profile switch; connection-delete cleanup.

@@ -42,9 +42,22 @@ enum WProto {
         default:          return WColor.connected
         }
     }
-    /// SF Symbol per protocol (the widget bundle doesn't carry the app's
-    /// asset-catalog brand glyphs, so it uses system symbols — the silhouette
-    /// principle of the Android widget, adapted to iOS iconography).
+    /// Brand-glyph asset name. The 4 protocol logos are now bundled into the
+    /// widget's OWN asset catalog (WidgetExtension/Assets.xcassets), mirroring
+    /// the in-app ConnectButton (proto.assetName) and the Android widget's
+    /// per-protocol drawables. nil for unknown → caller falls back to the SF
+    /// Symbol below.
+    static func assetName(_ raw: String) -> String? {
+        switch raw {
+        case "wireguard": return "ic_protocol_wireguard"
+        case "openvpn":   return "ic_protocol_openvpn"
+        case "ipsec":     return "ic_protocol_strongswan"
+        case "amneziawg": return "ic_protocol_amneziawg"
+        default:          return nil
+        }
+    }
+    /// SF Symbol fallback — only for an unknown/empty protocol now that the
+    /// brand glyphs are bundled with the widget.
     static func symbol(_ raw: String) -> String {
         switch raw {
         case "wireguard": return "bolt.shield.fill"
@@ -56,6 +69,23 @@ enum WProto {
     }
     static func label(_ raw: String) -> String {
         VpnProtocol(rawValue: raw)?.displayName ?? raw
+    }
+}
+
+/// Protocol glyph for the widget: the bundled brand logo when the protocol is
+/// known (template-rendered so the caller's foregroundStyle tints it, like the
+/// in-app ConnectButton + the Android widget), else the SF Symbol fallback.
+/// Resizable — the caller sets the frame.
+struct WProtoIcon: View {
+    let raw: String
+    var body: some View {
+        Group {
+            if let asset = WProto.assetName(raw) {
+                Image(asset).renderingMode(.template).resizable().scaledToFit()
+            } else {
+                Image(systemName: WProto.symbol(raw)).resizable().scaledToFit()
+            }
+        }
     }
 }
 

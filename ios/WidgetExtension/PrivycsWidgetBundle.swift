@@ -47,8 +47,8 @@ struct ConnectDisc: View {
                 Circle().strokeBorder(WColor.disconnected.opacity(0.6), lineWidth: 2)
             }
             VStack(spacing: 2) {
-                Image(systemName: WProto.symbol(model.protocolRaw))
-                    .font(.system(size: size * 0.34, weight: .semibold))
+                WProtoIcon(raw: model.protocolRaw)
+                    .frame(width: size * 0.40, height: size * 0.40)
                     .foregroundStyle(model.connected ? WColor.iconConnected : WColor.iconIdle)
                 Text(model.statusLabel)
                     .font(.system(size: size * 0.115, weight: .semibold))
@@ -106,7 +106,7 @@ struct ProtocolPills: View {
     @ViewBuilder private func pill(_ raw: String) -> some View {
         let active = (raw == model.protocolRaw)
         HStack(spacing: 4) {
-            Image(systemName: WProto.symbol(raw)).font(.system(size: 9))
+            WProtoIcon(raw: raw).frame(width: 11, height: 11)
             Text(WProto.label(raw)).font(.system(size: 9, weight: .medium)).lineLimit(1)
         }
         .padding(.horizontal, 6).padding(.vertical, 4)

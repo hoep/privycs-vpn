@@ -588,19 +588,19 @@ fun AddConnectionScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     FormatInfo(
-                        "WireGuard",
+                        stringResource(R.string.widget_protocol_wireguard),
                         ".conf",
                         stringResource(R.string.addconn_format_desc_wireguard)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     FormatInfo(
-                        "OpenVPN",
+                        stringResource(R.string.widget_protocol_openvpn),
                         ".ovpn",
                         stringResource(R.string.addconn_format_desc_openvpn)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     FormatInfo(
-                        "IPSec",
+                        stringResource(R.string.widget_protocol_ipsec),
                         ".sswan / .mobileconfig",
                         stringResource(R.string.addconn_format_desc_ipsec)
                     )

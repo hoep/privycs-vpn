@@ -6041,6 +6041,46 @@
         }
       }
     },
+    "No configs found — cancel and tap “Create a VPN pool” again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Konfigurationen gefunden — abbrechen und erneut auf „VPN-Pool erstellen“ tippen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No configs found — cancel and tap “Create a VPN pool” again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron configuraciones: cancela y toca de nuevo «Crear un grupo VPN»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune configuration trouvée — annulez et touchez à nouveau « Créer un pool VPN »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna configurazione trovata — annulla e tocca di nuovo «Crea un pool VPN»."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma configuração encontrada — cancele e toque novamente em «Criar um pool VPN»."
+          }
+        }
+      }
+    },
     "No configs yet. Use the Add tab to import.": {
       "localizations": {
         "de": {
@@ -9717,6 +9757,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tema"
+          }
+        }
+      }
+    },
+    "These become the pool members — a single .zip archive is expanded into all the configs inside it. Country is parsed from each filename when possible.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese werden zu den Pool-Mitgliedern — ein einzelnes .zip-Archiv wird in alle enthaltenen Konfigurationen entpackt. Das Land wird wenn möglich aus jedem Dateinamen ermittelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These become the pool members — a single .zip archive is expanded into all the configs inside it. Country is parsed from each filename when possible."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estos se convierten en los miembros del grupo: un único archivo .zip se expande en todas las configuraciones que contiene. El país se obtiene del nombre de cada archivo cuando es posible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ils deviennent les membres du pool — une seule archive .zip est décompressée en toutes les configurations qu’elle contient. Le pays est déduit de chaque nom de fichier lorsque c’est possible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diventano i membri del pool — un singolo archivio .zip viene espanso in tutte le configurazioni al suo interno. Il paese viene ricavato da ciascun nome di file quando possibile."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tornam-se os membros do pool — um único arquivo .zip é expandido em todas as configurações contidas nele. O país é obtido de cada nome de arquivo quando possível."
           }
         }
       }
