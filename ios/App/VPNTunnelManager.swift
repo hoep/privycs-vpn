@@ -755,7 +755,14 @@ final class VPNTunnelManager: ObservableObject {
             if ipsecTunIface == nil {
                 let all = Self.utunNames()
                 let fresh = all.subtracting(ipsecPreUtuns).sorted()
-                ipsecTunIface = fresh.first
+                // Prefer a freshly-appeared interface. But on an IPSec→IPSec
+                // profile switch the SAME `ipsec0` is reused — it was already up
+                // (the old tunnel) when we snapshotted ipsecPreUtuns, so nothing
+                // is "fresh" and the counter stuck at 0. Fall back to the live
+                // `ipsec*` interface; the baseline captured below (current bytes)
+                // makes the session count start at ~0 and climb regardless of
+                // whether the interface was reused or recreated.
+                ipsecTunIface = fresh.first ?? all.first(where: { $0.hasPrefix("ipsec") })
                 if let iface = ipsecTunIface, let c = Self.interfaceByteCounts(iface) {
                     ipsecBaseRx = c.rx; ipsecBaseTx = c.tx
                 }

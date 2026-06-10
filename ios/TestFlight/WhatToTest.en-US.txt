@@ -1,15 +1,16 @@
-v1.1.3.23 (build 90) — cleanup when you delete a connection.
+v1.1.3.25 (build 91) — IPSec traffic counter on IPSec→IPSec switch.
 
-Deleting a connection (or removing its last protocol config) now also removes
-the matching VPN profile from iOS Settings ▸ VPN instead of leaving it behind,
-and the home-screen widget no longer keeps showing a connection you deleted.
+The IPSec traffic counter previously only worked when you connected IPSec coming
+from another protocol. Switching directly from one IPSec profile to another left
+it stuck at 0 (the tunnel reused the same network interface, so nothing looked
+"new"). It now also picks up the live IPSec interface on a profile-to-profile
+switch, so the counter climbs every time.
 
 HOW TO TEST
-- Add a connection, then delete it → it disappears from iOS Settings ▸ VPN too.
-- In a multi-protocol connection, remove configs one by one; when the last one
-  goes, the OS VPN profile is gone as well (not orphaned).
-- Delete the connection shown in the widget → the widget updates, no stale name.
+- Connect IPSec profile A → counter climbs. Switch directly to IPSec profile B →
+  counter should climb too (not stay at 0).
+- WireGuard → IPSec and IPSec → WireGuard → IPSec still work as before.
 
 REGRESSION CHECK
-- Connect/disconnect, IPSec single-VPN + traffic counter, WG/AWG/OVPN, pools,
-  on-demand rules.
+- Single active VPN (no two tunnels at once), WG/AWG/OVPN counters, pools,
+  delete cleanup.
