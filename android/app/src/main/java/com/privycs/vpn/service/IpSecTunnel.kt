@@ -225,6 +225,26 @@ class IpSecTunnel(private val context: Context) {
     }
 
     /**
+     * True if `alias` still resolves to a usable certificate chain in the system
+     * KeyChain. False if the cert was deleted (Clear credentials / user removal)
+     * or access was revoked — letting connect() discard the "ghost" alias and
+     * re-drive the install flow. MUST run off the main thread
+     * (KeyChain.getCertificateChain blocks); connect() calls it on Dispatchers.IO.
+     */
+    private fun aliasStillInstalled(alias: String): Boolean =
+        runCatching { KeyChain.getCertificateChain(context, alias)?.isNotEmpty() == true }
+            .getOrDefault(false)
+
+    /**
+     * Drop the remembered alias for this profile (keyed by .sswan UUID) so the
+     * next connect re-prompts the KeyChain install.
+     */
+    private fun forgetInstalledAlias() {
+        val cfgUuid = sswanConfig?.uuid ?: return
+        prefs.edit().remove(KEY_ALIAS_PREFIX + cfgUuid).apply()
+    }
+
+    /**
      * Connect the tunnel. Requires an alias already installed in KeyChain
      * (see rememberInstalledAlias). Throws IllegalStateException otherwise -
      * the UI layer catches this and drives the install flow via
@@ -260,12 +280,26 @@ class IpSecTunnel(private val context: Context) {
         } else {
             parsedCfg
         }
-        val alias = getInstalledAlias()
-            ?: throw IllegalStateException(
-                "PKCS#12 not yet installed into Android KeyChain. " +
-                        "Launch createKeyChainInstallIntent() from an Activity, " +
-                        "then call rememberInstalledAlias() before connecting."
-            )
+        // Resolve the client-cert alias. A remembered alias whose cert was since
+        // deleted from the system KeyChain (Settings ▸ Encryption & credentials ▸
+        // Clear credentials, or the user removing it) would otherwise survive as
+        // a ghost: getInstalledAlias() "succeeds" but charon can't fetch the
+        // cert/key and the install flow never re-fires. Verify the chain still
+        // resolves; if not, forget the stale alias and fail with the install
+        // prompt so the UI re-drives the KeyChain install.
+        val storedAlias = getInstalledAlias()
+        val alias = storedAlias?.takeIf { aliasStillInstalled(it) }
+            ?: run {
+                if (storedAlias != null) {
+                    PrivycsLogger.w(TAG, "Remembered KeyChain alias no longer resolves — forgetting it, re-prompt install")
+                    forgetInstalledAlias()
+                }
+                throw IllegalStateException(
+                    "PKCS#12 not yet installed into Android KeyChain. " +
+                            "Launch createKeyChainInstallIntent() from an Activity, " +
+                            "then call rememberInstalledAlias() before connecting."
+                )
+            }
 
         val profile = buildVpnProfile(cfg, name, alias)
         val uuid = persistProfile(profile)
