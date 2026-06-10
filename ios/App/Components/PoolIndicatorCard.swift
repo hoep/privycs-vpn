@@ -20,7 +20,7 @@ struct PoolIndicatorCard: View {
     private var countdown: String? {
         guard nextRotationAt > 0 else { return nil }
         let remaining = nextRotationAt - Int64(now.timeIntervalSince1970)
-        guard remaining > 0 else { return String(localized: "rotating…") }
+        guard remaining > 0 else { return loc("rotating…") }
         let m = remaining / 60, s = remaining % 60
         return m > 0 ? String(format: "%dm %02ds", m, s) : "\(s)s"
     }

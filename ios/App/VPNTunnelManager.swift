@@ -728,13 +728,13 @@ final class VPNTunnelManager: ObservableObject {
     static func formatHandshakeAge(_ epoch: Int64) -> String {
         guard epoch > 0 else { return "" }
         let age = Int64(Date().timeIntervalSince1970) - epoch
-        if age < 0 { return String(localized: "just now") }
-        if age < 2 { return String(localized: "1 second ago") }
-        if age < 60 { return String(localized: "\(age) seconds ago") }
-        if age < 120 { return String(localized: "1 minute ago") }
-        if age < 3600 { return String(localized: "\(age / 60) minutes ago") }
-        if age < 7200 { return String(localized: "1 hour ago") }
-        return String(localized: "\(age / 3600) hours ago")
+        if age < 0 { return loc("just now") }
+        if age < 2 { return loc("1 second ago") }
+        if age < 60 { return loc("\(age) seconds ago") }
+        if age < 120 { return loc("1 minute ago") }
+        if age < 3600 { return loc("\(age / 60) minutes ago") }
+        if age < 7200 { return loc("1 hour ago") }
+        return loc("\(age / 3600) hours ago")
     }
 
     /// IKEv2 Personal VPN: connected-state from NEVPNConnection. No
@@ -868,9 +868,9 @@ enum VPNError: LocalizedError {
     case tunnelDidNotEstablish(VpnProtocol)
     var errorDescription: String? {
         switch self {
-        case .noConfig: return String(localized: "No protocol config selected")
+        case .noConfig: return loc("No protocol config selected")
         case .tunnelDidNotEstablish(let p):
-            return String(localized: "\(p.displayName) tunnel did not establish")
+            return loc("\(p.displayName) tunnel did not establish")
         }
     }
 }

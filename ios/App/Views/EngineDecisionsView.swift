@@ -77,13 +77,13 @@ struct EngineDecisionsView: View {
         if country.isEmpty { return nil }
         switch d.reason {
         case "reason.country_open":
-            return String(localized: "\(country): no widespread VPN blocking — a fast protocol is fine here.")
+            return loc("\(country): no widespread VPN blocking — a fast protocol is fine here.")
         case "reason.country_restrictive_awg":
-            return String(localized: "\(country) is known for DPI/censorship — AmneziaWG’s obfuscation is the right protocol here.")
+            return loc("\(country) is known for DPI/censorship — AmneziaWG’s obfuscation is the right protocol here.")
         case "reason.country_restrictive_use_awg":
-            return String(localized: "\(country) censors VPN traffic — AmneziaWG (obfuscated) is available; using it avoids detection.")
+            return loc("\(country) censors VPN traffic — AmneziaWG (obfuscated) is available; using it avoids detection.")
         case "reason.country_restrictive_no_awg":
-            return String(localized: "\(country) censors VPN traffic — no AmneziaWG profile here, so this protocol may be blocked.")
+            return loc("\(country) censors VPN traffic — no AmneziaWG profile here, so this protocol may be blocked.")
         default:
             return nil
         }
@@ -101,28 +101,28 @@ struct EngineDecisionsView: View {
     }
 
     /// Maps the engine's stable i18n key to the localized string. Arg strings
-    /// use String(localized:) interpolation, whose generated catalog key is the
+    /// use loc() interpolation, whose generated catalog key is the
     /// "%@" form (e.g. "Connecting via %@…").
     private func decisionText(_ d: EngineDecision) -> String {
         let arg = protoLabel(d.args.first ?? "")
         switch d.key {
-        case "decision.connecting": return String(localized: "Connecting via \(arg)…")
-        case "decision.validating": return String(localized: "Verifying connectivity…")
-        case "decision.connected": return String(localized: "Connected via \(arg)")
-        case "decision.degraded": return String(localized: "Connection degraded — monitoring")
-        case "decision.recovered": return String(localized: "Connection recovered")
-        case "decision.recover_wait": return String(localized: "Recovering: waiting for the link to settle")
-        case "decision.recover_revalidate": return String(localized: "Recovering: re-checking connectivity")
-        case "decision.recover_restart": return String(localized: "Recovering: restarting the tunnel")
-        case "decision.switching": return String(localized: "Switching protocol to \(arg)")
-        case "decision.backoff": return String(localized: "Connection failed — backing off before retry")
-        case "decision.captive": return String(localized: "Captive portal detected — sign in to continue")
-        case "decision.roam": return String(localized: "Network changed — re-validating")
-        case "decision.disconnected": return String(localized: "Disconnected")
-        case "decision.suspended": return String(localized: "Paused (system sleep)")
-        case "decision.resumed_idle": return String(localized: "Resumed")
-        case "decision.resumed_revalidate": return String(localized: "Resumed — re-validating")
-        case "decision.no_profile": return String(localized: "No usable protocol available")
+        case "decision.connecting": return loc("Connecting via \(arg)…")
+        case "decision.validating": return loc("Verifying connectivity…")
+        case "decision.connected": return loc("Connected via \(arg)")
+        case "decision.degraded": return loc("Connection degraded — monitoring")
+        case "decision.recovered": return loc("Connection recovered")
+        case "decision.recover_wait": return loc("Recovering: waiting for the link to settle")
+        case "decision.recover_revalidate": return loc("Recovering: re-checking connectivity")
+        case "decision.recover_restart": return loc("Recovering: restarting the tunnel")
+        case "decision.switching": return loc("Switching protocol to \(arg)")
+        case "decision.backoff": return loc("Connection failed — backing off before retry")
+        case "decision.captive": return loc("Captive portal detected — sign in to continue")
+        case "decision.roam": return loc("Network changed — re-validating")
+        case "decision.disconnected": return loc("Disconnected")
+        case "decision.suspended": return loc("Paused (system sleep)")
+        case "decision.resumed_idle": return loc("Resumed")
+        case "decision.resumed_revalidate": return loc("Resumed — re-validating")
+        case "decision.no_profile": return loc("No usable protocol available")
         default: return d.to
         }
     }

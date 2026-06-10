@@ -10,11 +10,11 @@ struct ManualPauseSheet: View {
 
     /// Preset durations (seconds) — nil = pause until the user resumes.
     private let presets: [(label: String, seconds: TimeInterval?)] = [
-        (String(localized: "5 minutes"), 5 * 60),
-        (String(localized: "15 minutes"), 15 * 60),
-        (String(localized: "30 minutes"), 30 * 60),
-        (String(localized: "1 hour"), 60 * 60),
-        (String(localized: "Until I resume"), nil),
+        (loc("5 minutes"), 5 * 60),
+        (loc("15 minutes"), 15 * 60),
+        (loc("30 minutes"), 30 * 60),
+        (loc("1 hour"), 60 * 60),
+        (loc("Until I resume"), nil),
     ]
 
     var body: some View {

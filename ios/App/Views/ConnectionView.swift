@@ -129,11 +129,11 @@ struct ConnectionView: View {
 
     /// Countdown label for a timed pause; "Paused" for an indefinite one.
     private var pausedLabel: String {
-        guard let until = appState.pausedUntil, until != .distantFuture else { return String(localized: "Paused") }
+        guard let until = appState.pausedUntil, until != .distantFuture else { return loc("Paused") }
         let secs = max(0, Int(until.timeIntervalSinceNow))
-        if secs >= 3600 { return String(localized: "Paused — resumes in \(secs / 3600)h \((secs % 3600) / 60)m") }
-        if secs >= 60 { return String(localized: "Paused — resumes in \(secs / 60)m \(secs % 60)s") }
-        return String(localized: "Paused — resumes in \(secs)s")
+        if secs >= 3600 { return loc("Paused — resumes in \(secs / 3600)h \((secs % 3600) / 60)m") }
+        if secs >= 60 { return loc("Paused — resumes in \(secs / 60)m \(secs % 60)s") }
+        return loc("Paused — resumes in \(secs)s")
     }
 
     // MARK: Target picker (connections + pools)
@@ -195,7 +195,7 @@ struct ConnectionView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if !appState.connections.isEmpty {
-                    pickerHeader(String(localized: "Connections"))
+                    pickerHeader(loc("Connections"))
                     ForEach(appState.connections) { c in
                         pickerRow(
                             title: c.name,
@@ -211,7 +211,7 @@ struct ConnectionView: View {
                 }
                 if !appState.pools.isEmpty {
                     Divider().padding(.vertical, 4)
-                    pickerHeader(String(localized: "Pools"))
+                    pickerHeader(loc("Pools"))
                     ForEach(appState.pools) { p in
                         pickerRow(
                             title: p.name,
@@ -373,12 +373,12 @@ struct ConnectionView: View {
     private var statsRow: some View {
         HStack(spacing: 12) {
             TransferStatsCard(
-                title: String(localized: "Download"), icon: "arrow.down",
+                title: loc("Download"), icon: "arrow.down",
                 totalBytes: status.rxBytes, speedBytesPerSec: appState.rxSpeed,
                 history: appState.rxHistory, tint: Color(hex: 0x22C55E)   // green-500 (Android parity)
             )
             TransferStatsCard(
-                title: String(localized: "Upload"), icon: "arrow.up",
+                title: loc("Upload"), icon: "arrow.up",
                 totalBytes: status.txBytes, speedBytesPerSec: appState.txSpeed,
                 history: appState.txHistory, tint: Color(hex: 0x3B82F6)   // blue-500 (Android parity)
             )
@@ -393,13 +393,13 @@ struct ConnectionView: View {
     private var connectionDetails: some View {
         VStack(spacing: 0) {
             if !status.localAddress.isEmpty {
-                detailRow(String(localized: "VPN IP"), value: status.localAddress)
+                detailRow(loc("VPN IP"), value: status.localAddress)
             }
             if !status.serverEndpoint.isEmpty {
-                detailRow(String(localized: "Endpoint"), value: formatEndpoint(status.serverEndpoint))
+                detailRow(loc("Endpoint"), value: formatEndpoint(status.serverEndpoint))
             }
             if !status.lastHandshake.isEmpty {
-                detailRow(String(localized: "Last handshake"), value: status.lastHandshake)
+                detailRow(loc("Last handshake"), value: status.lastHandshake)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 2)

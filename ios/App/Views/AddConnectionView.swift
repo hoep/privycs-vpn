@@ -122,7 +122,7 @@ struct AddConnectionView: View {
             }
             pickedPoolConfigs = collected
             if collected.isEmpty {
-                importErrorMessage = String(localized: "No valid config files found in the selection.")
+                importErrorMessage = loc("No valid config files found in the selection.")
             } else {
                 showAddPool = true
             }
@@ -141,7 +141,7 @@ struct AddConnectionView: View {
             // String(contentsOf:encoding:) overload.
             guard let data = try? Data(contentsOf: url),
                   let raw = String(data: data, encoding: .utf8) else {
-                importErrorMessage = String(localized: "Could not read \(url.lastPathComponent)")
+                importErrorMessage = loc("Could not read \(url.lastPathComponent)")
                 continue
             }
             await appState.importConnection(
@@ -151,22 +151,22 @@ struct AddConnectionView: View {
             )
             count += 1
         }
-        if count > 0 { importedNote = String(localized: "\(count) config(s) imported") }
+        if count > 0 { importedNote = loc("\(count) config(s) imported") }
     }
 
     private func handleQRScan(_ raw: String) async {
         importErrorMessage = nil; importedNote = nil
         guard let payload = QRPayload.parse(raw) else {
-            importErrorMessage = String(localized: "Unrecognized QR code")
+            importErrorMessage = loc("Unrecognized QR code")
             return
         }
         switch payload {
         case .wireguard(let text), .amneziawg(let text), .openvpn(let text):
-            await appState.importConnection(name: String(localized: "Scanned config"), filename: "qr.conf", content: text)
-            importedNote = String(localized: "Imported from QR")
+            await appState.importConnection(name: loc("Scanned config"), filename: "qr.conf", content: text)
+            importedNote = loc("Imported from QR")
         case .privycsEnrollment(let url, let apiKey):
             await appState.applyGatewayEnrollment(url: url, apiKey: apiKey)
-            importedNote = String(localized: "Gateway enrolled — pull your configs")
+            importedNote = loc("Gateway enrolled — pull your configs")
             showGatewaySheet = true
         }
     }
@@ -250,7 +250,7 @@ struct GatewayConfigSheet: View {
         loading = true; error = nil
         defer { loading = false }
         guard let client = appState.gatewayClient else {
-            error = String(localized: "Gateway not configured. Set it in Settings.")
+            error = loc("Gateway not configured. Set it in Settings.")
             return
         }
         do { entries = try await client.listMyConfigs() }

@@ -152,27 +152,27 @@ struct NetworkRulesView: View {
     private func ruleName(_ rule: NetworkRule) -> String {
         if !rule.name.isEmpty { return rule.name }
         switch rule.matchType {
-        case .any: return String(localized: "Any network")
+        case .any: return loc("Any network")
         case .networkType:
             switch rule.matchValue.lowercased() {
-            case "wifi": return String(localized: "Wi-Fi")
-            case "mobile": return String(localized: "Mobile")
-            case "ethernet": return String(localized: "Ethernet")
-            case "wifi_mobile": return String(localized: "Wi-Fi or Mobile")
-            default: return String(localized: "Any (online)")
+            case "wifi": return loc("Wi-Fi")
+            case "mobile": return loc("Mobile")
+            case "ethernet": return loc("Ethernet")
+            case "wifi_mobile": return loc("Wi-Fi or Mobile")
+            default: return loc("Any (online)")
             }
-        case .ssidExact: return String(localized: "Wi-Fi “\(rule.matchValue)”")
-        case .ssidPattern: return String(localized: "Wi-Fi like “\(rule.matchValue)”")
-        case .bssid: return String(localized: "BSSID \(rule.matchValue)")
+        case .ssidExact: return loc("Wi-Fi “\(rule.matchValue)”")
+        case .ssidPattern: return loc("Wi-Fi like “\(rule.matchValue)”")
+        case .bssid: return loc("BSSID \(rule.matchValue)")
         }
     }
 
     private func actionLabel(_ rule: NetworkRule) -> String {
         switch rule.action {
-        case .noVpn: return String(localized: "→ Disconnect VPN")
-        case .connectActive: return String(localized: "→ Connect active selection")
-        case .connection: return String(localized: "→ Connect to \(connectionName(rule.targetId))")
-        case .pool: return String(localized: "→ Activate pool \(poolName(rule.targetId))")
+        case .noVpn: return loc("→ Disconnect VPN")
+        case .connectActive: return loc("→ Connect active selection")
+        case .connection: return loc("→ Connect to \(connectionName(rule.targetId))")
+        case .pool: return loc("→ Activate pool \(poolName(rule.targetId))")
         }
     }
 
@@ -186,11 +186,11 @@ struct NetworkRulesView: View {
 
     private func networkLabel(_ state: NetworkState) -> String {
         switch state.networkType {
-        case .wifi: return state.ssid.isEmpty ? String(localized: "Wi-Fi") : String(localized: "Wi-Fi (\(state.ssid))")
-        case .mobile: return String(localized: "Mobile data")
-        case .ethernet: return String(localized: "Ethernet")
-        case .none: return String(localized: "No network")
-        case .any: return String(localized: "Network")
+        case .wifi: return state.ssid.isEmpty ? loc("Wi-Fi") : loc("Wi-Fi (\(state.ssid))")
+        case .mobile: return loc("Mobile data")
+        case .ethernet: return loc("Ethernet")
+        case .none: return loc("No network")
+        case .any: return loc("Network")
         }
     }
 
@@ -205,20 +205,20 @@ struct NetworkRulesView: View {
     }
 
     private func decisionLabel(_ result: NetworkRulesEngine.Result, master: Bool) -> String {
-        if !master { return String(localized: "Manual control only — engine takes no action") }
+        if !master { return loc("Manual control only — engine takes no action") }
         guard let rule = result.matchedRule else {
-            return String(localized: "No rule matches — engine takes no action")
+            return loc("No rule matches — engine takes no action")
         }
         // Show the actual decision the engine acts on (connect / disconnect /
         // switch target), not just "a rule matched".
         let action: String
         switch rule.action {
-        case .noVpn:         action = String(localized: "Disconnect")
-        case .connectActive: action = String(localized: "Connect")
-        case .connection:    action = String(localized: "Connect to \(connectionName(rule.targetId))")
-        case .pool:          action = String(localized: "Activate pool \(poolName(rule.targetId))")
+        case .noVpn:         action = loc("Disconnect")
+        case .connectActive: action = loc("Connect")
+        case .connection:    action = loc("Connect to \(connectionName(rule.targetId))")
+        case .pool:          action = loc("Activate pool \(poolName(rule.targetId))")
         }
-        return String(localized: "Rule matches — engine acts: \(action)")
+        return loc("Rule matches — engine acts: \(action)")
     }
 
     private func moveRules(from source: IndexSet, to dest: Int) {

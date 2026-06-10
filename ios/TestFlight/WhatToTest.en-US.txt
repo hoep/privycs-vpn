@@ -1,17 +1,20 @@
-v1.1.4 (build 94) — home-screen widget protocol icons.
+v1.1.4.1 (build 95) — in-app language now applies everywhere.
 
-The widget's connect button and the protocol-switch pills used generic system
-symbols before. They now show the REAL WireGuard / AmneziaWG / OpenVPN / IPSec
-brand logos (template-tinted — white when connected, grey when idle), matching
-the in-app Connect button and the Android widget. Two remaining pool-import
-hints are now localized into all six languages too.
+Fixes strings that ignored your in-app language choice and stayed in the device
+language: the Connect-screen picker ("Connections"/"Pools"), the detail rows
+("Endpoint", "Last handshake"), relative times ("1 minute ago"), and the
+tunnel-health pill ("Healthy"). These used String(localized:), which bypasses
+the in-app language override (only Text/NSLocalizedString went through it). All
+~111 such strings now resolve against the chosen language.
 
 HOW TO TEST
-- Add the home-screen widget. Connect each protocol → the disc shows THAT
-  protocol's logo (not a generic system glyph), white while connected.
-- The protocol-switch pills show the matching per-protocol logos.
-- Disconnected: the logo is grey.
+- Set the app language (Settings ▸ Appearance ▸ Language) to one different from
+  your device language.
+- Connect screen: the protocol picker tabs, Endpoint / Last handshake labels,
+  the "… ago" time, and the health pill should all be in the CHOSEN language —
+  not your device language.
+- Switch language again → everything updates without a restart.
 
 REGRESSION CHECK
-- Widget connect/disconnect + protocol switch work; traffic + sparkline; IPSec
-  counter on profile switch; connection-delete cleanup.
+- All other screens still localize correctly; widget protocol icons; IPSec
+  counter; delete cleanup.

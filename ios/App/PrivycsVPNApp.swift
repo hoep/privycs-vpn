@@ -158,7 +158,7 @@ final class AppState: ObservableObject {
     var selectedLabel: String {
         if let p = selectedPool { return p.name }
         if let c = selectedConnection { return c.name }
-        return String(localized: "No connection")
+        return loc("No connection")
     }
 
     /// Protocol whose brand logo the (idle) connect button should show —
@@ -458,7 +458,7 @@ final class AppState: ObservableObject {
                 let snap = TunnelStatsStore.read()
                 if snap?.connected != true || (snap?.rxBytes ?? 0) == 0 {
                     await poolHealth.markUnreachable(pool: pool.id, member: member.id)
-                    lastError = String(localized: "\(member.name) did not pass traffic")
+                    lastError = loc("\(member.name) did not pass traffic")
                     continue
                 }
             }
@@ -474,7 +474,7 @@ final class AppState: ObservableObject {
         if await AppState.reachable(host: "1.1.1.1", timeout: 4) {
             await poolHealth.clear(pool: pool.id)
         }
-        connectError = lastError ?? String(localized: "Pool has no reachable members")
+        connectError = lastError ?? loc("Pool has no reachable members")
     }
 
     /// 3-tier DNS override: the connection's own override (pool members

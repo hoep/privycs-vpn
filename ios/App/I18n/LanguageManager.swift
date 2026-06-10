@@ -63,3 +63,29 @@ private final class LocalizedBundle: Bundle, @unchecked Sendable {
         return langBundle.localizedString(forKey: key, value: value, table: tableName)
     }
 }
+
+extension LanguageManager {
+    /// Bundle for the chosen override language, or `.main` when following the
+    /// system language. Used by `loc(_:)` to localize `String(localized:)`
+    /// values against the in-app choice.
+    nonisolated static var localeBundle: Bundle {
+        let code = currentCode
+        guard !code.isEmpty,
+              let path = Bundle.main.path(forResource: code, ofType: "lproj"),
+              let b = Bundle(path: path) else { return .main }
+        return b
+    }
+}
+
+/// Localize respecting the in-app language override.
+///
+/// `String(localized:)` (unlike `Text`/`NSLocalizedString`) bypasses
+/// LanguageManager's `Bundle` swizzle and resolves against the SYSTEM language.
+/// That left ~111 strings — Connect-screen details ("Connections", "Endpoint",
+/// "Last handshake"), relative times ("1 minute ago"), the tunnel-health pill
+/// ("Healthy"), … — stuck in the device language while the rest of the UI
+/// followed the in-app choice. Routing through the chosen `.lproj` bundle fixes
+/// it. Falls back to `.main` (system language) when no override is set.
+func loc(_ key: String.LocalizationValue) -> String {
+    String(localized: key, bundle: LanguageManager.localeBundle)
+}

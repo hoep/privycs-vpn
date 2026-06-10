@@ -77,7 +77,7 @@ struct AddPoolView: View {
         let members = PoolImporter.makeMembers(configs)
         PrivycsLog.log("Pool save: \(configs.count) config(s) → \(members.count) member(s)")
         guard members.count >= 1 else {
-            errorMessage = String(localized: "No valid config files found in the selection.")
+            errorMessage = loc("No valid config files found in the selection.")
             return
         }
         let pool = Pool(id: UUID().uuidString, name: name, policy: policy, members: members)

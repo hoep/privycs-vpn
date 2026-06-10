@@ -41,7 +41,7 @@ struct LogsView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
                         }
-                        Text(text.isEmpty ? String(localized: "No log entries yet.") : text)
+                        Text(text.isEmpty ? loc("No log entries yet.") : text)
                             .font(PrivycsFont.mono(11))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)

@@ -63,7 +63,7 @@ struct LicenseKeyImportSheet: View {
         let trimmed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             let payload = try await appState.entitlementRepo.importLicenseKey(trimmed)
-            result = String(localized: "License accepted — \(payload.sku) (\(payload.platforms.joined(separator: ", ")))")
+            result = loc("License accepted — \(payload.sku) (\(payload.platforms.joined(separator: ", ")))")
             isError = false
             // Auto-dismiss nach kurzer Bestätigung
             try? await Task.sleep(nanoseconds: UInt64(2 * 1_000_000_000))

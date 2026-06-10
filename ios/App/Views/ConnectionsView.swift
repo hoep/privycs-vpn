@@ -255,7 +255,7 @@ struct AddProtocolSheet: View {
         guard url.startAccessingSecurityScopedResource() else { return }
         defer { url.stopAccessingSecurityScopedResource() }
         guard let data = try? Data(contentsOf: url), let raw = String(data: data, encoding: .utf8) else {
-            note = String(localized: "Could not read file"); return
+            note = loc("Could not read file"); return
         }
         await appState.importConnection(
             name: connection.name,
@@ -263,7 +263,7 @@ struct AddProtocolSheet: View {
             content: raw,
             intoConnectionID: connection.id
         )
-        note = String(localized: "Added \(url.lastPathComponent)")
+        note = loc("Added \(url.lastPathComponent)")
         try? await Task.sleep(nanoseconds: UInt64(0.8 * 1_000_000_000))
         dismiss()
     }
@@ -405,7 +405,7 @@ struct EditProtocolConfigSheet: View {
     private func save() async {
         let detected = ConfigImport.detectProtocol(filename: config.filename, content: text)
         guard detected == config.protocol else {
-            error = String(localized: "This no longer parses as \(config.protocol.shortLabel).")
+            error = loc("This no longer parses as \(config.protocol.shortLabel).")
             return
         }
         let updated = ProtocolConfig(

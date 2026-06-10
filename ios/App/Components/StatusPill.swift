@@ -16,9 +16,9 @@ struct StatusPill: View {
 
     private var label: String {
         switch state {
-        case .connected:    return String(localized: "Connected")
-        case .connecting:   return String(localized: "Connecting…")
-        case .disconnected: return String(localized: "Disconnected")
+        case .connected:    return loc("Connected")
+        case .connecting:   return loc("Connecting…")
+        case .disconnected: return loc("Disconnected")
         }
     }
 
