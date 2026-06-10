@@ -2489,22 +2489,57 @@ func (a *App) SetConnectionDnsOverride(id string, dns string) error {
 
 // DeleteConnection removes a saved connection
 func (a *App) DeleteConnection(id string) error {
+	// Snapshot what we need for OS-artifact cleanup BEFORE the record is gone:
+	// once connections.Delete returns the SavedConnection is unreadable. Also
+	// note whether this connection currently owns the live tunnel.
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	// Snapshot the IPSec/macOS hint inputs before delete: once
-	// connections.Delete returns, the SavedConnection is gone and we
-	// can no longer read its Name or check whether it carried IPSec.
 	var ipsecConnName string
+	var fileSlots []string // tunnel/file basenames for WG/AWG/OpenVPN configs
 	if conn := a.connections.Get(id); conn != nil {
-		if conn.GetProtocol("ipsec") != nil {
-			ipsecConnName = conn.Name
+		for _, cfg := range conn.Protocols {
+			if cfg == nil {
+				continue
+			}
+			if cfg.Protocol == "ipsec" {
+				ipsecConnName = conn.Name
+			} else {
+				fileSlots = append(fileSlots, tunnelNameForSlot(cfg.ID, conn.Name))
+			}
 		}
 	}
+	wasActive := a.connected && a.connections.ActiveID == id
+	a.mu.Unlock()
 
-	if err := a.connections.Delete(id); err != nil {
+	// Tear down a live tunnel for this connection FIRST so we don't orphan an
+	// OS-level tunnel with no app record behind it — and so each protocol's
+	// Down() runs its own teardown (routes, swanctl --terminate, helper
+	// cleanup). Disconnect() takes the locks itself, so call it while we hold
+	// neither (a deferred Unlock here would otherwise deadlock it).
+	if wasActive {
+		_ = a.Disconnect()
+	}
+
+	a.mu.Lock()
+	err := a.connections.Delete(id)
+	a.mu.Unlock()
+	if err != nil {
 		return err
 	}
 
+	// Remove leftover on-disk config artifacts (WireGuard .conf, OpenVPN
+	// .ovpn/.log/.pid). Before this they survived every delete, piling up as
+	// orphan files in the app-data dir.
+	for _, slot := range fileSlots {
+		base := filepath.Join(appDataDir(), slot)
+		for _, ext := range []string{".conf", ".ovpn", ".log", ".pid"} {
+			_ = os.Remove(base + ext)
+		}
+	}
+
+	// IPSec: wipe the OS/helper-installed config + certs. macOS removes the
+	// swanctl conf + PEMs via the helper and surfaces the System-Settings
+	// profile hint. (Windows all-user RAS entry + Trusted-Root CA + NRPT
+	// removal still pending — needs the privileged helper + device test.)
 	if ipsecConnName != "" {
 		macOSDeleteIPSecProfileHint(ipsecConnName, "deleted")
 	}

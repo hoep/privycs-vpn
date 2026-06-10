@@ -622,8 +622,15 @@ final class AppState: ObservableObject {
 
     /// Remove one protocol config from a connection.
     func removeConfig(connectionID: String, configID: String) async {
+        let name = connections.first(where: { $0.id == connectionID })?.name
         try? await connectionRepo.removeConfig(connectionID: connectionID, configID: configID)
         connections = (try? await connectionRepo.loadAll()) ?? connections
+        // removeConfig deletes the whole connection when its last config goes.
+        // Without this, the OS VPN profile (NETunnelProviderManager / NEVPNManager)
+        // orphans in iOS Settings ▸ VPN — same cleanup the list-delete path does.
+        if let name, !connections.contains(where: { $0.id == connectionID }) {
+            await tunnelManager.removeOSConfigs(connectionName: name)
+        }
     }
 
     /// Persist a gateway enrollment (URL + API key) from a QR scan.

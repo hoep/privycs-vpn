@@ -76,6 +76,7 @@ import com.privycs.vpn.data.models.ProtocolConfig
 import com.privycs.vpn.data.models.RemoteConfigEntry
 import com.privycs.vpn.data.models.VpnConnection
 import com.privycs.vpn.data.models.VpnProtocol
+import com.privycs.vpn.service.IpSecTunnel
 import com.privycs.vpn.ui.theme.IpSecBlue
 import com.privycs.vpn.ui.theme.OpenVpnOrange
 import com.privycs.vpn.ui.theme.StatusConnected
@@ -285,8 +286,17 @@ fun ConnectionsScreen(
             text = { Text(stringResource(R.string.connections_delete_dialog_message, deleteTarget!!.name)) },
             confirmButton = {
                 TextButton(onClick = {
-                    connectionRepo.delete(deleteTarget!!.id)
+                    val target = deleteTarget!!
                     deleteTarget = null
+                    // Clean up IPSec OS artifacts (strongSwan SQLite profile,
+                    // imported CA certs, KeyChain alias bookkeeping) before the
+                    // connection record goes away — otherwise they orphan forever.
+                    scope.launch {
+                        target.protocols.filter { it.protocol == VpnProtocol.IPSEC }.forEach {
+                            runCatching { IpSecTunnel(context).cleanupOnDelete(it.configContent) }
+                        }
+                        connectionRepo.delete(target.id)
+                    }
                 }) {
                     Text(stringResource(R.string.connections_delete), color = MaterialTheme.colorScheme.error)
                 }

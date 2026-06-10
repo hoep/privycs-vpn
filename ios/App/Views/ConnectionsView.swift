@@ -182,6 +182,12 @@ struct ConnectionsView: View {
                 await appState.tunnelManager.removeOSConfigs(connectionName: t.name)
             }
             appState.connections = (try? await appState.connectionRepo.loadAll()) ?? []
+            // If the deleted connection was selected, repick + refresh the widget
+            // so it stops showing the now-gone connection.
+            if targets.contains(where: { $0.id == appState.selectedTargetID }) {
+                appState.selectedTargetID = appState.connections.first?.id ?? ""
+            }
+            appState.pushWidgetSnapshot()
         }
     }
 
@@ -200,6 +206,7 @@ struct ConnectionsView: View {
                 }
             }
             appState.pools = (try? await appState.poolRepo.loadAll()) ?? []
+            appState.pushWidgetSnapshot()
         }
     }
 }

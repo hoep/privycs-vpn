@@ -53,6 +53,9 @@ class IpSecTunnel(private val context: Context) {
         private const val TAG = "IpSecTunnel"
         private const val PREF_FILE = "privycs_ipsec"
         private const val KEY_ALIAS_PREFIX = "keychain_alias_"
+        // Bookkeeping: the local-store CA aliases imported for a profile (keyed
+        // by .sswan UUID), so deleting the connection removes exactly them.
+        private const val KEY_CHAIN_ALIASES_PREFIX = "chain_aliases_"
 
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     }
@@ -78,13 +81,19 @@ class IpSecTunnel(private val context: Context) {
     data class SswanRemote(
         val addr: String = "",
         val id: String = "",
-        // Server trust anchor (base64-DER X.509) the gateway now ships so the
-        // client can validate the server cert. For public-cert interfaces this
-        // is the self-signed ISRG Root X1 (Let's Encrypt root, stable to 2035 —
-        // survives leaf renewals); for self-signed interfaces it's the Privycs
-        // CA (prior behaviour). Empty on legacy profiles → fall back to the
-        // default trusted-cert set (ignoreUnknownKeys keeps old profiles valid).
-        val cert: String = ""
+        // Single server trust anchor (base64-DER X.509). Legacy field from the
+        // first public-cert attempt; superseded by cert_chain below but still
+        // imported (without pinning) for forward/backward compat.
+        val cert: String = "",
+        // Full PUBLIC server-cert chain as a PEM bundle: intermediate(s) + root
+        // (e.g. Let's Encrypt YR2 → Root YR → ISRG Root X1). The server's
+        // strongSwan sends only the leaf in IKE_AUTH and Android's KeyChain
+        // strips the foreign CAs out of the client P12, so the intermediates
+        // are imported from here into strongSwan's own trust store — otherwise
+        // charon logs "no issuer certificate found". Empty on self-signed /
+        // legacy profiles → nothing imported (ignoreUnknownKeys keeps them ok).
+        @SerialName("cert_chain")
+        val certChain: String = ""
     )
 
     @Serializable
@@ -334,16 +343,18 @@ class IpSecTunnel(private val context: Context) {
         profile.setUserCertificateAlias(keychainAlias)
         if (cfg.local.id.isNotEmpty()) profile.setLocalId(cfg.local.id)
         if (cfg.remote.id.isNotEmpty()) profile.setRemoteId(cfg.remote.id)
-        // Server trust anchor: import the gateway-supplied CA (remote.cert) into
-        // strongSwan's local trusted-cert store and pin the profile to it, so
-        // charon validates the server explicitly against THIS CA — ISRG Root X1
-        // for public-cert interfaces (Let's Encrypt server cert), the Privycs CA
-        // for self-signed ones. Empty (old profiles) → leave the CA unset and
-        // charon falls back to its full trusted-cert set (unchanged behaviour).
-        // remote.id/addr are taken from the profile as-is and never overwritten.
-        if (cfg.remote.cert.isNotEmpty()) {
-            importServerCaAlias(cfg.remote.cert)?.let { profile.setCertificateAlias(it) }
-        }
+        // Server-cert trust: import the gateway-supplied public chain
+        // (intermediates + root) into strongSwan's own trust store. We do NOT
+        // pin via setCertificateAlias — pinning makes charon's
+        // getTrustedCertificates() return ONLY that one anchor, so the
+        // intermediate is missing and the leaf→intermediate→root chain can't be
+        // built ("no issuer certificate found"). With the chain imported and CA
+        // selection left automatic, charon validates against the system store +
+        // the local store and assembles the chain itself. Self-signed / legacy
+        // profiles carry no chain → nothing imported, validation falls back to
+        // the P12-embedded CA exactly as before. remote.id/addr are never
+        // overwritten.
+        importServerTrustChain(cfg.remote)
         if (cfg.mtu > 0) profile.setMTU(cfg.mtu)
         if (cfg.dnsServers.isNotEmpty()) profile.setDnsServers(cfg.dnsServers.joinToString(" "))
         // RFC 8784 PPK — emitted by gateway when interface.pq_safe = true.
@@ -365,31 +376,88 @@ class IpSecTunnel(private val context: Context) {
     }
 
     /**
-     * Import the gateway-supplied server trust anchor (base64-DER X.509) into
-     * strongSwan's local trusted-certificate store and return its alias
-     * ("local:<sha1-of-public-key>") for VpnProfile.setCertificateAlias.
-     *
-     * LocalCertificateStore.addCertificate replaces any existing file with the
-     * same alias, so re-imports are idempotent; TrustedCertificateManager.reset()
-     * forces the cache to reload on charon's next getTrustedCertificates() call
-     * so the freshly-added CA is visible. Returns null on any parse/store
-     * failure — the caller then leaves the CA unset and charon falls back to
-     * its default trusted-cert set.
+     * Import the gateway-supplied server-cert trust material into strongSwan's
+     * local trusted-certificate store so charon can build the leaf → intermediate
+     * → root chain itself. Handles both the PEM bundle in `cert_chain`
+     * (intermediate(s) + root, possibly several concatenated certs) and the
+     * legacy single base64-DER `cert`. Does NOT pin a profile alias — leaving CA
+     * selection automatic is what lets charon use these imported intermediates
+     * together with the system store. Idempotent: addCertificate() replaces a
+     * same-key file, and TrustedCertificateManager.reset() reloads the cache for
+     * charon's next getTrustedCertificates() call. No chain material → no-op, so
+     * self-signed profiles are unaffected.
      */
-    private fun importServerCaAlias(certB64: String): String? {
-        return runCatching {
-            val der = Base64.decode(certB64, Base64.DEFAULT)
-            val cert = CertificateFactory.getInstance("X.509")
-                .generateCertificate(ByteArrayInputStream(der)) as X509Certificate
+    private fun importServerTrustChain(remote: SswanRemote) {
+        val factory = CertificateFactory.getInstance("X.509")
+        val certs = mutableListOf<X509Certificate>()
+        if (remote.certChain.isNotEmpty()) {
+            runCatching {
+                factory.generateCertificates(
+                    ByteArrayInputStream(remote.certChain.toByteArray(Charsets.US_ASCII))
+                ).filterIsInstance<X509Certificate>()
+            }.onSuccess { certs += it }
+                .onFailure { Log.e(TAG, "cert_chain parse failed", it) }
+        }
+        if (remote.cert.isNotEmpty()) {
+            runCatching {
+                factory.generateCertificate(
+                    ByteArrayInputStream(Base64.decode(remote.cert, Base64.DEFAULT))
+                ) as X509Certificate
+            }.onSuccess { certs += it }
+                .onFailure { Log.e(TAG, "cert (single anchor) parse failed", it) }
+        }
+        if (certs.isEmpty()) return
+        val store = LocalCertificateStore()
+        val aliases = LinkedHashSet<String>()
+        var imported = 0
+        for (c in certs) {
+            if (store.addCertificate(c)) imported++
+            store.getCertificateAlias(c)?.let { aliases.add(it) }
+        }
+        TrustedCertificateManager.getInstance().reset()
+        // Record the imported aliases against the profile UUID so cleanupOnDelete
+        // can remove exactly these CA certs when the connection is deleted.
+        sswanConfig?.uuid?.takeIf { it.isNotEmpty() }?.let { uuid ->
+            prefs.edit().putStringSet(KEY_CHAIN_ALIASES_PREFIX + uuid, aliases).apply()
+        }
+        Log.i(TAG, "Imported $imported server-trust cert(s) into local store (chain=${remote.certChain.isNotEmpty()})")
+    }
+
+    /**
+     * Remove the OS-level artifacts an IPSec profile leaves behind, called when
+     * the connection (or its IPSec config) is deleted. Cleans: (1) the strongSwan
+     * SQLite VpnProfile, (2) the server-trust CA certs imported into the local
+     * store, (3) the remembered-alias + chain-alias bookkeeping in SharedPrefs.
+     * NOTE: the user-installed client PKCS#12 in the system KeyChain itself
+     * cannot be removed by an app (no Android API) — only its alias reference here.
+     */
+    suspend fun cleanupOnDelete(configContent: String) = withContext(Dispatchers.IO) {
+        val cfg = runCatching { parseConfig(configContent) }.getOrNull() ?: return@withContext
+        val uuid = cfg.uuid
+        if (uuid.isEmpty()) return@withContext
+        // 1. strongSwan SQLite VpnProfile
+        runCatching {
+            val source = VpnProfileSource(context)
+            source.open()
+            try {
+                source.getVpnProfile(UUID.fromString(uuid))?.let { source.deleteVpnProfile(it) }
+            } finally {
+                source.close()
+            }
+        }.onFailure { Log.w(TAG, "cleanupOnDelete: VpnProfile delete failed: ${it.message}") }
+        // 2. imported server-trust CA certs
+        runCatching {
             val store = LocalCertificateStore()
-            store.addCertificate(cert)
+            prefs.getStringSet(KEY_CHAIN_ALIASES_PREFIX + uuid, emptySet())
+                ?.forEach { store.deleteCertificate(it) }
             TrustedCertificateManager.getInstance().reset()
-            val alias = store.getCertificateAlias(cert)
-            Log.i(TAG, "Imported server CA into local trust store: alias=$alias")
-            alias
-        }.onFailure {
-            Log.e(TAG, "Server CA import failed; falling back to default trust", it)
-        }.getOrNull()
+        }.onFailure { Log.w(TAG, "cleanupOnDelete: CA cert delete failed: ${it.message}") }
+        // 3. SharedPrefs bookkeeping (alias reference + chain alias set)
+        prefs.edit()
+            .remove(KEY_ALIAS_PREFIX + uuid)
+            .remove(KEY_CHAIN_ALIASES_PREFIX + uuid)
+            .apply()
+        Log.i(TAG, "cleanupOnDelete: removed IPSec OS artifacts for profile $uuid")
     }
 
     /**
@@ -449,10 +517,11 @@ class IpSecTunnel(private val context: Context) {
                 existing.setGateway(profile.getGateway())
                 existing.setVpnType(profile.getVpnType())
                 existing.setUserCertificateAlias(profile.getUserCertificateAlias())
-                // Server-CA alias: the .sswan UUID is now deterministic, so a
-                // re-download lands in THIS update branch. Copy the CA alias too
-                // (incl. clearing it for legacy no-cert profiles) so a
-                // self-signed↔public-cert switch actually re-pins the server CA.
+                // Server-CA alias: buildVpnProfile no longer pins one (we import
+                // the whole chain + leave CA selection automatic instead), so the
+                // freshly-built profile's alias is null. Copy it through to CLEAR
+                // any stale pin a previous build wrote on this stored profile —
+                // the .sswan UUID is deterministic so a re-download lands here.
                 existing.setCertificateAlias(profile.getCertificateAlias())
                 existing.setLocalId(profile.getLocalId())
                 existing.setRemoteId(profile.getRemoteId())

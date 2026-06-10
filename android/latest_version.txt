@@ -1,2 +1,2 @@
-versionCode=10301
-versionName=1.1.3.22
+versionCode=10302
+versionName=1.1.3.23
