@@ -2350,12 +2350,28 @@ Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -Authenticati
 // to track per-connection filenames. That gap is shared with
 // configureMacOSFromSSwanViaSwanctl which writes to the same paths.
 func (h *PrivilegedHelper) cmdIPSecCleanup(cmd HelperCommand) HelperResponse {
-	if runtime.GOOS != "darwin" {
-		return HelperResponse{Success: true, Output: "ipsec_cleanup: no-op on non-darwin"}
+	switch runtime.GOOS {
+	case "darwin":
+		return h.ipsecCleanupSwanctl(helperFindMacOSSwanctlConfDir(), helperFindMacOSStrongswanBinary("swanctl"))
+	case "linux":
+		bin := "swanctl"
+		if p, err := exec.LookPath("swanctl"); err == nil {
+			bin = p
+		} else if _, e := os.Stat("/usr/sbin/swanctl"); e == nil {
+			bin = "/usr/sbin/swanctl"
+		}
+		return h.ipsecCleanupSwanctl("/etc/swanctl", bin)
+	case "windows":
+		return h.ipsecCleanupWindows(cmd)
+	default:
+		return HelperResponse{Success: true, Output: "ipsec_cleanup: no-op on " + runtime.GOOS}
 	}
-	certDir := helperFindMacOSSwanctlConfDir()
-	swanctlBin := helperFindMacOSStrongswanBinary("swanctl")
+}
 
+// ipsecCleanupSwanctl removes the swanctl conf + PEMs for the deleted connection
+// and reloads charon. Shared by macOS (Homebrew swanctl) and Linux (/etc/swanctl).
+// Single-connection-per-host filenames (same gap as the configure path).
+func (h *PrivilegedHelper) ipsecCleanupSwanctl(certDir, swanctlBin string) HelperResponse {
 	files := []string{
 		certDir + "/conf.d/privycs-vpn.conf",
 		certDir + "/x509ca/privycs-ca.pem",
@@ -2368,15 +2384,40 @@ func (h *PrivilegedHelper) cmdIPSecCleanup(cmd HelperCommand) HelperResponse {
 			removed = append(removed, filepath.Base(f))
 		}
 	}
-
 	out := fmt.Sprintf("removed %d swanctl files: %s", len(removed), strings.Join(removed, ", "))
 	if swanctlBin != "" {
 		// Best-effort reload so charon drops the in-memory conn config.
-		// Failure here just means charon still knows about the conn
-		// until it's restarted — non-fatal.
+		// Failure here just means charon still knows about the conn until
+		// it's restarted — non-fatal.
 		_, _ = exec.Command(swanctlBin, "--load-all").CombinedOutput()
 	}
 	return HelperResponse{Success: true, Output: out}
+}
+
+// ipsecCleanupWindows removes the all-user RAS VPN connection the installer
+// created, plus the Privycs-owned certificates it imported. Deliberately
+// NARROW: the cert filter matches only Subject/Issuer containing "Privycs", so
+// we can never touch a publicly-trusted root (e.g. ISRG Root X1 / Let's Encrypt,
+// whose org is "Internet Security Research Group", never "Privycs"). Best-effort
+// — every step is wrapped so a missing artifact is not an error. NRPT rules
+// added by the gateway setup script are NOT removed here (their namespaces are
+// script-defined and unknown to the client); documented as a known gap.
+func (h *PrivilegedHelper) ipsecCleanupWindows(cmd HelperCommand) HelperResponse {
+	connName := strings.TrimSpace(cmd.Args["connection_name"])
+	if connName == "" {
+		return HelperResponse{Success: false, Error: "connection_name required for windows ipsec_cleanup"}
+	}
+	// PowerShell single-quote escaping: double any embedded single quote.
+	esc := strings.ReplaceAll(connName, "'", "''")
+	ps := "$ErrorActionPreference='SilentlyContinue';" +
+		fmt.Sprintf("try { Remove-VpnConnection -Name '%s' -AllUserConnection -Force } catch {};", esc) +
+		"Get-ChildItem Cert:\\LocalMachine\\My | Where-Object { $_.Subject -like '*Privycs*' -or $_.Issuer -like '*Privycs*' } | Remove-Item -Force;" +
+		"Get-ChildItem Cert:\\LocalMachine\\Root | Where-Object { $_.Subject -like '*Privycs*' } | Remove-Item -Force;"
+	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", ps).CombinedOutput()
+	if err != nil {
+		return HelperResponse{Success: true, Output: fmt.Sprintf("windows ipsec cleanup (best-effort) for %q: %v / %s", connName, err, strings.TrimSpace(string(out)))}
+	}
+	return HelperResponse{Success: true, Output: fmt.Sprintf("windows ipsec cleanup done for %q", connName)}
 }
 
 // safeCIDRPattern validates a CIDR string. Accepts plain IPv4

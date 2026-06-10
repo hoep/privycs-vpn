@@ -2536,12 +2536,20 @@ func (a *App) DeleteConnection(id string) error {
 		}
 	}
 
-	// IPSec: wipe the OS/helper-installed config + certs. macOS removes the
-	// swanctl conf + PEMs via the helper and surfaces the System-Settings
-	// profile hint. (Windows all-user RAS entry + Trusted-Root CA + NRPT
-	// removal still pending — needs the privileged helper + device test.)
+	// IPSec: wipe the OS/helper-installed config + certs.
+	//   macOS  — swanctl conf + PEMs via helper + System-Settings profile hint.
+	//   Linux  — swanctl conf + PEMs via helper.
+	//   Windows— all-user RAS VPN entry + Privycs-owned certs via helper.
+	// (Windows NRPT rules from the gateway setup script are not removed — their
+	// namespaces are script-defined; documented gap.)
 	if ipsecConnName != "" {
-		macOSDeleteIPSecProfileHint(ipsecConnName, "deleted")
+		if runtime.GOOS == "darwin" {
+			macOSDeleteIPSecProfileHint(ipsecConnName, "deleted")
+		} else if client := NewHelperClient(); client.IsHelperReachable() {
+			if resp, err := client.SendCommand("ipsec_cleanup", map[string]string{"connection_name": ipsecConnName}); err == nil {
+				log.Printf("IPSec cleanup on delete: %s", resp.Output)
+			}
+		}
 	}
 	return nil
 }
