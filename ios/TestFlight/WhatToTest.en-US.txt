@@ -1,22 +1,16 @@
-v1.1.5.8 (build 104) — NEW: per-protocol managers (in-place widget switch, incl. IPSec).
+v1.1.5.9 (build 105) — widget switch: instant pill sync.
 
-Big change: the app now keeps a SEPARATE, ready-to-start VPN profile per protocol
-(WG/AWG/OpenVPN each + the IPSec slot) instead of reconfiguring one. The widget
-can then switch by just stop+start — no reconfigure (which the widget can't do).
-This is why earlier widget switches failed. iOS Settings ▸ VPN will now show one
-entry per protocol of a connection — that's expected.
+The in-place protocol switch works (build 104). This build fixes the display: the
+widget now writes the new active protocol into its own snapshot right after a
+switch, so the active-protocol pill highlights immediately — no need to open the
+app to see the change.
 
-IMPORTANT — TWO things to test:
+HOW TO TEST
+- Widget: switch WG ↔ OpenVPN (↔ IPSec) → the highlighted pill updates instantly,
+  without opening the app.
+- IPSec specifically: tap the IPSec pill → it should switch to IPSec (NOT
+  WireGuard). If it goes to WireGuard, open the app → Settings → Logs and send the
+  "widget switch[ipsec]:" line (shows started/FAILED + the connection status).
 
-A) REGRESSION (the core connect path changed!): in the APP, connect + disconnect
-   EACH protocol (WireGuard, AmneziaWG, OpenVPN, IPSec), switch protocols via the
-   in-app pills, check pools + on-demand. Everything must still work as before.
-
-B) WIDGET SWITCH: first connect each protocol you want to switch between ONCE in
-   the app (this creates its profile). THEN from the widget tap a protocol pill →
-   it switches IN PLACE (no app opens), incl. IPSec. The active protocol on the
-   widget + Settings ▸ VPN should change.
-   (If a pill does nothing, the log says "manager … not found — connect it once
-   in-app first" — connect that protocol in-app once, then retry.)
-
-Send the "widget switch[" log lines for anything that doesn't switch.
+REGRESSION CHECK
+- In-app connect/switch all protocols; pools; on-demand; OpenVPN counter.

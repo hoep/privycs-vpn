@@ -93,6 +93,16 @@ struct SwitchProtocolIntent: AppIntent {
         } else {
             started = false
         }
+        // Sync the widget UI immediately: the active-protocol pill highlight comes
+        // from the snapshot's protocolRaw, which only the app writes — so without
+        // this the pill wouldn't update until the app is next opened. Write the new
+        // active protocol back ourselves, then reload.
+        if started, var s = WidgetSnapshotStore.read() {
+            s.protocolRaw = protocolRaw
+            s.connected = true
+            s.updatedAtEpoch = Int64(Date().timeIntervalSince1970)
+            WidgetSnapshotStore.write(s)
+        }
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
     }
