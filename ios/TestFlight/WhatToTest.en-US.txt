@@ -1,15 +1,18 @@
-v1.1.5.11 (build 107) — widget switch: protocol display syncs for WG/AmneziaWG too.
+v1.1.5.12 (build 108) — widget traffic counters: reset on switch + periodic refresh.
 
-Switching FROM IPSec synced correctly, but switching between PTP protocols
-(WireGuard ↔ AmneziaWG ↔ OpenVPN) kept showing the OLD protocol: the previous
-PTP tunnel's live stats lingered with the old protocol id and overrode the
-display until the new tunnel wrote its own. The widget now also stamps the new
-protocol onto those live stats right after the switch, so the active-protocol
-pill updates immediately for all protocols (IPSec was always the baseline here).
+On a protocol switch the widget now resets the traffic counters/graph to 0 (new
+tunnel session) instead of leaving the previous protocol's numbers, and the tunnel
+nudges the widget to re-read live stats every ~30s.
+
+NOTE (iOS limitation): a home-screen widget cannot show per-second traffic — iOS
+throttles widget refreshes (typically minutes, not seconds, when the app is
+closed). So the counter steps up periodically, not live. Open the app for live
+per-second numbers.
 
 HOW TO TEST
-- From the widget, switch WireGuard ↔ AmneziaWG ↔ OpenVPN ↔ IPSec in any order →
-  the highlighted/active protocol updates immediately every time, no app needed.
-- Open the app after a switch → the active protocol matches.
+- Switch protocols from the widget → the counter resets to 0 and then climbs as
+  traffic flows (updates every ~30s+, subject to iOS throttling), no stale value
+  from the previous protocol.
+- Leave the widget connected a few minutes → rx/tx should advance.
 
-REGRESSION: in-app connect/switch all protocols; pools; on-demand; delete.
+REGRESSION: in-app live counter still per-second; switch sync (build 107) intact.

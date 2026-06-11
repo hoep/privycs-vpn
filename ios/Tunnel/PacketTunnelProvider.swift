@@ -1,5 +1,6 @@
 import NetworkExtension
 import PrivycsCore
+import WidgetKit
 import os
 
 /// Apple Network Extension PacketTunnelProvider. Eines davon pro
@@ -118,6 +119,7 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
     private func startStatsReporting() {
         statsTask?.cancel()
         statsTask = Task { [weak self] in
+            var tick = 0
             while !Task.isCancelled {
                 guard let self, let bridge = self.activeBridge else { break }
                 let s = await bridge.currentStats()
@@ -131,6 +133,11 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
                     connectedAtEpoch: self.connectedAtEpoch,
                     lastHandshakeEpoch: s.lastHandshakeEpoch
                 ))
+                // Nudge the home-screen widget to re-read the fresh counters every
+                // ~30s. iOS throttles widget refreshes (a closed-app widget can't
+                // update per-second — OS budget), so this is best-effort.
+                tick += 1
+                if tick % 30 == 0 { WidgetCenter.shared.reloadAllTimelines() }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }

@@ -103,6 +103,11 @@ struct SwitchProtocolIntent: AppIntent {
                 s.protocolRaw = protocolRaw
                 s.connected = true
                 s.updatedAtEpoch = now
+                // New tunnel session → reset the counters/graph so the widget
+                // doesn't keep showing the previous protocol's traffic.
+                s.rxBytes = 0; s.txBytes = 0; s.rxSpeed = 0; s.txSpeed = 0
+                s.rxHistory = []; s.txHistory = []
+                s.connectedAtEpoch = now
                 WidgetSnapshotStore.write(s)
             }
             // The OLD PTP tunnel's live stats still carry the PREVIOUS protocolRaw
@@ -114,6 +119,7 @@ struct SwitchProtocolIntent: AppIntent {
                 t.protocolRaw = protocolRaw
                 t.connected = true
                 t.connectedAtEpoch = now
+                t.rxBytes = 0; t.txBytes = 0   // new session — don't carry old bytes
                 TunnelStatsStore.write(t)
             }
         }
