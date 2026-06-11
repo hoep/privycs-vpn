@@ -19,10 +19,28 @@ struct PrivycsProvider: TimelineProvider {
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<PrivycsEntry>) -> Void) {
         let model = WidgetModel.current()
-        let entry = PrivycsEntry(date: Date(), model: model)
-        // Refresh sooner while connected (live traffic moves) than when idle.
-        let next = Date().addingTimeInterval(model.connected ? 60 : 900)
-        completion(Timeline(entries: [entry], policy: .after(next)))
+        let now = Date()
+        var entries: [PrivycsEntry] = []
+        if model.connected && (model.rxSpeed > 0 || model.txSpeed > 0) {
+            // iOS can't refresh a home-screen widget per-second (it throttles to
+            // minutes when the app is closed), so the counter looked frozen. Emit
+            // a series of entries that PROJECT the byte counters forward at the
+            // tunnel's last-known speed — the widget then advances on its own every
+            // 10s for ~3 min. Each real refresh resyncs to the true value.
+            for step in 0..<18 {
+                let dt = Double(step * 10)
+                var m = model
+                m.rxBytes = model.rxBytes + Int64(Double(model.rxSpeed) * dt)
+                m.txBytes = model.txBytes + Int64(Double(model.txSpeed) * dt)
+                entries.append(PrivycsEntry(date: now.addingTimeInterval(dt), model: m))
+            }
+        } else {
+            entries = [PrivycsEntry(date: now, model: model)]
+        }
+        // Try to resync to real data every 60s while connected; if iOS defers that,
+        // the projected entries above keep the counter moving meanwhile.
+        let next = now.addingTimeInterval(model.connected ? 60 : 900)
+        completion(Timeline(entries: entries, policy: .after(next)))
     }
 }
 

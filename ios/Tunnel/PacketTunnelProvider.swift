@@ -122,9 +122,16 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
         statsTask?.cancel()
         statsTask = Task { [weak self] in
             var tick = 0
+            var prevRx: Int64 = 0, prevTx: Int64 = 0
+            var havePrev = false
             while !Task.isCancelled {
                 guard let self, let bridge = self.activeBridge else { break }
                 let s = await bridge.currentStats()
+                // ~1s loop → byte delta ≈ bytes/sec. Published so the widget can
+                // project the counter forward between iOS's throttled refreshes.
+                let rxSpeed = havePrev ? max(0, s.rx - prevRx) : 0
+                let txSpeed = havePrev ? max(0, s.tx - prevTx) : 0
+                prevRx = s.rx; prevTx = s.tx; havePrev = true
                 TunnelStatsStore.write(TunnelStatsSnapshot(
                     connected: true,
                     rxBytes: s.rx,
@@ -133,7 +140,9 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
                     serverEndpoint: s.serverEndpoint,
                     protocolRaw: self.protocolRaw,
                     connectedAtEpoch: self.connectedAtEpoch,
-                    lastHandshakeEpoch: s.lastHandshakeEpoch
+                    lastHandshakeEpoch: s.lastHandshakeEpoch,
+                    rxSpeed: rxSpeed,
+                    txSpeed: txSpeed
                 ))
                 // Nudge the home-screen widget to re-read the fresh counters every
                 // ~30s. iOS throttles widget refreshes (a closed-app widget can't

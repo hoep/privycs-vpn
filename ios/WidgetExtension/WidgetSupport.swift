@@ -147,6 +147,8 @@ struct WidgetModel {
             m.connected = l.connected
             m.rxBytes = l.rxBytes
             m.txBytes = l.txBytes
+            m.rxSpeed = l.rxSpeed   // tunnel-published live throughput → timeline projection
+            m.txSpeed = l.txSpeed
             if !l.serverEndpoint.isEmpty { m.serverEndpoint = l.serverEndpoint }
             if !l.localAddress.isEmpty { m.localAddress = l.localAddress }
             if !l.protocolRaw.isEmpty { m.protocolRaw = l.protocolRaw }

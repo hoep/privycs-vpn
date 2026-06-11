@@ -22,6 +22,11 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
     public var lastError: String
     /// Epoch seconds of the last WG/AWG handshake (0 = none / N/A).
     public var lastHandshakeEpoch: Int64
+    /// Instantaneous throughput (bytes/sec) the tunnel computed from the last
+    /// 1s byte delta. Lets the widget PROJECT the counter forward between iOS's
+    /// throttled refreshes so it doesn't look frozen when the app is closed.
+    public var rxSpeed: Int64
+    public var txSpeed: Int64
 
     public init(
         connected: Bool = false,
@@ -32,7 +37,9 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
         protocolRaw: String = "",
         connectedAtEpoch: Int64 = 0,
         lastError: String = "",
-        lastHandshakeEpoch: Int64 = 0
+        lastHandshakeEpoch: Int64 = 0,
+        rxSpeed: Int64 = 0,
+        txSpeed: Int64 = 0
     ) {
         self.connected = connected
         self.rxBytes = rxBytes
@@ -43,15 +50,18 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
         self.connectedAtEpoch = connectedAtEpoch
         self.lastError = lastError
         self.lastHandshakeEpoch = lastHandshakeEpoch
+        self.rxSpeed = rxSpeed
+        self.txSpeed = txSpeed
     }
 
     private enum CodingKeys: String, CodingKey {
         case connected, rxBytes, txBytes, localAddress, serverEndpoint
         case protocolRaw, connectedAtEpoch, lastError, lastHandshakeEpoch
+        case rxSpeed, txSpeed
     }
 
     // Tolerant decoder so a snapshot written by an older build (without
-    // lastHandshakeEpoch) still decodes instead of failing the read.
+    // lastHandshakeEpoch / speeds) still decodes instead of failing the read.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         connected = try c.decodeIfPresent(Bool.self, forKey: .connected) ?? false
@@ -63,6 +73,8 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
         connectedAtEpoch = try c.decodeIfPresent(Int64.self, forKey: .connectedAtEpoch) ?? 0
         lastError = try c.decodeIfPresent(String.self, forKey: .lastError) ?? ""
         lastHandshakeEpoch = try c.decodeIfPresent(Int64.self, forKey: .lastHandshakeEpoch) ?? 0
+        rxSpeed = try c.decodeIfPresent(Int64.self, forKey: .rxSpeed) ?? 0
+        txSpeed = try c.decodeIfPresent(Int64.self, forKey: .txSpeed) ?? 0
     }
 }
 
