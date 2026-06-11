@@ -1,17 +1,18 @@
-v1.1.5.6 (build 102) — widget protocol switch actually switches now.
+v1.1.5.7 (build 103) — widget switch: stop on-demand fighting the switch.
 
-build 101 logged "started OK" but nothing changed: starting a manager that's
-already connected (or while the old VPN is still up) is a no-op. The widget now
-mirrors the app's switch fully: STOP the currently-active tunnel (IPSec + any PTP
-manager) and WAIT for teardown, THEN reconfigure + start the new protocol (with
-reload/retry). So the active protocol really changes.
+build 102 logged "WireGuard starting…" right after tapping OpenVPN — that was
+iOS ON-DEMAND restarting the OLD protocol while the widget started the new one.
+The widget now DISARMS on-demand on the target manager before stopping it, and
+keeps on-demand off for the manual switch, so the old protocol can't come back.
+Still fully in-place — the app is NOT opened.
 
 HOW TO TEST
 - Connection with WG + IPSec + OpenVPN: from the widget tap the OpenVPN pill →
-  the tunnel switches to OpenVPN (status bar VPN stays up, protocol changes).
-  Tap WireGuard / IPSec → switches to those. Verify in Settings ▸ VPN + the app.
-- If it still doesn't switch: send the "widget switch[" log lines — they now log
-  pre/post connection status + each start attempt.
+  it switches to OpenVPN in place (no "WireGuard starting", no app launch); the
+  active protocol changes. Tap WireGuard → switches to WG.
+- Watch the log: "widget switch[openvpn]: ... started post-mgr=2/3" (connecting/
+  connected) and NO old-protocol restart.
 
 REGRESSION CHECK
-- Widget connect/disconnect disc; in-app pills; IPSec VPN-IP; OpenVPN counter.
+- Widget connect/disconnect disc; in-app pills; on-demand still works after you
+  reopen the app; IPSec VPN-IP; OpenVPN counter.

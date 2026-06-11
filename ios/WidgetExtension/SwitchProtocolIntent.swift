@@ -68,13 +68,21 @@ struct SwitchProtocolIntent: AppIntent {
                 try? await other.saveToPreferences()
             }
         }
+        // CRITICAL: disarm on-demand on the target manager BEFORE stopping it.
+        // Otherwise iOS re-triggers the OLD protocol's on-demand and restarts it
+        // ("WireGuard starting…" right after tapping OpenVPN) — fighting the switch.
+        if mgr.isOnDemandEnabled {
+            mgr.isOnDemandEnabled = false
+            try? await mgr.saveToPreferences()
+        }
         if mgr.connection.status == .connected || mgr.connection.status == .connecting || mgr.connection.status == .reasserting {
             mgr.connection.stopVPNTunnel()
         }
         await waitUntilDisconnected(ike.connection, "ike")
         await waitUntilDisconnected(mgr.connection, "mgr")
 
-        // 2) Reconfigure the target manager to the new protocol + save.
+        // 2) Reconfigure the target manager to the new protocol + save. on-demand
+        //    stays OFF for the manual switch (the app re-syncs it on next foreground).
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = TunnelProviderConfig.bundleIdentifier
         proto.serverAddress = target.serverAddress
@@ -86,6 +94,7 @@ struct SwitchProtocolIntent: AppIntent {
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = snap.connectionName.isEmpty ? "Privycs VPN" : snap.connectionName
         mgr.isEnabled = true
+        mgr.isOnDemandEnabled = false
         try? await mgr.saveToPreferences()
 
         // 3) Start with reload+retry (post-save stale/invalid config recovery).
