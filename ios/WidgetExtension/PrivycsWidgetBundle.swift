@@ -227,7 +227,9 @@ struct PrivycsStatusWidget: Widget {
         }
         .configurationDisplayName("Privycs VPN — Status")
         .description("Connection status, server and live traffic.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        // systemLarge dropped (v1.1.5.10): it only stretched the medium layout
+        // with empty space — no extra info justified it. Medium + small remain.
+        .supportedFamilies([.systemMedium])
     }
 }
 

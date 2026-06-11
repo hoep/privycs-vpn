@@ -176,6 +176,12 @@ final class VPNTunnelManager: ObservableObject {
                 if established {
                     await reloadManagersAndRefresh()   // pick up the just-started manager
                     startPolling()
+                    // Pre-build a ready-to-start manager for the connection's OTHER
+                    // protocols so the widget can switch to any of them (incl.
+                    // AmneziaWG/IPSec) without "connect it once in-app first".
+                    // Detached so it doesn't delay the connect return.
+                    let c = connection, ap = config.protocol
+                    Task { await self.prepareSwitchManagers(c, activeProtocol: ap) }
                     return
                 }
                 PrivycsLog.log("connect: \(config.protocol.rawValue) did not establish — failing over")
@@ -609,56 +615,7 @@ final class VPNTunnelManager: ObservableObject {
         let mgr = NEVPNManager.shared()
         try await mgr.loadFromPreferences()
 
-        let proto = NEVPNProtocolIKEv2()
-        proto.serverAddress = profile.remote.addr
-        proto.remoteIdentifier = profile.resolvedRemoteIdentifier
-        if let localID = profile.local.id, !localID.isEmpty {
-            proto.localIdentifier = localID
-        }
-
-        // Certificate auth via inline PKCS#12 (client cert + key + CA chain).
-        // The device log (v1.1.3.11) confirms the CLIENT-cert method is NOT the
-        // IPSec blocker: inline reaches IKE but the SA never establishes within
-        // the watchdog → the failure is server-side IKE negotiation (server-cert
-        // trust of the self-signed gateway CA, or a DH/proposal mismatch). The
-        // earlier keychain identityReference attempt was a no-op (SecItemAdd
-        // succeeded but returned no usable persistent ref → always fell back
-        // here) so it's removed. Re-add a correct keychain path only if a system
-        // (NEIKEv2) log shows client-auth is actually the problem.
-        guard let p12 = profile.pkcs12Data else {
-            throw SswanError.missingCertificate
-        }
-        proto.authenticationMethod = .certificate
-        proto.identityData = p12
-        proto.identityDataPassword = profile.local.p12Password
-        proto.useExtendedAuthentication = false
-
-        // Harden defaults — strong IKE/ESP ciphers, MOBIKE, PFS, DPD.
-        proto.useConfigurationAttributeInternalIPSubnet = false
-        proto.disableMOBIKE = false
-        proto.disableRedirect = false
-        proto.enablePFS = true
-        proto.deadPeerDetectionRate = .medium
-        // Match the GATEWAY's documented IKE/ESP proposal exactly:
-        // `aes256-sha256-modp2048` (AES-256-CBC + SHA256 + DH group 14), per the
-        // Linux swanctl config + the Windows setup (NegotiateDH2048). The prior
-        // values here forced AES256-GCM + DH group 19, which the gateway does
-        // NOT offer → no common proposal → IKE_SA_INIT silently times out (the
-        // clean ~12s "did not establish" with no handshake seen in the device
-        // log v1.1.3.11). CBC needs an explicit integrity alg (GCM is AEAD).
-        let ike = proto.ikeSecurityAssociationParameters
-        ike.encryptionAlgorithm = .algorithmAES256
-        ike.integrityAlgorithm = .SHA256
-        ike.diffieHellmanGroup = .group14
-        let esp = proto.childSecurityAssociationParameters
-        esp.encryptionAlgorithm = .algorithmAES256
-        esp.integrityAlgorithm = .SHA256
-        esp.diffieHellmanGroup = .group14
-        if let mtu = profile.mtu, mtu > 0 {
-            // NEVPNProtocolIKEv2 has no MTU knob; server-pushed config
-            // governs it. Logged for parity, applied where supported.
-            _ = mtu
-        }
+        let proto = try makeIKEv2Proto(profile)
 
         // Diagnostic: the most common IKEv2 failure on iOS is server-cert
         // validation — a self-signed gateway CA is trusted by Android's
@@ -682,6 +639,82 @@ final class VPNTunnelManager: ObservableObject {
         try await mgr.loadFromPreferences()
         try await startTunnelRetrying(mgr)
         return mgr
+    }
+
+    /// Build the IKEv2 protocol config from a parsed .sswan profile. Shared by
+    /// connectViaIKEv2 (the active connect) and prepareSwitchManagers (pre-loading
+    /// the IPSec slot so the widget can switch to it). Crypto matches the gateway:
+    /// AES-256-CBC + SHA256 + DH group 14.
+    private func makeIKEv2Proto(_ profile: SswanProfile) throws -> NEVPNProtocolIKEv2 {
+        let proto = NEVPNProtocolIKEv2()
+        proto.serverAddress = profile.remote.addr
+        proto.remoteIdentifier = profile.resolvedRemoteIdentifier
+        if let localID = profile.local.id, !localID.isEmpty { proto.localIdentifier = localID }
+        guard let p12 = profile.pkcs12Data else { throw SswanError.missingCertificate }
+        proto.authenticationMethod = .certificate
+        proto.identityData = p12
+        proto.identityDataPassword = profile.local.p12Password
+        proto.useExtendedAuthentication = false
+        proto.useConfigurationAttributeInternalIPSubnet = false
+        proto.disableMOBIKE = false
+        proto.disableRedirect = false
+        proto.enablePFS = true
+        proto.deadPeerDetectionRate = .medium
+        let ike = proto.ikeSecurityAssociationParameters
+        ike.encryptionAlgorithm = .algorithmAES256
+        ike.integrityAlgorithm = .SHA256
+        ike.diffieHellmanGroup = .group14
+        let esp = proto.childSecurityAssociationParameters
+        esp.encryptionAlgorithm = .algorithmAES256
+        esp.integrityAlgorithm = .SHA256
+        esp.diffieHellmanGroup = .group14
+        return proto
+    }
+
+    /// Pre-create a READY-TO-START manager for EVERY protocol of `connection` so
+    /// the widget can switch to any of them by start (no reconfigure, no
+    /// "connect it once in-app first"). PTP: one disabled NETunnelProviderManager
+    /// each; IPSec: the shared NEVPNManager slot loaded (disabled) with this
+    /// connection's profile. Skips the `activeProtocol` (connect() already
+    /// configured + started it). Best-effort; runs detached after connect.
+    func prepareSwitchManagers(_ connection: SavedConnection, activeProtocol: VpnProtocol) async {
+        let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
+        var seen = Set<VpnProtocol>()
+        for cfg in connection.protocols where seen.insert(cfg.protocol).inserted {
+            if cfg.protocol == activeProtocol { continue }
+            if cfg.protocol == .ipsec {
+                guard let profile = try? SswanProfile.parse(cfg.configContent),
+                      let proto = try? makeIKEv2Proto(profile) else { continue }
+                let ike = NEVPNManager.shared()
+                try? await ike.loadFromPreferences()
+                // Don't clobber a live IPSec session (another connection); only
+                // pre-load the slot when it's idle.
+                let st = ike.connection.status
+                if st == .connected || st == .connecting || st == .reasserting { continue }
+                proto.serverAddress = profile.remote.addr
+                ike.protocolConfiguration = proto
+                ike.localizedDescription = connection.name
+                ike.isOnDemandEnabled = false
+                ike.isEnabled = false
+                try? await ike.saveToPreferences()
+            } else {
+                let name = TunnelProviderConfig.ptpManagerName(
+                    connectionName: connection.name, protocolRaw: cfg.protocol.rawValue)
+                let m = mgrs.first { $0.localizedDescription == name } ?? NETunnelProviderManager()
+                let p = NETunnelProviderProtocol()
+                p.providerBundleIdentifier = "com.privycs.vpn.tunnel"
+                p.serverAddress = cfg.serverAddress
+                p.providerConfiguration = TunnelProviderConfig.make(
+                    protocolRaw: cfg.protocol.rawValue, configContent: cfg.configContent,
+                    connectionId: connection.id, configId: cfg.id,
+                    dnsOverride: dnsOverride, killSwitch: killSwitch)
+                m.protocolConfiguration = p
+                m.localizedDescription = name
+                m.isOnDemandEnabled = false
+                m.isEnabled = false   // ready, not active
+                try? await m.saveToPreferences()
+            }
+        }
     }
 
     private func refreshStatus() {

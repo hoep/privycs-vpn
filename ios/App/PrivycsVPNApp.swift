@@ -224,7 +224,12 @@ final class AppState: ObservableObject {
     /// fresh on return to the foreground so a stale "degraded" doesn't linger.
     func onScenePhase(_ active: Bool) {
         appActive = active
-        guard active else { return }
+        guard active else {
+            // Re-arm the live-VPN reconcile so the next foreground reflects a
+            // switch made from the widget while the app was backgrounded.
+            didReconcileActiveFromOS = false
+            return
+        }
         startHealthMonitor()   // restart → failure counter resets
         // A timed pause's in-app timer (Task.sleep) does NOT survive iOS
         // suspension/doze, so a pause that elapsed while backgrounded never
