@@ -1,16 +1,15 @@
-v1.1.5.14 (build 110) — widget traffic counter now advances live (projected).
+v1.1.5.15 (build 111) — widget traffic counter now advances every second.
 
-The real fix: the tunnel now publishes live throughput (bytes/sec), and the widget
-emits a timeline that PROJECTS the byte counters forward at that speed — so the
-counter visibly climbs every ~10s for minutes WITHOUT needing an iOS refresh (iOS
-throttles widget refreshes to minutes when the app is closed; it previously looked
-frozen). Each real refresh (~every 60s when iOS allows) resyncs to the true value.
+build 110 projected the counter every 10s; this emits a timeline entry PER SECOND
+(120 entries / 2 min) projecting from the tunnel's live speed, so the widget
+counter steps every second on its own — pre-computed entries cost no iOS refresh
+budget. Each real refresh (~60s) resyncs to the true value.
+(iOS may coalesce view updates under low power, but it's now as smooth as a widget
+can be; the app remains exact per-second.)
 
 HOW TO TEST
-- Connect + generate traffic (load a page / speed test). Watch the WIDGET counter:
-  rx/tx should now climb continuously (every ~10s), not sit frozen.
-- Switch protocols → counter resets to 0 then climbs on the new protocol.
-- Idle (no traffic) → counter holds steady (correct).
-- Numbers are a projection between refreshes; the app shows exact per-second.
+- Connect + generate traffic → widget rx/tx counter steps up every ~second.
+- Switch protocol → resets to 0, climbs on the new protocol.
+- Idle → holds steady.
 
-REGRESSION: in-app counter exact; switch + sync (builds 106/107) intact; tvOS.
+REGRESSION: in-app exact counter; switch + sync intact; tvOS builds.

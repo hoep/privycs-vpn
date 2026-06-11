@@ -22,13 +22,14 @@ struct PrivycsProvider: TimelineProvider {
         let now = Date()
         var entries: [PrivycsEntry] = []
         if model.connected && (model.rxSpeed > 0 || model.txSpeed > 0) {
-            // iOS can't refresh a home-screen widget per-second (it throttles to
-            // minutes when the app is closed), so the counter looked frozen. Emit
-            // a series of entries that PROJECT the byte counters forward at the
-            // tunnel's last-known speed — the widget then advances on its own every
-            // 10s for ~3 min. Each real refresh resyncs to the true value.
-            for step in 0..<18 {
-                let dt = Double(step * 10)
+            // iOS can't request a widget refresh per-second (it throttles to minutes
+            // when the app is closed), so the counter looked frozen. But timeline
+            // entries are PRE-COMPUTED and cost no refresh budget — so we emit one
+            // PER SECOND for ~2 min, each projecting the byte counters forward at
+            // the tunnel's last-known speed. The widget advances every second on its
+            // own; each real refresh (~60s) resyncs to the true value.
+            for step in 0..<120 {
+                let dt = Double(step)
                 var m = model
                 m.rxBytes = model.rxBytes + Int64(Double(model.rxSpeed) * dt)
                 m.txBytes = model.txBytes + Int64(Double(model.txSpeed) * dt)
