@@ -1,18 +1,11 @@
-v1.1.5.12 (build 108) — widget traffic counters: reset on switch + periodic refresh.
+v1.1.5.13 (build 109) — same as 108 (widget traffic counter reset-on-switch +
+periodic refresh) plus a tvOS build fix (WidgetKit isn't available to the tvOS
+tunnel target — guarded with #if os(iOS)). iOS behaviour identical to build 108.
 
-On a protocol switch the widget now resets the traffic counters/graph to 0 (new
-tunnel session) instead of leaving the previous protocol's numbers, and the tunnel
-nudges the widget to re-read live stats every ~30s.
+HOW TO TEST (widget traffic counters)
+- Switch protocols from the widget → counter resets to 0, then climbs as traffic
+  flows (updates every ~30s+; iOS throttles widget refreshes — not per-second).
+- Leave connected a few minutes → rx/tx advances. For live per-second numbers,
+  open the app.
 
-NOTE (iOS limitation): a home-screen widget cannot show per-second traffic — iOS
-throttles widget refreshes (typically minutes, not seconds, when the app is
-closed). So the counter steps up periodically, not live. Open the app for live
-per-second numbers.
-
-HOW TO TEST
-- Switch protocols from the widget → the counter resets to 0 and then climbs as
-  traffic flows (updates every ~30s+, subject to iOS throttling), no stale value
-  from the previous protocol.
-- Leave the widget connected a few minutes → rx/tx should advance.
-
-REGRESSION: in-app live counter still per-second; switch sync (build 107) intact.
+REGRESSION: switch sync (build 107) + all-protocol switch (build 106) intact.

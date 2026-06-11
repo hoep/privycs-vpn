@@ -1,6 +1,8 @@
 import NetworkExtension
 import PrivycsCore
-import WidgetKit
+#if os(iOS)
+import WidgetKit   // not available to the tvOS tunnel target
+#endif
 import os
 
 /// Apple Network Extension PacketTunnelProvider. Eines davon pro
@@ -137,7 +139,9 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
                 // ~30s. iOS throttles widget refreshes (a closed-app widget can't
                 // update per-second — OS budget), so this is best-effort.
                 tick += 1
+                #if os(iOS)
                 if tick % 30 == 0 { WidgetCenter.shared.reloadAllTimelines() }
+                #endif
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
