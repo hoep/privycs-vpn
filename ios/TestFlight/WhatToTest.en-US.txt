@@ -1,19 +1,18 @@
-v1.1.5.17 (build 113) — tvOS app: real connect screen with status + traffic.
+v1.1.5.18 (build 114) — tvOS: Privycs design system, smaller fonts, focus-safe, new icon.
 
-Apple TV redesign (iPhone/iPad app as the model):
-- Big connection-status hero (clear Connected/Disconnected, protocol, uptime).
-- Live TRAFFIC counters: Download/Upload cards with total + live speed + sparkline
-  (the data was already there — now shown; speed derived like the phone app).
-- Connection details: endpoint + VPN IP.
-- Server list + connect/disconnect unchanged (works); Unlink kept.
-
-NOTE — "Link a TV" (device-code enrollment) needs the GATEWAY endpoint
-(/api/v1/tv/device/start) deployed to production; it currently returns 405 (not
-live). Until the gateway ships it, use the manual fallback on the enroll screen
-(gateway URL + token). That's a server deploy, not a client change.
+- Applies the iPhone/iPad design system to Apple TV: teal #00CDAB on the dark
+  command-console background (#070B0E) with card surfaces — instead of plain
+  default styling.
+- Much smaller, explicit font sizes (the default tvOS fonts were huge).
+- Focus-safe layout: the Connect control takes default focus so the remote always
+  lands on something actionable; vertical scroll with a horizontal server picker.
+- Live traffic cards (Download/Upload + speed + sparkline) shown when connected.
+- New app icon: the Privycs logo centered on a turquoise field (+ top shelf).
 
 HOW TO TEST (Apple TV)
-- Enroll (manual fallback for now) → pick a server → Connect → the status hero
-  goes green, traffic counters climb, endpoint/VPN IP show. Disconnect works.
+- Look + feel should now match the phone app (dark teal). Navigate with the remote
+  — Connect is focused first; server cards are below. Connect → status hero goes
+  teal, traffic cards appear.
 
-(iOS app rebuilt unchanged — shared version file triggers both.)
+NOTE: device-code "Link a TV" still needs the GATEWAY endpoint deployed (manual
+fallback works). iOS app unchanged (shared version file).

@@ -7,12 +7,18 @@ struct TVRootView: View {
     @EnvironmentObject private var state: TVAppState
 
     var body: some View {
-        Group {
-            if state.isEnrolled {
-                TVMainView()
-            } else {
-                TVEnrollView()
+        ZStack {
+            TVColor.background.ignoresSafeArea()
+            Group {
+                if state.isEnrolled {
+                    TVMainView()
+                } else {
+                    TVEnrollView()
+                }
             }
         }
+        .tint(TVColor.teal)
+        .preferredColorScheme(.dark)
+        .foregroundStyle(TVColor.onSurface)
     }
 }
