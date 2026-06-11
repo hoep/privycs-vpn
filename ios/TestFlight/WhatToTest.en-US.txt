@@ -1,19 +1,18 @@
-v1.1.5.3 (build 99) — widget protocol switch fixed.
+v1.1.5.4 (build 100) — widget protocol switch now works (via the app).
 
-The widget log revealed it: the keychain read works now, but the SWITCH failed
-with "configuration type is wrong" — because the connection was running as the
-IPSec personal VPN, and starting a packet-tunnel (WireGuard) while IPSec is
-active is rejected. The widget now deactivates the active IPSec slot (and any
-other tunnel) first, then starts the chosen protocol — the same single-active-VPN
-step the app does.
+The widget extension cannot reliably start a packet-tunnel itself — every
+in-widget attempt failed with "configuration type is wrong" (confirmed by the
+device log). So tapping a protocol pill now records the request and opens the
+app, which performs the switch through its proven in-app path (the same code as
+tapping a protocol pill inside the app). IPSec pills already opened the app, so
+all pills now behave consistently.
 
 HOW TO TEST
-- Connect a connection that has both IPSec and WireGuard (e.g. "Privycs Shielded").
-- From the widget, tap the WireGuard pill → it should switch to WireGuard (and
-  vice-versa). The active protocol on the widget + in Settings ▸ VPN should match.
-- If it STILL doesn't switch: open the app → Settings → Logs and send the
-  "widget switch[" lines (they now also show the deactivation + start result).
+- From the widget, tap a protocol pill (e.g. WireGuard on a connection that has
+  WG + IPSec) → the app opens and switches to that protocol; the tunnel comes up
+  on the chosen protocol.
+- Tap the IPSec pill → switches back to IPSec.
 
 REGRESSION CHECK
-- IPSec VPN-IP shows only the private address (no public v6); OpenVPN counter +
-  info; WG/AWG; double-tap guard; pools.
+- Widget connect/disconnect disc still works in place; IPSec VPN-IP (private
+  only); OpenVPN counter/info; WG/AWG; in-app protocol pills.

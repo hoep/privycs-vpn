@@ -1,22 +1,20 @@
 import AppIntents
-import NetworkExtension
 import WidgetKit
 import PrivycsCore
 
-/// In-place protocol switch from the home-screen widget (WG/AWG/OpenVPN).
-/// Reuses the app-resolved `WidgetSwitchTarget` (config + DNS already
-/// resolved by the app) and the SHARED `TunnelProviderConfig.make`, so the
-/// `providerConfiguration` the widget writes is byte-identical to what the
-/// app writes — no logic duplicated, no drift. It reconfigures the active
-/// connection's saved `NETunnelProviderManager` and (re)starts it; the NE
-/// framework tears down the old protocol's session and brings up the new one.
+/// Protocol switch from the home-screen widget (WG/AWG/OpenVPN pills).
 ///
-/// IPSec is never a target here (the app omits it — IKEv2 + cert parsing
-/// can't be reproduced in the widget), so an IPSec pill instead falls
-/// through to the widget's open-app URL.
+/// The widget extension CANNOT reliably reconfigure + start a packet-tunnel:
+/// even with the Keychain entitlement + single-active-VPN handling, the start
+/// failed with "configuration type is wrong" (device-log confirmed). So the
+/// pill hands the switch to the APP — which has the proven setActiveConfig path
+/// (stop → deactivate others → reconfigure → start) and full Keychain access —
+/// by recording the request (non-secret identifiers) in the shared App Group
+/// and opening the app. `AppState.consumePendingProtocolSwitch()` applies it on
+/// foreground. (IPSec pills already open the app, so this is consistent.)
 struct SwitchProtocolIntent: AppIntent {
     static var title: LocalizedStringResource = "Switch VPN Protocol"
-    static var openAppWhenRun: Bool = false
+    static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Protocol") var protocolRaw: String
 
@@ -24,90 +22,15 @@ struct SwitchProtocolIntent: AppIntent {
     init(protocolRaw: String) { self.protocolRaw = protocolRaw }
 
     func perform() async throws -> some IntentResult {
-        // Diagnostic trace (lands in the shared App-Group log → visible in the
-        // app's Logs screen) — the widget switch silently no-op'd on device and
-        // we need the exact failure point. Logs identifiers only, never secrets.
-        guard let snap = WidgetSnapshotStore.read() else {
-            PrivycsLog.log("widget switch[\(protocolRaw)]: no snapshot")
+        guard let snap = WidgetSnapshotStore.read(),
+              let target = snap.switchTargets.first(where: { $0.protocolRaw == protocolRaw })
+        else {
             return .result()
         }
-        guard let target = snap.switchTargets.first(where: { $0.protocolRaw == protocolRaw }) else {
-            PrivycsLog.log("widget switch[\(protocolRaw)]: no target (targets=\(snap.switchTargets.map { $0.protocolRaw })) connId=\(snap.connectionId)")
-            return .result()
+        if let d = UserDefaults(suiteName: "group.com.privycs.vpn") {
+            d.set("\(snap.connectionId)|\(target.configId)", forKey: "pendingProtocolSwitch")
         }
-        // SECURITY: the snapshot carries NO config content (it would land in the
-        // unencrypted App Group UserDefaults). Re-read the raw config from the
-        // Keychain at switch time, keyed by the connection + config id.
-        let configContent: String
-        if !target.configContent.isEmpty {
-            configContent = target.configContent
-        } else {
-            let key = KeychainKey.protocolConfig(connectionID: snap.connectionId, configID: target.configId)
-            do {
-                let stored = try await KeychainSecretStore().get(key)
-                guard let stored, !stored.isEmpty else {
-                    PrivycsLog.log("widget switch[\(protocolRaw)]: keychain MISS key=\(key) connId=\(snap.connectionId) cfgId=\(target.configId)")
-                    return .result()
-                }
-                configContent = stored
-                PrivycsLog.log("widget switch[\(protocolRaw)]: keychain hit \(stored.count)B")
-            } catch {
-                PrivycsLog.log("widget switch[\(protocolRaw)]: keychain ERROR \(error.localizedDescription) key=\(key)")
-                return .result()
-            }
-        }
-        let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        let mgr = managers.first(where: { $0.localizedDescription == snap.connectionName })
-            ?? managers.first(where: { $0.isEnabled })
-            ?? managers.first
-            ?? NETunnelProviderManager()
-        PrivycsLog.log("widget switch[\(protocolRaw)]: managers=\(managers.count) chosen=\(mgr.localizedDescription ?? "<new>")")
-
-        let proto = NETunnelProviderProtocol()
-        proto.providerBundleIdentifier = TunnelProviderConfig.bundleIdentifier
-        proto.serverAddress = target.serverAddress
-        proto.providerConfiguration = TunnelProviderConfig.make(
-            protocolRaw: target.protocolRaw,
-            configContent: configContent,
-            connectionId: snap.connectionId,
-            configId: target.configId,
-            dnsOverride: target.dnsOverride,
-            killSwitch: snap.killSwitch
-        )
-        mgr.protocolConfiguration = proto
-        mgr.localizedDescription = snap.connectionName.isEmpty ? "Privycs VPN" : snap.connectionName
-        mgr.isEnabled = true
-        // Single active VPN. The connection may currently be up as the IPSec
-        // personal VPN (NEVPNManager) — switching to a packet-tunnel while that's
-        // active throws "configuration type is wrong" (the device-log finding).
-        // Deactivate the IPSec slot + every other PTP manager first, mirroring the
-        // app's deactivateOtherManagers, then start this one.
-        let ike = NEVPNManager.shared()
-        try? await ike.loadFromPreferences()
-        if ike.isEnabled || ike.isOnDemandEnabled
-            || ike.connection.status == .connected || ike.connection.status == .connecting {
-            ike.connection.stopVPNTunnel()
-            ike.isOnDemandEnabled = false
-            ike.isEnabled = false
-            try? await ike.saveToPreferences()
-        }
-        for other in managers where other !== mgr {
-            if other.isEnabled || other.connection.status == .connected || other.connection.status == .connecting {
-                other.connection.stopVPNTunnel()
-                other.isOnDemandEnabled = false
-                other.isEnabled = false
-                try? await other.saveToPreferences()
-            }
-        }
-        do {
-            try await mgr.saveToPreferences()
-            try await mgr.loadFromPreferences()
-            try mgr.connection.startVPNTunnel()
-            PrivycsLog.log("widget switch[\(protocolRaw)]: started OK")
-        } catch {
-            PrivycsLog.log("widget switch[\(protocolRaw)]: start ERROR \(error.localizedDescription)")
-        }
-        WidgetCenter.shared.reloadAllTimelines()
+        PrivycsLog.log("widget switch[\(protocolRaw)]: handed to app (conn=\(snap.connectionId) cfg=\(target.configId))")
         return .result()
     }
 }
