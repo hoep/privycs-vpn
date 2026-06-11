@@ -1,15 +1,20 @@
-v1.1.5.15 (build 111) — widget traffic counter now advances every second.
+v1.1.5.16 (build 112) — widget traffic: REAL values + real graph (no fake projection).
 
-build 110 projected the counter every 10s; this emits a timeline entry PER SECOND
-(120 entries / 2 min) projecting from the tunnel's live speed, so the widget
-counter steps every second on its own — pre-computed entries cost no iOS refresh
-budget. Each real refresh (~60s) resyncs to the true value.
-(iOS may coalesce view updates under low power, but it's now as smooth as a widget
-can be; the app remains exact per-second.)
+build 111 projected the counter at the last speed, which drifted from actual
+traffic ("counts something, not the traffic"), and the graph never updated. This
+build:
+- Removes the projection — the widget shows the tunnel's REAL byte counts + speed.
+- The tunnel now also publishes a rolling throughput history, so the sparkline
+  shows REAL recent traffic (independent of the app being open).
+
+HONEST LIMIT: iOS refreshes a home-screen widget only every few minutes when the
+app is closed (WidgetKit budget — not changeable). So the counter + graph are
+accurate but step periodically, NOT per-second. For live per-second numbers, open
+the app.
 
 HOW TO TEST
-- Connect + generate traffic → widget rx/tx counter steps up every ~second.
-- Switch protocol → resets to 0, climbs on the new protocol.
-- Idle → holds steady.
+- Connect + traffic, leave the widget a few minutes → rx/tx + graph update to real
+  values on each refresh (not live, but correct).
+- Switch protocol → resets to 0.
 
-REGRESSION: in-app exact counter; switch + sync intact; tvOS builds.
+REGRESSION: in-app exact live counter; switch + sync intact; tvOS.

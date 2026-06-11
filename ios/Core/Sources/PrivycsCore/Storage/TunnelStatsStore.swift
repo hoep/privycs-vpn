@@ -23,10 +23,14 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
     /// Epoch seconds of the last WG/AWG handshake (0 = none / N/A).
     public var lastHandshakeEpoch: Int64
     /// Instantaneous throughput (bytes/sec) the tunnel computed from the last
-    /// 1s byte delta. Lets the widget PROJECT the counter forward between iOS's
-    /// throttled refreshes so it doesn't look frozen when the app is closed.
+    /// 1s byte delta — drives the live speed readout.
     public var rxSpeed: Int64
     public var txSpeed: Int64
+    /// Recent throughput samples (bytes/sec, oldest→newest) the tunnel keeps so
+    /// the widget sparkline reflects REAL recent traffic on each refresh (the
+    /// app-written history is stale when the app is closed).
+    public var rxHistory: [Double]
+    public var txHistory: [Double]
 
     public init(
         connected: Bool = false,
@@ -39,7 +43,9 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
         lastError: String = "",
         lastHandshakeEpoch: Int64 = 0,
         rxSpeed: Int64 = 0,
-        txSpeed: Int64 = 0
+        txSpeed: Int64 = 0,
+        rxHistory: [Double] = [],
+        txHistory: [Double] = []
     ) {
         self.connected = connected
         self.rxBytes = rxBytes
@@ -52,16 +58,18 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
         self.lastHandshakeEpoch = lastHandshakeEpoch
         self.rxSpeed = rxSpeed
         self.txSpeed = txSpeed
+        self.rxHistory = rxHistory
+        self.txHistory = txHistory
     }
 
     private enum CodingKeys: String, CodingKey {
         case connected, rxBytes, txBytes, localAddress, serverEndpoint
         case protocolRaw, connectedAtEpoch, lastError, lastHandshakeEpoch
-        case rxSpeed, txSpeed
+        case rxSpeed, txSpeed, rxHistory, txHistory
     }
 
     // Tolerant decoder so a snapshot written by an older build (without
-    // lastHandshakeEpoch / speeds) still decodes instead of failing the read.
+    // lastHandshakeEpoch / speeds / history) still decodes instead of failing.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         connected = try c.decodeIfPresent(Bool.self, forKey: .connected) ?? false
@@ -75,6 +83,8 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
         lastHandshakeEpoch = try c.decodeIfPresent(Int64.self, forKey: .lastHandshakeEpoch) ?? 0
         rxSpeed = try c.decodeIfPresent(Int64.self, forKey: .rxSpeed) ?? 0
         txSpeed = try c.decodeIfPresent(Int64.self, forKey: .txSpeed) ?? 0
+        rxHistory = try c.decodeIfPresent([Double].self, forKey: .rxHistory) ?? []
+        txHistory = try c.decodeIfPresent([Double].self, forKey: .txHistory) ?? []
     }
 }
 

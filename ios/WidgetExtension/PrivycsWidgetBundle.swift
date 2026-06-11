@@ -18,30 +18,15 @@ struct PrivycsProvider: TimelineProvider {
         completion(PrivycsEntry(date: Date(), model: WidgetModel.current()))
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<PrivycsEntry>) -> Void) {
+        // Show the REAL tunnel stats — NO projection. Projecting at the last-known
+        // speed drifts from actual traffic ("counts something, not the traffic").
+        // Values + graph are accurate as of the tunnel's latest write; the widget
+        // re-reads them whenever iOS refreshes it (every few minutes when the app
+        // is closed — a WidgetKit limit, not live).
         let model = WidgetModel.current()
-        let now = Date()
-        var entries: [PrivycsEntry] = []
-        if model.connected && (model.rxSpeed > 0 || model.txSpeed > 0) {
-            // iOS can't request a widget refresh per-second (it throttles to minutes
-            // when the app is closed), so the counter looked frozen. But timeline
-            // entries are PRE-COMPUTED and cost no refresh budget — so we emit one
-            // PER SECOND for ~2 min, each projecting the byte counters forward at
-            // the tunnel's last-known speed. The widget advances every second on its
-            // own; each real refresh (~60s) resyncs to the true value.
-            for step in 0..<120 {
-                let dt = Double(step)
-                var m = model
-                m.rxBytes = model.rxBytes + Int64(Double(model.rxSpeed) * dt)
-                m.txBytes = model.txBytes + Int64(Double(model.txSpeed) * dt)
-                entries.append(PrivycsEntry(date: now.addingTimeInterval(dt), model: m))
-            }
-        } else {
-            entries = [PrivycsEntry(date: now, model: model)]
-        }
-        // Try to resync to real data every 60s while connected; if iOS defers that,
-        // the projected entries above keep the counter moving meanwhile.
-        let next = now.addingTimeInterval(model.connected ? 60 : 900)
-        completion(Timeline(entries: entries, policy: .after(next)))
+        let entry = PrivycsEntry(date: Date(), model: model)
+        let next = Date().addingTimeInterval(model.connected ? 60 : 900)
+        completion(Timeline(entries: [entry], policy: .after(next)))
     }
 }
 

@@ -147,8 +147,10 @@ struct WidgetModel {
             m.connected = l.connected
             m.rxBytes = l.rxBytes
             m.txBytes = l.txBytes
-            m.rxSpeed = l.rxSpeed   // tunnel-published live throughput → timeline projection
+            m.rxSpeed = l.rxSpeed   // tunnel-published live throughput
             m.txSpeed = l.txSpeed
+            if !l.rxHistory.isEmpty { m.rxHistory = l.rxHistory }   // real sparkline, app-independent
+            if !l.txHistory.isEmpty { m.txHistory = l.txHistory }
             if !l.serverEndpoint.isEmpty { m.serverEndpoint = l.serverEndpoint }
             if !l.localAddress.isEmpty { m.localAddress = l.localAddress }
             if !l.protocolRaw.isEmpty { m.protocolRaw = l.protocolRaw }

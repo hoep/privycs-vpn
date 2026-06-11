@@ -120,6 +120,8 @@ struct SwitchProtocolIntent: AppIntent {
                 t.connected = true
                 t.connectedAtEpoch = now
                 t.rxBytes = 0; t.txBytes = 0   // new session — don't carry old bytes
+                t.rxSpeed = 0; t.txSpeed = 0
+                t.rxHistory = []; t.txHistory = []
                 TunnelStatsStore.write(t)
             }
         }
