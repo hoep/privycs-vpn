@@ -33,11 +33,34 @@ public enum TunnelProviderConfig {
         ]
     }
 
-    /// Protocols the widget can reconfigure + restart in-place (packet-tunnel
-    /// based). IPSec is excluded — it runs through `NEVPNManager`/IKEv2 with
-    /// certificate parsing, which the widget can't reproduce, so the widget
-    /// falls back to opening the app for an IPSec switch.
+    /// Protocols the widget can switch to in place. Since v1.1.5.8 the app
+    /// pre-creates a READY-TO-START manager per protocol (PTP: one
+    /// NETunnelProviderManager each; IPSec: the shared NEVPNManager slot loaded
+    /// with this connection's profile), so the widget switches by stop+start —
+    /// no reconfigure (which the widget extension can't do reliably). All four
+    /// protocols are now in-place switchable.
     public static func isInPlaceSwitchable(_ protocolRaw: String) -> Bool {
-        protocolRaw == "wireguard" || protocolRaw == "amneziawg" || protocolRaw == "openvpn"
+        protocolRaw == "wireguard" || protocolRaw == "amneziawg"
+            || protocolRaw == "openvpn" || protocolRaw == "ipsec"
+    }
+
+    /// Human label for a protocol (used in the per-protocol manager name).
+    public static func protocolLabel(_ raw: String) -> String {
+        switch raw {
+        case "wireguard": return "WireGuard"
+        case "amneziawg": return "AmneziaWG"
+        case "openvpn":   return "OpenVPN"
+        case "ipsec":     return "IPSec"
+        default:          return raw
+        }
+    }
+
+    /// localizedDescription for the per-protocol PTP manager of a connection.
+    /// The app creates ONE manager per (connection, PTP-protocol) so the widget
+    /// can switch by stop+start instead of reconfiguring. App + widget MUST agree
+    /// on this exact string. IPSec is NOT here — it uses the shared NEVPNManager
+    /// slot, identified by the bare connection name.
+    public static func ptpManagerName(connectionName: String, protocolRaw: String) -> String {
+        "\(connectionName) · \(protocolLabel(protocolRaw))"
     }
 }

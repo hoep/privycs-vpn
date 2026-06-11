@@ -435,7 +435,11 @@ final class VPNTunnelManager: ObservableObject {
     /// connection is left AND the slot's name matches the deleted one.
     func removeOSConfigs(connectionName: String, otherIPSecConnectionsRemain: Bool = false) async {
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        for m in mgrs where m.localizedDescription == connectionName {
+        // Per-protocol managers are named "<connection> · <Protocol>" — remove
+        // every one for this connection (plus the legacy bare-name manager).
+        let prefix = "\(connectionName) · "
+        for m in mgrs where (m.localizedDescription == connectionName
+            || (m.localizedDescription?.hasPrefix(prefix) ?? false)) {
             try? await m.removeFromPreferences()
         }
         if !otherIPSecConnectionsRemain {
@@ -485,11 +489,15 @@ final class VPNTunnelManager: ObservableObject {
 
     @discardableResult
     private func connectViaPTP(connection: SavedConnection, config: ProtocolConfig) async throws -> NETunnelProviderManager {
-        // Single active VPN: turn off the IPSec NEVPNManager + any other PTP
-        // manager so iOS doesn't run two tunnels at once.
-        await deactivateOtherManagers(active: config.protocol, activeName: connection.name)
+        // Per-protocol manager: ONE NETunnelProviderManager per (connection,
+        // protocol) — named distinctly — so the widget can switch protocols by
+        // stop+start (no reconfigure, which the widget extension can't do).
+        let mgrName = TunnelProviderConfig.ptpManagerName(
+            connectionName: connection.name, protocolRaw: config.protocol.rawValue)
+        // Single active VPN: turn off the IPSec slot + every other PTP manager.
+        await deactivateOtherManagers(active: config.protocol, activeName: mgrName)
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        let mgr = mgrs.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
+        let mgr = mgrs.first { $0.localizedDescription == mgrName } ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = "com.privycs.vpn.tunnel"
         proto.serverAddress = config.serverAddress
@@ -502,7 +510,7 @@ final class VPNTunnelManager: ObservableObject {
             killSwitch: killSwitch
         )
         mgr.protocolConfiguration = proto
-        mgr.localizedDescription = connection.name
+        mgr.localizedDescription = mgrName
         mgr.isEnabled = true
         if onDemandEnabled && onDemandWouldConnect() {
             mgr.onDemandRules = onDemandRuleSet()
@@ -549,8 +557,10 @@ final class VPNTunnelManager: ObservableObject {
         self.dnsOverride = dnsOverride
         self.killSwitch = killSwitch
         self.pendingRules = rules
+        let mgrName = TunnelProviderConfig.ptpManagerName(
+            connectionName: connection.name, protocolRaw: config.protocol.rawValue)
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        let mgr = mgrs.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
+        let mgr = mgrs.first { $0.localizedDescription == mgrName } ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = "com.privycs.vpn.tunnel"
         proto.serverAddress = config.serverAddress
@@ -563,7 +573,7 @@ final class VPNTunnelManager: ObservableObject {
             killSwitch: killSwitch
         )
         mgr.protocolConfiguration = proto
-        mgr.localizedDescription = connection.name
+        mgr.localizedDescription = mgrName
         mgr.isEnabled = true
         if onDemandWouldConnect() {
             mgr.onDemandRules = onDemandRuleSet()
@@ -727,7 +737,12 @@ final class VPNTunnelManager: ObservableObject {
     private func buildPTPStatus(from m: NETunnelProviderManager) {
         let connected = m.connection.status == .connected
         let pc = (m.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
-        let connName = m.localizedDescription ?? activeConnectionName
+        // The manager is named "<connection> · <Protocol>" (per-protocol) — strip
+        // the protocol suffix for the display name (robust even when the tunnel
+        // was started by iOS on-demand and activeConnectionName isn't set yet).
+        let rawName = m.localizedDescription ?? activeConnectionName
+        let connName = rawName.range(of: " · ", options: .backwards)
+            .map { String(rawName[..<$0.lowerBound]) } ?? rawName
         let connID = (pc?["connection_id"] as? String) ?? activeConnectionID
         let proto = VpnProtocol(rawValue: (pc?["protocol"] as? String) ?? "") ?? activeProtocol
         let snap = TunnelStatsStore.read()
