@@ -4,15 +4,13 @@ import WidgetKit
 import PrivycsCore
 
 /// In-place protocol switch from the home-screen widget (WG/AWG/OpenVPN pills).
-/// Reconfigures the connection's saved NETunnelProviderManager and (re)starts it
-/// in the widget process — no app launch.
 ///
-/// Mirrors the APP's connectViaPTP start sequence EXACTLY: deactivate other VPNs
-/// (single active), reconfigure, save, then start with a RELOAD+RETRY loop. The
-/// retry is essential — right after saveToPreferences the system briefly reports
-/// a stale/invalid config (surfaces as "configuration type is wrong"); the app
-/// recovers by reloading + retrying, the widget previously started only once and
-/// so failed. Config is read from the Keychain (App Group) — never the snapshot.
+/// Mirrors the APP's switch (setActiveConfig → stopTunnel → connect): you must
+/// STOP the currently-active tunnel and WAIT for teardown BEFORE starting the new
+/// protocol — otherwise startVPNTunnel() on an already-connected manager is a
+/// no-op ("started OK" but nothing switches). Then start with a reload+retry loop
+/// (the post-save config is briefly stale → "configuration type is wrong").
+/// Config is read from the Keychain (App Group); the snapshot carries no secret.
 struct SwitchProtocolIntent: AppIntent {
     static var title: LocalizedStringResource = "Switch VPN Protocol"
     static var openAppWhenRun: Bool = false
@@ -22,6 +20,15 @@ struct SwitchProtocolIntent: AppIntent {
     init() {}
     init(protocolRaw: String) { self.protocolRaw = protocolRaw }
 
+    private func waitUntilDisconnected(_ conn: NEVPNConnection, _ tag: String) async {
+        for _ in 0..<25 {   // ~5s
+            let s = conn.status
+            if s == .disconnected || s == .invalid { return }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        PrivycsLog.log("widget switch[\(protocolRaw)]: \(tag) still \(conn.status.rawValue) after wait")
+    }
+
     func perform() async throws -> some IntentResult {
         guard let snap = WidgetSnapshotStore.read() else {
             PrivycsLog.log("widget switch[\(protocolRaw)]: no snapshot"); return .result()
@@ -29,7 +36,6 @@ struct SwitchProtocolIntent: AppIntent {
         guard let target = snap.switchTargets.first(where: { $0.protocolRaw == protocolRaw }) else {
             PrivycsLog.log("widget switch[\(protocolRaw)]: no target"); return .result()
         }
-        // Config from the Keychain (the snapshot carries no secret).
         let configContent: String
         if !target.configContent.isEmpty {
             configContent = target.configContent
@@ -47,12 +53,12 @@ struct SwitchProtocolIntent: AppIntent {
             ?? managers.first
             ?? NETunnelProviderManager()
 
-        // Single active VPN: drop the IPSec personal VPN + every other PTP manager
-        // so this packet-tunnel can become the sole active one.
+        // 1) Stop whatever is currently up + disarm, so the new protocol can take
+        //    over (no-op start otherwise). Then WAIT for actual teardown.
         let ike = NEVPNManager.shared()
         try? await ike.loadFromPreferences()
-        if ike.isEnabled || ike.isOnDemandEnabled
-            || ike.connection.status == .connected || ike.connection.status == .connecting {
+        PrivycsLog.log("widget switch[\(protocolRaw)]: pre ike=\(ike.connection.status.rawValue) mgr=\(mgr.connection.status.rawValue) managers=\(managers.count)")
+        if ike.isEnabled || ike.isOnDemandEnabled || ike.connection.status == .connected || ike.connection.status == .connecting {
             ike.connection.stopVPNTunnel(); ike.isOnDemandEnabled = false; ike.isEnabled = false
             try? await ike.saveToPreferences()
         }
@@ -62,7 +68,13 @@ struct SwitchProtocolIntent: AppIntent {
                 try? await other.saveToPreferences()
             }
         }
+        if mgr.connection.status == .connected || mgr.connection.status == .connecting || mgr.connection.status == .reasserting {
+            mgr.connection.stopVPNTunnel()
+        }
+        await waitUntilDisconnected(ike.connection, "ike")
+        await waitUntilDisconnected(mgr.connection, "mgr")
 
+        // 2) Reconfigure the target manager to the new protocol + save.
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = TunnelProviderConfig.bundleIdentifier
         proto.serverAddress = target.serverAddress
@@ -76,21 +88,16 @@ struct SwitchProtocolIntent: AppIntent {
         mgr.isEnabled = true
         try? await mgr.saveToPreferences()
 
-        // start + reload/retry (mirror VPNTunnelManager.startTunnelRetrying). The
-        // post-save "configuration type is wrong"/stale/invalid is transient and
-        // clears after a reload — the app relies on exactly this.
+        // 3) Start with reload+retry (post-save stale/invalid config recovery).
         var started = false
         for attempt in 0..<8 {
-            do {
-                try mgr.connection.startVPNTunnel()
-                started = true
-                break
-            } catch {
+            do { try mgr.connection.startVPNTunnel(); started = true; break }
+            catch {
                 PrivycsLog.log("widget switch[\(protocolRaw)]: start attempt \(attempt) err=\(error.localizedDescription) — reloading")
                 try? await mgr.loadFromPreferences()
             }
         }
-        PrivycsLog.log("widget switch[\(protocolRaw)]: \(started ? "started OK" : "FAILED after retries")")
+        PrivycsLog.log("widget switch[\(protocolRaw)]: \(started ? "started" : "FAILED") post-mgr=\(mgr.connection.status.rawValue)")
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
     }

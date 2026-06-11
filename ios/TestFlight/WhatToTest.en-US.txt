@@ -1,19 +1,17 @@
-v1.1.5.5 (build 101) — widget protocol switch, in-place + reload/retry.
+v1.1.5.6 (build 102) — widget protocol switch actually switches now.
 
-Root cause found: the app's connect path starts the tunnel with a reload+retry
-loop, because right after saving the config the system briefly reports it
-stale/invalid (surfaces as "configuration type is wrong"). The widget started
-ONCE → failed. The widget now mirrors the app exactly: deactivate other VPNs
-(single active), save, then start with up to 8 reload+retry attempts. Switch
-happens IN PLACE again (no app launch). build 100's app-handoff is reverted.
+build 101 logged "started OK" but nothing changed: starting a manager that's
+already connected (or while the old VPN is still up) is a no-op. The widget now
+mirrors the app's switch fully: STOP the currently-active tunnel (IPSec + any PTP
+manager) and WAIT for teardown, THEN reconfigure + start the new protocol (with
+reload/retry). So the active protocol really changes.
 
 HOW TO TEST
-- Connection with WG + IPSec (e.g. "Privycs Shielded"): from the widget tap the
-  WireGuard pill → it switches to WireGuard in place; tap IPSec → back. The
-  active protocol on the widget + Settings ▸ VPN should match.
-- If it still fails: open the app → Settings → Logs and send the
-  "widget switch[" lines (now show each start attempt + reload).
+- Connection with WG + IPSec + OpenVPN: from the widget tap the OpenVPN pill →
+  the tunnel switches to OpenVPN (status bar VPN stays up, protocol changes).
+  Tap WireGuard / IPSec → switches to those. Verify in Settings ▸ VPN + the app.
+- If it still doesn't switch: send the "widget switch[" log lines — they now log
+  pre/post connection status + each start attempt.
 
 REGRESSION CHECK
-- Widget connect/disconnect disc; IPSec VPN-IP (private only); OpenVPN counter;
-  WG/AWG; in-app protocol pills.
+- Widget connect/disconnect disc; in-app pills; IPSec VPN-IP; OpenVPN counter.
