@@ -1,20 +1,15 @@
-v1.1.5.10 (build 106) — widget switch: all protocols pre-built, large widget removed, app sync.
+v1.1.5.11 (build 107) — widget switch: protocol display syncs for WG/AmneziaWG too.
 
-1) ALL PROTOCOLS SWITCHABLE: after you connect a connection, the app now pre-builds
-   a ready-to-start profile for EVERY protocol of it (incl. AmneziaWG + IPSec) — so
-   the widget can switch to any of them WITHOUT "connect it once in-app first".
-2) APP SYNC: switching from the widget is now reflected in the app when you reopen
-   it (the app re-checks the live VPN on each foreground).
-3) The LARGE widget is removed (it only stretched the medium one with blank space).
-   Small + medium remain.
+Switching FROM IPSec synced correctly, but switching between PTP protocols
+(WireGuard ↔ AmneziaWG ↔ OpenVPN) kept showing the OLD protocol: the previous
+PTP tunnel's live stats lingered with the old protocol id and overrode the
+display until the new tunnel wrote its own. The widget now also stamps the new
+protocol onto those live stats right after the switch, so the active-protocol
+pill updates immediately for all protocols (IPSec was always the baseline here).
 
 HOW TO TEST
-- Connect "Privycs Shielded" (any protocol) once in the app. Then from the widget,
-  switch between ALL its protocols — WireGuard, AmneziaWG, OpenVPN, IPSec — each
-  should switch in place (no app open). AmneziaWG should now work too.
-- After a widget switch, open the app → the active protocol there should match.
-- IPSec: tap IPSec → should go to IPSec (not WireGuard). If it still goes to WG,
-  send the "widget switch[ipsec]:" log line.
+- From the widget, switch WireGuard ↔ AmneziaWG ↔ OpenVPN ↔ IPSec in any order →
+  the highlighted/active protocol updates immediately every time, no app needed.
+- Open the app after a switch → the active protocol matches.
 
-REGRESSION: in-app connect/switch all protocols; pools; on-demand; delete a
-connection (no leftover VPN entries in Settings).
+REGRESSION: in-app connect/switch all protocols; pools; on-demand; delete.

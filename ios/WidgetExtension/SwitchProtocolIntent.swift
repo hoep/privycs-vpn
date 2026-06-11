@@ -97,11 +97,25 @@ struct SwitchProtocolIntent: AppIntent {
         // from the snapshot's protocolRaw, which only the app writes — so without
         // this the pill wouldn't update until the app is next opened. Write the new
         // active protocol back ourselves, then reload.
-        if started, var s = WidgetSnapshotStore.read() {
-            s.protocolRaw = protocolRaw
-            s.connected = true
-            s.updatedAtEpoch = Int64(Date().timeIntervalSince1970)
-            WidgetSnapshotStore.write(s)
+        if started {
+            let now = Int64(Date().timeIntervalSince1970)
+            if var s = WidgetSnapshotStore.read() {
+                s.protocolRaw = protocolRaw
+                s.connected = true
+                s.updatedAtEpoch = now
+                WidgetSnapshotStore.write(s)
+            }
+            // The OLD PTP tunnel's live stats still carry the PREVIOUS protocolRaw
+            // and OVERRIDE the snapshot in WidgetModel.merge — so a PTP→PTP switch
+            // (e.g. WG→AmneziaWG) keeps showing the old protocol until the new
+            // tunnel writes its own stats. Replace them now. (Coming from IPSec
+            // there are no PTP stats to clash — which is why that already synced.)
+            if var t = TunnelStatsStore.read() {
+                t.protocolRaw = protocolRaw
+                t.connected = true
+                t.connectedAtEpoch = now
+                TunnelStatsStore.write(t)
+            }
         }
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
