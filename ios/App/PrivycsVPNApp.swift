@@ -226,10 +226,6 @@ final class AppState: ObservableObject {
         appActive = active
         guard active else { return }
         startHealthMonitor()   // restart → failure counter resets
-        // A widget protocol-switch pill records its request in the App Group and
-        // opens the app (the widget extension can't reliably reconfigure+start a
-        // packet-tunnel itself). Perform it here via the proven setActiveConfig path.
-        Task { await consumePendingProtocolSwitch() }
         // A timed pause's in-app timer (Task.sleep) does NOT survive iOS
         // suspension/doze, so a pause that elapsed while backgrounded never
         // auto-resumed ("connection stale"). On return to the foreground,
@@ -242,21 +238,6 @@ final class AppState: ObservableObject {
             }
         }
         Task { await syncOnDemand() }
-    }
-
-    /// Apply a protocol switch requested from the home-screen widget. The widget's
-    /// SwitchProtocolIntent records `<connectionID>|<configID>` (non-secret) in the
-    /// App Group and opens the app, because the widget extension can't reliably
-    /// reconfigure + start a packet-tunnel ("configuration type is wrong"). We run
-    /// it through the same proven setActiveConfig path the in-app pills use.
-    func consumePendingProtocolSwitch() async {
-        guard let d = UserDefaults(suiteName: "group.com.privycs.vpn"),
-              let pending = d.string(forKey: "pendingProtocolSwitch"), !pending.isEmpty else { return }
-        d.removeObject(forKey: "pendingProtocolSwitch")
-        let parts = pending.split(separator: "|", maxSplits: 1).map(String.init)
-        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return }
-        PrivycsLog.log("app: applying pending widget protocol switch conn=\(parts[0]) cfg=\(parts[1])")
-        await setActiveConfig(connectionID: parts[0], configID: parts[1])
     }
 
     /// Persistent on-demand (WireGuard-app model). When the auto-tunnel master
