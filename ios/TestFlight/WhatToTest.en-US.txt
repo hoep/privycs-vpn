@@ -1,20 +1,19 @@
-v1.1.5.16 (build 112) — widget traffic: REAL values + real graph (no fake projection).
+v1.1.5.17 (build 113) — tvOS app: real connect screen with status + traffic.
 
-build 111 projected the counter at the last speed, which drifted from actual
-traffic ("counts something, not the traffic"), and the graph never updated. This
-build:
-- Removes the projection — the widget shows the tunnel's REAL byte counts + speed.
-- The tunnel now also publishes a rolling throughput history, so the sparkline
-  shows REAL recent traffic (independent of the app being open).
+Apple TV redesign (iPhone/iPad app as the model):
+- Big connection-status hero (clear Connected/Disconnected, protocol, uptime).
+- Live TRAFFIC counters: Download/Upload cards with total + live speed + sparkline
+  (the data was already there — now shown; speed derived like the phone app).
+- Connection details: endpoint + VPN IP.
+- Server list + connect/disconnect unchanged (works); Unlink kept.
 
-HONEST LIMIT: iOS refreshes a home-screen widget only every few minutes when the
-app is closed (WidgetKit budget — not changeable). So the counter + graph are
-accurate but step periodically, NOT per-second. For live per-second numbers, open
-the app.
+NOTE — "Link a TV" (device-code enrollment) needs the GATEWAY endpoint
+(/api/v1/tv/device/start) deployed to production; it currently returns 405 (not
+live). Until the gateway ships it, use the manual fallback on the enroll screen
+(gateway URL + token). That's a server deploy, not a client change.
 
-HOW TO TEST
-- Connect + traffic, leave the widget a few minutes → rx/tx + graph update to real
-  values on each refresh (not live, but correct).
-- Switch protocol → resets to 0.
+HOW TO TEST (Apple TV)
+- Enroll (manual fallback for now) → pick a server → Connect → the status hero
+  goes green, traffic counters climb, endpoint/VPN IP show. Disconnect works.
 
-REGRESSION: in-app exact live counter; switch + sync intact; tvOS.
+(iOS app rebuilt unchanged — shared version file triggers both.)

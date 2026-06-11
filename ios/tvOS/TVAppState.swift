@@ -37,6 +37,17 @@ final class TVAppState: ObservableObject {
     @Published var status: VpnStatus = .disconnected
     @Published var connecting = false
 
+    /// Live throughput (bytes/sec) + rolling history for the sparkline — derived
+    /// from successive status samples, same as the phone app's ingestSpeedSample.
+    @Published var rxSpeed: Double = 0
+    @Published var txSpeed: Double = 0
+    @Published var rxHistory: [Double] = []
+    @Published var txHistory: [Double] = []
+    private var lastSampleRx: Int64 = 0
+    private var lastSampleTx: Int64 = 0
+    private var lastSampleAt: Date?
+    private let historyWindow = 32
+
     private var statusTask: Task<Void, Never>?
 
     // MARK: — Derived
@@ -88,9 +99,35 @@ final class TVAppState: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 self.status = self.tunnel.status
+                self.ingestSpeedSample(self.tunnel.status)
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
+    }
+
+    /// Derive live rx/tx speed + sparkline history from byte deltas between
+    /// status samples (mirrors AppState.ingestSpeedSample on the phone).
+    private func ingestSpeedSample(_ s: VpnStatus) {
+        guard s.connected else {
+            rxSpeed = 0; txSpeed = 0; rxHistory = []; txHistory = []
+            lastSampleAt = nil; lastSampleRx = 0; lastSampleTx = 0
+            return
+        }
+        let now = Date()
+        if let last = lastSampleAt {
+            let dt = now.timeIntervalSince(last)
+            if dt > 0.1 {
+                let dRx = max(0, Double(s.rxBytes - lastSampleRx)) / dt
+                let dTx = max(0, Double(s.txBytes - lastSampleTx)) / dt
+                rxSpeed = dRx
+                txSpeed = dTx
+                rxHistory = Array((rxHistory + [dRx]).suffix(historyWindow))
+                txHistory = Array((txHistory + [dTx]).suffix(historyWindow))
+            }
+        }
+        lastSampleRx = s.rxBytes
+        lastSampleTx = s.txBytes
+        lastSampleAt = now
     }
 
     // MARK: — Enrollment
