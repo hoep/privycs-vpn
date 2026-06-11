@@ -39,6 +39,12 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
     private var adapter: OpenVPNAdapter?
     private var packetFlow: NEPacketTunnelFlow?
 
+    /// Captured from the adapter's tunnel network settings at connect, so
+    /// currentStats() can surface them on the Connect screen (server endpoint +
+    /// assigned VPN IP) like the WG/AWG bridges do.
+    private var localAddress = ""
+    private var serverEndpoint = ""
+
     /// Seconds to wait for a terminal connect event before failing the start.
     /// Without this the CheckedContinuation only resumes on connected /
     /// disconnected / error — if OpenVPN3 never emits any of those (e.g. it
@@ -148,6 +154,18 @@ public final class OpenVPNBridge: NSObject, TunnelProtocolBridge, @unchecked Sen
         adapter?.disconnect()
         adapter = nil
     }
+
+    /// Live traffic + endpoint/VPN-IP for the Connect screen + widget. rx/tx
+    /// from OpenVPNAdapter.transportStatistics (bytesIn/bytesOut); endpoint +
+    /// localAddress captured when the adapter configured the tunnel settings.
+    public func currentStats() async -> BridgeStats {
+        guard let adapter else {
+            return BridgeStats(localAddress: localAddress, serverEndpoint: serverEndpoint)
+        }
+        let s = adapter.transportStatistics
+        return BridgeStats(rx: Int64(s.bytesIn), tx: Int64(s.bytesOut),
+                           localAddress: localAddress, serverEndpoint: serverEndpoint)
+    }
 }
 
 extension OpenVPNBridge: OpenVPNAdapterDelegate {
@@ -157,6 +175,13 @@ extension OpenVPNBridge: OpenVPNAdapterDelegate {
         completionHandler: @escaping (Error?) -> Void
     ) {
         if let settings {
+            // Capture endpoint + assigned VPN IP(s) for the Connect-screen detail
+            // rows (OpenVPN previously reported neither — only WG/AWG did).
+            serverEndpoint = settings.tunnelRemoteAddress
+            var addrs: [String] = []
+            if let v4 = settings.ipv4Settings?.addresses { addrs += v4 }
+            if let v6 = settings.ipv6Settings?.addresses { addrs += v6 }
+            localAddress = addrs.joined(separator: ", ")
             provider.setTunnelNetworkSettings(settings, completionHandler: completionHandler)
         } else {
             completionHandler(nil)

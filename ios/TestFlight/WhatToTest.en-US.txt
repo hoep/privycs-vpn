@@ -1,18 +1,19 @@
-v1.1.5 (build 96) — security & stability hardening.
+v1.1.5.1 (build 97) — fixes from device testing.
 
-Main change: the home-screen widget no longer stores VPN config (which can
-include private keys) in unencrypted shared storage — it now reads the config
-from the Keychain at protocol-switch time. Plus a double-tap-connect guard and
-an OpenVPN connect timeout.
+1) WIDGET PROTOCOL PILLS now switch again. The v1.1.5 security fix moved the
+   widget's config read to the Keychain, but the widget lacked the Keychain
+   entitlement, so the pills did nothing. The entitlement is now granted.
+2) OPENVPN now shows traffic + connection info (it showed none before): the
+   rx/tx counter, the connected server, the VPN IP, and the endpoint.
+3) IPSEC now shows the connected server + VPN IP + endpoint on the Connect
+   screen (the traffic counter already worked). ("Last handshake" stays blank —
+   IKEv2 has no handshake metric.)
 
 HOW TO TEST
-- Widget protocol switch STILL WORKS: from the widget, switch between protocols
-  of a connection → it connects with the right protocol (now sourced from the
-  Keychain).
-- Double-tap Connect rapidly → only one connection attempt, no flapping.
-- OpenVPN: connect to a reachable + an unreachable server → unreachable fails
-  cleanly within ~20s instead of hanging.
+- From the home-screen widget, tap a protocol pill → it switches to that protocol.
+- Connect OpenVPN → Connect screen shows server next to the flag, VPN IP,
+  Endpoint, and a climbing traffic counter.
+- Connect IPSec → Connect screen shows server, VPN IP, Endpoint; counter climbs.
 
 REGRESSION CHECK
-- Connect/disconnect all protocols, IPSec counter, single-active-VPN, pools,
-  in-app language, delete cleanup, widget icons.
+- WG/AWG info + counters unchanged; double-tap guard; single-active-VPN; pools.

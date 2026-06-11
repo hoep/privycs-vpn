@@ -59,6 +59,10 @@ final class VPNTunnelManager: ObservableObject {
     // session (incl. an IPSec→IPSec profile switch), so drop the per-interface
     // baselines and re-capture against the new session.
     private var ipsecSessionDate: Date?
+    // Server endpoint for the active IPSec connection, captured at connect (the
+    // NEVPNConnection exposes no endpoint accessor), surfaced on the Connect
+    // screen. The VPN IP is read live off the ipsec* interface in buildIKEv2Status.
+    private var ipsecServerEndpoint = ""
 
     init() {
         // System-side NEVPNStatusDidChange observer. CRITICAL: only re-derive
@@ -586,6 +590,7 @@ final class VPNTunnelManager: ObservableObject {
         ipsecIfaceBase.removeAll()
         ipsecSessionDate = nil
         ipsecTrafficLogged = false
+        ipsecServerEndpoint = config.serverAddress   // surfaced on the Connect screen
 
         // Single active VPN: turn off every PTP manager so a stale on-demand-
         // armed WireGuard doesn't start alongside this IPSec tunnel.
@@ -814,6 +819,10 @@ final class VPNTunnelManager: ObservableObject {
             ipsecSessionDate = nil
         }
 
+        // Connect-screen detail rows: the assigned VPN IP read live off the
+        // ipsec* interface, and the server endpoint captured at connect. (IKEv2
+        // has no "last handshake" concept, so that row stays empty for IPSec.)
+        let localAddr = connected ? Self.ipsecLocalAddress() : ""
         self.status = VpnStatus(
             connected: connected,
             connectionName: activeConnectionName,
@@ -822,8 +831,8 @@ final class VPNTunnelManager: ObservableObject {
             uptime: uptime,
             rxBytes: rx,
             txBytes: tx,
-            localAddress: status.localAddress,
-            serverEndpoint: status.serverEndpoint
+            localAddress: localAddr,
+            serverEndpoint: connected ? ipsecServerEndpoint : ""
         )
     }
 
@@ -848,6 +857,34 @@ final class VPNTunnelManager: ObservableObject {
             cur = p.pointee.ifa_next
         }
         return names
+    }
+
+    /// Assigned inner IP(s) on the live `ipsec*` interface(s) — the IKEv2
+    /// tunnel's VPN IP, for the Connect-screen "VPN IP" row (NEVPNConnection
+    /// exposes no inner-address accessor). Skips link-local/loopback; strips the
+    /// `%scope` suffix; comma-joins v4 + v6.
+    private static func ipsecLocalAddress() -> String {
+        var parts: [String] = []
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let start = head else { return "" }
+        defer { freeifaddrs(head) }
+        var cur: UnsafeMutablePointer<ifaddrs>? = start
+        while let p = cur {
+            defer { cur = p.pointee.ifa_next }
+            guard String(cString: p.pointee.ifa_name).hasPrefix("ipsec"),
+                  let sa = p.pointee.ifa_addr else { continue }
+            let fam = sa.pointee.sa_family
+            guard fam == UInt8(AF_INET) || fam == UInt8(AF_INET6) else { continue }
+            let salen = socklen_t(fam == UInt8(AF_INET)
+                ? MemoryLayout<sockaddr_in>.size : MemoryLayout<sockaddr_in6>.size)
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(sa, salen, &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0
+            else { continue }
+            let ip = String(cString: host).split(separator: "%").first.map(String.init) ?? ""
+            if ip.isEmpty || ip == "::1" || ip.hasPrefix("127.") || ip.lowercased().hasPrefix("fe80") { continue }
+            if !parts.contains(ip) { parts.append(ip) }
+        }
+        return parts.joined(separator: ", ")
     }
 
     /// 64-bit kernel rx/tx byte counters for an interface via

@@ -27,7 +27,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.1.5"                  # CFBundleShortVersionString — Apple allows at most 3 integers. Patch identity lives in the build number below.
-    CURRENT_PROJECT_VERSION: "96"               # MUST increment every TestFlight upload; this is the patch build of marketing 1.1.3
+    CURRENT_PROJECT_VERSION: "97"               # MUST increment every TestFlight upload; this is the patch build of marketing 1.1.3
     # ed25519 license pubkey hex — overridden by CI from the
     # LICENSE_PUBLIC_KEY_HEX secret; empty default for local builds.
     LICENSE_PUBLIC_KEY_HEX: ""
@@ -239,6 +239,12 @@ targets:
           - packet-tunnel-provider
         com.apple.security.application-groups:
           - group.com.privycs.vpn
+        # Required so the widget's SwitchProtocolIntent can read the protocol
+        # config from the shared Keychain at switch time (v1.1.5 moved it out of
+        # the unencrypted snapshot). Mirror the app + tunnel targets — without
+        # this the widget's keychain read returns nil and the pills don't switch.
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.privycs.vpn
     dependencies:
       - package: PrivycsCore
     settings:
