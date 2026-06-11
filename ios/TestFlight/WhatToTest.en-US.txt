@@ -1,18 +1,18 @@
-v1.1.5.18 (build 114) — tvOS: Privycs design system, smaller fonts, focus-safe, new icon.
+v1.1.5.19 (build 115) — tvOS device-code linking now works ("Link a TV").
 
-- Applies the iPhone/iPad design system to Apple TV: teal #00CDAB on the dark
-  command-console background (#070B0E) with card surfaces — instead of plain
-  default styling.
-- Much smaller, explicit font sizes (the default tvOS fonts were huge).
-- Focus-safe layout: the Connect control takes default focus so the remote always
-  lands on something actionable; vertical scroll with a horizontal server picker.
-- Live traffic cards (Download/Upload + speed + sparkline) shown when connected.
-- New app icon: the Privycs logo centered on a turquoise field (+ top shelf).
+Root cause found: the device-code API (start/poll) IS live + working on the
+gateway host, but the TV client called www.privycs.com, whose nginx returns 405
+for /api/v1/tv/*. Pointed the TV's enrollment base at gateway.privycs.com (verified
+200 with a real user code). The phone link page (app.privycs.com/link) comes back
+in the response and is live. So "Link a TV" no longer needs the manual fallback.
+
+Includes build 114: tvOS Privycs design system (teal/dark), smaller fonts,
+focus-safe layout (Connect takes default focus), new logo-on-turquoise icon.
 
 HOW TO TEST (Apple TV)
-- Look + feel should now match the phone app (dark teal). Navigate with the remote
-  — Connect is focused first; server cards are below. Connect → status hero goes
-  teal, traffic cards appear.
+- Fresh launch (or Unlink) → enrollment screen shows a code + "go to
+  app.privycs.com/link". On your phone (logged in) open that, enter the code →
+  the TV links itself and pulls your servers. No typing the gateway URL/token.
+- Then: pick a server → Connect → status hero + live traffic.
 
-NOTE: device-code "Link a TV" still needs the GATEWAY endpoint deployed (manual
-fallback works). iOS app unchanged (shared version file).
+NEED: a device screenshot to fine-tune the tvOS layout/sizing (can't render it here).

@@ -20,7 +20,12 @@ final class TVAppState: ObservableObject {
 
     /// Public site base the device-code endpoints live under. Constant for the
     /// TV apps (the TV learns the *gateway* URL only after enrollment).
-    private let enrollmentBaseURL = URL(string: "https://www.privycs.com")!
+    // The device-code API (start/poll, public/no-auth) is served by the GATEWAY
+    // host — www.privycs.com's nginx does NOT route /api/v1/tv/* to it (returns
+    // 405); gateway.privycs.com does (200). The user-facing verification_uri
+    // (app.privycs.com/link) comes back IN the /start response, so only this base
+    // needs to point at the gateway.
+    private let enrollmentBaseURL = URL(string: "https://gateway.privycs.com")!
 
     @Published var settings: AppSettings = .default
 
