@@ -1,19 +1,20 @@
-v1.1.5.1 (build 97) — fixes from device testing.
+v1.1.5.2 (build 98) — widget-switch diagnostics + IPSec VPN-IP fix.
 
-1) WIDGET PROTOCOL PILLS now switch again. The v1.1.5 security fix moved the
-   widget's config read to the Keychain, but the widget lacked the Keychain
-   entitlement, so the pills did nothing. The entitlement is now granted.
-2) OPENVPN now shows traffic + connection info (it showed none before): the
-   rx/tx counter, the connected server, the VPN IP, and the endpoint.
-3) IPSEC now shows the connected server + VPN IP + endpoint on the Connect
-   screen (the traffic counter already worked). ("Last handshake" stays blank —
-   IKEv2 has no handshake metric.)
+1) WIDGET PROTOCOL PILLS still don't switch after the entitlement change, so this
+   build adds a diagnostic trace to pinpoint why. PLEASE: tap a protocol pill in
+   the widget, then open the app → Settings → Logs and look for lines starting
+   with "widget switch[" and send them to me. (They log identifiers only, never
+   secrets.) That tells me exactly where it fails (keychain miss/error, no target,
+   manager, start) so I can fix it precisely.
+2) IPSEC VPN IP: the Connect screen no longer shows public (global) IPv6
+   addresses as the VPN IP — only the assigned private VPN address (IPv4 +, if
+   present, a private ULA IPv6). Verify IPSec shows just the private VPN IP now.
 
 HOW TO TEST
-- From the home-screen widget, tap a protocol pill → it switches to that protocol.
-- Connect OpenVPN → Connect screen shows server next to the flag, VPN IP,
-  Endpoint, and a climbing traffic counter.
-- Connect IPSec → Connect screen shows server, VPN IP, Endpoint; counter climbs.
+- Widget: tap a protocol pill → (note whether it switches) → send the
+  "widget switch[...]" log lines.
+- IPSec: connect → Connect screen "VPN IP" shows only the private address, no
+  public v6.
 
 REGRESSION CHECK
-- WG/AWG info + counters unchanged; double-tap guard; single-active-VPN; pools.
+- OpenVPN + WG/AWG counters & info; IPSec counter; double-tap guard; pools.

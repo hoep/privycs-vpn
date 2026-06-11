@@ -882,6 +882,14 @@ final class VPNTunnelManager: ObservableObject {
             else { continue }
             let ip = String(cString: host).split(separator: "%").first.map(String.init) ?? ""
             if ip.isEmpty || ip == "::1" || ip.hasPrefix("127.") || ip.lowercased().hasPrefix("fe80") { continue }
+            // Only the ASSIGNED VPN inner address. The IKEv2 ipsec* interface can
+            // also carry PUBLIC (GUA) IPv6 that is NOT the VPN IP — the user saw
+            // those wrongly shown as "VPN IP". Keep IPv4 + ULA (fc00::/7) v6, drop
+            // global v6. (Privycs IPSec assigns a private v4 inner address.)
+            if ip.contains(":") {
+                let l = ip.lowercased()
+                if !(l.hasPrefix("fc") || l.hasPrefix("fd")) { continue }
+            }
             if !parts.contains(ip) { parts.append(ip) }
         }
         return parts.joined(separator: ", ")

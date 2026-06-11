@@ -24,32 +24,44 @@ struct SwitchProtocolIntent: AppIntent {
     init(protocolRaw: String) { self.protocolRaw = protocolRaw }
 
     func perform() async throws -> some IntentResult {
-        guard let snap = WidgetSnapshotStore.read(),
-              let target = snap.switchTargets.first(where: { $0.protocolRaw == protocolRaw })
-        else {
+        // Diagnostic trace (lands in the shared App-Group log → visible in the
+        // app's Logs screen) — the widget switch silently no-op'd on device and
+        // we need the exact failure point. Logs identifiers only, never secrets.
+        guard let snap = WidgetSnapshotStore.read() else {
+            PrivycsLog.log("widget switch[\(protocolRaw)]: no snapshot")
             return .result()
         }
-        // SECURITY: the snapshot intentionally carries NO config content (it lives
-        // in the unencrypted App Group UserDefaults). Re-read the raw config from
-        // the Keychain (App Group, ThisDeviceOnly) at switch time, keyed by the
-        // connection + config id the snapshot carries. Without it there is no
-        // config to start, so bail (the app can perform the switch instead).
+        guard let target = snap.switchTargets.first(where: { $0.protocolRaw == protocolRaw }) else {
+            PrivycsLog.log("widget switch[\(protocolRaw)]: no target (targets=\(snap.switchTargets.map { $0.protocolRaw })) connId=\(snap.connectionId)")
+            return .result()
+        }
+        // SECURITY: the snapshot carries NO config content (it would land in the
+        // unencrypted App Group UserDefaults). Re-read the raw config from the
+        // Keychain at switch time, keyed by the connection + config id.
         let configContent: String
         if !target.configContent.isEmpty {
-            // Defensive: honour an inline value if a future writer ever sets one.
             configContent = target.configContent
         } else {
             let key = KeychainKey.protocolConfig(connectionID: snap.connectionId, configID: target.configId)
-            guard let stored = try? await KeychainSecretStore().get(key), !stored.isEmpty else {
+            do {
+                let stored = try await KeychainSecretStore().get(key)
+                guard let stored, !stored.isEmpty else {
+                    PrivycsLog.log("widget switch[\(protocolRaw)]: keychain MISS key=\(key) connId=\(snap.connectionId) cfgId=\(target.configId)")
+                    return .result()
+                }
+                configContent = stored
+                PrivycsLog.log("widget switch[\(protocolRaw)]: keychain hit \(stored.count)B")
+            } catch {
+                PrivycsLog.log("widget switch[\(protocolRaw)]: keychain ERROR \(error.localizedDescription) key=\(key)")
                 return .result()
             }
-            configContent = stored
         }
         let managers = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         let mgr = managers.first(where: { $0.localizedDescription == snap.connectionName })
             ?? managers.first(where: { $0.isEnabled })
             ?? managers.first
             ?? NETunnelProviderManager()
+        PrivycsLog.log("widget switch[\(protocolRaw)]: managers=\(managers.count) chosen=\(mgr.localizedDescription ?? "<new>")")
 
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = TunnelProviderConfig.bundleIdentifier
@@ -65,11 +77,14 @@ struct SwitchProtocolIntent: AppIntent {
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = snap.connectionName.isEmpty ? "Privycs VPN" : snap.connectionName
         mgr.isEnabled = true
-        // Leave any existing on-demand rules untouched — the app re-syncs them
-        // on next foreground; the widget only swaps the active protocol.
-        try? await mgr.saveToPreferences()
-        try? await mgr.loadFromPreferences()
-        try? mgr.connection.startVPNTunnel()
+        do {
+            try await mgr.saveToPreferences()
+            try await mgr.loadFromPreferences()
+            try mgr.connection.startVPNTunnel()
+            PrivycsLog.log("widget switch[\(protocolRaw)]: started OK")
+        } catch {
+            PrivycsLog.log("widget switch[\(protocolRaw)]: start ERROR \(error.localizedDescription)")
+        }
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
     }
