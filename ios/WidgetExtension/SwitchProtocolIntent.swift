@@ -77,6 +77,28 @@ struct SwitchProtocolIntent: AppIntent {
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = snap.connectionName.isEmpty ? "Privycs VPN" : snap.connectionName
         mgr.isEnabled = true
+        // Single active VPN. The connection may currently be up as the IPSec
+        // personal VPN (NEVPNManager) — switching to a packet-tunnel while that's
+        // active throws "configuration type is wrong" (the device-log finding).
+        // Deactivate the IPSec slot + every other PTP manager first, mirroring the
+        // app's deactivateOtherManagers, then start this one.
+        let ike = NEVPNManager.shared()
+        try? await ike.loadFromPreferences()
+        if ike.isEnabled || ike.isOnDemandEnabled
+            || ike.connection.status == .connected || ike.connection.status == .connecting {
+            ike.connection.stopVPNTunnel()
+            ike.isOnDemandEnabled = false
+            ike.isEnabled = false
+            try? await ike.saveToPreferences()
+        }
+        for other in managers where other !== mgr {
+            if other.isEnabled || other.connection.status == .connected || other.connection.status == .connecting {
+                other.connection.stopVPNTunnel()
+                other.isOnDemandEnabled = false
+                other.isEnabled = false
+                try? await other.saveToPreferences()
+            }
+        }
         do {
             try await mgr.saveToPreferences()
             try await mgr.loadFromPreferences()

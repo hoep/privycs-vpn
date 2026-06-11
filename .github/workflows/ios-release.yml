@@ -298,16 +298,22 @@ jobs:
 
       - name: Attach IPA to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Privycs VPN ${{ github.ref_name }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          fail_on_unmatched_files: false
-          files: |
-            ios/build/IPA/*.ipa
-            ios/build/IPA/*.ipa.sha256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"; REPO="${{ github.repository }}"
+          # Race-safe: build-ios + build-tvos both attach to the SAME release.
+          # softprops/action-gh-release raced on create → the loser hit
+          # "already_exists" (422) and the job showed a cosmetic failure.
+          # Mirror the propagate jobs: create-if-missing (|| true swallows the
+          # create race), then upload --clobber (idempotent) so BOTH IPAs land.
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --title "Privycs VPN $TAG" \
+              $([ "${TAG#*-}" != "$TAG" ] && echo --prerelease) --generate-notes || true
+          fi
+          gh release upload "$TAG" --repo "$REPO" --clobber \
+            ios/build/IPA/*.ipa ios/build/IPA/*.ipa.sha256
 
   build-tvos:
     needs: check-changes
@@ -596,16 +602,19 @@ jobs:
 
       - name: Attach IPA to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Privycs VPN ${{ github.ref_name }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          fail_on_unmatched_files: false
-          files: |
-            ios/build/IPA-tvos/*.ipa
-            ios/build/IPA-tvos/*.ipa.sha256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"; REPO="${{ github.repository }}"
+          # Race-safe attach (see build-ios): create-if-missing then clobber-upload
+          # so build-ios + build-tvos never collide on the shared release (422).
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --title "Privycs VPN $TAG" \
+              $([ "${TAG#*-}" != "$TAG" ] && echo --prerelease) --generate-notes || true
+          fi
+          gh release upload "$TAG" --repo "$REPO" --clobber \
+            ios/build/IPA-tvos/*.ipa ios/build/IPA-tvos/*.ipa.sha256
 
   propagate-previous-ios:
     name: Propagate previous iOS IPA

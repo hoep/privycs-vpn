@@ -1,20 +1,19 @@
-v1.1.5.2 (build 98) — widget-switch diagnostics + IPSec VPN-IP fix.
+v1.1.5.3 (build 99) — widget protocol switch fixed.
 
-1) WIDGET PROTOCOL PILLS still don't switch after the entitlement change, so this
-   build adds a diagnostic trace to pinpoint why. PLEASE: tap a protocol pill in
-   the widget, then open the app → Settings → Logs and look for lines starting
-   with "widget switch[" and send them to me. (They log identifiers only, never
-   secrets.) That tells me exactly where it fails (keychain miss/error, no target,
-   manager, start) so I can fix it precisely.
-2) IPSEC VPN IP: the Connect screen no longer shows public (global) IPv6
-   addresses as the VPN IP — only the assigned private VPN address (IPv4 +, if
-   present, a private ULA IPv6). Verify IPSec shows just the private VPN IP now.
+The widget log revealed it: the keychain read works now, but the SWITCH failed
+with "configuration type is wrong" — because the connection was running as the
+IPSec personal VPN, and starting a packet-tunnel (WireGuard) while IPSec is
+active is rejected. The widget now deactivates the active IPSec slot (and any
+other tunnel) first, then starts the chosen protocol — the same single-active-VPN
+step the app does.
 
 HOW TO TEST
-- Widget: tap a protocol pill → (note whether it switches) → send the
-  "widget switch[...]" log lines.
-- IPSec: connect → Connect screen "VPN IP" shows only the private address, no
-  public v6.
+- Connect a connection that has both IPSec and WireGuard (e.g. "Privycs Shielded").
+- From the widget, tap the WireGuard pill → it should switch to WireGuard (and
+  vice-versa). The active protocol on the widget + in Settings ▸ VPN should match.
+- If it STILL doesn't switch: open the app → Settings → Logs and send the
+  "widget switch[" lines (they now also show the deactivation + start result).
 
 REGRESSION CHECK
-- OpenVPN + WG/AWG counters & info; IPSec counter; double-tap guard; pools.
+- IPSec VPN-IP shows only the private address (no public v6); OpenVPN counter +
+  info; WG/AWG; double-tap guard; pools.
