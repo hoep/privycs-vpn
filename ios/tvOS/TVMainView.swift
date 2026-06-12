@@ -91,7 +91,7 @@ struct TVMainView: View {
             }
             .frame(minWidth: 380)
             .padding(.vertical, 6)
-            .foregroundStyle(state.status.connected ? TVColor.onSurface : TVColor.background)
+            .foregroundStyle(state.status.connected ? TVColor.onSurface : TVColor.onTeal)
         }
         .tint(state.status.connected ? TVColor.surfaceVariant : TVColor.teal)
         .disabled(state.connecting || state.selectedConfig == nil)

@@ -18,7 +18,6 @@ struct TVRootView: View {
             }
         }
         .tint(TVColor.teal)
-        .preferredColorScheme(.dark)
         .foregroundStyle(TVColor.onSurface)
     }
 }

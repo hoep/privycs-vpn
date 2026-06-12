@@ -1,18 +1,19 @@
-v1.1.5.19 (build 115) — tvOS device-code linking now works ("Link a TV").
+v1.1.5.20 (build 116) — tvOS: readable enroll (QR) + light/dark + Privycs colors.
 
-Root cause found: the device-code API (start/poll) IS live + working on the
-gateway host, but the TV client called www.privycs.com, whose nginx returns 405
-for /api/v1/tv/*. Pointed the TV's enrollment base at gateway.privycs.com (verified
-200 with a real user code). The phone link page (app.privycs.com/link) comes back
-in the response and is live. So "Link a TV" no longer needs the manual fallback.
+From the device screenshot:
+- ENROLL screen rebuilt + readable: a QR code the phone scans (opens the link with
+  the code pre-filled), the short URL no longer truncated (auto-scales), a big
+  clear code, on Privycs design-system card surfaces.
+- LIGHT + DARK now follow the TV's Settings ▸ Appearance (no longer forced dark) —
+  TVColor is adaptive and mirrors the iOS PrivycsColor ramp exactly.
+- Connect-button label uses a dark-on-teal colour so it reads in light mode.
 
-Includes build 114: tvOS Privycs design system (teal/dark), smaller fonts,
-focus-safe layout (Connect takes default focus), new logo-on-turquoise icon.
+TRAFFIC COUNTERS: verified wired (tvOS app + tunnel share the App Group; the
+tunnel writes the same TunnelStatsStore the phone uses). They show once CONNECTED
+(rx/tx total + speed + sparkline) — connect to see them.
 
 HOW TO TEST (Apple TV)
-- Fresh launch (or Unlink) → enrollment screen shows a code + "go to
-  app.privycs.com/link". On your phone (logged in) open that, enter the code →
-  the TV links itself and pulls your servers. No typing the gateway URL/token.
-- Then: pick a server → Connect → status hero + live traffic.
-
-NEED: a device screenshot to fine-tune the tvOS layout/sizing (can't render it here).
+- Enroll: scan the QR with your phone (or open the short URL) + enter the code →
+  links + pulls servers. Switch the TV between Light/Dark in Settings → colors adapt.
+- Connect a server → status hero + traffic counters. Send a screenshot of both
+  the enroll + connected screens.
