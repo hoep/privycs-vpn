@@ -1,14 +1,18 @@
-v1.1.5.25 (build 121) — tvOS: fix focus traversal + white button text.
+v1.1.5.26 (build 122) — tvOS WireGuard: complete the tvOS patch (no-internet attempt).
 
-- Marked the top bar and the server row as focus sections (.focusSection()) so the
-  remote moves cleanly between top bar ⇄ connect disc ⇄ server cards — fixes focus
-  getting stuck (the nested scroll was trapping it).
-- Refresh moved up next to Settings in the top bar (keeps the server row a clean
-  focus target).
-- Both top-bar buttons are now borderedProminent: teal fill with WHITE text, so
-  they read in BOTH light and dark (no more dark text on the green focused button).
+Yes, the VPN code IS included on Apple TV — the WireGuard/AmneziaWG bridge is
+compiled + active (your handshake confirmed the tunnel comes up). The "connected
+but no internet" is a data-plane issue. Found a gap: the CI patch that ports
+WireGuardKit to tvOS only patched the FIRST iOS guard per file, leaving
+WireGuardAdapter's two wgDisableSomeRoamingForBrokenMobileSemantics() calls
+iOS-only — so on tvOS that endpoint-pinning isn't applied, which can let the data
+path break after the handshake. This build patches ALL guards for tvOS.
+
+HONEST: this is a plausible fix, not a sure one. If WireGuard still connects but
+passes no traffic, the cause is the libwg-go data plane on tvOS hardware (never
+device-verified) and I'll need a device log to go further.
 
 HOW TO TEST (Apple TV)
-- Navigate everywhere with the remote — top bar (Refresh/Settings), the disc, and
-  the server cards should all be reachable, nothing traps. In LIGHT mode the
-  Refresh/Settings text is white on teal (readable).
+- Connect WireGuard → open something that needs the internet (a streaming app /
+  web). If it still fails, grab the tunnel log (Console.app, subsystem
+  com.privycs.vpn.tunnel) right after connecting and send it.
