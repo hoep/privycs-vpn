@@ -83,6 +83,7 @@ struct TVMainView: View {
                 Text(sel.name).font(.system(size: 20)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
             }
         }
+        .focusSection()
     }
 
     // MARK: — Left (traffic) / Right (details)
@@ -200,9 +201,17 @@ struct TVMainView: View {
             Text(entry.name).font(.system(size: 20, weight: .semibold)).lineLimit(1).foregroundStyle(TVColor.onSurface)
             Text(country.isEmpty ? entry.protocol.displayName : country)
                 .font(.system(size: 16)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
+            // Server/endpoint identifier so duplicate-named cards are distinguishable.
+            let server = entry.interfaceName.isEmpty
+                ? (entry.peerName.isEmpty ? entry.serverAddress : entry.peerName)
+                : entry.interfaceName
+            if !server.isEmpty {
+                Text(server).font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(TVColor.onSurfaceVariant).opacity(0.85).lineLimit(1)
+            }
         }
         .padding(18)
-        .frame(width: 230, alignment: .leading)
+        .frame(width: 240, alignment: .leading)
         .background(selected ? TVColor.teal.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(selected ? TVColor.teal : Color.clear, lineWidth: 3))
     }
