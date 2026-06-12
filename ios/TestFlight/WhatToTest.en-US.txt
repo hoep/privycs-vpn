@@ -1,16 +1,12 @@
-v1.1.5.31 (build 127) — tvOS: Connect disc reachable + button contrast + opaque settings.
+v1.1.5.32 (build 128) — tvOS: Connect disc fully navigable (focus re-entry fixed).
 
-THE connect fix: the disc is no longer .disabled (that made it unfocusable on tvOS
-when no server was resolved) and now takes DEFAULT FOCUS via focusScope — the remote
-starts on it; press to connect. Combined with the .card focusable style.
+The disc could be reached on launch but never again once you moved away — the
+focusScope/prefersDefaultFocus I used captured initial focus and blocked re-entry.
+Removed both; the disc is now a normal focusable .card in a focus section, so the
+remote can move onto it, away, and BACK any number of times.
 
-- Top-bar Refresh/Settings: removed the app-wide text-colour override + the forced
-  white that caused white-on-white when focused. borderedProminent now does the
-  correct INVERSE itself (white text on teal unfocused, dark text on white focused).
-- Settings screen is now OPAQUE (was see-through to the connect screen) and uses a
-  standard Form with native toggles.
+(First build with the new split CI — this is tvOS-only; the iOS app is not rebuilt.)
 
 HOW TO TEST (Apple TV)
-- On launch the Connect disc is focused → press to connect (finally testable!).
-- Focused Refresh/Settings buttons are readable (dark text on white). Settings is
-  opaque. Then: connect WireGuard → internet? (kill switch is off by default).
+- Move focus onto the Connect disc, away to a server card / the top bar, and BACK
+  onto the disc — repeatedly. Press to connect/disconnect. Then: WireGuard → internet?

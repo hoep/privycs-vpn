@@ -7,7 +7,6 @@ import PrivycsCore
 struct TVMainView: View {
     @EnvironmentObject private var state: TVAppState
     @State private var showSettings = false
-    @Namespace private var ns
 
     private var discProtocol: VpnProtocol? {
         state.status.connected ? state.status.activeProtocol : state.selectedConfig?.protocol
@@ -33,7 +32,6 @@ struct TVMainView: View {
         }
         .padding(.horizontal, 70)
         .padding(.vertical, 36)
-        .focusScope(ns)
         .fullScreenCover(isPresented: $showSettings) {
             TVSettingsView().environmentObject(state)
         }
@@ -71,10 +69,9 @@ struct TVMainView: View {
                           activeProtocol: discProtocol) {
                 Task { await state.toggle() }
             }
-            // Always focusable (don't .disable — that makes it unreachable on tvOS;
-            // the toggle no-ops if no config). Take default focus so the remote
-            // starts on it.
-            .prefersDefaultFocus(in: ns)
+            // Always focusable (NOT .disabled — a disabled button is unreachable
+            // on tvOS; the toggle no-ops if no config). .card style + the
+            // centerColumn focusSection make it a normal, re-reachable focus target.
             if connected {
                 HStack(spacing: 10) {
                     if state.status.uptime > 0 {
