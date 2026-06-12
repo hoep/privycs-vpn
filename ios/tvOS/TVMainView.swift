@@ -42,19 +42,28 @@ struct TVMainView: View {
     }
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 16) {
             Image("ic_privycs_logo").resizable().scaledToFit().frame(width: 34, height: 34)
             Text("Privycs VPN").font(.system(size: 22, weight: .bold))
                 .foregroundStyle(TVColor.onSurface)
             Spacer()
-            // Labeled (icon + text) so it's recognizable + readable when focused —
-            // no forced colour (tvOS gives the focused button a contrasting label).
+            // borderedProminent → teal fill + WHITE label (system-contrasted) so it
+            // reads in BOTH light and dark, focused or not. Refresh lives here (not
+            // in the server header) to keep the server row a clean focus target.
+            Button { Task { await state.refreshConfigs() } } label: {
+                Label(String(localized: "tv.main.refresh", defaultValue: "Refresh"),
+                      systemImage: "arrow.clockwise")
+                    .font(.system(size: 19, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent).tint(TVColor.teal)
             Button { showSettings = true } label: {
                 Label(String(localized: "tv.settings.title", defaultValue: "Settings"),
                       systemImage: "gearshape.fill")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: 19, weight: .semibold))
             }
+            .buttonStyle(.borderedProminent).tint(TVColor.teal)
         }
+        .focusSection()
     }
 
     // MARK: — Status hero
@@ -156,16 +165,8 @@ struct TVMainView: View {
 
     private var serverSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("tv.main.servers", tableName: nil)
-                    .font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.onSurface)
-                Spacer()
-                Button { Task { await state.refreshConfigs() } } label: {
-                    Label(String(localized: "tv.main.refresh", defaultValue: "Refresh"),
-                          systemImage: "arrow.clockwise")
-                        .font(.system(size: 18, weight: .medium))
-                }
-            }
+            Text("tv.main.servers", tableName: nil)
+                .font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.onSurface)
 
             if state.loadingConfigs && state.remoteConfigs.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, alignment: .center).padding()
@@ -196,6 +197,7 @@ struct TVMainView: View {
             }
         }
         .frame(maxWidth: 1100)
+        .focusSection()
     }
 
     private func serverCard(_ entry: RemoteConfigEntry) -> some View {

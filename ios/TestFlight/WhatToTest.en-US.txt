@@ -1,13 +1,14 @@
-v1.1.5.24 (build 120) — tvOS: fix focus/navigation + recognizable buttons.
+v1.1.5.25 (build 121) — tvOS: fix focus traversal + white button text.
 
-build 119 trapped focus on the Refresh button and showed an unlabeled green gear.
-- Removed the manual focus management (.focusScope/.prefersDefaultFocus) that broke
-  tvOS navigation — focus now moves naturally by layout again.
-- The top-right "Settings" gear and the "Refresh" button are now LABELED (icon +
-  text) and use no forced colour, so they're recognizable and readable when
-  focused (no more teal-on-teal blob).
+- Marked the top bar and the server row as focus sections (.focusSection()) so the
+  remote moves cleanly between top bar ⇄ connect disc ⇄ server cards — fixes focus
+  getting stuck (the nested scroll was trapping it).
+- Refresh moved up next to Settings in the top bar (keeps the server row a clean
+  focus target).
+- Both top-bar buttons are now borderedProminent: teal fill with WHITE text, so
+  they read in BOTH light and dark (no more dark text on the green focused button).
 
 HOW TO TEST (Apple TV)
-- Navigate freely with the remote: disc, server cards, Refresh, Settings — focus
-  moves between all of them, nothing traps.
-- Top-right "Settings" opens the settings screen (DNS, kill switch, unlink, …).
+- Navigate everywhere with the remote — top bar (Refresh/Settings), the disc, and
+  the server cards should all be reachable, nothing traps. In LIGHT mode the
+  Refresh/Settings text is white on teal (readable).
