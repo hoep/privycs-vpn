@@ -1,19 +1,12 @@
-v1.1.5.20 (build 116) — tvOS: readable enroll (QR) + light/dark + Privycs colors.
+v1.1.5.21 (build 117) — tvOS enroll: the link code auto-rotates (no more "expired").
 
-From the device screenshot:
-- ENROLL screen rebuilt + readable: a QR code the phone scans (opens the link with
-  the code pre-filled), the short URL no longer truncated (auto-scales), a big
-  clear code, on Privycs design-system card surfaces.
-- LIGHT + DARK now follow the TV's Settings ▸ Appearance (no longer forced dark) —
-  TVColor is adaptive and mirrors the iOS PrivycsColor ramp exactly.
-- Connect-button label uses a dark-on-teal colour so it reads in light mode.
-
-TRAFFIC COUNTERS: verified wired (tvOS app + tunnel share the App Group; the
-tunnel writes the same TunnelStatsStore the phone uses). They show once CONNECTED
-(rx/tx total + speed + sparkline) — connect to see them.
+The device-code expires after ~10 min; if you waited you saw "this code has
+expired". The enroll screen now fetches a FRESH code ~15s before expiry (and
+immediately if the server ever reports expired), so a valid code + QR is always on
+screen and the link keeps working no matter how long the TV sits there.
 
 HOW TO TEST (Apple TV)
-- Enroll: scan the QR with your phone (or open the short URL) + enter the code →
-  links + pulls servers. Switch the TV between Light/Dark in Settings → colors adapt.
-- Connect a server → status hero + traffic counters. Send a screenshot of both
-  the enroll + connected screens.
+- Leave the enroll screen open well past 10 minutes → the code/QR refreshes itself
+  instead of erroring; linking still works.
+- (Plus build 116: QR enroll, light/dark from Settings, Privycs colors, traffic
+  counters when connected.)

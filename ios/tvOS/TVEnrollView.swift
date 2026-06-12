@@ -173,7 +173,9 @@ struct TVEnrollView: View {
         await MainActor.run { self.polling = true }
         defer { Task { @MainActor in self.polling = false } }
         var interval = UInt64(max(1, start.interval)) * 1_000_000_000
-        let deadline = Date().addingTimeInterval(TimeInterval(start.expiresIn))
+        // Rotate ~15s BEFORE the server expires the code so a valid code + QR is
+        // always on screen — the user never hits "this code has expired".
+        let deadline = Date().addingTimeInterval(TimeInterval(max(30, start.expiresIn - 15)))
         while !Task.isCancelled, Date() < deadline {
             try? await Task.sleep(nanoseconds: interval)
             if Task.isCancelled { return }
@@ -184,7 +186,7 @@ struct TVEnrollView: View {
                 case .slowDown:
                     interval += 2_000_000_000
                 case .expired:
-                    await MainActor.run { self.enrollError = String(localized: "tv.enroll.code_expired") }
+                    await MainActor.run { self.startDeviceCode() }   // auto-rotate to a fresh code
                     return
                 case let .approved(token, gatewayURL, _):
                     await state.applyEnrollment(gatewayURL: gatewayURL, token: token)
@@ -194,6 +196,10 @@ struct TVEnrollView: View {
                 await MainActor.run { self.enrollError = error.localizedDescription }
                 return
             }
+        }
+        // Code is about to expire without approval → fetch a fresh one (rotate).
+        if !Task.isCancelled {
+            await MainActor.run { self.startDeviceCode() }
         }
     }
 
