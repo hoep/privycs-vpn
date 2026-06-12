@@ -13,7 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ios_changed: ${{ steps.check.outputs.ios_changed }}
+      tvos_changed: ${{ steps.check.outputs.tvos_changed }}
       version: ${{ steps.version.outputs.version }}
+      tvos_version: ${{ steps.version.outputs.tvos_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,11 +24,14 @@ jobs:
         run: |
           VERSION=$(cat ios/latest_version.txt 2>/dev/null | tr -d '[:space:]')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          TVOS_VERSION=$(cat ios/tvos_latest_version.txt 2>/dev/null | tr -d '[:space:]')
+          echo "tvos_version=$TVOS_VERSION" >> $GITHUB_OUTPUT
       - id: check
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 "${{ github.ref }}^" 2>/dev/null || echo "")
           if [ -z "$PREV_TAG" ]; then
             echo "ios_changed=true" >> $GITHUB_OUTPUT
+            echo "tvos_changed=true" >> $GITHUB_OUTPUT
             exit 0
           fi
           # Gate on ios/latest_version.txt (the iOS version file), NOT a raw
@@ -37,10 +42,19 @@ jobs:
           # the duplicate (v1.0.7.8 failed exactly here). Building + uploading
           # to TestFlight must require a deliberate iOS version bump, which
           # also honors "no iOS release until feature parity".
-          if git diff --name-only "$PREV_TAG" "${{ github.ref }}" | grep -q '^ios/latest_version.txt$'; then
+          CHANGED=$(git diff --name-only "$PREV_TAG" "${{ github.ref }}")
+          # iOS and tvOS gate on SEPARATE version files so an iOS-only tag doesn't
+          # rebuild/upload tvOS and vice versa (they're distinct App Store platforms
+          # under the Universal Purchase app record).
+          if echo "$CHANGED" | grep -q '^ios/latest_version.txt$'; then
             echo "ios_changed=true" >> $GITHUB_OUTPUT
           else
             echo "ios_changed=false" >> $GITHUB_OUTPUT
+          fi
+          if echo "$CHANGED" | grep -q '^ios/tvos_latest_version.txt$'; then
+            echo "tvos_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "tvos_changed=false" >> $GITHUB_OUTPUT
           fi
 
   build-ios:
@@ -317,7 +331,7 @@ jobs:
 
   build-tvos:
     needs: check-changes
-    if: needs.check-changes.outputs.ios_changed == 'true'
+    if: needs.check-changes.outputs.tvos_changed == 'true'
     # macos-26 carries Xcode 26 + tvOS 26 SDK — same minimum-SDK enforcement
     # as iOS applies to TestFlight uploads.
     runs-on: macos-26
@@ -558,7 +572,7 @@ jobs:
       - name: Rename IPA + generate checksum
         run: |
           cd ios/build/IPA-tvos
-          VERSION="${{ needs.check-changes.outputs.version }}"
+          VERSION="${{ needs.check-changes.outputs.tvos_version }}"
           mv PrivycsVPNtvOS.ipa "privycs-vpn-tvos-${VERSION}.ipa"
           shasum -a 256 "privycs-vpn-tvos-${VERSION}.ipa" > "privycs-vpn-tvos-${VERSION}.ipa.sha256"
 
@@ -570,7 +584,7 @@ jobs:
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$NOTARY_KEY_B64" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_$NOTARY_KEY_ID.p8
-          VERSION="${{ needs.check-changes.outputs.version }}"
+          VERSION="${{ needs.check-changes.outputs.tvos_version }}"
           xcrun altool --upload-app \
             -f "ios/build/IPA-tvos/privycs-vpn-tvos-${VERSION}.ipa" \
             -t tvos \
@@ -605,7 +619,7 @@ jobs:
       - name: Upload workflow artefact
         uses: actions/upload-artifact@v4
         with:
-          name: tvos-${{ needs.check-changes.outputs.version }}
+          name: tvos-${{ needs.check-changes.outputs.tvos_version }}
           path: |
             ios/build/IPA-tvos/*.ipa
             ios/build/IPA-tvos/*.ipa.sha256
@@ -723,7 +737,7 @@ jobs:
     needs: [check-changes, build-tvos]
     if: |
       always() &&
-      needs.check-changes.outputs.ios_changed == 'false' &&
+      needs.check-changes.outputs.tvos_changed == 'false' &&
       startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
