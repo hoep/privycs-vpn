@@ -18,6 +18,8 @@ struct TVRootView: View {
             }
         }
         .tint(TVColor.teal)
-        .foregroundStyle(TVColor.onSurface)
+        // NOTE: do NOT set a global .foregroundStyle here — it overrides the
+        // system's prominent-button label contrast (made focused buttons white-on-
+        // white). Each Text sets its own TVColor explicitly instead.
     }
 }

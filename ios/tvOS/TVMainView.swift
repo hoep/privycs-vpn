@@ -7,6 +7,7 @@ import PrivycsCore
 struct TVMainView: View {
     @EnvironmentObject private var state: TVAppState
     @State private var showSettings = false
+    @Namespace private var ns
 
     private var discProtocol: VpnProtocol? {
         state.status.connected ? state.status.activeProtocol : state.selectedConfig?.protocol
@@ -32,6 +33,7 @@ struct TVMainView: View {
         }
         .padding(.horizontal, 70)
         .padding(.vertical, 36)
+        .focusScope(ns)
         .fullScreenCover(isPresented: $showSettings) {
             TVSettingsView().environmentObject(state)
         }
@@ -45,13 +47,11 @@ struct TVMainView: View {
             Button { Task { await state.refreshConfigs() } } label: {
                 Label(String(localized: "tv.main.refresh", defaultValue: "Refresh"), systemImage: "arrow.clockwise")
                     .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(.white)   // white on teal — readable in light AND dark
             }
             .buttonStyle(.borderedProminent).tint(TVColor.teal)
             Button { showSettings = true } label: {
                 Label(String(localized: "tv.settings.title", defaultValue: "Settings"), systemImage: "gearshape.fill")
                     .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(.white)
             }
             .buttonStyle(.borderedProminent).tint(TVColor.teal)
         }
@@ -71,7 +71,10 @@ struct TVMainView: View {
                           activeProtocol: discProtocol) {
                 Task { await state.toggle() }
             }
-            .disabled(state.connecting || state.selectedConfig == nil)
+            // Always focusable (don't .disable — that makes it unreachable on tvOS;
+            // the toggle no-ops if no config). Take default focus so the remote
+            // starts on it.
+            .prefersDefaultFocus(in: ns)
             if connected {
                 HStack(spacing: 10) {
                     if state.status.uptime > 0 {

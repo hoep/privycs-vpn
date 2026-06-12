@@ -14,6 +14,8 @@ struct TVSettingsView: View {
 
     var body: some View {
         NavigationStack {
+          ZStack {
+            TVColor.background.ignoresSafeArea()   // opaque — the cover was see-through
             Form {
                 Section {
                     TextField(String(localized: "tv.settings.dns_placeholder", defaultValue: "DNS, e.g. 1.1.1.1, 9.9.9.9"),
@@ -61,7 +63,9 @@ struct TVSettingsView: View {
                     Text(String(localized: "tv.settings.about", defaultValue: "About"))
                 }
             }
-            .navigationTitle(String(localized: "tv.settings.title", defaultValue: "Settings"))
+            .scrollContentBackground(.hidden)
+          }
+          .navigationTitle(String(localized: "tv.settings.title", defaultValue: "Settings"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "tv.settings.done", defaultValue: "Done")) { dismiss() }

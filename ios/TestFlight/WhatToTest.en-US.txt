@@ -1,13 +1,16 @@
-v1.1.5.29 (build 125) — tvOS: Connect disc focusable, white button text, real toggles.
+v1.1.5.30 (build 126) — tvOS: Connect disc reachable + button contrast + opaque settings.
 
-- The Connect disc now uses the focusable .card button style (.plain isn't reliably
-  focusable on tvOS) — the remote can finally land on it to connect/disconnect.
-- Top-bar Refresh/Settings buttons: white text on teal in BOTH light and dark (the
-  app's global text colour was overriding the prominent button label — fixed).
-- Settings rebuilt as a standard Form: Kill Switch + Anonymous crash reports are now
-  native tvOS toggles (focusable switches), DNS field, Unlink, Gateway + Version.
+THE connect fix: the disc is no longer .disabled (that made it unfocusable on tvOS
+when no server was resolved) and now takes DEFAULT FOCUS via focusScope — the remote
+starts on it; press to connect. Combined with the .card focusable style.
+
+- Top-bar Refresh/Settings: removed the app-wide text-colour override + the forced
+  white that caused white-on-white when focused. borderedProminent now does the
+  correct INVERSE itself (white text on teal unfocused, dark text on white focused).
+- Settings screen is now OPAQUE (was see-through to the connect screen) and uses a
+  standard Form with native toggles.
 
 HOW TO TEST (Apple TV)
-- Move the remote onto the Connect disc → it highlights/lifts → press to connect.
-- Light mode: Refresh/Settings text is white + readable.
-- Settings shows real toggle switches you can flip.
+- On launch the Connect disc is focused → press to connect (finally testable!).
+- Focused Refresh/Settings buttons are readable (dark text on white). Settings is
+  opaque. Then: connect WireGuard → internet? (kill switch is off by default).
