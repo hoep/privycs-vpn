@@ -42,6 +42,19 @@ struct TVMainView: View {
             Image("ic_privycs_logo").resizable().scaledToFit().frame(width: 34, height: 34)
             Text("Privycs VPN").font(.system(size: 22, weight: .bold)).foregroundStyle(TVColor.onSurface)
             Spacer()
+            // Connect lives in the top bar — that's the row whose buttons the remote
+            // CAN reach reliably (centre-of-screen custom controls would not take
+            // focus on tvOS). Primary action, so it's first + teal.
+            Button { Task { await state.toggle() } } label: {
+                HStack(spacing: 8) {
+                    if state.connecting { ProgressView() }
+                    else { Image(systemName: state.status.connected ? "stop.fill" : "bolt.fill") }
+                    Text(state.status.connected ? String(localized: "tv.action.disconnect", defaultValue: "Disconnect")
+                                                : String(localized: "tv.action.connect", defaultValue: "Connect"))
+                        .font(.system(size: 20, weight: .bold))
+                }
+            }
+            .buttonStyle(.borderedProminent).tint(state.status.connected ? TVColor.surfaceVariant : TVColor.teal)
             Button { Task { await state.refreshConfigs() } } label: {
                 Label(String(localized: "tv.main.refresh", defaultValue: "Refresh"), systemImage: "arrow.clockwise")
                     .font(.system(size: 19, weight: .semibold))
@@ -67,27 +80,6 @@ struct TVMainView: View {
                 .foregroundStyle(connected ? TVColor.teal : TVColor.onSurface)
             TVConnectDisc(connected: connected, connecting: state.connecting,
                           activeProtocol: discProtocol)
-            // The action is a STANDARD borderedProminent button (same kind as the
-            // top-bar buttons you can already reach) — custom focusable buttons on
-            // tvOS wouldn't take focus reliably.
-            Button {
-                Task { await state.toggle() }
-            } label: {
-                HStack(spacing: 10) {
-                    if state.connecting {
-                        ProgressView()
-                    } else {
-                        Image(systemName: connected ? "stop.fill" : "bolt.fill")
-                    }
-                    Text(connected ? String(localized: "tv.action.disconnect", defaultValue: "Disconnect")
-                                   : String(localized: "tv.action.connect", defaultValue: "Connect"))
-                        .font(.system(size: 24, weight: .bold))
-                }
-                .frame(minWidth: 300)
-                .padding(.vertical, 4)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(connected ? TVColor.surfaceVariant : TVColor.teal)
             if connected {
                 HStack(spacing: 10) {
                     if state.status.uptime > 0 {
@@ -101,7 +93,7 @@ struct TVMainView: View {
                 Text(sel.name).font(.system(size: 20)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
             }
         }
-        .focusSection()
+        // display-only now (Connect moved to the top bar) — no focusSection needed.
     }
 
     // MARK: — Left (traffic) / Right (details)
