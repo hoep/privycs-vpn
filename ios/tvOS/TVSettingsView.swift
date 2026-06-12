@@ -9,7 +9,6 @@ struct TVSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var dns = ""
-    @State private var killSwitch = false
     @State private var crashReports = true
 
     var body: some View {
@@ -23,15 +22,14 @@ struct TVSettingsView: View {
                         .onChange(of: dns) { _, v in
                             Task { await state.saveSettings { $0.dnsOverride = v.trimmingCharacters(in: .whitespaces) } }
                         }
-                    Toggle(String(localized: "tv.settings.kill_switch", defaultValue: "Kill Switch"), isOn: $killSwitch)
-                        .onChange(of: killSwitch) { _, v in
-                            Task { await state.saveSettings { $0.killSwitchEnabled = v } }
-                        }
+                    // No kill-switch toggle on tvOS: it only forces IPv6 through the
+                    // tunnel, which tvOS's v6 data plane can't carry → it blackholes
+                    // v6 and kills internet/DNS. Always off here.
                 } header: {
                     Text(String(localized: "tv.settings.connection", defaultValue: "Connection"))
                 } footer: {
                     Text(String(localized: "tv.settings.dns_hint",
-                                defaultValue: "DNS is applied to every protocol. Empty = use the server's DNS. The kill switch forces IPv6 through the tunnel — leave it off on Apple TV unless your gateway supports IPv6."))
+                                defaultValue: "DNS is applied to every protocol. Empty = use the server's DNS."))
                 }
 
                 Section {
@@ -73,7 +71,6 @@ struct TVSettingsView: View {
         }
         .onAppear {
             dns = state.settings.dnsOverride
-            killSwitch = state.settings.killSwitchEnabled
             crashReports = state.settings.crashReportsEnabled
         }
     }

@@ -229,9 +229,12 @@ final class TVAppState: ObservableObject {
                 activeConfigID: cfg.id,
                 dnsOverride: settings.dnsOverride
             )
+            // killSwitch is HARD-OFF on tvOS: the WG "kill switch" injects ::/0 into
+            // AllowedIPs (forces all IPv6 through the tunnel), but tvOS's v6 data
+            // plane is unreliable → it blackholes IPv6 and kills internet/DNS.
             await tunnel.connect(connection,
                                  dnsOverride: settings.dnsOverride,
-                                 killSwitch: settings.killSwitchEnabled)
+                                 killSwitch: false)
             if let err = tunnel.lastError { configError = err }
             status = tunnel.status
         } catch {

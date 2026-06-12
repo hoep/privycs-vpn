@@ -1,11 +1,13 @@
-v1.1.5.34 (build 130) — tvOS: Connect button moved into the top bar (reachable).
+v1.1.5.35 (build 131) — tvOS: visible top-bar buttons + kill switch removed.
 
-You can reach the top-bar buttons (Refresh/Settings) but not centre-of-screen
-controls — that's a tvOS focus reality. So Connect/Disconnect is now the FIRST
-button in the top bar, right next to Refresh and Settings. The disc below is just a
-status visual.
+- Top-bar buttons (Connect/Refresh/Settings) were white-on-white when not focused
+  (borderedProminent renders that way unfocused on tvOS). Switched to the .card
+  style (always-visible surface, like the server cards) with explicit label colours
+  — Connect is teal so it stands out; all stay readable focused or not.
+- KILL SWITCH removed on tvOS: it only forces IPv6 through the tunnel, which tvOS
+  can't carry, so it blackholed v6 and killed internet/DNS. It's now hard-off and
+  the toggle is gone from Settings. (Connecting works + has internet by default.)
 
 HOW TO TEST (Apple TV)
-- Top bar: "Connect" (teal, leftmost action) → focus it with the remote → press →
-  it connects. Then: internet? (kill switch off by default) + kill-switch toggle in
-  Settings.
+- Top bar: Connect is visible (teal) even unfocused → connect → you have internet.
+- Settings no longer shows a kill switch (DNS + crash reports remain).

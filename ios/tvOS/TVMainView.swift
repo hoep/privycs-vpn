@@ -45,6 +45,10 @@ struct TVMainView: View {
             // Connect lives in the top bar — that's the row whose buttons the remote
             // CAN reach reliably (centre-of-screen custom controls would not take
             // focus on tvOS). Primary action, so it's first + teal.
+            // .card (not borderedProminent): borderedProminent renders white-on-
+            // white when UNfocused on tvOS (invisible). .card always shows a visible
+            // surface (same as the server cards) + lifts on focus; explicit label
+            // colours keep them readable. Connect = teal to stand out.
             Button { Task { await state.toggle() } } label: {
                 HStack(spacing: 8) {
                     if state.connecting { ProgressView() }
@@ -53,18 +57,19 @@ struct TVMainView: View {
                                                 : String(localized: "tv.action.connect", defaultValue: "Connect"))
                         .font(.system(size: 20, weight: .bold))
                 }
+                .foregroundStyle(state.status.connected ? TVColor.onSurface : TVColor.teal)
             }
-            .buttonStyle(.borderedProminent).tint(state.status.connected ? TVColor.surfaceVariant : TVColor.teal)
+            .buttonStyle(.card)
             Button { Task { await state.refreshConfigs() } } label: {
                 Label(String(localized: "tv.main.refresh", defaultValue: "Refresh"), systemImage: "arrow.clockwise")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold)).foregroundStyle(TVColor.onSurface)
             }
-            .buttonStyle(.borderedProminent).tint(TVColor.teal)
+            .buttonStyle(.card)
             Button { showSettings = true } label: {
                 Label(String(localized: "tv.settings.title", defaultValue: "Settings"), systemImage: "gearshape.fill")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold)).foregroundStyle(TVColor.onSurface)
             }
-            .buttonStyle(.borderedProminent).tint(TVColor.teal)
+            .buttonStyle(.card)
         }
         .focusSection()
     }
