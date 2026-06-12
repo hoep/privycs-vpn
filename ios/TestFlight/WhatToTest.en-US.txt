@@ -1,4 +1,4 @@
-v1.1.5.30 (build 126) — tvOS: Connect disc reachable + button contrast + opaque settings.
+v1.1.5.31 (build 127) — tvOS: Connect disc reachable + button contrast + opaque settings.
 
 THE connect fix: the disc is no longer .disabled (that made it unfocusable on tvOS
 when no server was resolved) and now takes DEFAULT FOCUS via focusScope — the remote

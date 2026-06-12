@@ -63,7 +63,6 @@ struct TVSettingsView: View {
                     Text(String(localized: "tv.settings.about", defaultValue: "About"))
                 }
             }
-            .scrollContentBackground(.hidden)
           }
           .navigationTitle(String(localized: "tv.settings.title", defaultValue: "Settings"))
             .toolbar {
