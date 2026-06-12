@@ -45,11 +45,13 @@ struct TVMainView: View {
             Button { Task { await state.refreshConfigs() } } label: {
                 Label(String(localized: "tv.main.refresh", defaultValue: "Refresh"), systemImage: "arrow.clockwise")
                     .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.white)   // white on teal — readable in light AND dark
             }
             .buttonStyle(.borderedProminent).tint(TVColor.teal)
             Button { showSettings = true } label: {
                 Label(String(localized: "tv.settings.title", defaultValue: "Settings"), systemImage: "gearshape.fill")
                     .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.white)
             }
             .buttonStyle(.borderedProminent).tint(TVColor.teal)
         }

@@ -60,33 +60,35 @@ struct TVConnectDisc: View {
     private var ring: Color { connected ? TVColor.teal : TVColor.onSurfaceVariant }
 
     var body: some View {
+        // .card is the focusable tvOS button style (lifts/highlights on focus) —
+        // .plain is NOT reliably focusable on tvOS, which is why the remote
+        // couldn't land on the disc. The circle visuals sit inside the card.
         Button(action: onTap) {
             ZStack {
-                Circle().stroke(ring.opacity(connected ? 0.55 : 0.30), lineWidth: 4)
-                    .frame(width: 224, height: 224)
                 Circle()
                     .fill(LinearGradient(
                         colors: connected
                             ? [TVColor.teal.opacity(0.32), TVColor.teal.opacity(0.12)]
                             : [TVColor.surfaceVariant, TVColor.surface],
                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 196, height: 196)
-                    .overlay(Circle().stroke(ring.opacity(0.6), lineWidth: 2))
+                    .frame(width: 200, height: 200)
+                    .overlay(Circle().stroke(ring.opacity(0.7), lineWidth: 3))
                 if connecting {
                     ProgressView().controlSize(.large).tint(TVColor.teal)
                 } else if let p = activeProtocol {
                     Image(tvProtocolAsset(p))
                         .renderingMode(.template).resizable().scaledToFit()
-                        .frame(width: 84, height: 84)
+                        .frame(width: 88, height: 88)
                         .foregroundStyle(ring)
                 } else {
                     Image(systemName: connected ? "checkmark.shield.fill" : "shield")
-                        .font(.system(size: 84, weight: .light))
+                        .font(.system(size: 88, weight: .light))
                         .foregroundStyle(ring)
                 }
             }
+            .frame(width: 220, height: 220)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.card)
     }
 }
 

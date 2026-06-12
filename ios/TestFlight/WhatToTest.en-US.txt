@@ -1,13 +1,13 @@
-v1.1.5.28 (build 124) — tvOS: Connect disc reachable + server/endpoint on cards.
+v1.1.5.29 (build 125) — tvOS: Connect disc focusable, white button text, real toggles.
 
-- FIX: the Connect disc was skipped by the remote (its center column wasn't a focus
-  section between the top bar and the server row). It's now a focus section, so the
-  remote lands on the disc — you can connect/disconnect again.
-- Server cards now show the server/endpoint identifier (small, monospaced) at the
-  bottom, so duplicate-named cards are distinguishable.
-- (Settings already have toggles for Kill Switch + anonymous crash reports.)
+- The Connect disc now uses the focusable .card button style (.plain isn't reliably
+  focusable on tvOS) — the remote can finally land on it to connect/disconnect.
+- Top-bar Refresh/Settings buttons: white text on teal in BOTH light and dark (the
+  app's global text colour was overriding the prominent button label — fixed).
+- Settings rebuilt as a standard Form: Kill Switch + Anonymous crash reports are now
+  native tvOS toggles (focusable switches), DNS field, Unlink, Gateway + Version.
 
 HOW TO TEST (Apple TV)
-- Navigate to the Connect disc with the remote and press to connect/disconnect.
-- Each server card shows its server id at the bottom. Open Settings → Kill Switch
-  and crash reports are toggles.
+- Move the remote onto the Connect disc → it highlights/lifts → press to connect.
+- Light mode: Refresh/Settings text is white + readable.
+- Settings shows real toggle switches you can flip.
