@@ -1,17 +1,13 @@
-v1.1.5.23 (build 119) — tvOS: Settings screen, top bar, button/colour fixes.
+v1.1.5.24 (build 120) — tvOS: fix focus/navigation + recognizable buttons.
 
-- NEW Settings screen (gear, top-right): GLOBAL DNS override (comma-separated,
-  applied to EVERY protocol — WG/AWG/OpenVPN), Kill Switch, anonymous crash
-  reports, gateway shown, Unlink this TV, and version. (No on-demand/network-rules/
-  file-import — not applicable on a TV.)
-- "Unlink this TV" MOVED into Settings → off the main screen (less scrolling) and
-  no more red-on-red unreadable button; refresh stays teal + readable.
-- Top bar with the Privycs logo + a Settings gear; tighter spacing.
-
-DNS override is GLOBAL across all protocols (not per-protocol). If you meant
-protocol failover (route via another protocol on failure), that's a separate add.
+build 119 trapped focus on the Refresh button and showed an unlabeled green gear.
+- Removed the manual focus management (.focusScope/.prefersDefaultFocus) that broke
+  tvOS navigation — focus now moves naturally by layout again.
+- The top-right "Settings" gear and the "Refresh" button are now LABELED (icon +
+  text) and use no forced colour, so they're recognizable and readable when
+  focused (no more teal-on-teal blob).
 
 HOW TO TEST (Apple TV)
-- Open Settings (gear) → set a DNS, toggle Kill Switch, both persist + apply on the
-  next connect for any protocol. Unlink lives here now.
-- Main screen needs less scrolling. Send a connected-screen screenshot.
+- Navigate freely with the remote: disc, server cards, Refresh, Settings — focus
+  moves between all of them, nothing traps.
+- Top-right "Settings" opens the settings screen (DNS, kill switch, unlink, …).

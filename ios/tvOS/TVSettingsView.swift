@@ -17,7 +17,7 @@ struct TVSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack {
-                    Text("tv.settings.title", tableName: nil)
+                    Text(String(localized: "tv.settings.title", defaultValue: "Settings"))
                         .font(.system(size: 34, weight: .bold)).foregroundStyle(TVColor.onSurface)
                     Spacer()
                     Button { dismiss() } label: {
@@ -28,7 +28,7 @@ struct TVSettingsView: View {
 
                 // Connection — applies to ALL protocols.
                 card {
-                    Text("tv.settings.connection", tableName: nil)
+                    Text(String(localized: "tv.settings.connection", defaultValue: "Connection"))
                         .font(.system(size: 22, weight: .bold)).foregroundStyle(TVColor.onSurface)
                     Text(String(localized: "tv.settings.dns_hint",
                                 defaultValue: "Custom DNS server(s), comma-separated. Applied to every protocol. Empty = use the server's DNS."))
@@ -41,7 +41,7 @@ struct TVSettingsView: View {
                         }
                     Toggle(isOn: $killSwitch) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("tv.settings.kill_switch", tableName: nil)
+                            Text(String(localized: "tv.settings.kill_switch", defaultValue: "Kill Switch"))
                                 .font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.onSurface)
                             Text(String(localized: "tv.settings.kill_switch_hint",
                                         defaultValue: "Block traffic if the tunnel drops."))
@@ -57,7 +57,7 @@ struct TVSettingsView: View {
                 // Privacy
                 card {
                     Toggle(isOn: $crashReports) {
-                        Text("tv.settings.crash_reports", tableName: nil)
+                        Text(String(localized: "tv.settings.crash_reports", defaultValue: "Anonymous crash reports"))
                             .font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.onSurface)
                     }
                     .tint(TVColor.teal)

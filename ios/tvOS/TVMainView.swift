@@ -6,7 +6,6 @@ import PrivycsCore
 /// the protocol logo, bar-chart traffic, health + handshake, clear server picker.
 struct TVMainView: View {
     @EnvironmentObject private var state: TVAppState
-    @Namespace private var focusNS
     @State private var showSettings = false
 
     /// Protocol shown on the disc: the live one when connected, else the picked
@@ -26,7 +25,6 @@ struct TVMainView: View {
                     Task { await state.toggle() }
                 }
                 .disabled(state.connecting || state.selectedConfig == nil)
-                .prefersDefaultFocus(in: focusNS)
 
                 if state.status.connected {
                     trafficCards
@@ -38,7 +36,6 @@ struct TVMainView: View {
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity)
         }
-        .focusScope(focusNS)
         .fullScreenCover(isPresented: $showSettings) {
             TVSettingsView().environmentObject(state)
         }
@@ -50,10 +47,13 @@ struct TVMainView: View {
             Text("Privycs VPN").font(.system(size: 22, weight: .bold))
                 .foregroundStyle(TVColor.onSurface)
             Spacer()
+            // Labeled (icon + text) so it's recognizable + readable when focused —
+            // no forced colour (tvOS gives the focused button a contrasting label).
             Button { showSettings = true } label: {
-                Image(systemName: "gearshape.fill").foregroundStyle(TVColor.teal)
+                Label(String(localized: "tv.settings.title", defaultValue: "Settings"),
+                      systemImage: "gearshape.fill")
+                    .font(.system(size: 20, weight: .medium))
             }
-            .accessibilityLabel(String(localized: "tv.settings.title"))
         }
     }
 
@@ -161,9 +161,10 @@ struct TVMainView: View {
                     .font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.onSurface)
                 Spacer()
                 Button { Task { await state.refreshConfigs() } } label: {
-                    Image(systemName: "arrow.clockwise").foregroundStyle(TVColor.teal)
+                    Label(String(localized: "tv.main.refresh", defaultValue: "Refresh"),
+                          systemImage: "arrow.clockwise")
+                        .font(.system(size: 18, weight: .medium))
                 }
-                .accessibilityLabel(String(localized: "tv.main.refresh"))
             }
 
             if state.loadingConfigs && state.remoteConfigs.isEmpty {
