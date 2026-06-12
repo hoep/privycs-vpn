@@ -150,6 +150,14 @@ final class TVAppState: ObservableObject {
         await refreshConfigs()
     }
 
+    /// Persist a settings change (DNS override, kill switch, crash reports …).
+    func saveSettings(_ mutate: (inout AppSettings) -> Void) async {
+        var s = settings
+        mutate(&s)
+        try? await settingsRepo.save(s)
+        settings = s
+    }
+
     /// Clear the stored gateway credentials (un-link this TV locally).
     func unenroll() async {
         var s = settings

@@ -7,6 +7,7 @@ import PrivycsCore
 struct TVMainView: View {
     @EnvironmentObject private var state: TVAppState
     @Namespace private var focusNS
+    @State private var showSettings = false
 
     /// Protocol shown on the disc: the live one when connected, else the picked
     /// server's protocol (so the disc previews what you're about to connect).
@@ -16,7 +17,8 @@ struct TVMainView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 26) {
+            VStack(spacing: 22) {
+                topBar
                 statusHero
                 TVConnectDisc(connected: state.status.connected,
                               connecting: state.connecting,
@@ -31,13 +33,28 @@ struct TVMainView: View {
                     detailsCard
                 }
                 serverSection
-                unlinkButton
             }
             .padding(.horizontal, 80)
-            .padding(.vertical, 50)
+            .padding(.vertical, 40)
             .frame(maxWidth: .infinity)
         }
         .focusScope(focusNS)
+        .fullScreenCover(isPresented: $showSettings) {
+            TVSettingsView().environmentObject(state)
+        }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Image("ic_privycs_logo").resizable().scaledToFit().frame(width: 34, height: 34)
+            Text("Privycs VPN").font(.system(size: 22, weight: .bold))
+                .foregroundStyle(TVColor.onSurface)
+            Spacer()
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape.fill").foregroundStyle(TVColor.teal)
+            }
+            .accessibilityLabel(String(localized: "tv.settings.title"))
+        }
     }
 
     // MARK: — Status hero
@@ -219,19 +236,6 @@ struct TVMainView: View {
         let parts = name.split(separator: "-")
         if let first = parts.first, first.count == 2 { return String(first).uppercased() }
         return ""
-    }
-
-    // MARK: — Unlink
-
-    private var unlinkButton: some View {
-        Button(role: .destructive) {
-            Task { await state.unenroll() }
-        } label: {
-            Label(String(localized: "tv.main.unlink"), systemImage: "xmark.circle")
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(TVColor.error)
-        }
-        .padding(.top, 8)
     }
 
     // MARK: — Formatting

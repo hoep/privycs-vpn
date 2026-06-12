@@ -1,20 +1,17 @@
-v1.1.5.22 (build 118) — tvOS polish toward iPad parity.
+v1.1.5.23 (build 119) — tvOS: Settings screen, top bar, button/colour fixes.
 
-- Connect control is now the big circular DISC with the active protocol's brand
-  LOGO in the centre (WireGuard/AmneziaWG/OpenVPN), like the phone app.
-- Traffic: BAR-chart sparkline (not lines) in iOS colors — Download green (#22C55E),
-  Upload blue (#3B82F6) — with total + live speed.
-- Added LAST HANDSHAKE row + a TUNNEL HEALTH pill (Healthy/Degraded from handshake
-  age) when connected.
-- Server cards now ALWAYS show the protocol logo + a clear selected state (teal
-  border + filled radio) so picking among multiple configs is obvious.
-- Buttons: refresh = teal, Unlink = red — readable in BOTH light and dark (the app
-  follows the TV's appearance now).
+- NEW Settings screen (gear, top-right): GLOBAL DNS override (comma-separated,
+  applied to EVERY protocol — WG/AWG/OpenVPN), Kill Switch, anonymous crash
+  reports, gateway shown, Unlink this TV, and version. (No on-demand/network-rules/
+  file-import — not applicable on a TV.)
+- "Unlink this TV" MOVED into Settings → off the main screen (less scrolling) and
+  no more red-on-red unreadable button; refresh stays teal + readable.
+- Top bar with the Privycs logo + a Settings gear; tighter spacing.
 
-No on-demand rules / no autostart on tvOS (by design — not shown).
+DNS override is GLOBAL across all protocols (not per-protocol). If you meant
+protocol failover (route via another protocol on failure), that's a separate add.
 
 HOW TO TEST (Apple TV)
-- Disc shows the protocol logo; Connect → bars move (green/blue), handshake +
-  health appear. Multiple servers: focus a card + press select → teal border marks
-  it; Connect uses it. Toggle TV Light/Dark → colors adapt.
-- Send a screenshot of the connected screen for final spacing tweaks.
+- Open Settings (gear) → set a DNS, toggle Kill Switch, both persist + apply on the
+  next connect for any protocol. Unlink lives here now.
+- Main screen needs less scrolling. Send a connected-screen screenshot.
