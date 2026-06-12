@@ -86,6 +86,17 @@ final class TVAppState: ObservableObject {
         if let s = try? await settingsRepo.current() {
             settings = s
         }
+        // tvOS: default the kill switch OFF (one-time). Its IPv6 ::/0 injection
+        // forces all v6 into the tunnel; on tvOS the v6 data plane is unreliable,
+        // so that blackholes IPv6 and breaks DNS/internet (Apple TV prefers v6).
+        // The user can re-enable it in Settings (that choice then persists).
+        let d = UserDefaults.standard
+        if !d.bool(forKey: "tvKillSwitchDefaulted") {
+            d.set(true, forKey: "tvKillSwitchDefaulted")
+            if settings.killSwitchEnabled {
+                await saveSettings { $0.killSwitchEnabled = false }
+            }
+        }
         // Observe live tunnel status from the controller.
         observeStatus()
         // Auto-pull the config list if we're already enrolled.

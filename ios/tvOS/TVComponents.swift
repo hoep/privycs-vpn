@@ -15,6 +15,17 @@ func tvProtocolAsset(_ p: VpnProtocol) -> String {
     }
 }
 
+/// Brand colour per protocol — mirrors PrivycsColor (WireGuardRed / OpenVpnOrange
+/// / IpSecBlue / AmneziaWgIndigo) in the App target's PrivycsTheme.
+func tvProtocolColor(_ p: VpnProtocol) -> Color {
+    switch p {
+    case .wireguard: return Color(red: 0.53, green: 0.09, blue: 0.10)   // #88171A
+    case .openvpn:   return Color(red: 0.92, green: 0.49, blue: 0.13)   // #EA7E20
+    case .ipsec:     return Color(red: 0.15, green: 0.39, blue: 0.92)   // #2563EB
+    case .amneziawg: return Color(red: 0.39, green: 0.40, blue: 0.95)   // #6366F1
+    }
+}
+
 /// Bar-chart throughput sparkline — port of the iOS SpeedSparkline (gapped,
 /// rounded, auto-scaled bars), not a line.
 struct TVSpeedSparkline: View {

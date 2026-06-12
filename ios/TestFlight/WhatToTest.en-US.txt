@@ -1,18 +1,18 @@
-v1.1.5.26 (build 122) — tvOS WireGuard: complete the tvOS patch (no-internet attempt).
+v1.1.5.27 (build 123) — tvOS: kill-switch internet fix + wide no-scroll layout.
 
-Yes, the VPN code IS included on Apple TV — the WireGuard/AmneziaWG bridge is
-compiled + active (your handshake confirmed the tunnel comes up). The "connected
-but no internet" is a data-plane issue. Found a gap: the CI patch that ports
-WireGuardKit to tvOS only patched the FIRST iOS guard per file, leaving
-WireGuardAdapter's two wgDisableSomeRoamingForBrokenMobileSemantics() calls
-iOS-only — so on tvOS that endpoint-pinning isn't applied, which can let the data
-path break after the handshake. This build patches ALL guards for tvOS.
+LIKELY THE NO-INTERNET FIX: the kill switch defaulted ON, and its IPv6 ::/0
+injection forces all v6 into the tunnel; on tvOS the v6 data plane is unreliable,
+so that blackholes IPv6 → DNS/connections fail (Apple TV prefers v6). The kill
+switch now defaults OFF on tvOS (re-enable in Settings if your gateway does v6).
 
-HONEST: this is a plausible fix, not a sure one. If WireGuard still connects but
-passes no traffic, the cause is the libwg-go data plane on tvOS hardware (never
-device-verified) and I'll need a device log to go further.
+Layout: when connected the Connect disc is CENTERED with the traffic counters on
+the LEFT and connection details (VPN IP / Endpoint / Last handshake) on the RIGHT —
+no more scrolling. Server cards now show the protocol's brand logo in its colour
+(WG red / OpenVPN orange / AmneziaWG indigo) instead of the globe, and the protocol
+pill is gone.
 
 HOW TO TEST (Apple TV)
-- Connect WireGuard → open something that needs the internet (a streaming app /
-  web). If it still fails, grab the tunnel log (Console.app, subsystem
-  com.privycs.vpn.tunnel) right after connecting and send it.
+- Connect WireGuard → you should now have INTERNET (kill switch off by default).
+- Connected screen: disc centered, traffic left, details right, no scroll.
+- Server cards show the coloured protocol logo. Toggle the kill switch in Settings
+  to compare.
