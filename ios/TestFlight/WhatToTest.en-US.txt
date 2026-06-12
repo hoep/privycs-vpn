@@ -1,12 +1,11 @@
-v1.1.5.32 (build 128) — tvOS: Connect disc fully navigable (focus re-entry fixed).
+v1.1.5.33 (build 129) — tvOS: a real, reachable Connect button.
 
-The disc could be reached on launch but never again once you moved away — the
-focusScope/prefersDefaultFocus I used captured initial focus and blocked re-entry.
-Removed both; the disc is now a normal focusable .card in a focus section, so the
-remote can move onto it, away, and BACK any number of times.
-
-(First build with the new split CI — this is tvOS-only; the iOS app is not rebuilt.)
+Custom focusable buttons (the disc) wouldn't reliably take focus on tvOS. So the
+disc is now just a status visual, and the connect/disconnect action is a STANDARD
+borderedProminent button right beneath it — the exact button type you already reach
+for Refresh/Settings. So you can finally focus it with the remote and connect.
 
 HOW TO TEST (Apple TV)
-- Move focus onto the Connect disc, away to a server card / the top bar, and BACK
-  onto the disc — repeatedly. Press to connect/disconnect. Then: WireGuard → internet?
+- Focus the "Connect" button (below the disc) with the remote → press → it connects.
+  Then check internet (kill switch is off by default), and the kill-switch toggle in
+  Settings.

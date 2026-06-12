@@ -49,46 +49,41 @@ struct TVSpeedSparkline: View {
     }
 }
 
-/// Big circular connect/disc — port of the iOS ConnectButton: glow ring, gradient
-/// fill, the active protocol's brand logo in the centre (shield when idle).
+/// Circular status disc — NON-interactive visual (glow ring, gradient fill, the
+/// active protocol's brand logo in the centre). The actual connect/disconnect is a
+/// separate standard button beneath it, because custom focusable buttons on tvOS
+/// were unreliable to land focus on.
 struct TVConnectDisc: View {
     let connected: Bool
     let connecting: Bool
     let activeProtocol: VpnProtocol?
-    let onTap: () -> Void
 
     private var ring: Color { connected ? TVColor.teal : TVColor.onSurfaceVariant }
 
     var body: some View {
-        // .card is the focusable tvOS button style (lifts/highlights on focus) —
-        // .plain is NOT reliably focusable on tvOS, which is why the remote
-        // couldn't land on the disc. The circle visuals sit inside the card.
-        Button(action: onTap) {
-            ZStack {
-                Circle()
-                    .fill(LinearGradient(
-                        colors: connected
-                            ? [TVColor.teal.opacity(0.32), TVColor.teal.opacity(0.12)]
-                            : [TVColor.surfaceVariant, TVColor.surface],
-                        startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 200, height: 200)
-                    .overlay(Circle().stroke(ring.opacity(0.7), lineWidth: 3))
-                if connecting {
-                    ProgressView().controlSize(.large).tint(TVColor.teal)
-                } else if let p = activeProtocol {
-                    Image(tvProtocolAsset(p))
-                        .renderingMode(.template).resizable().scaledToFit()
-                        .frame(width: 88, height: 88)
-                        .foregroundStyle(ring)
-                } else {
-                    Image(systemName: connected ? "checkmark.shield.fill" : "shield")
-                        .font(.system(size: 88, weight: .light))
-                        .foregroundStyle(ring)
-                }
+        ZStack {
+            Circle()
+                .fill(LinearGradient(
+                    colors: connected
+                        ? [TVColor.teal.opacity(0.32), TVColor.teal.opacity(0.12)]
+                        : [TVColor.surfaceVariant, TVColor.surface],
+                    startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 200, height: 200)
+                .overlay(Circle().stroke(ring.opacity(0.7), lineWidth: 3))
+            if connecting {
+                ProgressView().controlSize(.large).tint(TVColor.teal)
+            } else if let p = activeProtocol {
+                Image(tvProtocolAsset(p))
+                    .renderingMode(.template).resizable().scaledToFit()
+                    .frame(width: 88, height: 88)
+                    .foregroundStyle(ring)
+            } else {
+                Image(systemName: connected ? "checkmark.shield.fill" : "shield")
+                    .font(.system(size: 88, weight: .light))
+                    .foregroundStyle(ring)
             }
-            .frame(width: 220, height: 220)
         }
-        .buttonStyle(.card)
+        .frame(width: 220, height: 220)
     }
 }
 

@@ -60,18 +60,34 @@ struct TVMainView: View {
 
     private var centerColumn: some View {
         let connected = state.status.connected
-        return VStack(spacing: 14) {
+        return VStack(spacing: 16) {
             Text(connected ? String(localized: "tv.status.connected")
                            : String(localized: "tv.status.disconnected"))
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(connected ? TVColor.teal : TVColor.onSurface)
             TVConnectDisc(connected: connected, connecting: state.connecting,
-                          activeProtocol: discProtocol) {
+                          activeProtocol: discProtocol)
+            // The action is a STANDARD borderedProminent button (same kind as the
+            // top-bar buttons you can already reach) — custom focusable buttons on
+            // tvOS wouldn't take focus reliably.
+            Button {
                 Task { await state.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    if state.connecting {
+                        ProgressView()
+                    } else {
+                        Image(systemName: connected ? "stop.fill" : "bolt.fill")
+                    }
+                    Text(connected ? String(localized: "tv.action.disconnect", defaultValue: "Disconnect")
+                                   : String(localized: "tv.action.connect", defaultValue: "Connect"))
+                        .font(.system(size: 24, weight: .bold))
+                }
+                .frame(minWidth: 300)
+                .padding(.vertical, 4)
             }
-            // Always focusable (NOT .disabled — a disabled button is unreachable
-            // on tvOS; the toggle no-ops if no config). .card style + the
-            // centerColumn focusSection make it a normal, re-reachable focus target.
+            .buttonStyle(.borderedProminent)
+            .tint(connected ? TVColor.surfaceVariant : TVColor.teal)
             if connected {
                 HStack(spacing: 10) {
                     if state.status.uptime > 0 {
