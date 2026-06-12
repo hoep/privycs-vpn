@@ -19,6 +19,7 @@ final class TVTunnelController: ObservableObject {
 
     @Published var status: VpnStatus = .disconnected
     @Published var lastError: String?
+    @Published var health: TVHealthLevel = .none
 
     private var observer: NSObjectProtocol?
     private var managers: [NETunnelProviderManager] = []
@@ -111,6 +112,7 @@ final class TVTunnelController: ObservableObject {
         } else {
             uptime = 0
         }
+        let hsEpoch = snap?.lastHandshakeEpoch ?? 0
         status = VpnStatus(
             connected: connected,
             connectionName: connName,
@@ -121,8 +123,28 @@ final class TVTunnelController: ObservableObject {
             txBytes: snap?.txBytes ?? 0,
             localAddress: snap?.localAddress ?? "",
             serverEndpoint: snap?.serverEndpoint ?? "",
+            lastHandshake: Self.formatHandshakeAge(hsEpoch),
             error: snap?.lastError ?? ""
         )
+        // Health: WG/AWG handshake older than 3 min → degraded; otherwise (fresh,
+        // or OpenVPN which has no handshake) healthy while connected.
+        if !connected {
+            health = .none
+        } else if hsEpoch > 0, Int64(Date().timeIntervalSince1970) - hsEpoch > 180 {
+            health = .degraded
+        } else {
+            health = .healthy
+        }
+    }
+
+    /// "N minutes ago" (mirrors VPNTunnelManager.formatHandshakeAge); "" if unknown.
+    static func formatHandshakeAge(_ epoch: Int64) -> String {
+        guard epoch > 0 else { return "" }
+        let age = Int64(Date().timeIntervalSince1970) - epoch
+        if age < 0 { return String(localized: "tv.hs.now", defaultValue: "just now") }
+        if age < 60 { return String(localized: "tv.hs.secs", defaultValue: "\(age) seconds ago") }
+        if age < 3600 { return String(localized: "tv.hs.mins", defaultValue: "\(age / 60) minutes ago") }
+        return String(localized: "tv.hs.hours", defaultValue: "\(age / 3600) hours ago")
     }
 
     // MARK: — Private

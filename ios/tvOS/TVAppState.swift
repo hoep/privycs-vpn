@@ -48,6 +48,7 @@ final class TVAppState: ObservableObject {
     @Published var txSpeed: Double = 0
     @Published var rxHistory: [Double] = []
     @Published var txHistory: [Double] = []
+    @Published var health: TVHealthLevel = .none
     private var lastSampleRx: Int64 = 0
     private var lastSampleTx: Int64 = 0
     private var lastSampleAt: Date?
@@ -104,6 +105,7 @@ final class TVAppState: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 self.status = self.tunnel.status
+                self.health = self.tunnel.health
                 self.ingestSpeedSample(self.tunnel.status)
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }

@@ -1,12 +1,20 @@
-v1.1.5.21 (build 117) — tvOS enroll: the link code auto-rotates (no more "expired").
+v1.1.5.22 (build 118) — tvOS polish toward iPad parity.
 
-The device-code expires after ~10 min; if you waited you saw "this code has
-expired". The enroll screen now fetches a FRESH code ~15s before expiry (and
-immediately if the server ever reports expired), so a valid code + QR is always on
-screen and the link keeps working no matter how long the TV sits there.
+- Connect control is now the big circular DISC with the active protocol's brand
+  LOGO in the centre (WireGuard/AmneziaWG/OpenVPN), like the phone app.
+- Traffic: BAR-chart sparkline (not lines) in iOS colors — Download green (#22C55E),
+  Upload blue (#3B82F6) — with total + live speed.
+- Added LAST HANDSHAKE row + a TUNNEL HEALTH pill (Healthy/Degraded from handshake
+  age) when connected.
+- Server cards now ALWAYS show the protocol logo + a clear selected state (teal
+  border + filled radio) so picking among multiple configs is obvious.
+- Buttons: refresh = teal, Unlink = red — readable in BOTH light and dark (the app
+  follows the TV's appearance now).
+
+No on-demand rules / no autostart on tvOS (by design — not shown).
 
 HOW TO TEST (Apple TV)
-- Leave the enroll screen open well past 10 minutes → the code/QR refreshes itself
-  instead of erroring; linking still works.
-- (Plus build 116: QR enroll, light/dark from Settings, Privycs colors, traffic
-  counters when connected.)
+- Disc shows the protocol logo; Connect → bars move (green/blue), handshake +
+  health appear. Multiple servers: focus a card + press select → teal border marks
+  it; Connect uses it. Toggle TV Light/Dark → colors adapt.
+- Send a screenshot of the connected screen for final spacing tweaks.
