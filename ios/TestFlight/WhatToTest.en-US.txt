@@ -1,14 +1,17 @@
-v1.1.5.38 (build 134) — tvOS visual polish (Apple TV HIG): depth, materials, glow.
+v1.1.5.39 (build 135) — tvOS rebuilt to the Privycs design system (left rail + screens).
 
-A pass to make the app look professional instead of flat (per Apple's tvOS HIG —
-depth/materials/glow at 10-foot distance, not flat fills):
-- Background: dark→teal gradient with a soft teal glow (was a flat colour).
-- Status hero: larger SF-Display headline with a teal glow when connected.
-- Connect disc: outer glow ring + soft shadow.
-- Cards (traffic / details / servers / enroll): frosted .ultraThinMaterial with
-  larger radius + depth shadow, so they float on the gradient.
+Big redesign per the supplied design (stage 1):
+- LEFT NAV RAIL: Privycs logo + Connect / Configs / Rules / Settings, focusable
+  with the console look (teal accent, focus lift).
+- CONNECT screen: the dial (focusable connect control) + uptime + connection name
+  on the left; live traffic cards (bar graphs) + VPN IP / Endpoint / Last handshake
+  + health pill on the right; header with kicker + title + live pill.
+- CONFIGS: your servers as a grid (protocol logo + name + endpoint + tag), select one.
+- RULES: Always-on + WiFi-SSID auto-connect.
+- SETTINGS: DNS, crash reports, version, Unlink.
+- Inter + Fira Code fonts (design-system typography); REAL AmneziaWG logo (the
+  mockup used a placeholder "A").
 
-HOW TO TEST (Apple TV)
-- The connect + enroll screens should look noticeably more "premium" (glow,
-  frosted cards, depth). Function unchanged (connect/Always-on/SSID still work).
-- Send a screenshot of the connected screen so I can fine-tune spacing/sizes.
+HOW TO TEST (Apple TV): navigate the rail with the remote → each screen; on Connect,
+focus the dial → press → connects. Send a screenshot — this is stage 1, I'll refine
+spacing/sizes to match the mockup.

@@ -4,8 +4,24 @@ import PrivycsCore
 /// tvOS ports of the iOS app's connect/traffic components (those live in the App
 /// target, so they're re-declared here against TVColor).
 
+/// Shared byte/speed/uptime formatting for the tvOS screens.
+enum TVFormat {
+    static func bytes(_ b: Int64) -> String {
+        let u = ["B", "KB", "MB", "GB", "TB"]
+        var v = Double(max(0, b)); var i = 0
+        while v >= 1024 && i < u.count - 1 { v /= 1024; i += 1 }
+        return i == 0 ? "\(Int(v)) \(u[i])" : String(format: "%.1f %@", v, u[i])
+    }
+    static func speed(_ bps: Double) -> String { bytes(Int64(bps)) + "/s" }
+    static func uptime(_ s: Int64) -> String {
+        let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%02d:%02d", m, sec)
+    }
+}
+
 /// Asset-catalog name of the protocol brand logo (the imagesets are copied into
-/// tvOS/Assets.xcassets). Mirrors VpnProtocol.assetName in PrivycsTheme.
+/// tvOS/Assets.xcassets). Mirrors VpnProtocol.assetName in PrivycsTheme. The
+/// AmneziaWG entry is the REAL logo asset (the design mockup used a placeholder).
 func tvProtocolAsset(_ p: VpnProtocol) -> String {
     switch p {
     case .wireguard: return "ic_protocol_wireguard"

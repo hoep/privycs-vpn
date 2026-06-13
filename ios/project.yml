@@ -27,7 +27,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.1.5"                  # CFBundleShortVersionString — Apple allows at most 3 integers. Patch identity lives in the build number below.
-    CURRENT_PROJECT_VERSION: "134"               # MUST increment every TestFlight upload; this is the patch build of marketing 1.1.3
+    CURRENT_PROJECT_VERSION: "135"               # MUST increment every TestFlight upload; this is the patch build of marketing 1.1.3
     # ed25519 license pubkey hex — overridden by CI from the
     # LICENSE_PUBLIC_KEY_HEX secret; empty default for local builds.
     LICENSE_PUBLIC_KEY_HEX: ""
@@ -282,6 +282,16 @@ targets:
         LSApplicationCategoryType: public.app-category.utilities
         ITSAppUsesNonExemptEncryption: false
         LicensePublicKeyHex: "$(LICENSE_PUBLIC_KEY_HEX)"
+        # Privycs design-system fonts (bundled under tvOS/Fonts/, picked up by the
+        # tvOS source path). Lets TVFont use Inter + Fira Code.
+        UIAppFonts:
+          - Inter-Regular.ttf
+          - Inter-Medium.ttf
+          - Inter-SemiBold.ttf
+          - Inter-Bold.ttf
+          - FiraCode-Regular.ttf
+          - FiraCode-Medium.ttf
+          - FiraCode-SemiBold.ttf
         UIRequiredDeviceCapabilities:
           - arm64
     entitlements:

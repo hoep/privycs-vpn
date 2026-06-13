@@ -20,7 +20,9 @@ enum TVColor {
     static let onSurface        = dyn(0x08191C, 0xEAF1F3)
     static let onSurfaceVariant = dyn(0x44585E, 0x9DB2BD)
     static let outline          = dyn(0xE2E8E7, 0x1F2D36)
+    static let side             = dyn(0xFFFFFF, 0x0A1117)   // nav rail
     static let error            = c(0xEF4444)
+    static let okFg             = c(0x7FE3B0)               // "live"/healthy text
 
     private static func dyn(_ light: Int, _ dark: Int) -> Color {
         Color(UIColor { tc in tc.userInterfaceStyle == .dark ? ui(dark) : ui(light) })
