@@ -62,14 +62,20 @@ struct TVConnectDisc: View {
 
     var body: some View {
         ZStack {
+            // soft outer glow ring (depth at 10-foot distance)
+            Circle()
+                .stroke(ring.opacity(connected ? 0.45 : 0.18), lineWidth: 6)
+                .frame(width: 232, height: 232)
+                .blur(radius: 6)
             Circle()
                 .fill(LinearGradient(
                     colors: connected
-                        ? [TVColor.teal.opacity(0.32), TVColor.teal.opacity(0.12)]
+                        ? [TVColor.teal.opacity(0.34), TVColor.teal.opacity(0.10)]
                         : [TVColor.surfaceVariant, TVColor.surface],
                     startPoint: .topLeading, endPoint: .bottomTrailing))
                 .frame(width: 200, height: 200)
                 .overlay(Circle().stroke(ring.opacity(0.7), lineWidth: 3))
+                .shadow(color: ring.opacity(connected ? 0.5 : 0.0), radius: 34)
             if connecting {
                 ProgressView().controlSize(.large).tint(TVColor.teal)
             } else if let p = activeProtocol {

@@ -81,8 +81,9 @@ struct TVMainView: View {
         return VStack(spacing: 16) {
             Text(connected ? String(localized: "tv.status.connected")
                            : String(localized: "tv.status.disconnected"))
-                .font(.system(size: 30, weight: .bold))
+                .font(.system(size: 44, weight: .bold))   // SF Display ≥40pt
                 .foregroundStyle(connected ? TVColor.teal : TVColor.onSurface)
+                .shadow(color: connected ? TVColor.teal.opacity(0.4) : .clear, radius: 18)
             TVConnectDisc(connected: connected, connecting: state.connecting,
                           activeProtocol: discProtocol)
             if connected {
@@ -129,10 +130,11 @@ struct TVMainView: View {
                 detailRow(String(localized: "tv.detail.handshake", defaultValue: "Last handshake"), state.status.lastHandshake)
             }
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, 24)
         .frame(maxWidth: .infinity)
-        .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(TVColor.outline, lineWidth: 1))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(TVColor.outline.opacity(0.5), lineWidth: 1))
+        .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
     }
 
     private func statCard(title: String, icon: String, total: Int64, speed: Double,
@@ -149,10 +151,11 @@ struct TVMainView: View {
                 .foregroundStyle(TVColor.onSurface)
             TVSpeedSparkline(samples: history, tint: tint).frame(height: 34)
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(TVColor.outline, lineWidth: 1))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(TVColor.outline.opacity(0.5), lineWidth: 1))
+        .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
     }
 
     private func detailRow(_ label: String, _ value: String) -> some View {
@@ -227,8 +230,11 @@ struct TVMainView: View {
         }
         .padding(18)
         .frame(width: 240, alignment: .leading)
-        .background(selected ? TVColor.teal.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(selected ? TVColor.teal : Color.clear, lineWidth: 3))
+        .background(selected ? AnyShapeStyle(TVColor.teal.opacity(0.18)) : AnyShapeStyle(.ultraThinMaterial),
+                    in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18)
+            .stroke(selected ? TVColor.teal : TVColor.outline.opacity(0.4), lineWidth: selected ? 3 : 1))
+        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
     }
 
     private func countryCode(for entry: RemoteConfigEntry) -> String {

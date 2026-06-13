@@ -14,6 +14,7 @@ enum TVColor {
 
     // Command-console ramp (light --ink/--surface · dark --ink/--surface).
     static let background       = dyn(0xEDF3F2, 0x070B0E)
+    static let backgroundTop    = dyn(0xE3EEEC, 0x0A171C)   // gradient top (teal-tinted)
     static let surface          = dyn(0xFFFFFF, 0x0E161C)
     static let surfaceVariant   = dyn(0xF2F7F6, 0x17242E)
     static let onSurface        = dyn(0x08191C, 0xEAF1F3)

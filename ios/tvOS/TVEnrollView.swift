@@ -87,7 +87,7 @@ struct TVEnrollView: View {
         }
         .padding(32)
         .frame(maxWidth: .infinity, minHeight: 360)
-        .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 24))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
         .overlay(RoundedRectangle(cornerRadius: 24).stroke(TVColor.outline, lineWidth: 1))
     }
 
@@ -127,7 +127,7 @@ struct TVEnrollView: View {
         }
         .padding(32)
         .frame(width: 520, alignment: .leading)
-        .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 24))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
         .overlay(RoundedRectangle(cornerRadius: 24).stroke(TVColor.outline, lineWidth: 1))
     }
 

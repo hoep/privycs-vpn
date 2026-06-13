@@ -1,13 +1,14 @@
-v1.1.5.37 (build 133) — tvOS: WiFi-specific auto-connect (SSID on-demand rules).
+v1.1.5.38 (build 134) — tvOS visual polish (Apple TV HIG): depth, materials, glow.
 
-In Settings under "Auto-connect on these WiFi networks" you can now add WiFi names
-(SSIDs). When Always-on is on AND the list is non-empty, the VPN connects ONLY on
-those networks and disconnects elsewhere (the OS evaluates the SSID — no SSID read
-needed by the app). Empty list = connect on any network (WiFi or Ethernet).
+A pass to make the app look professional instead of flat (per Apple's tvOS HIG —
+depth/materials/glow at 10-foot distance, not flat fills):
+- Background: dark→teal gradient with a soft teal glow (was a flat colour).
+- Status hero: larger SF-Display headline with a teal glow when connected.
+- Connect disc: outer glow ring + soft shadow.
+- Cards (traffic / details / servers / enroll): frosted .ultraThinMaterial with
+  larger radius + depth shadow, so they float on the gradient.
 
 HOW TO TEST (Apple TV)
-- Settings → enable "Connect automatically" → add your home WiFi name exactly →
-  the TV connects on that WiFi and not on others. Remove the entry to go back to
-  any-network.
-NOTE: if SSID matching isn't supported by tvOS the build will flag it and we'll
-keep always-on only.
+- The connect + enroll screens should look noticeably more "premium" (glow,
+  frosted cards, depth). Function unchanged (connect/Always-on/SSID still work).
+- Send a screenshot of the connected screen so I can fine-tune spacing/sizes.

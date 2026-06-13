@@ -8,7 +8,14 @@ struct TVRootView: View {
 
     var body: some View {
         ZStack {
-            TVColor.background.ignoresSafeArea()
+            // Sleek depth (HIG: TVs are viewed at distance — use gradients + glow,
+            // not a flat fill): dark/teal base + a soft teal glow toward the top.
+            LinearGradient(colors: [TVColor.backgroundTop, TVColor.background],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+            RadialGradient(colors: [TVColor.teal.opacity(0.16), .clear],
+                           center: .init(x: 0.5, y: 0.0), startRadius: 0, endRadius: 1100)
+                .ignoresSafeArea()
             Group {
                 if state.isEnrolled {
                     TVMainView()
