@@ -1,5 +1,1 @@
-{
-  "images" : [ { "filename" : "ic_protocol_amneziawg.png", "idiom" : "universal", "scale" : "3x" } ],
-  "info" : { "author" : "xcode", "version" : 1 },
-  "properties" : { "template-rendering-intent" : "template" }
-}
+{ "images" : [ { "filename" : "ic_protocol_amneziawg.png", "idiom" : "universal" } ], "info" : { "author" : "xcode", "version" : 1 }, "properties" : { "template-rendering-intent" : "template" } }

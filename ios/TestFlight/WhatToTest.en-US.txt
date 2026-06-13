@@ -1,13 +1,12 @@
-v1.1.5.40 (build 136) — tvOS: Connect reachable again + dial matches the design.
+v1.1.5.41 (build 137) — tvOS: Privycs logo + AmneziaWG logo now actually render.
 
-- FIX: I'd made the dial itself the button — a custom control with blur/shadow
-  won't take focus on tvOS, so Connect was unreachable. The dial is now display-
-  only and there's a real, reachable Connect/Disconnect button right below it
-  (simple .card button, like the rail items that DO focus).
-- The dial now matches the mockup: bright teal radial gradient (#1ED4B0→#0BA98B→
-  #0C8E76) with a white circle holding the REAL protocol logo (teal-tinted), grey
-  when disconnected.
+Root cause of the missing logos: the imagesets were declared "scale: 3x" (copied
+from iOS), and tvOS doesn't use 3x → the asset resolved to nothing (blank). Fixed:
+- Privycs logo: now the design's 256px logo, universal scale → shows in the rail.
+- AmneziaWG: was a 3x-only PNG (blank on tvOS) → universal now → the real logo shows
+  on the dial + config cards.
+- WireGuard/OpenVPN/IPSec were SVG (fine) — restored their catalog entries.
 
-HOW TO TEST (Apple TV): focus the "Connect" button below the dial → press → it
-connects. Then send a screenshot of the Connect screen + rail so I can match the
-remaining spacing/sizes to the mockup exactly.
+HOW TO TEST (Apple TV): the Privycs logo shows top-left in the rail; the dial +
+config rows show the correct protocol logos (incl. the real AmneziaWG). Connect
+button (below the dial) is reachable. Screenshot welcome for final spacing.
