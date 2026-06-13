@@ -101,7 +101,7 @@ final class TVAppState: ObservableObject {
     /// (a selected saved connection takes precedence over a gateway entry).
     var selectionProtocol: VpnProtocol? {
         if status.connected { return status.activeProtocol }
-        if let s = selectedSaved { return connectionRepo.activeConfig(for: s)?.protocol ?? s.activeProtocol }
+        if let s = selectedSaved { return s.resolvedActiveConfig()?.protocol ?? s.activeProtocol }
         return selectedConfig?.protocol
     }
     var selectionName: String? { selectedSaved?.name ?? selectedConfig?.name }

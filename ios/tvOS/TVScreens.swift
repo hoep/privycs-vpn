@@ -208,8 +208,9 @@ struct TVConfigsScreen: View {
 
     private func savedRow(_ conn: SavedConnection) -> some View {
         let selected = state.selectedSavedID == conn.id
-        let proto = state.connectionRepo.activeConfig(for: conn)?.protocol ?? conn.activeProtocol ?? .wireguard
-        let server = state.connectionRepo.activeConfig(for: conn)?.serverAddress ?? ""
+        let active = conn.resolvedActiveConfig()
+        let proto = active?.protocol ?? conn.activeProtocol ?? .wireguard
+        let server = active?.serverAddress ?? ""
         return HStack(spacing: 16) {
             Image(tvProtocolAsset(proto)).renderingMode(.template).resizable().scaledToFit()
                 .frame(width: 36, height: 36).foregroundStyle(tvProtocolColor(proto))

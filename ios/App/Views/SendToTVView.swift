@@ -103,7 +103,7 @@ struct SendToTVView: View {
             var fields: [String: String] = ["pin": pin]
             if mode == "config" {
                 guard let conn = appState.connections.first(where: { $0.id == selectedConnID }),
-                      let cfg = appState.connectionRepo.activeConfig(for: conn) else {
+                      let cfg = conn.resolvedActiveConfig() else {
                     status = loc("Pick a connection to send."); isError = true; return
                 }
                 fields["kind"] = "config"
