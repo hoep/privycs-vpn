@@ -51,7 +51,7 @@ final class TVTunnelController: ObservableObject {
 
     /// Connect a single (WG/AWG) connection. Rejects IPSec/OpenVPN with a
     /// localized error.
-    func connect(_ connection: SavedConnection, dnsOverride: String, killSwitch: Bool) async {
+    func connect(_ connection: SavedConnection, dnsOverride: String, killSwitch: Bool, onDemand: Bool = false) async {
         lastError = nil
         guard let config = connection.resolvedActiveConfig() else {
             lastError = String(localized: "tv.error.no_config",
@@ -72,7 +72,7 @@ final class TVTunnelController: ObservableObject {
         activeProtocol = config.protocol
         do {
             try await connectViaPTP(connection: connection, config: config,
-                                    dnsOverride: dnsOverride, killSwitch: killSwitch)
+                                    dnsOverride: dnsOverride, killSwitch: killSwitch, onDemand: onDemand)
             await reloadManagersAndRefresh()
             startPolling()
         } catch {
@@ -84,7 +84,15 @@ final class TVTunnelController: ObservableObject {
     func disconnect() async {
         pollTask?.cancel(); pollTask = nil
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        for m in mgrs { m.connection.stopVPNTunnel() }
+        for m in mgrs {
+            // Disarm on-demand first — otherwise an always-on rule would make the
+            // OS instantly reconnect after we stop the tunnel.
+            if m.isOnDemandEnabled {
+                m.isOnDemandEnabled = false
+                try? await m.saveToPreferences()
+            }
+            m.connection.stopVPNTunnel()
+        }
         TunnelStatsStore.clear()
         activeProtocol = nil
         await reloadManagersAndRefresh()
@@ -165,7 +173,7 @@ final class TVTunnelController: ObservableObject {
     }
 
     private func connectViaPTP(connection: SavedConnection, config: ProtocolConfig,
-                               dnsOverride: String, killSwitch: Bool) async throws {
+                               dnsOverride: String, killSwitch: Bool, onDemand: Bool) async throws {
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         let mgr = mgrs.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
@@ -182,7 +190,15 @@ final class TVTunnelController: ObservableObject {
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = connection.name
         mgr.isEnabled = true
-        mgr.isOnDemandEnabled = false   // no on-demand on TV (single fixed network)
+        if onDemand {
+            // Always-on: the OS auto-connects + keeps the tunnel up on ANY network
+            // (WiFi or Ethernet), even after a reboot and without the app open.
+            mgr.onDemandRules = [NEOnDemandRuleConnect()]
+            mgr.isOnDemandEnabled = true
+        } else {
+            mgr.onDemandRules = []
+            mgr.isOnDemandEnabled = false
+        }
         try await mgr.saveToPreferences()
         try await mgr.loadFromPreferences()
         try await startTunnelRetrying(mgr)

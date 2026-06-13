@@ -1,13 +1,12 @@
-v1.1.5.35 (build 131) — tvOS: visible top-bar buttons + kill switch removed.
+v1.1.5.36 (build 132) — tvOS: Auto-connect / Always-on (autostart + on-demand).
 
-- Top-bar buttons (Connect/Refresh/Settings) were white-on-white when not focused
-  (borderedProminent renders that way unfocused on tvOS). Switched to the .card
-  style (always-visible surface, like the server cards) with explicit label colours
-  — Connect is teal so it stands out; all stay readable focused or not.
-- KILL SWITCH removed on tvOS: it only forces IPv6 through the tunnel, which tvOS
-  can't carry, so it blackholed v6 and killed internet/DNS. It's now hard-off and
-  the toggle is gone from Settings. (Connecting works + has internet by default.)
+New Settings toggle "Connect automatically (Always-on)". When on, the VPN profile
+gets an on-demand connect rule, so the OS auto-connects and KEEPS the tunnel up on
+ANY network (WiFi or Ethernet), even after a reboot and without opening the app —
+that's autostart + on-demand in one. The app also connects on launch when it's on.
+Turning it off (or pressing Disconnect) disarms it so it stays disconnected.
 
 HOW TO TEST (Apple TV)
-- Top bar: Connect is visible (teal) even unfocused → connect → you have internet.
-- Settings no longer shows a kill switch (DNS + crash reports remain).
+- Settings → enable "Connect automatically" → it connects and stays up; reboot the
+  Apple TV and it should reconnect on its own. Disconnect/disable to stop.
+- Works on WiFi and Ethernet.

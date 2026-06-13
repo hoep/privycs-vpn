@@ -100,7 +100,20 @@ final class TVAppState: ObservableObject {
         // Observe live tunnel status from the controller.
         observeStatus()
         // Auto-pull the config list if we're already enrolled.
-        if isEnrolled { await refreshConfigs() }
+        if isEnrolled {
+            await refreshConfigs()
+            // Always-on autostart: connect on launch if armed and not already up.
+            if settings.autoConnectOnStart, !status.connected, selectedConfig != nil {
+                await connectSelected()
+            }
+        }
+    }
+
+    /// Always-on toggle: arm/disarm auto-connect (an OS on-demand connect rule).
+    func setAutoConnect(_ on: Bool) async {
+        await saveSettings { $0.autoConnectOnStart = on }
+        if on { await connectSelected() }   // (re)connect with the on-demand rule armed
+        else { await disconnect() }         // disarms on-demand so it stays off
     }
 
     func refreshStatus() {
@@ -234,7 +247,8 @@ final class TVAppState: ObservableObject {
             // plane is unreliable → it blackholes IPv6 and kills internet/DNS.
             await tunnel.connect(connection,
                                  dnsOverride: settings.dnsOverride,
-                                 killSwitch: false)
+                                 killSwitch: false,
+                                 onDemand: settings.autoConnectOnStart)
             if let err = tunnel.lastError { configError = err }
             status = tunnel.status
         } catch {

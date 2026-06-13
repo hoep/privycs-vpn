@@ -10,6 +10,7 @@ struct TVSettingsView: View {
 
     @State private var dns = ""
     @State private var crashReports = true
+    @State private var autoConnect = false
 
     var body: some View {
         NavigationStack {
@@ -22,6 +23,11 @@ struct TVSettingsView: View {
                         .onChange(of: dns) { _, v in
                             Task { await state.saveSettings { $0.dnsOverride = v.trimmingCharacters(in: .whitespaces) } }
                         }
+                    Toggle(String(localized: "tv.settings.autoconnect", defaultValue: "Connect automatically (Always-on)"),
+                           isOn: $autoConnect)
+                        .onChange(of: autoConnect) { _, v in
+                            Task { await state.setAutoConnect(v) }
+                        }
                     // No kill-switch toggle on tvOS: it only forces IPv6 through the
                     // tunnel, which tvOS's v6 data plane can't carry → it blackholes
                     // v6 and kills internet/DNS. Always off here.
@@ -29,7 +35,7 @@ struct TVSettingsView: View {
                     Text(String(localized: "tv.settings.connection", defaultValue: "Connection"))
                 } footer: {
                     Text(String(localized: "tv.settings.dns_hint",
-                                defaultValue: "DNS is applied to every protocol. Empty = use the server's DNS."))
+                                defaultValue: "Always-on keeps the VPN connected automatically on any network (WiFi or Ethernet), even after a reboot. DNS is applied to every protocol; empty = the server's DNS."))
                 }
 
                 Section {
@@ -72,6 +78,7 @@ struct TVSettingsView: View {
         .onAppear {
             dns = state.settings.dnsOverride
             crashReports = state.settings.crashReportsEnabled
+            autoConnect = state.settings.autoConnectOnStart
         }
     }
 }
