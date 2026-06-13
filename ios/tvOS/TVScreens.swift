@@ -14,16 +14,27 @@ struct TVConnectScreen: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 44) {
-            // LEFT — dial + timer + name
-            VStack(spacing: 24) {
+            // LEFT — dial (DISPLAY-ONLY) + a real, reachable Connect button below.
+            // The dial must NOT be the button: a custom control with blur/shadow
+            // won't take focus on tvOS. A simple-content .card button does.
+            VStack(spacing: 22) {
+                TVConnectDisc(connected: state.status.connected,
+                              connecting: state.connecting, activeProtocol: discProtocol)
                 Button { Task { await state.toggle() } } label: {
-                    TVConnectDisc(connected: state.status.connected,
-                                  connecting: state.connecting, activeProtocol: discProtocol)
+                    HStack(spacing: 10) {
+                        if state.connecting { ProgressView() }
+                        else { Image(systemName: state.status.connected ? "stop.fill" : "bolt.fill") }
+                        Text(state.status.connected ? String(localized: "tv.action.disconnect", defaultValue: "Disconnect")
+                                                    : String(localized: "tv.action.connect", defaultValue: "Connect"))
+                            .font(TVFont.sans(24, .bold))
+                    }
+                    .foregroundStyle(state.status.connected ? TVColor.onSurface : TVColor.teal)
+                    .frame(minWidth: 300).padding(.vertical, 6)
                 }
                 .buttonStyle(.card)
                 if state.status.connected, state.status.uptime > 0 {
                     Text(TVFormat.uptime(state.status.uptime))
-                        .font(TVFont.sans(46, .semibold)).monospacedDigit()
+                        .font(TVFont.sans(40, .semibold)).monospacedDigit()
                         .foregroundStyle(TVColor.onSurface)
                 }
                 if let sel = state.selectedConfig {

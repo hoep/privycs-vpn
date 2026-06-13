@@ -74,38 +74,41 @@ struct TVConnectDisc: View {
     let connecting: Bool
     let activeProtocol: VpnProtocol?
 
-    private var ring: Color { connected ? TVColor.teal : TVColor.onSurfaceVariant }
+    // Design disc gradient (#1ED4B0 → #0BA98B → #0C8E76) + the teal-tinted mark.
+    private static let g1 = Color(red: 0.118, green: 0.831, blue: 0.690)
+    private static let g2 = Color(red: 0.043, green: 0.663, blue: 0.545)
+    private static let g3 = Color(red: 0.047, green: 0.557, blue: 0.463)
+    private static let off1 = Color(red: 0.227, green: 0.278, blue: 0.314)
+    private static let off2 = Color(red: 0.133, green: 0.173, blue: 0.200)
+    private var markTint: Color { connected ? Self.g2 : Color(red: 0.604, green: 0.655, blue: 0.682) }
 
     var body: some View {
         ZStack {
-            // soft outer glow ring (depth at 10-foot distance)
+            // outer ring
+            Circle().stroke((connected ? TVColor.teal : TVColor.onSurfaceVariant).opacity(connected ? 0.45 : 0.25), lineWidth: 2)
+                .frame(width: 300, height: 300)
+            // gradient disc
             Circle()
-                .stroke(ring.opacity(connected ? 0.45 : 0.18), lineWidth: 6)
-                .frame(width: 232, height: 232)
-                .blur(radius: 6)
-            Circle()
-                .fill(LinearGradient(
-                    colors: connected
-                        ? [TVColor.teal.opacity(0.34), TVColor.teal.opacity(0.10)]
-                        : [TVColor.surfaceVariant, TVColor.surface],
-                    startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 200, height: 200)
-                .overlay(Circle().stroke(ring.opacity(0.7), lineWidth: 3))
-                .shadow(color: ring.opacity(connected ? 0.5 : 0.0), radius: 34)
-            if connecting {
-                ProgressView().controlSize(.large).tint(TVColor.teal)
-            } else if let p = activeProtocol {
-                Image(tvProtocolAsset(p))
-                    .renderingMode(.template).resizable().scaledToFit()
-                    .frame(width: 88, height: 88)
-                    .foregroundStyle(ring)
-            } else {
-                Image(systemName: connected ? "checkmark.shield.fill" : "shield")
-                    .font(.system(size: 88, weight: .light))
-                    .foregroundStyle(ring)
-            }
+                .fill(RadialGradient(colors: connected ? [Self.g1, Self.g2, Self.g3] : [Self.off1, Self.off2],
+                                     center: .init(x: 0.5, y: 0.36), startRadius: 6, endRadius: 150))
+                .frame(width: 252, height: 252)
+                .shadow(color: connected ? Self.g2.opacity(0.6) : .black.opacity(0.5), radius: 32, y: 16)
+            // white mark circle with the (real) protocol logo
+            Circle().fill(.white).frame(width: 120, height: 120)
+                .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+                .overlay {
+                    if connecting {
+                        ProgressView().controlSize(.large).tint(Self.g2)
+                    } else if let p = activeProtocol {
+                        Image(tvProtocolAsset(p)).renderingMode(.template).resizable().scaledToFit()
+                            .frame(width: 74, height: 74).foregroundStyle(markTint)
+                    } else {
+                        Image(systemName: connected ? "checkmark.shield.fill" : "shield")
+                            .font(.system(size: 60, weight: .light)).foregroundStyle(markTint)
+                    }
+                }
         }
-        .frame(width: 220, height: 220)
+        .frame(width: 300, height: 300)
     }
 }
 
