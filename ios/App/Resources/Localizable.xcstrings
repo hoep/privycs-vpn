@@ -1001,6 +1001,40 @@
         }
       }
     },
+    "A connection": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Verbindung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une connexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una connessione"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma ligação"
+          }
+        }
+      }
+    },
     "API key": {
       "localizations": {
         "de": {
@@ -1681,6 +1715,40 @@
         }
       }
     },
+    "Apple TV": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV"
+          }
+        }
+      }
+    },
     "Auto": {
       "localizations": {
         "de": {
@@ -2117,6 +2185,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cópia de segurança criada — toque em «Partilhar» para a guardar."
+          }
+        }
+      }
+    },
+    "Backup passphrase": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup-Passphrase"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraseña de la copia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phrase secrète de sauvegarde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passphrase del backup"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palavra-passe da cópia"
           }
         }
       }
@@ -4357,6 +4459,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apoio por e-mail"
+          }
+        }
+      }
+    },
+    "Encrypted backup": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verschlüsseltes Backup"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia de seguridad cifrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sauvegarde chiffrée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup crittografato"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cópia de segurança encriptada"
           }
         }
       }
@@ -6641,6 +6777,40 @@
         }
       }
     },
+    "On the Apple TV open Configs → Add / restore. Scan the code it shows.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne auf dem Apple TV Konfigs → Hinzufügen / Wiederherstellen. Scanne den angezeigten Code."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el Apple TV abre Configuraciones → Añadir / restaurar. Escanea el código que muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur l'Apple TV, ouvrez Configs → Ajouter / restaurer. Scannez le code affiché."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sull'Apple TV apri Config → Aggiungi / ripristina. Scansiona il codice mostrato."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na Apple TV abra Configs → Adicionar / restaurar. Digitalize o código apresentado."
+          }
+        }
+      }
+    },
     "On-Demand & Network Rules": {
       "localizations": {
         "de": {
@@ -7317,6 +7487,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Em pausa — retoma em %llds"
+          }
+        }
+      }
+    },
+    "Pick a connection to send.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle eine Verbindung zum Senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una conexión para enviar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une connexion à envoyer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli una connessione da inviare."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma ligação para enviar."
           }
         }
       }
@@ -9001,6 +9205,74 @@
         }
       }
     },
+    "Scan a different code": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anderen Code scannen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escanear otro código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scanner un autre code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scansiona un altro codice"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digitalizar outro código"
+          }
+        }
+      }
+    },
+    "Scan the code on your Apple TV": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den Code auf deinem Apple TV scannen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escanea el código en tu Apple TV"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scannez le code sur votre Apple TV"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scansiona il codice sulla tua Apple TV"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digitalize o código na sua Apple TV"
+          }
+        }
+      }
+    },
     "Scanned config": {
       "localizations": {
         "de": {
@@ -9157,6 +9429,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Política de seleção"
+          }
+        }
+      }
+    },
+    "Send to Apple TV": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An Apple TV senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar al Apple TV"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer vers l'Apple TV"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia all'Apple TV"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar para a Apple TV"
+          }
+        }
+      }
+    },
+    "Sent ✓ — check your Apple TV.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesendet ✓ – sieh auf deinem Apple TV nach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado ✓: revisa tu Apple TV."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé ✓ — vérifiez votre Apple TV."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviato ✓ — controlla la tua Apple TV."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado ✓ — verifique a sua Apple TV."
           }
         }
       }
@@ -9597,6 +9937,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Testar DNS"
+          }
+        }
+      }
+    },
+    "That isn't a Privycs Apple TV code.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das ist kein Privycs-Apple-TV-Code."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eso no es un código de Apple TV de Privycs."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce n'est pas un code Apple TV Privycs."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo non è un codice Apple TV di Privycs."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isto não é um código de Apple TV da Privycs."
+          }
+        }
+      }
+    },
+    "The Apple TV rejected the data (check the PIN).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Apple TV hat die Daten abgelehnt (PIN prüfen)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Apple TV rechazó los datos (comprueba el PIN)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'Apple TV a refusé les données (vérifiez le code PIN)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'Apple TV ha rifiutato i dati (controlla il PIN)."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Apple TV rejeitou os dados (verifique o PIN)."
           }
         }
       }
@@ -10477,6 +10885,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bem-vindo ao Privycs VPN"
+          }
+        }
+      }
+    },
+    "What to send": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qué enviar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quoi envoyer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cosa inviare"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O que enviar"
           }
         }
       }

@@ -1,24 +1,24 @@
-v1.1.5.44 (build 140) — tvOS: full i18n + DNS presets + Tunnel Health.
+v1.1.5.46 / iOS 1.1.5.32 (build 142) — Apple TV: manual configs + backup/restore without the gateway, and "Send to Apple TV" on iPhone.
 
-Addresses the "half German / half English" report and missing Settings options:
+Apple TV has no Files app, document picker, or camera, so configs/backups now arrive
+over the LOCAL NETWORK — no gateway, no cloud, only the Local Network permission:
 
-- i18n is now complete and consistent. Every tvOS string is translated into all 6
-  languages (en/de/es/fr/it/pt) — the earlier mix was caused by newer strings that
-  weren't yet in the catalog. Added an in-app Language picker (Settings →
-  Appearance) that switches language immediately, no relaunch — same as the phone
-  app.
-- DNS: predefined resolver presets are back (Cloudflare, Google, Quad9, AdGuard,
-  Mullvad, …) via a picker, alongside the free-text field.
-- Tunnel Health: the monitoring option is in Settings now — mode (Auto / Always on
-  / Off), ping target, check interval, mark-dead threshold. "Off" hides the health
-  pill on Connect.
+tvOS:
+- Configs → "Add / restore" shows a QR + PIN. The Apple TV hosts a tiny local-network
+  endpoint. Scan the QR with ANY phone camera to open a paste/upload page in the
+  browser, paste a .conf (or a backup file + passphrase), and send.
+- Imported connections appear in their own list, are selectable, and connect like
+  gateway configs. tvOS runs WireGuard + AmneziaWG only — OpenVPN/IPSec are rejected
+  with a clear message. Backup restore uses the same cross-platform encrypted format.
 
-HOW TO TEST (Apple TV):
-1. Whole UI should now be in ONE language (your TV's language). Try Settings →
-   Appearance → Language to switch on the fly.
-2. Settings → DNS preset picker, and the Tunnel Health section.
-3. Send a screenshot if anything still shows the wrong language.
+iPhone:
+- Settings → Backup → "Send to Apple TV": scan the code shown on the TV, pick a
+  connection or an encrypted backup, and push it straight to the TV over Wi-Fi.
 
-(Backup/Restore and manual config import without the gateway are coming next — they
-need a tvOS-specific transport since Apple TV has no Files app / document picker;
-I've asked which approach you want.)
+HOW TO TEST:
+1. tvOS: Configs → Add / restore → scan the QR with your phone → paste a WireGuard
+   .conf → it appears in "Imported" and connects.
+2. iPhone: Settings → Backup → Send to Apple TV → scan → send a connection. Confirm
+   it shows up on the TV.
+3. Backup: send/paste a .pvcbackup with its passphrase to the TV → connections restore.
+   Send a screenshot if the QR doesn't render or the Local Network prompt misbehaves.

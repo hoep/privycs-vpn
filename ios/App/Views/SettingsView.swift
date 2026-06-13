@@ -134,6 +134,9 @@ struct SettingsView: View {
                     NavigationLink {
                         BackupView().environmentObject(appState)
                     } label: { Text("Backup & Restore") }
+                    NavigationLink {
+                        SendToTVView().environmentObject(appState)
+                    } label: { Text("Send to Apple TV") }
                 }
 
                 Section("Pro") {

@@ -27,7 +27,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.1.5"                  # CFBundleShortVersionString — Apple allows at most 3 integers. Patch identity lives in the build number below.
-    CURRENT_PROJECT_VERSION: "141"               # MUST increment every TestFlight upload; this is the patch build of marketing 1.1.3
+    CURRENT_PROJECT_VERSION: "142"               # MUST increment every TestFlight upload; this is the patch build of marketing 1.1.3
     # ed25519 license pubkey hex — overridden by CI from the
     # LICENSE_PUBLIC_KEY_HEX secret; empty default for local builds.
     LICENSE_PUBLIC_KEY_HEX: ""
@@ -101,6 +101,15 @@ targets:
         NSCameraUsageDescription: >
           Privycs uses the camera only to scan VPN-config QR codes you
           provide. No images are stored or transmitted.
+        # "Send to Apple TV" (SendToTVView): the phone POSTs a config/backup to
+        # the TV's LAN import server. Outgoing local-network access needs this
+        # usage string; the cleartext-HTTP-to-LAN exception is scoped to the
+        # local network only (ATS stays on for everything else).
+        NSLocalNetworkUsageDescription: >
+          Privycs uses the local network so you can send a VPN configuration or
+          backup from this phone to your Apple TV. Nothing leaves your network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         ITSAppUsesNonExemptEncryption: false
         LicensePublicKeyHex: "$(LICENSE_PUBLIC_KEY_HEX)"
         UIBackgroundModes:
@@ -282,6 +291,14 @@ targets:
         LSApplicationCategoryType: public.app-category.utilities
         ITSAppUsesNonExemptEncryption: false
         LicensePublicKeyHex: "$(LICENSE_PUBLIC_KEY_HEX)"
+        # Local-network import (TVImportServer): the TV hosts a tiny HTTP listener
+        # + advertises a Bonjour service so a phone can send a config/backup over
+        # the LAN (no gateway). Triggers the tvOS Local Network permission prompt.
+        NSLocalNetworkUsageDescription: >
+          Privycs uses the local network so you can send a VPN configuration or
+          backup from your phone to this Apple TV. Nothing leaves your network.
+        NSBonjourServices:
+          - _privycs-tv._tcp
         # Privycs design-system fonts (bundled under tvOS/Fonts/, picked up by the
         # tvOS source path). Lets TVFont use Inter + Fira Code.
         UIAppFonts:

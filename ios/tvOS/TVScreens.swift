@@ -8,9 +8,7 @@ import PrivycsCore
 struct TVConnectScreen: View {
     @EnvironmentObject private var state: TVAppState
 
-    private var discProtocol: VpnProtocol? {
-        state.status.connected ? state.status.activeProtocol : state.selectedConfig?.protocol
-    }
+    private var discProtocol: VpnProtocol? { state.selectionProtocol }
 
     var body: some View {
         HStack(alignment: .center, spacing: 44) {
@@ -37,8 +35,8 @@ struct TVConnectScreen: View {
                         .font(TVFont.sans(40, .semibold)).monospacedDigit()
                         .foregroundStyle(TVColor.onSurface)
                 }
-                if let sel = state.selectedConfig {
-                    Text(sel.name).font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
+                if let name = state.selectionName {
+                    Text(name).font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
                 }
                 protocolPills
             }
@@ -148,35 +146,87 @@ struct TVConnectScreen: View {
 
 struct TVConfigsScreen: View {
     @EnvironmentObject private var state: TVAppState
+    @State private var showImport = false
     private let cols = [GridItem(.flexible(), spacing: 18), GridItem(.flexible(), spacing: 18)]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if state.loadingConfigs && state.remoteConfigs.isEmpty {
-                ProgressView().frame(maxWidth: .infinity, alignment: .center).padding(40)
-            } else if let err = state.configError, state.remoteConfigs.isEmpty {
-                Text(err).font(TVFont.sans(18)).foregroundStyle(TVColor.error)
-            } else if state.remoteConfigs.isEmpty {
-                Text("tv.main.no_configs", tableName: nil).font(TVFont.sans(19)).foregroundStyle(TVColor.onSurfaceVariant)
-            } else {
+            // Action row — import (manual config / restore, no gateway) + refresh.
+            HStack(spacing: 16) {
+                Button { showImport = true } label: {
+                    Label(loc("tv.import.add"), systemImage: "plus.rectangle.on.rectangle")
+                        .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.teal)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .padding(.vertical, 12).padding(.horizontal, 22)
+                }
+                .buttonStyle(.card)
+                Button { Task { await state.refreshConfigs() } } label: {
+                    Label(loc("tv.main.refresh"), systemImage: "arrow.clockwise")
+                        .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .padding(.vertical, 12).padding(.horizontal, 22)
+                }
+                .buttonStyle(.card)
+            }
+
+            // Locally-imported (manual) connections.
+            if !state.savedConnections.isEmpty {
+                Text(loc("tv.configs.imported")).font(TVFont.mono(15)).tracking(2)
+                    .foregroundStyle(TVColor.onSurfaceVariant).padding(.top, 6)
                 LazyVGrid(columns: cols, spacing: 18) {
-                    ForEach(state.remoteConfigs) { entry in
-                        Button { state.selectedConfigID = entry.id } label: { configRow(entry) }
+                    ForEach(state.savedConnections) { conn in
+                        Button { state.selectSaved(conn.id) } label: { savedRow(conn) }
                             .buttonStyle(.card)
                     }
                 }
             }
-            Button { Task { await state.refreshConfigs() } } label: {
-                Label(loc("tv.main.refresh"), systemImage: "arrow.clockwise")
-                    .font(TVFont.sans(24, .semibold)).foregroundStyle(TVColor.onSurface)
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                    .padding(.vertical, 12).padding(.horizontal, 22)
+
+            // Gateway-pulled configs.
+            if state.loadingConfigs && state.remoteConfigs.isEmpty {
+                ProgressView().frame(maxWidth: .infinity, alignment: .center).padding(40)
+            } else if let err = state.configError, state.remoteConfigs.isEmpty {
+                Text(err).font(TVFont.sans(18)).foregroundStyle(TVColor.error)
+            } else if state.remoteConfigs.isEmpty && state.savedConnections.isEmpty {
+                Text("tv.main.no_configs", tableName: nil).font(TVFont.sans(19)).foregroundStyle(TVColor.onSurfaceVariant)
+            } else if !state.remoteConfigs.isEmpty {
+                if !state.savedConnections.isEmpty {
+                    Text(loc("tv.configs.gateway")).font(TVFont.mono(15)).tracking(2)
+                        .foregroundStyle(TVColor.onSurfaceVariant).padding(.top, 6)
+                }
+                LazyVGrid(columns: cols, spacing: 18) {
+                    ForEach(state.remoteConfigs) { entry in
+                        Button { state.selectGateway(entry.id) } label: { configRow(entry) }
+                            .buttonStyle(.card)
+                    }
+                }
             }
-            .buttonStyle(.card)
-            .padding(.top, 6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+        .sheet(isPresented: $showImport) { TVImportView().environmentObject(state) }
+    }
+
+    private func savedRow(_ conn: SavedConnection) -> some View {
+        let selected = state.selectedSavedID == conn.id
+        let proto = state.connectionRepo.activeConfig(for: conn)?.protocol ?? conn.activeProtocol ?? .wireguard
+        let server = state.connectionRepo.activeConfig(for: conn)?.serverAddress ?? ""
+        return HStack(spacing: 16) {
+            Image(tvProtocolAsset(proto)).renderingMode(.template).resizable().scaledToFit()
+                .frame(width: 36, height: 36).foregroundStyle(tvProtocolColor(proto))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(conn.name).font(TVFont.sans(20, .semibold)).foregroundStyle(TVColor.onSurface).lineLimit(1)
+                if !server.isEmpty {
+                    Text(server).font(TVFont.mono(14)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
+                }
+            }
+            Spacer()
+            Button(role: .destructive) { Task { await state.deleteSaved(conn.id) } } label: {
+                Image(systemName: "trash")
+            }.buttonStyle(.card)
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(selected ? TVColor.teal : TVColor.onSurfaceVariant)
+        }
+        .padding(18)
     }
 
     private func configRow(_ entry: RemoteConfigEntry) -> some View {

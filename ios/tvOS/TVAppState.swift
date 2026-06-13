@@ -38,6 +38,13 @@ final class TVAppState: ObservableObject {
     @Published var loadingConfigs = false
     @Published var configError: String?
 
+    /// Locally-imported connections (manual `.conf`, no gateway). Persisted via
+    /// `connectionRepo`, shown alongside the gateway-pulled list.
+    @Published var savedConnections: [SavedConnection] = []
+    /// `id` of the selected saved connection. Mutually exclusive with
+    /// `selectedConfigID` (only one selection source is active at a time).
+    @Published var selectedSavedID: String?
+
     /// Live tunnel status, mirrored from the controller for view convenience.
     @Published var status: VpnStatus = .disconnected
     @Published var connecting = false
@@ -76,9 +83,33 @@ final class TVAppState: ObservableObject {
     }
 
     var selectedConfig: RemoteConfigEntry? {
+        // A selected saved (manual) connection wins — they're mutually exclusive.
+        if selectedSavedID != nil { return nil }
         guard let id = selectedConfigID else { return remoteConfigs.first }
         return remoteConfigs.first(where: { $0.id == id }) ?? remoteConfigs.first
     }
+
+    var selectedSaved: SavedConnection? {
+        guard let id = selectedSavedID else { return nil }
+        return savedConnections.first { $0.id == id }
+    }
+
+    /// Whether anything is selected/connectable at all (gateway or saved).
+    var hasSelection: Bool { selectedSaved != nil || selectedConfig != nil }
+
+    /// Protocol for the dial — live when connected, else the current selection
+    /// (a selected saved connection takes precedence over a gateway entry).
+    var selectionProtocol: VpnProtocol? {
+        if status.connected { return status.activeProtocol }
+        if let s = selectedSaved { return connectionRepo.activeConfig(for: s)?.protocol ?? s.activeProtocol }
+        return selectedConfig?.protocol
+    }
+    var selectionName: String? { selectedSaved?.name ?? selectedConfig?.name }
+
+    /// Select a saved (manual) connection, clearing any gateway selection.
+    func selectSaved(_ id: String) { selectedSavedID = id; selectedConfigID = nil }
+    /// Select a gateway config, clearing any saved selection.
+    func selectGateway(_ id: Int) { selectedConfigID = id; selectedSavedID = nil }
 
     // MARK: — Lifecycle
 
@@ -100,6 +131,7 @@ final class TVAppState: ObservableObject {
             }
         }
         loadSSIDs()
+        savedConnections = (try? await connectionRepo.loadAll()) ?? []
         // Observe live tunnel status from the controller.
         observeStatus()
         // Auto-pull the config list if we're already enrolled.
@@ -251,6 +283,18 @@ final class TVAppState: ObservableObject {
     }
 
     func connectSelected() async {
+        // Manual (locally-imported) connection — already has its config, no fetch.
+        if let saved = selectedSaved {
+            connecting = true
+            defer { connecting = false }
+            configError = nil
+            let dns = saved.dnsOverride.isEmpty ? settings.dnsOverride : saved.dnsOverride
+            await tunnel.connect(saved, dnsOverride: dns, killSwitch: false,
+                                 onDemand: settings.autoConnectOnStart, ssids: onDemandSSIDs)
+            if let err = tunnel.lastError { configError = err }
+            status = tunnel.status
+            return
+        }
         guard let entry = selectedConfig, let client = gatewayClient else { return }
         connecting = true
         defer { connecting = false }
@@ -293,5 +337,66 @@ final class TVAppState: ObservableObject {
         defer { connecting = false }
         await tunnel.disconnect()
         status = tunnel.status
+    }
+
+    // MARK: — Local import (manual config + backup restore over the LAN)
+
+    enum TVImportResult {
+        case config(name: String, proto: VpnProtocol)
+        case backup(connections: Int)
+        case unsupported(VpnProtocol)
+        case failure(String)
+    }
+
+    /// Route a payload received from the local-network import server.
+    @discardableResult
+    func handleImport(_ payload: TVImportPayload) async -> TVImportResult {
+        switch payload.kind {
+        case .config: return await importConfig(name: payload.name, content: payload.content)
+        case .backup: return await importBackup(payload.content, passphrase: payload.passphrase)
+        }
+    }
+
+    /// Import a raw `.conf` as a saved connection. tvOS runs WireGuard +
+    /// AmneziaWG only — OpenVPN/IPSec configs are rejected with a clear result.
+    func importConfig(name rawName: String, content: String) async -> TVImportResult {
+        let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let proto = ConfigImport.detectProtocol(filename: "\(trimmedName).conf", content: content)
+        guard proto == .wireguard || proto == .amneziawg else { return .unsupported(proto) }
+        let name = trimmedName.isEmpty ? ConfigImport.deriveConnectionName(content) : trimmedName
+        let conn = ConfigImport.makeConnection(name: name, filename: "\(name).conf", content: content)
+        do {
+            try await connectionRepo.save(conn)
+            savedConnections = (try? await connectionRepo.loadAll()) ?? savedConnections
+            selectSaved(conn.id)
+            return .config(name: conn.name, proto: proto)
+        } catch {
+            return .failure(error.localizedDescription)
+        }
+    }
+
+    /// Restore an encrypted backup blob (same cross-platform AES-256-GCM envelope
+    /// as the phone/Android/desktop apps). tvOS has no pools/rules engine, so it
+    /// restores connections + settings only.
+    func importBackup(_ blob: String, passphrase: String) async -> TVImportResult {
+        guard let data = blob.data(using: .utf8) else { return .failure("Invalid backup data") }
+        do {
+            let payload = try BackupManager.decrypt(data, password: passphrase)
+            for c in payload.connections.connections { try? await connectionRepo.save(c) }
+            try? await settingsRepo.save(payload.settings)
+            settings = payload.settings
+            TVLanguageManager.shared.set(settings.appLanguage)
+            savedConnections = (try? await connectionRepo.loadAll()) ?? savedConnections
+            return .backup(connections: payload.connections.connections.count)
+        } catch {
+            let msg = (error as? BackupManager.BackupError)?.errorDescription ?? error.localizedDescription
+            return .failure(msg)
+        }
+    }
+
+    func deleteSaved(_ id: String) async {
+        try? await connectionRepo.delete(id)
+        savedConnections = (try? await connectionRepo.loadAll()) ?? savedConnections
+        if selectedSavedID == id { selectedSavedID = nil }
     }
 }
