@@ -1,24 +1,18 @@
-v1.1.5.46 / iOS 1.1.5.32 (build 142) — Apple TV: manual configs + backup/restore without the gateway, and "Send to Apple TV" on iPhone.
+v1.1.5.48 (build 144) — tvOS: Settings & Rules rebuilt to the design template.
 
-Apple TV has no Files app, document picker, or camera, so configs/backups now arrive
-over the LOCAL NETWORK — no gateway, no cloud, only the Local Network permission:
+The Settings/Rules screens were a 10-foot usability mess — raw tvOS pickers, system
+toggles and bare text fields. Rebuilt them on the design template's component
+vocabulary:
+- Setting rows now follow the template's "setrow": bold title + muted description on
+  the left, control on the right, full-width focusable cards with the teal focus glow.
+- Custom toggle pills (the template's .tg) instead of system toggles.
+- Segmented controls (.seg) for Health mode / interval / threshold and Language —
+  big tappable segments, selected one in teal — instead of pop-up pickers.
+- DNS: a mono field + a horizontal row of preset chips (Cloudflare, Quad9, …).
+- Backup & Restore and Unlink are proper setrows with .setb-style action buttons.
+- Rules screen uses the same toggle-pill row + setting blocks.
 
-tvOS:
-- Configs → "Add / restore" shows a QR + PIN. The Apple TV hosts a tiny local-network
-  endpoint. Scan the QR with ANY phone camera to open a paste/upload page in the
-  browser, paste a .conf (or a backup file + passphrase), and send.
-- Imported connections appear in their own list, are selectable, and connect like
-  gateway configs. tvOS runs WireGuard + AmneziaWG only — OpenVPN/IPSec are rejected
-  with a clear message. Backup restore uses the same cross-platform encrypted format.
-
-iPhone:
-- Settings → Backup → "Send to Apple TV": scan the code shown on the TV, pick a
-  connection or an encrypted backup, and push it straight to the TV over Wi-Fi.
-
-HOW TO TEST:
-1. tvOS: Configs → Add / restore → scan the QR with your phone → paste a WireGuard
-   .conf → it appears in "Imported" and connects.
-2. iPhone: Settings → Backup → Send to Apple TV → scan → send a connection. Confirm
-   it shows up on the TV.
-3. Backup: send/paste a .pvcbackup with its passphrase to the TV → connections restore.
-   Send a screenshot if the QR doesn't render or the Local Network prompt misbehaves.
+HOW TO TEST (Apple TV): open Settings and Rules. Everything should look consistent
+with the Connect/Configs design — large rows, teal focus, no pop-up pickers. Move
+focus through every control with the remote and confirm it's all reachable + legible.
+Send a screenshot of Settings and Rules.

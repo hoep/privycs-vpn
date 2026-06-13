@@ -262,42 +262,25 @@ struct TVRulesScreen: View {
     @State private var newSSID = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Toggle(isOn: $autoConnect) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(loc("tv.settings.autoconnect"))
-                        .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
-                    Text(loc("tv.rules.autoconnect_hint"))
-                        .font(TVFont.sans(16)).foregroundStyle(TVColor.onSurfaceVariant)
-                }
-            }
-            .tint(TVColor.teal)
-            .onChange(of: autoConnect) { _, v in Task { await state.setAutoConnect(v) } }
-            .padding(22)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        VStack(alignment: .leading, spacing: 16) {
+            TVToggleRow(title: loc("tv.settings.autoconnect"),
+                        description: loc("tv.rules.autoconnect_hint"),
+                        isOn: $autoConnect) { v in Task { await state.setAutoConnect(v) } }
 
-            VStack(alignment: .leading, spacing: 14) {
-                Text(loc("tv.settings.wifi_rules"))
-                    .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
-                Text(loc("tv.rules.wifi_hint"))
-                    .font(TVFont.sans(16)).foregroundStyle(TVColor.onSurfaceVariant)
+            TVSettingsBlock(title: loc("tv.settings.wifi_rules"), description: loc("tv.rules.wifi_hint")) {
                 TextField(loc("tv.settings.add_ssid"), text: $newSSID)
-                    .font(TVFont.sans(20))
+                    .font(TVFont.sans(21))
                     .onSubmit { Task { await state.addSSID(newSSID); newSSID = "" } }
                 ForEach(state.onDemandSSIDs, id: \.self) { ssid in
-                    HStack {
+                    HStack(spacing: 14) {
                         Image(systemName: "wifi").foregroundStyle(TVColor.teal)
-                        Text(ssid).font(TVFont.sans(19)).foregroundStyle(TVColor.onSurface)
+                        Text(ssid).font(TVFont.sans(20)).foregroundStyle(TVColor.onSurface)
                         Spacer()
-                        Button(role: .destructive) { Task { await state.removeSSID(ssid) } } label: {
-                            Image(systemName: "minus.circle.fill")
-                        }.buttonStyle(.card)
+                        TVActionButton(title: "", icon: "trash", action: { Task { await state.removeSSID(ssid) } }, role: .destructive)
                     }
+                    .padding(.top, 4)
                 }
             }
-            .padding(22)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
@@ -310,122 +293,87 @@ struct TVRulesScreen: View {
 struct TVSettingsScreen: View {
     @EnvironmentObject private var state: TVAppState
     @State private var dns = ""
-    @State private var dnsPreset = ""        // DnsProvider.id, "" = server default / custom
     @State private var crashReports = true
     @State private var healthMode = "auto"
     @State private var healthTarget = ""
     @State private var healthInterval = 0
     @State private var healthThreshold = 0
     @State private var language = ""
+    @State private var showImport = false
 
-    private let languages: [(code: String, label: String)] = [
-        ("", ""), ("en", "English"), ("de", "Deutsch"),
-        ("es", "Español"), ("fr", "Français"), ("it", "Italiano"), ("pt", "Português"),
-    ]
+    private var languageOptions: [(value: String, label: String)] {
+        [("", loc("tv.lang.system")), ("en", "EN"), ("de", "DE"),
+         ("es", "ES"), ("fr", "FR"), ("it", "IT"), ("pt", "PT")]
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            // ── DNS (free-text + canonical presets) ──
-            card {
-                Text(loc("tv.settings.connection"))
-                    .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
+        VStack(alignment: .leading, spacing: 16) {
+            // ── DNS Override (field + canonical presets) ──
+            TVSettingsBlock(title: "DNS", description: loc("tv.settings.dns_hint2")) {
                 TextField(loc("tv.settings.dns_placeholder"), text: $dns)
-                    .font(TVFont.mono(20))
+                    .font(TVFont.mono(21))
                     .onChange(of: dns) { _, v in
                         let t = v.trimmingCharacters(in: .whitespaces)
                         Task { await state.saveSettings { $0.dnsOverride = t } }
                     }
-                Picker(loc("tv.settings.dns_preset"), selection: $dnsPreset) {
-                    Text(loc("tv.settings.dns_default")).tag("")
-                    ForEach(DnsPresets.providers) { p in Text(p.label).tag(p.id) }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        dnsChip(loc("tv.settings.dns_default"), value: "")
+                        ForEach(DnsPresets.providers) { p in dnsChip(p.label, value: p.serversJoined) }
+                    }
                 }
-                .onChange(of: dnsPreset) { _, id in
-                    let v = DnsPresets.providers.first { $0.id == id }?.serversJoined ?? ""
-                    if v != dns { dns = v }
-                }
-                Text(loc("tv.settings.dns_hint2"))
-                    .font(TVFont.sans(15)).foregroundStyle(TVColor.onSurfaceVariant)
             }
 
             // ── Tunnel Health ──
-            card {
-                Text(loc("tv.hc.section"))
-                    .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
-                Picker(loc("tv.hc.mode"), selection: $healthMode) {
-                    Text(loc("tv.hc.auto")).tag("auto")
-                    Text(loc("tv.hc.always")).tag("always")
-                    Text(loc("tv.hc.off")).tag("off")
-                }
-                .onChange(of: healthMode) { _, _ in persistHealth() }
+            TVSettingsBlock(title: loc("tv.hc.section"), description: loc("tv.hc.hint")) {
+                TVSegmented(options: [("auto", loc("tv.hc.auto")), ("always", loc("tv.hc.always")), ("off", loc("tv.hc.off"))],
+                            selection: $healthMode) { _ in persistHealth() }
                 if healthMode != "off" {
                     TextField(loc("tv.hc.target_ph"), text: $healthTarget)
-                        .font(TVFont.mono(20))
+                        .font(TVFont.mono(21))
                         .onChange(of: healthTarget) { _, _ in persistHealth() }
-                    Picker(loc("tv.hc.interval"), selection: $healthInterval) {
-                        Text(loc("tv.hc.int_default")).tag(0)
-                        Text(loc("tv.hc.int_5")).tag(5)
-                        Text(loc("tv.hc.int_10")).tag(10)
-                        Text(loc("tv.hc.int_30")).tag(30)
-                        Text(loc("tv.hc.int_60")).tag(60)
+                    HStack(spacing: 14) {
+                        labeledSeg(loc("tv.hc.interval"),
+                                   [(0, loc("tv.hc.default")), (5, "5s"), (10, "10s"), (30, "30s"), (60, "60s")],
+                                   $healthInterval)
                     }
-                    .onChange(of: healthInterval) { _, _ in persistHealth() }
-                    Picker(loc("tv.hc.threshold"), selection: $healthThreshold) {
-                        Text(loc("tv.hc.thr_default")).tag(0)
-                        Text(loc("tv.hc.thr_2")).tag(2)
-                        Text(loc("tv.hc.thr_3")).tag(3)
-                        Text(loc("tv.hc.thr_5")).tag(5)
-                    }
-                    .onChange(of: healthThreshold) { _, _ in persistHealth() }
+                    labeledSeg(loc("tv.hc.threshold"),
+                               [(0, loc("tv.hc.default")), (2, "2"), (3, "3"), (5, "5")],
+                               $healthThreshold)
                 }
-                Text(loc("tv.hc.hint"))
-                    .font(TVFont.sans(15)).foregroundStyle(TVColor.onSurfaceVariant)
             }
 
-            // ── Appearance / Language ──
-            card {
-                Text(loc("tv.settings.appearance"))
-                    .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
-                Picker(loc("tv.settings.language"), selection: $language) {
-                    Text(loc("tv.lang.system")).tag("")
-                    ForEach(languages.dropFirst(), id: \.code) { Text($0.label).tag($0.code) }
-                }
-                .onChange(of: language) { _, v in
+            // ── Language ──
+            TVSettingsBlock(title: loc("tv.settings.language")) {
+                TVSegmented(options: languageOptions, selection: $language) { v in
                     Task { await state.saveSettings { $0.appLanguage = v } }
                     TVLanguageManager.shared.set(v)
                 }
             }
 
+            // ── Backup & Restore (LAN import) ──
+            TVSetRow(title: loc("tv.settings.backup_title"), description: loc("tv.settings.backup_desc")) {
+                TVActionButton(title: loc("tv.import.add"), icon: "square.and.arrow.down") { showImport = true }
+            }
+
             // ── Privacy ──
-            Toggle(isOn: $crashReports) {
-                Text(loc("tv.settings.crash_reports"))
-                    .font(TVFont.sans(20)).foregroundStyle(TVColor.onSurface)
+            TVToggleRow(title: loc("tv.settings.crash_reports"), isOn: $crashReports) { v in
+                Task { await state.saveSettings { $0.crashReportsEnabled = v } }
             }
-            .tint(TVColor.teal)
-            .onChange(of: crashReports) { _, v in Task { await state.saveSettings { $0.crashReportsEnabled = v } } }
-            .padding(22).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
 
-            HStack {
-                Text(loc("tv.settings.version")).font(TVFont.sans(19)).foregroundStyle(TVColor.onSurfaceVariant)
-                Spacer()
-                Text(PrivycsCoreInfo.version).font(TVFont.mono(19)).foregroundStyle(TVColor.onSurface)
+            // ── Account + version ──
+            TVSetRow(title: loc("tv.settings.version")) {
+                Text(PrivycsCoreInfo.version).font(TVFont.mono(21)).foregroundStyle(TVColor.onSurface)
             }
-            .padding(.horizontal, 22).padding(.vertical, 18)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
-
-            Button(role: .destructive) { Task { await state.unenroll() } } label: {
-                Label(loc("tv.main.unlink"), systemImage: "xmark.circle")
-                    .font(TVFont.sans(24, .semibold))
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                    .padding(.vertical, 12).padding(.horizontal, 22)
+            TVSetRow(title: "Apple TV", description: state.settings.gatewayURL) {
+                TVActionButton(title: loc("tv.main.unlink"), icon: "xmark.circle", action: { Task { await state.unenroll() } }, role: .destructive)
             }
-            .buttonStyle(.card)
-            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+        .sheet(isPresented: $showImport) { TVImportView().environmentObject(state) }
         .onAppear {
             dns = state.settings.dnsOverride
-            dnsPreset = DnsPresets.detect(dns)?.id ?? ""
             crashReports = state.settings.crashReportsEnabled
             healthMode = state.settings.tunnelHealthMode
             healthTarget = state.settings.tunnelHealthTarget
@@ -435,10 +383,22 @@ struct TVSettingsScreen: View {
         }
     }
 
-    @ViewBuilder private func card<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 14) { content() }
-            .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+    private func dnsChip(_ label: String, value: String) -> some View {
+        let on = dns.trimmingCharacters(in: .whitespaces) == value
+        return Button { dns = value; Task { await state.saveSettings { $0.dnsOverride = value } } } label: {
+            Text(label).font(TVFont.sans(18, .semibold))
+                .foregroundStyle(on ? TVColor.teal : TVColor.onSurfaceVariant)
+                .lineLimit(1)
+                .padding(.vertical, 12).padding(.horizontal, 20)
+        }
+        .buttonStyle(.card)
+    }
+
+    @ViewBuilder private func labeledSeg(_ title: String, _ options: [(value: Int, label: String)], _ sel: Binding<Int>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(TVFont.sans(17)).foregroundStyle(TVColor.onSurfaceVariant)
+            TVSegmented(options: options, selection: sel) { _ in persistHealth() }
+        }
     }
 
     private func persistHealth() {
