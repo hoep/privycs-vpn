@@ -1,12 +1,13 @@
-v1.1.5.36 (build 132) — tvOS: Auto-connect / Always-on (autostart + on-demand).
+v1.1.5.37 (build 133) — tvOS: WiFi-specific auto-connect (SSID on-demand rules).
 
-New Settings toggle "Connect automatically (Always-on)". When on, the VPN profile
-gets an on-demand connect rule, so the OS auto-connects and KEEPS the tunnel up on
-ANY network (WiFi or Ethernet), even after a reboot and without opening the app —
-that's autostart + on-demand in one. The app also connects on launch when it's on.
-Turning it off (or pressing Disconnect) disarms it so it stays disconnected.
+In Settings under "Auto-connect on these WiFi networks" you can now add WiFi names
+(SSIDs). When Always-on is on AND the list is non-empty, the VPN connects ONLY on
+those networks and disconnects elsewhere (the OS evaluates the SSID — no SSID read
+needed by the app). Empty list = connect on any network (WiFi or Ethernet).
 
 HOW TO TEST (Apple TV)
-- Settings → enable "Connect automatically" → it connects and stays up; reboot the
-  Apple TV and it should reconnect on its own. Disconnect/disable to stop.
-- Works on WiFi and Ethernet.
+- Settings → enable "Connect automatically" → add your home WiFi name exactly →
+  the TV connects on that WiFi and not on others. Remove the entry to go back to
+  any-network.
+NOTE: if SSID matching isn't supported by tvOS the build will flag it and we'll
+keep always-on only.

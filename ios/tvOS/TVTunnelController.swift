@@ -51,7 +51,8 @@ final class TVTunnelController: ObservableObject {
 
     /// Connect a single (WG/AWG) connection. Rejects IPSec/OpenVPN with a
     /// localized error.
-    func connect(_ connection: SavedConnection, dnsOverride: String, killSwitch: Bool, onDemand: Bool = false) async {
+    func connect(_ connection: SavedConnection, dnsOverride: String, killSwitch: Bool,
+                 onDemand: Bool = false, ssids: [String] = []) async {
         lastError = nil
         guard let config = connection.resolvedActiveConfig() else {
             lastError = String(localized: "tv.error.no_config",
@@ -72,7 +73,8 @@ final class TVTunnelController: ObservableObject {
         activeProtocol = config.protocol
         do {
             try await connectViaPTP(connection: connection, config: config,
-                                    dnsOverride: dnsOverride, killSwitch: killSwitch, onDemand: onDemand)
+                                    dnsOverride: dnsOverride, killSwitch: killSwitch,
+                                    onDemand: onDemand, ssids: ssids)
             await reloadManagersAndRefresh()
             startPolling()
         } catch {
@@ -173,7 +175,8 @@ final class TVTunnelController: ObservableObject {
     }
 
     private func connectViaPTP(connection: SavedConnection, config: ProtocolConfig,
-                               dnsOverride: String, killSwitch: Bool, onDemand: Bool) async throws {
+                               dnsOverride: String, killSwitch: Bool,
+                               onDemand: Bool, ssids: [String]) async throws {
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
         let mgr = mgrs.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
@@ -193,7 +196,15 @@ final class TVTunnelController: ObservableObject {
         if onDemand {
             // Always-on: the OS auto-connects + keeps the tunnel up on ANY network
             // (WiFi or Ethernet), even after a reboot and without the app open.
-            mgr.onDemandRules = [NEOnDemandRuleConnect()]
+            // If specific WiFi SSIDs are given, connect ONLY on those (and
+            // disconnect elsewhere); the NE daemon evaluates the SSID itself.
+            if ssids.isEmpty {
+                mgr.onDemandRules = [NEOnDemandRuleConnect()]
+            } else {
+                let onWifi = NEOnDemandRuleConnect()
+                onWifi.ssidMatch = ssids
+                mgr.onDemandRules = [onWifi, NEOnDemandRuleDisconnect()]
+            }
             mgr.isOnDemandEnabled = true
         } else {
             mgr.onDemandRules = []

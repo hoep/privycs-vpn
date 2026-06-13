@@ -11,6 +11,7 @@ struct TVSettingsView: View {
     @State private var dns = ""
     @State private var crashReports = true
     @State private var autoConnect = false
+    @State private var newSSID = ""
 
     var body: some View {
         NavigationStack {
@@ -36,6 +37,27 @@ struct TVSettingsView: View {
                 } footer: {
                     Text(String(localized: "tv.settings.dns_hint",
                                 defaultValue: "Always-on keeps the VPN connected automatically on any network (WiFi or Ethernet), even after a reboot. DNS is applied to every protocol; empty = the server's DNS."))
+                }
+
+                Section {
+                    TextField(String(localized: "tv.settings.add_ssid", defaultValue: "Add a WiFi name (SSID)"),
+                              text: $newSSID)
+                        .onSubmit { Task { await state.addSSID(newSSID); newSSID = "" } }
+                    ForEach(state.onDemandSSIDs, id: \.self) { ssid in
+                        HStack {
+                            Image(systemName: "wifi").foregroundStyle(TVColor.teal)
+                            Text(ssid).foregroundStyle(TVColor.onSurface)
+                            Spacer()
+                            Button(role: .destructive) { Task { await state.removeSSID(ssid) } } label: {
+                                Image(systemName: "minus.circle.fill")
+                            }
+                        }
+                    }
+                } header: {
+                    Text(String(localized: "tv.settings.wifi_rules", defaultValue: "Auto-connect on these WiFi networks"))
+                } footer: {
+                    Text(String(localized: "tv.settings.wifi_rules_hint",
+                                defaultValue: "Only used when Always-on is on. Empty = connect on any network. Type the WiFi name exactly — the TV then connects only on these networks and disconnects elsewhere."))
                 }
 
                 Section {

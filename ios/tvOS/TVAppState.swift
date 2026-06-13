@@ -97,6 +97,7 @@ final class TVAppState: ObservableObject {
                 await saveSettings { $0.killSwitchEnabled = false }
             }
         }
+        loadSSIDs()
         // Observe live tunnel status from the controller.
         observeStatus()
         // Auto-pull the config list if we're already enrolled.
@@ -114,6 +115,34 @@ final class TVAppState: ObservableObject {
         await saveSettings { $0.autoConnectOnStart = on }
         if on { await connectSelected() }   // (re)connect with the on-demand rule armed
         else { await disconnect() }         // disarms on-demand so it stays off
+    }
+
+    // MARK: — WiFi-specific on-demand (SSID list)
+
+    /// WiFi names the always-on rule restricts to. Empty = connect on any network.
+    /// Stored in the App Group (tvOS-local; not part of the shared rules engine).
+    @Published var onDemandSSIDs: [String] = []
+    private let ssidKey = "tv_ondemand_ssids"
+    private var ssidStore: UserDefaults? { UserDefaults(suiteName: "group.com.privycs.vpn") }
+
+    private func loadSSIDs() {
+        onDemandSSIDs = ssidStore?.stringArray(forKey: ssidKey) ?? []
+    }
+    private func persistSSIDs() {
+        ssidStore?.set(onDemandSSIDs, forKey: ssidKey)
+    }
+    /// Add a WiFi name + re-arm if always-on is active.
+    func addSSID(_ raw: String) async {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty, !onDemandSSIDs.contains(s) else { return }
+        onDemandSSIDs.append(s)
+        persistSSIDs()
+        if settings.autoConnectOnStart { await connectSelected() }
+    }
+    func removeSSID(_ s: String) async {
+        onDemandSSIDs.removeAll { $0 == s }
+        persistSSIDs()
+        if settings.autoConnectOnStart { await connectSelected() }
     }
 
     func refreshStatus() {
@@ -248,7 +277,8 @@ final class TVAppState: ObservableObject {
             await tunnel.connect(connection,
                                  dnsOverride: settings.dnsOverride,
                                  killSwitch: false,
-                                 onDemand: settings.autoConnectOnStart)
+                                 onDemand: settings.autoConnectOnStart,
+                                 ssids: onDemandSSIDs)
             if let err = tunnel.lastError { configError = err }
             status = tunnel.status
         } catch {
