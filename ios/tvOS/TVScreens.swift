@@ -26,7 +26,7 @@ struct TVConnectScreen: View {
                         else { Image(systemName: state.status.connected ? "stop.fill" : "bolt.fill").font(.system(size: 28)) }
                         Text(state.status.connected ? loc("tv.action.disconnect")
                                                     : loc("tv.action.connect"))
-                            .font(TVFont.sans(30, .bold))
+                            .font(TVFont.sans(30, .bold)).lineLimit(1).minimumScaleFactor(0.7)
                     }
                     .foregroundStyle(state.status.connected ? TVColor.onSurface : TVColor.teal)
                     .frame(minWidth: 380).padding(.vertical, 18).padding(.horizontal, 36)
@@ -169,6 +169,7 @@ struct TVConfigsScreen: View {
             Button { Task { await state.refreshConfigs() } } label: {
                 Label(loc("tv.main.refresh"), systemImage: "arrow.clockwise")
                     .font(TVFont.sans(24, .semibold)).foregroundStyle(TVColor.onSurface)
+                    .lineLimit(1).minimumScaleFactor(0.7)
                     .padding(.vertical, 12).padding(.horizontal, 22)
             }
             .buttonStyle(.card)
@@ -363,6 +364,7 @@ struct TVSettingsScreen: View {
             Button(role: .destructive) { Task { await state.unenroll() } } label: {
                 Label(loc("tv.main.unlink"), systemImage: "xmark.circle")
                     .font(TVFont.sans(24, .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.7)
                     .padding(.vertical, 12).padding(.horizontal, 22)
             }
             .buttonStyle(.card)

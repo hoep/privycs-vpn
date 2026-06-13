@@ -58,6 +58,7 @@ struct TVMainView: View {
                         HStack(spacing: 20) {
                             Image(systemName: s.icon).font(.system(size: 32, weight: .regular))
                             Text(s.title).font(TVFont.sans(26, .semibold))
+                                .lineLimit(1).minimumScaleFactor(0.6)
                             Spacer(minLength: 0)
                         }
                         .foregroundStyle(screen == s ? TVColor.teal : TVColor.onSurfaceVariant)
@@ -80,7 +81,7 @@ struct TVMainView: View {
             .padding(.horizontal, 6)
         }
         .padding(.horizontal, 26).padding(.vertical, 44)
-        .frame(width: 300)
+        .frame(width: 330)
         .background(TVColor.side.opacity(0.55))
         .overlay(Rectangle().fill(TVColor.outline).frame(width: 1), alignment: .trailing)
         .focusSection()
