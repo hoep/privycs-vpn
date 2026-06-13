@@ -1,16 +1,24 @@
-v1.1.5.43 (build 139) — tvOS: redesigned onboarding + protocol pills.
+v1.1.5.44 (build 140) — tvOS: full i18n + DNS presets + Tunnel Health.
 
-NEW in this build:
-- Onboarding / "Link a TV" screen rebuilt in the Privycs design system:
-  brand header (Privycs logo + VPN), kicker + big title, frosted cards on the
-  console gradient/glow, numbered steps (1 scan / 2 enter code), Fira-mono code +
-  short URL, teal accents. Manual setup card matches (mono fields, .card buttons).
-- Connect screen: protocol pills under the connection name — one per protocol in
-  your pulled configs (real WireGuard/OpenVPN/IPSec/AmneziaWG logo + count). The
-  active protocol is highlighted; tapping switches server (and reconnects if on).
+Addresses the "half German / half English" report and missing Settings options:
+
+- i18n is now complete and consistent. Every tvOS string is translated into all 6
+  languages (en/de/es/fr/it/pt) — the earlier mix was caused by newer strings that
+  weren't yet in the catalog. Added an in-app Language picker (Settings →
+  Appearance) that switches language immediately, no relaunch — same as the phone
+  app.
+- DNS: predefined resolver presets are back (Cloudflare, Google, Quad9, AdGuard,
+  Mullvad, …) via a picker, alongside the free-text field.
+- Tunnel Health: the monitoring option is in Settings now — mode (Auto / Always on
+  / Off), ping target, check interval, mark-dead threshold. "Off" hides the health
+  pill on Connect.
 
 HOW TO TEST (Apple TV):
-1. If not linked yet: the onboarding screen should look like the rest of the app
-   (dark console, teal, frosted cards) — scan the QR or enter the code on your phone.
-2. Once linked: on Connect, check the protocol pills appear and are focusable;
-   tap one to switch protocol. Send a fresh screenshot of both screens.
+1. Whole UI should now be in ONE language (your TV's language). Try Settings →
+   Appearance → Language to switch on the fly.
+2. Settings → DNS preset picker, and the Tunnel Health section.
+3. Send a screenshot if anything still shows the wrong language.
+
+(Backup/Restore and manual config import without the gateway are coming next — they
+need a tvOS-specific transport since Apple TV has no Files app / document picker;
+I've asked which approach you want.)

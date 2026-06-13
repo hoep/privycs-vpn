@@ -24,8 +24,8 @@ struct TVConnectScreen: View {
                     HStack(spacing: 14) {
                         if state.connecting { ProgressView() }
                         else { Image(systemName: state.status.connected ? "stop.fill" : "bolt.fill").font(.system(size: 28)) }
-                        Text(state.status.connected ? String(localized: "tv.action.disconnect", defaultValue: "Disconnect")
-                                                    : String(localized: "tv.action.connect", defaultValue: "Connect"))
+                        Text(state.status.connected ? loc("tv.action.disconnect")
+                                                    : loc("tv.action.connect"))
                             .font(TVFont.sans(30, .bold))
                     }
                     .foregroundStyle(state.status.connected ? TVColor.onSurface : TVColor.teal)
@@ -48,15 +48,17 @@ struct TVConnectScreen: View {
             // RIGHT — traffic + details + health
             VStack(spacing: 20) {
                 HStack(spacing: 20) {
-                    trafficCard(String(localized: "tv.stats.download", defaultValue: "Download"), "arrow.down",
+                    trafficCard(loc("tv.stats.download"), "arrow.down",
                                 state.status.rxBytes, state.rxSpeed, state.rxHistory,
                                 Color(red: 0, green: 0.80, blue: 0.67))
-                    trafficCard(String(localized: "tv.stats.upload", defaultValue: "Upload"), "arrow.up",
+                    trafficCard(loc("tv.stats.upload"), "arrow.up",
                                 state.status.txBytes, state.txSpeed, state.txHistory,
                                 Color(red: 0.37, green: 0.70, blue: 0.96))
                 }
                 detailsCard
-                if state.health != .none { TVHealthPill(level: state.health) }
+                if state.health != .none, state.settings.tunnelHealthMode != "off" {
+                    TVHealthPill(level: state.health)
+                }
             }
             .frame(maxWidth: .infinity)
         }
@@ -115,15 +117,15 @@ struct TVConnectScreen: View {
     private var detailsCard: some View {
         VStack(spacing: 0) {
             if !state.status.localAddress.isEmpty {
-                detailRow(String(localized: "tv.detail.vpn_ip", defaultValue: "VPN IP"), state.status.localAddress)
+                detailRow(loc("tv.detail.vpn_ip"), state.status.localAddress)
             }
             if !state.status.serverEndpoint.isEmpty {
                 if !state.status.localAddress.isEmpty { Divider().background(TVColor.outline) }
-                detailRow(String(localized: "tv.detail.endpoint", defaultValue: "Endpoint"), state.status.serverEndpoint)
+                detailRow(loc("tv.detail.endpoint"), state.status.serverEndpoint)
             }
             if !state.status.lastHandshake.isEmpty {
                 Divider().background(TVColor.outline)
-                detailRow(String(localized: "tv.detail.handshake", defaultValue: "Last handshake"), state.status.lastHandshake)
+                detailRow(loc("tv.detail.handshake"), state.status.lastHandshake)
             }
         }
         .padding(.horizontal, 26)
@@ -165,7 +167,7 @@ struct TVConfigsScreen: View {
                 }
             }
             Button { Task { await state.refreshConfigs() } } label: {
-                Label(String(localized: "tv.main.refresh", defaultValue: "Refresh"), systemImage: "arrow.clockwise")
+                Label(loc("tv.main.refresh"), systemImage: "arrow.clockwise")
                     .font(TVFont.sans(24, .semibold)).foregroundStyle(TVColor.onSurface)
                     .padding(.vertical, 12).padding(.horizontal, 22)
             }
@@ -211,10 +213,9 @@ struct TVRulesScreen: View {
         VStack(alignment: .leading, spacing: 22) {
             Toggle(isOn: $autoConnect) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(String(localized: "tv.settings.autoconnect", defaultValue: "Connect automatically (Always-on)"))
+                    Text(loc("tv.settings.autoconnect"))
                         .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
-                    Text(String(localized: "tv.rules.autoconnect_hint",
-                                defaultValue: "Keeps the VPN connected automatically on any network, even after a reboot."))
+                    Text(loc("tv.rules.autoconnect_hint"))
                         .font(TVFont.sans(16)).foregroundStyle(TVColor.onSurfaceVariant)
                 }
             }
@@ -224,12 +225,11 @@ struct TVRulesScreen: View {
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
 
             VStack(alignment: .leading, spacing: 14) {
-                Text(String(localized: "tv.settings.wifi_rules", defaultValue: "Auto-connect on these WiFi networks"))
+                Text(loc("tv.settings.wifi_rules"))
                     .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
-                Text(String(localized: "tv.rules.wifi_hint",
-                            defaultValue: "Empty = any network. Otherwise the VPN connects only on these WiFi names and disconnects elsewhere."))
+                Text(loc("tv.rules.wifi_hint"))
                     .font(TVFont.sans(16)).foregroundStyle(TVColor.onSurfaceVariant)
-                TextField(String(localized: "tv.settings.add_ssid", defaultValue: "Add a WiFi name (SSID)"), text: $newSSID)
+                TextField(loc("tv.settings.add_ssid"), text: $newSSID)
                     .font(TVFont.sans(20))
                     .onSubmit { Task { await state.addSSID(newSSID); newSSID = "" } }
                 ForEach(state.onDemandSSIDs, id: \.self) { ssid in
@@ -258,24 +258,94 @@ struct TVRulesScreen: View {
 struct TVSettingsScreen: View {
     @EnvironmentObject private var state: TVAppState
     @State private var dns = ""
+    @State private var dnsPreset = ""        // DnsProvider.id, "" = server default / custom
     @State private var crashReports = true
+    @State private var healthMode = "auto"
+    @State private var healthTarget = ""
+    @State private var healthInterval = 0
+    @State private var healthThreshold = 0
+    @State private var language = ""
+
+    private let languages: [(code: String, label: String)] = [
+        ("", ""), ("en", "English"), ("de", "Deutsch"),
+        ("es", "Español"), ("fr", "Français"), ("it", "Italiano"), ("pt", "Português"),
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(String(localized: "tv.settings.connection", defaultValue: "Connection"))
+            // ── DNS (free-text + canonical presets) ──
+            card {
+                Text(loc("tv.settings.connection"))
                     .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
-                TextField(String(localized: "tv.settings.dns_placeholder", defaultValue: "DNS, e.g. 1.1.1.1, 9.9.9.9"), text: $dns)
-                    .font(TVFont.sans(20))
-                    .onChange(of: dns) { _, v in Task { await state.saveSettings { $0.dnsOverride = v.trimmingCharacters(in: .whitespaces) } } }
-                Text(String(localized: "tv.settings.dns_hint2", defaultValue: "Applied to every protocol. Empty = the server's DNS."))
+                TextField(loc("tv.settings.dns_placeholder"), text: $dns)
+                    .font(TVFont.mono(20))
+                    .onChange(of: dns) { _, v in
+                        let t = v.trimmingCharacters(in: .whitespaces)
+                        Task { await state.saveSettings { $0.dnsOverride = t } }
+                    }
+                Picker(loc("tv.settings.dns_preset"), selection: $dnsPreset) {
+                    Text(loc("tv.settings.dns_default")).tag("")
+                    ForEach(DnsPresets.providers) { p in Text(p.label).tag(p.id) }
+                }
+                .onChange(of: dnsPreset) { _, id in
+                    let v = DnsPresets.providers.first { $0.id == id }?.serversJoined ?? ""
+                    if v != dns { dns = v }
+                }
+                Text(loc("tv.settings.dns_hint2"))
                     .font(TVFont.sans(15)).foregroundStyle(TVColor.onSurfaceVariant)
             }
-            .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
 
+            // ── Tunnel Health ──
+            card {
+                Text(loc("tv.hc.section"))
+                    .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
+                Picker(loc("tv.hc.mode"), selection: $healthMode) {
+                    Text(loc("tv.hc.auto")).tag("auto")
+                    Text(loc("tv.hc.always")).tag("always")
+                    Text(loc("tv.hc.off")).tag("off")
+                }
+                .onChange(of: healthMode) { _, _ in persistHealth() }
+                if healthMode != "off" {
+                    TextField(loc("tv.hc.target_ph"), text: $healthTarget)
+                        .font(TVFont.mono(20))
+                        .onChange(of: healthTarget) { _, _ in persistHealth() }
+                    Picker(loc("tv.hc.interval"), selection: $healthInterval) {
+                        Text(loc("tv.hc.int_default")).tag(0)
+                        Text(loc("tv.hc.int_5")).tag(5)
+                        Text(loc("tv.hc.int_10")).tag(10)
+                        Text(loc("tv.hc.int_30")).tag(30)
+                        Text(loc("tv.hc.int_60")).tag(60)
+                    }
+                    .onChange(of: healthInterval) { _, _ in persistHealth() }
+                    Picker(loc("tv.hc.threshold"), selection: $healthThreshold) {
+                        Text(loc("tv.hc.thr_default")).tag(0)
+                        Text(loc("tv.hc.thr_2")).tag(2)
+                        Text(loc("tv.hc.thr_3")).tag(3)
+                        Text(loc("tv.hc.thr_5")).tag(5)
+                    }
+                    .onChange(of: healthThreshold) { _, _ in persistHealth() }
+                }
+                Text(loc("tv.hc.hint"))
+                    .font(TVFont.sans(15)).foregroundStyle(TVColor.onSurfaceVariant)
+            }
+
+            // ── Appearance / Language ──
+            card {
+                Text(loc("tv.settings.appearance"))
+                    .font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurface)
+                Picker(loc("tv.settings.language"), selection: $language) {
+                    Text(loc("tv.lang.system")).tag("")
+                    ForEach(languages.dropFirst(), id: \.code) { Text($0.label).tag($0.code) }
+                }
+                .onChange(of: language) { _, v in
+                    Task { await state.saveSettings { $0.appLanguage = v } }
+                    TVLanguageManager.shared.set(v)
+                }
+            }
+
+            // ── Privacy ──
             Toggle(isOn: $crashReports) {
-                Text(String(localized: "tv.settings.crash_reports", defaultValue: "Anonymous crash reports"))
+                Text(loc("tv.settings.crash_reports"))
                     .font(TVFont.sans(20)).foregroundStyle(TVColor.onSurface)
             }
             .tint(TVColor.teal)
@@ -283,7 +353,7 @@ struct TVSettingsScreen: View {
             .padding(22).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
 
             HStack {
-                Text(String(localized: "tv.settings.version", defaultValue: "Version")).font(TVFont.sans(19)).foregroundStyle(TVColor.onSurfaceVariant)
+                Text(loc("tv.settings.version")).font(TVFont.sans(19)).foregroundStyle(TVColor.onSurfaceVariant)
                 Spacer()
                 Text(PrivycsCoreInfo.version).font(TVFont.mono(19)).foregroundStyle(TVColor.onSurface)
             }
@@ -291,7 +361,7 @@ struct TVSettingsScreen: View {
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
 
             Button(role: .destructive) { Task { await state.unenroll() } } label: {
-                Label(String(localized: "tv.main.unlink"), systemImage: "xmark.circle")
+                Label(loc("tv.main.unlink"), systemImage: "xmark.circle")
                     .font(TVFont.sans(24, .semibold))
                     .padding(.vertical, 12).padding(.horizontal, 22)
             }
@@ -302,7 +372,32 @@ struct TVSettingsScreen: View {
         .focusSection()
         .onAppear {
             dns = state.settings.dnsOverride
+            dnsPreset = DnsPresets.detect(dns)?.id ?? ""
             crashReports = state.settings.crashReportsEnabled
+            healthMode = state.settings.tunnelHealthMode
+            healthTarget = state.settings.tunnelHealthTarget
+            healthInterval = state.settings.tunnelHealthPingIntervalSec
+            healthThreshold = state.settings.tunnelHealthDeadThreshold
+            language = state.settings.appLanguage
+        }
+    }
+
+    @ViewBuilder private func card<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 14) { content() }
+            .padding(22).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func persistHealth() {
+        let mode = healthMode, target = healthTarget.trimmingCharacters(in: .whitespaces)
+        let interval = healthInterval, threshold = healthThreshold
+        Task {
+            await state.saveSettings {
+                $0.tunnelHealthMode = mode
+                $0.tunnelHealthTarget = target
+                $0.tunnelHealthPingIntervalSec = interval
+                $0.tunnelHealthDeadThreshold = threshold
+            }
         }
     }
 }

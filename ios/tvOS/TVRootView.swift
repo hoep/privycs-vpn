@@ -5,6 +5,9 @@ import PrivycsCore
 /// the main connect screen.
 struct TVRootView: View {
     @EnvironmentObject private var state: TVAppState
+    // Observe the in-app language override so a Settings change re-renders the
+    // whole tree immediately (mirrors the iOS RootView pattern).
+    @ObservedObject private var lang = TVLanguageManager.shared
 
     var body: some View {
         ZStack {
@@ -25,6 +28,11 @@ struct TVRootView: View {
             }
         }
         .tint(TVColor.teal)
+        // Re-render the whole tree when the in-app language changes so every
+        // LocalizedStringKey re-resolves via the swizzled bundle — no relaunch.
+        .id(lang.code)
+        .environment(\.locale, lang.code.isEmpty
+            ? Locale.autoupdatingCurrent : Locale(identifier: lang.code))
         // NOTE: do NOT set a global .foregroundStyle here — it overrides the
         // system's prominent-button label contrast (made focused buttons white-on-
         // white). Each Text sets its own TVColor explicitly instead.

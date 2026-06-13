@@ -127,8 +127,8 @@ struct TVHealthPill: View {
     }
     private var label: String {
         switch level {
-        case .healthy:  return String(localized: "tv.health.healthy", defaultValue: "Healthy")
-        case .degraded: return String(localized: "tv.health.degraded", defaultValue: "Degraded")
+        case .healthy:  return loc("tv.health.healthy")
+        case .degraded: return loc("tv.health.degraded")
         case .none:     return ""
         }
     }

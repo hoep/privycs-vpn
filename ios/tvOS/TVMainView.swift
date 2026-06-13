@@ -10,10 +10,10 @@ enum TVScreen: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .connect:  return String(localized: "tv.nav.connect",  defaultValue: "Connect")
-        case .configs:  return String(localized: "tv.nav.configs",  defaultValue: "Configs")
-        case .rules:    return String(localized: "tv.nav.rules",    defaultValue: "Rules")
-        case .settings: return String(localized: "tv.nav.settings", defaultValue: "Settings")
+        case .connect:  return loc("tv.nav.connect")
+        case .configs:  return loc("tv.nav.configs")
+        case .rules:    return loc("tv.nav.rules")
+        case .settings: return loc("tv.nav.settings")
         }
     }
     var icon: String {
@@ -73,8 +73,8 @@ struct TVMainView: View {
             HStack(spacing: 10) {
                 Circle().fill(state.status.connected ? TVColor.tealFill : TVColor.onSurfaceVariant)
                     .frame(width: 9, height: 9)
-                Text(state.status.connected ? String(localized: "tv.status.connected")
-                                            : String(localized: "tv.status.disconnected"))
+                Text(state.status.connected ? loc("tv.status.connected")
+                                            : loc("tv.status.disconnected"))
                     .font(TVFont.mono(14)).foregroundStyle(TVColor.onSurfaceVariant)
             }
             .padding(.horizontal, 6)
@@ -110,8 +110,8 @@ struct TVMainView: View {
         let connected = state.status.connected
         let title: String = {
             if screen == .connect {
-                return connected ? String(localized: "tv.status.connected")
-                                 : String(localized: "tv.connect.notconnected", defaultValue: "Not Connected")
+                return connected ? loc("tv.status.connected")
+                                 : loc("tv.connect.notconnected")
             }
             return screen.title
         }()

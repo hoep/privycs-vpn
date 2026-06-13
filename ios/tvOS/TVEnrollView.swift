@@ -20,7 +20,7 @@ struct TVEnrollView: View {
         VStack(alignment: .leading, spacing: 0) {
             brandHeader
             VStack(alignment: .leading, spacing: 10) {
-                Text(String(localized: "tv.enroll.kicker", defaultValue: "[ LINK A TV ]"))
+                Text(loc("tv.enroll.kicker"))
                     .font(TVFont.mono(15)).tracking(3).foregroundStyle(TVColor.teal)
                 Text("tv.enroll.title", tableName: nil)
                     .font(TVFont.sans(46, .bold)).foregroundStyle(TVColor.onSurface)
@@ -60,18 +60,18 @@ struct TVEnrollView: View {
 
     private var deviceCodeCard: some View {
         VStack(alignment: .leading, spacing: 24) {
-            cardTitle(icon: "qrcode", text: String(localized: "tv.enroll.device_title", defaultValue: "Scan to link"))
+            cardTitle(icon: "qrcode", text: loc("tv.enroll.device_title"))
             if let device {
                 HStack(alignment: .top, spacing: 34) {
                     qrView(device.verificationURIComplete)
                     VStack(alignment: .leading, spacing: 18) {
-                        stepRow("1", String(localized: "tv.enroll.scan_or_open", defaultValue: "Scan with your phone — or open:"))
+                        stepRow("1", loc("tv.enroll.scan_or_open"))
                         Text(shortURL(device.verificationURI))
                             .font(TVFont.mono(26, .bold))
                             .foregroundStyle(TVColor.teal)
                             .lineLimit(1).minimumScaleFactor(0.5)
                             .padding(.leading, 40)
-                        stepRow("2", String(localized: "tv.enroll.enter_code", defaultValue: "Enter this code:"))
+                        stepRow("2", loc("tv.enroll.enter_code"))
                         Text(device.userCode)
                             .font(TVFont.mono(54, .bold))
                             .tracking(8)
@@ -82,7 +82,7 @@ struct TVEnrollView: View {
                         if polling {
                             HStack(spacing: 12) {
                                 ProgressView().tint(TVColor.teal)
-                                Text(String(localized: "tv.enroll.waiting", defaultValue: "Waiting for approval…"))
+                                Text(loc("tv.enroll.waiting"))
                                     .font(TVFont.mono(17)).foregroundStyle(TVColor.onSurfaceVariant)
                             }
                             .padding(.top, 4).padding(.leading, 40)
@@ -131,14 +131,14 @@ struct TVEnrollView: View {
 
     private var manualCard: some View {
         VStack(alignment: .leading, spacing: 18) {
-            cardTitle(icon: "keyboard", text: String(localized: "tv.enroll.manual_title", defaultValue: "Manual setup"))
+            cardTitle(icon: "keyboard", text: loc("tv.enroll.manual_title"))
             Text("tv.enroll.manual_hint", tableName: nil)
                 .font(TVFont.sans(18)).foregroundStyle(TVColor.onSurfaceVariant)
                 .fixedSize(horizontal: false, vertical: true)
 
-            TextField(String(localized: "tv.enroll.gateway_url"), text: $manualURL)
+            TextField(loc("tv.enroll.gateway_url"), text: $manualURL)
                 .textContentType(.URL).font(TVFont.mono(20))
-            TextField(String(localized: "tv.enroll.token"), text: $manualToken)
+            TextField(loc("tv.enroll.token"), text: $manualToken)
                 .font(TVFont.mono(20))
 
             Button { applyManual() } label: {
@@ -209,7 +209,7 @@ struct TVEnrollView: View {
                 await pollLoop(client: client, start: start)
             } catch {
                 await MainActor.run {
-                    self.enrollError = String(localized: "tv.enroll.device_code_unavailable")
+                    self.enrollError = loc("tv.enroll.device_code_unavailable")
                 }
             }
         }

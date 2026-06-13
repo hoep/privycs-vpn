@@ -86,6 +86,8 @@ final class TVAppState: ObservableObject {
         if let s = try? await settingsRepo.current() {
             settings = s
         }
+        // Apply the saved in-app language override (empty = follow the system).
+        TVLanguageManager.shared.set(settings.appLanguage)
         // tvOS: default the kill switch OFF (one-time). Its IPv6 ::/0 injection
         // forces all v6 into the tunnel; on tvOS the v6 data plane is unreliable,
         // so that blackholes IPv6 and breaks DNS/internet (Apple TV prefers v6).
