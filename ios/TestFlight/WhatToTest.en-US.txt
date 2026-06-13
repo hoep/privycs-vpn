@@ -1,11 +1,16 @@
-v1.1.5.42 (build 138) — tvOS: bigger buttons (closer to the mockup).
+v1.1.5.43 (build 139) — tvOS: redesigned onboarding + protocol pills.
 
-The buttons were too small/flat. Enlarged:
-- Rail nav (Connect/Configs/Rules/Settings): full-width rows, 26pt text, 32pt icons,
-  generous vertical padding (proper 10-foot nav).
-- Connect/Disconnect button: 30pt bold, big padding, min-width 380.
-- Refresh + Unlink buttons: 24pt + padding.
+NEW in this build:
+- Onboarding / "Link a TV" screen rebuilt in the Privycs design system:
+  brand header (Privycs logo + VPN), kicker + big title, frosted cards on the
+  console gradient/glow, numbered steps (1 scan / 2 enter code), Fira-mono code +
+  short URL, teal accents. Manual setup card matches (mono fields, .card buttons).
+- Connect screen: protocol pills under the connection name — one per protocol in
+  your pulled configs (real WireGuard/OpenVPN/IPSec/AmneziaWG logo + count). The
+  active protocol is highlighted; tapping switches server (and reconnects if on).
 
-HOW TO TEST (Apple TV): the rail items + Connect button should be noticeably larger
-and fill better. Send a fresh screenshot — I'll keep tuning toward the mockup
-(spacing, dial size, card proportions, glow).
+HOW TO TEST (Apple TV):
+1. If not linked yet: the onboarding screen should look like the rest of the app
+   (dark console, teal, frosted cards) — scan the QR or enter the code on your phone.
+2. Once linked: on Connect, check the protocol pills appear and are focusable;
+   tap one to switch protocol. Send a fresh screenshot of both screens.

@@ -40,6 +40,7 @@ struct TVConnectScreen: View {
                 if let sel = state.selectedConfig {
                     Text(sel.name).font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
                 }
+                protocolPills
             }
             .frame(maxWidth: .infinity)
             .focusSection()
@@ -60,6 +61,38 @@ struct TVConnectScreen: View {
             .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    // Protocol pills — distinct protocols across the pulled configs (with counts),
+    // like the mockup. Tapping one switches to that protocol's first server (and
+    // reconnects if currently connected). Uses the REAL protocol logos.
+    @ViewBuilder private var protocolPills: some View {
+        let groups = Dictionary(grouping: state.remoteConfigs, by: { $0.protocol })
+        let protos = groups.keys.sorted { $0.rawValue < $1.rawValue }
+        if !protos.isEmpty {
+            HStack(spacing: 14) {
+                ForEach(protos, id: \.self) { p in
+                    let active = discProtocol == p
+                    Button {
+                        if let first = groups[p]?.first {
+                            state.selectedConfigID = first.id
+                            if state.status.connected { Task { await state.connectSelected() } }
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(tvProtocolAsset(p)).renderingMode(.template).resizable().scaledToFit()
+                                .frame(width: 26, height: 26)
+                            Text(p.displayName).font(TVFont.sans(19, .semibold))
+                            Text("\(groups[p]?.count ?? 0)").font(TVFont.mono(17, .semibold))
+                        }
+                        .foregroundStyle(active ? TVColor.teal : TVColor.onSurfaceVariant)
+                        .padding(.horizontal, 18).padding(.vertical, 12)
+                    }
+                    .buttonStyle(.card)
+                }
+            }
+            .padding(.top, 8)
+        }
     }
 
     private func trafficCard(_ title: String, _ icon: String, _ total: Int64, _ speed: Double,

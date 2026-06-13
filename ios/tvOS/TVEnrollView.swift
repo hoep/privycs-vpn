@@ -17,78 +17,101 @@ struct TVEnrollView: View {
     @State private var manualToken = ""
 
     var body: some View {
-        VStack(spacing: 28) {
-            Text("tv.enroll.title", tableName: nil)
-                .font(.system(size: 34, weight: .bold))
-                .foregroundStyle(TVColor.onSurface)
-            Text("tv.enroll.subtitle", tableName: nil)
-                .font(.system(size: 20))
-                .foregroundStyle(TVColor.onSurfaceVariant)
+        VStack(alignment: .leading, spacing: 0) {
+            brandHeader
+            VStack(alignment: .leading, spacing: 10) {
+                Text(String(localized: "tv.enroll.kicker", defaultValue: "[ LINK A TV ]"))
+                    .font(TVFont.mono(15)).tracking(3).foregroundStyle(TVColor.teal)
+                Text("tv.enroll.title", tableName: nil)
+                    .font(TVFont.sans(46, .bold)).foregroundStyle(TVColor.onSurface)
+                Text("tv.enroll.subtitle", tableName: nil)
+                    .font(TVFont.sans(22)).foregroundStyle(TVColor.onSurfaceVariant)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 38)
 
-            HStack(alignment: .top, spacing: 48) {
+            HStack(alignment: .top, spacing: 40) {
                 deviceCodeCard
                 manualCard
             }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 80)
-        .padding(.vertical, 50)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.vertical, 56)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { startDeviceCode() }
         .onDisappear { pollTask?.cancel() }
+    }
+
+    private var brandHeader: some View {
+        HStack(spacing: 16) {
+            Image("ic_privycs_logo").resizable().scaledToFit().frame(width: 60, height: 60)
+                .clipShape(RoundedRectangle(cornerRadius: 15))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Privycs").font(TVFont.sans(30, .bold)).foregroundStyle(TVColor.onSurface)
+                Text("VPN").font(TVFont.mono(14)).foregroundStyle(TVColor.teal)
+            }
+            Spacer()
+        }
+        .padding(.bottom, 30)
     }
 
     // MARK: — Device-code card (QR + code)
 
     private var deviceCodeCard: some View {
-        VStack(spacing: 22) {
+        VStack(alignment: .leading, spacing: 24) {
+            cardTitle(icon: "qrcode", text: String(localized: "tv.enroll.device_title", defaultValue: "Scan to link"))
             if let device {
-                HStack(alignment: .center, spacing: 32) {
+                HStack(alignment: .top, spacing: 34) {
                     qrView(device.verificationURIComplete)
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text(String(localized: "tv.enroll.scan_or_open", defaultValue: "Scan with your phone — or open:"))
-                            .font(.system(size: 21, weight: .medium))
-                            .foregroundStyle(TVColor.onSurface)
+                    VStack(alignment: .leading, spacing: 18) {
+                        stepRow("1", String(localized: "tv.enroll.scan_or_open", defaultValue: "Scan with your phone — or open:"))
                         Text(shortURL(device.verificationURI))
-                            .font(.system(size: 24, weight: .bold))
+                            .font(TVFont.mono(26, .bold))
                             .foregroundStyle(TVColor.teal)
                             .lineLimit(1).minimumScaleFactor(0.5)
-                        Text("tv.enroll.enter_code", tableName: nil)
-                            .font(.system(size: 19))
-                            .foregroundStyle(TVColor.onSurfaceVariant)
-                            .padding(.top, 4)
+                            .padding(.leading, 40)
+                        stepRow("2", String(localized: "tv.enroll.enter_code", defaultValue: "Enter this code:"))
                         Text(device.userCode)
-                            .font(.system(size: 52, weight: .bold, design: .monospaced))
-                            .tracking(6)
+                            .font(TVFont.mono(54, .bold))
+                            .tracking(8)
                             .foregroundStyle(TVColor.onSurface)
                             .lineLimit(1).minimumScaleFactor(0.6)
+                            .padding(.leading, 40)
                             .accessibilityLabel(device.userCode)
                         if polling {
-                            HStack(spacing: 10) {
-                                ProgressView()
+                            HStack(spacing: 12) {
+                                ProgressView().tint(TVColor.teal)
                                 Text(String(localized: "tv.enroll.waiting", defaultValue: "Waiting for approval…"))
-                                    .font(.system(size: 17)).foregroundStyle(TVColor.onSurfaceVariant)
+                                    .font(TVFont.mono(17)).foregroundStyle(TVColor.onSurfaceVariant)
                             }
-                            .padding(.top, 6)
+                            .padding(.top, 4).padding(.leading, 40)
                         }
                     }
                 }
             } else if let enrollError {
-                VStack(spacing: 16) {
-                    Text(enrollError).font(.system(size: 20))
-                        .foregroundStyle(TVColor.error).multilineTextAlignment(.center)
+                VStack(alignment: .leading, spacing: 18) {
+                    Text(enrollError).font(TVFont.sans(20)).foregroundStyle(TVColor.error)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button { startDeviceCode() } label: {
-                        Label(String(localized: "tv.enroll.retry"), systemImage: "arrow.clockwise")
-                            .font(.system(size: 20, weight: .semibold))
+                        HStack(spacing: 12) {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 22, weight: .semibold))
+                            Text("tv.enroll.retry", tableName: nil).font(TVFont.sans(22, .semibold))
+                        }
+                        .foregroundStyle(TVColor.teal)
+                        .padding(.horizontal, 28).padding(.vertical, 16)
                     }
+                    .buttonStyle(.card)
                 }
+                .frame(maxWidth: .infinity, minHeight: 260, alignment: .leading)
             } else {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 260)
+                ProgressView().tint(TVColor.teal).frame(maxWidth: .infinity, minHeight: 260)
             }
         }
-        .padding(32)
-        .frame(maxWidth: .infinity, minHeight: 360)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
-        .overlay(RoundedRectangle(cornerRadius: 24).stroke(TVColor.outline, lineWidth: 1))
+        .padding(34)
+        .frame(maxWidth: .infinity, minHeight: 400, alignment: .topLeading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).stroke(TVColor.outline, lineWidth: 1))
     }
 
     private func qrView(_ string: String) -> some View {
@@ -99,36 +122,59 @@ struct TVEnrollView: View {
                 Image(systemName: "qrcode").resizable().scaledToFit().foregroundStyle(.black)
             }
         }
-        .frame(width: 240, height: 240)
-        .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+        .frame(width: 230, height: 230)
+        .padding(18)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
     }
 
     // MARK: — Manual fallback card
 
     private var manualCard: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("tv.enroll.manual_title", tableName: nil)
-                .font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.onSurface)
+            cardTitle(icon: "keyboard", text: String(localized: "tv.enroll.manual_title", defaultValue: "Manual setup"))
             Text("tv.enroll.manual_hint", tableName: nil)
-                .font(.system(size: 17)).foregroundStyle(TVColor.onSurfaceVariant)
+                .font(TVFont.sans(18)).foregroundStyle(TVColor.onSurfaceVariant)
+                .fixedSize(horizontal: false, vertical: true)
 
             TextField(String(localized: "tv.enroll.gateway_url"), text: $manualURL)
-                .textContentType(.URL).font(.system(size: 20))
+                .textContentType(.URL).font(TVFont.mono(20))
             TextField(String(localized: "tv.enroll.token"), text: $manualToken)
-                .font(.system(size: 20))
+                .font(TVFont.mono(20))
 
             Button { applyManual() } label: {
                 Text("tv.enroll.link", tableName: nil)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(TVFont.sans(22, .semibold))
+                    .foregroundStyle(canLinkManually ? TVColor.teal : TVColor.onSurfaceVariant)
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
             }
-            .disabled(manualURL.isEmpty || manualToken.isEmpty)
+            .buttonStyle(.card)
+            .disabled(!canLinkManually)
         }
-        .padding(32)
+        .padding(34)
         .frame(width: 520, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
-        .overlay(RoundedRectangle(cornerRadius: 24).stroke(TVColor.outline, lineWidth: 1))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).stroke(TVColor.outline, lineWidth: 1))
+    }
+
+    private var canLinkManually: Bool {
+        !manualURL.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !manualToken.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private func cardTitle(icon: String, text: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 24, weight: .semibold)).foregroundStyle(TVColor.teal)
+            Text(text).font(TVFont.sans(26, .bold)).foregroundStyle(TVColor.onSurface)
+        }
+    }
+
+    private func stepRow(_ n: String, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(n).font(TVFont.mono(16, .bold)).foregroundStyle(TVColor.onTeal)
+                .frame(width: 26, height: 26).background(TVColor.teal, in: Circle())
+            Text(text).font(TVFont.sans(20, .medium)).foregroundStyle(TVColor.onSurface)
+        }
     }
 
     // MARK: — Helpers
