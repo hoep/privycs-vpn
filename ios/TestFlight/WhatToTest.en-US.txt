@@ -1,12 +1,11 @@
-v1.1.5.41 (build 137) — tvOS: Privycs logo + AmneziaWG logo now actually render.
+v1.1.5.42 (build 138) — tvOS: bigger buttons (closer to the mockup).
 
-Root cause of the missing logos: the imagesets were declared "scale: 3x" (copied
-from iOS), and tvOS doesn't use 3x → the asset resolved to nothing (blank). Fixed:
-- Privycs logo: now the design's 256px logo, universal scale → shows in the rail.
-- AmneziaWG: was a 3x-only PNG (blank on tvOS) → universal now → the real logo shows
-  on the dial + config cards.
-- WireGuard/OpenVPN/IPSec were SVG (fine) — restored their catalog entries.
+The buttons were too small/flat. Enlarged:
+- Rail nav (Connect/Configs/Rules/Settings): full-width rows, 26pt text, 32pt icons,
+  generous vertical padding (proper 10-foot nav).
+- Connect/Disconnect button: 30pt bold, big padding, min-width 380.
+- Refresh + Unlink buttons: 24pt + padding.
 
-HOW TO TEST (Apple TV): the Privycs logo shows top-left in the rail; the dial +
-config rows show the correct protocol logos (incl. the real AmneziaWG). Connect
-button (below the dial) is reachable. Screenshot welcome for final spacing.
+HOW TO TEST (Apple TV): the rail items + Connect button should be noticeably larger
+and fill better. Send a fresh screenshot — I'll keep tuning toward the mockup
+(spacing, dial size, card proportions, glow).

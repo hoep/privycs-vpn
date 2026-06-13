@@ -21,15 +21,15 @@ struct TVConnectScreen: View {
                 TVConnectDisc(connected: state.status.connected,
                               connecting: state.connecting, activeProtocol: discProtocol)
                 Button { Task { await state.toggle() } } label: {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 14) {
                         if state.connecting { ProgressView() }
-                        else { Image(systemName: state.status.connected ? "stop.fill" : "bolt.fill") }
+                        else { Image(systemName: state.status.connected ? "stop.fill" : "bolt.fill").font(.system(size: 28)) }
                         Text(state.status.connected ? String(localized: "tv.action.disconnect", defaultValue: "Disconnect")
                                                     : String(localized: "tv.action.connect", defaultValue: "Connect"))
-                            .font(TVFont.sans(24, .bold))
+                            .font(TVFont.sans(30, .bold))
                     }
                     .foregroundStyle(state.status.connected ? TVColor.onSurface : TVColor.teal)
-                    .frame(minWidth: 300).padding(.vertical, 6)
+                    .frame(minWidth: 380).padding(.vertical, 18).padding(.horizontal, 36)
                 }
                 .buttonStyle(.card)
                 if state.status.connected, state.status.uptime > 0 {
@@ -133,7 +133,8 @@ struct TVConfigsScreen: View {
             }
             Button { Task { await state.refreshConfigs() } } label: {
                 Label(String(localized: "tv.main.refresh", defaultValue: "Refresh"), systemImage: "arrow.clockwise")
-                    .font(TVFont.sans(19, .semibold)).foregroundStyle(TVColor.onSurface)
+                    .font(TVFont.sans(24, .semibold)).foregroundStyle(TVColor.onSurface)
+                    .padding(.vertical, 12).padding(.horizontal, 22)
             }
             .buttonStyle(.card)
             .padding(.top, 6)
@@ -258,7 +259,8 @@ struct TVSettingsScreen: View {
 
             Button(role: .destructive) { Task { await state.unenroll() } } label: {
                 Label(String(localized: "tv.main.unlink"), systemImage: "xmark.circle")
-                    .font(TVFont.sans(20, .semibold))
+                    .font(TVFont.sans(24, .semibold))
+                    .padding(.vertical, 12).padding(.horizontal, 22)
             }
             .buttonStyle(.card)
             .padding(.top, 4)

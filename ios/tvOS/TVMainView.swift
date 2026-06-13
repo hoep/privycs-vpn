@@ -52,17 +52,20 @@ struct TVMainView: View {
             }
             .padding(.bottom, 36).padding(.horizontal, 6)
 
-            ForEach(TVScreen.allCases) { s in
-                Button { screen = s } label: {
-                    HStack(spacing: 16) {
-                        Image(systemName: s.icon).font(.system(size: 24))
-                        Text(s.title).font(TVFont.sans(22, .medium))
-                        Spacer()
+            VStack(spacing: 14) {
+                ForEach(TVScreen.allCases) { s in
+                    Button { screen = s } label: {
+                        HStack(spacing: 20) {
+                            Image(systemName: s.icon).font(.system(size: 32, weight: .regular))
+                            Text(s.title).font(TVFont.sans(26, .semibold))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(screen == s ? TVColor.teal : TVColor.onSurfaceVariant)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 18).padding(.horizontal, 12)
                     }
-                    .foregroundStyle(screen == s ? TVColor.teal : TVColor.onSurfaceVariant)
-                    .padding(.vertical, 4)
+                    .buttonStyle(.card)
                 }
-                .buttonStyle(.card)
             }
 
             Spacer()
