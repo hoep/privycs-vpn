@@ -415,6 +415,7 @@ struct TVSettingsScreen: View {
             TVSettingsBlock(title: loc("tv.settings.theme")) {
                 TVSegmented(options: [("system", loc("tv.theme.system")), ("dark", loc("tv.theme.dark")), ("light", loc("tv.theme.light"))],
                             selection: $theme) { v in
+                    state.applyTheme(v)
                     Task { await state.saveSettings { $0.theme = v } }
                 }
             }

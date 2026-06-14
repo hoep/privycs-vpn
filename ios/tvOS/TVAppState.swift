@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import PrivycsCore
 
 /// Top-level tvOS app state. Reuses `PrivycsCore` verbatim — the same
@@ -148,6 +149,9 @@ final class TVAppState: ObservableObject {
         }
         // Apply the saved in-app language override (empty = follow the system).
         TVLanguageManager.shared.set(settings.appLanguage)
+        // Apply the saved Theme to the window (after settings load — TVRootView's
+        // onAppear ran before this with the default).
+        applyTheme(settings.theme)
         // tvOS: default the kill switch OFF (one-time). Its IPv6 ::/0 injection
         // forces all v6 into the tunnel; on tvOS the v6 data plane is unreliable,
         // so that blackholes IPv6 and breaks DNS/internet (Apple TV prefers v6).
@@ -252,6 +256,17 @@ final class TVAppState: ObservableObject {
     func refreshStatus() {
         tunnel.refreshStatus()
         status = tunnel.status
+    }
+
+    /// Apply the in-app Theme by overriding the UIWindow's interface style. tvOS's
+    /// `.preferredColorScheme` doesn't reset the window back to .unspecified when
+    /// going Dark/Light → System (it stayed dark), so we set the override directly.
+    func applyTheme(_ theme: String) {
+        let style: UIUserInterfaceStyle = theme == "dark" ? .dark : (theme == "light" ? .light : .unspecified)
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene else { continue }
+            for w in ws.windows { w.overrideUserInterfaceStyle = style }
+        }
     }
 
     /// ISO country code of the current exit point — the pool member's country when

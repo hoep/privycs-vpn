@@ -1,17 +1,10 @@
-v1.1.5.59 (build 155) — tvOS: config-switch reconnect, Theme=System fix, endpoint
-flags, "VPN" tab.
+v1.1.5.60 (build 156) — tvOS: Theme=System now reverts correctly.
 
-- Switching config while connected now reconnects with the new one: picking a
-  different connection / pool / gateway config in the VPN tab re-establishes the
-  tunnel with that config (only if a tunnel was already up).
-- Theme → System now actually reverts to the TV's appearance (switching back from
-  Dark/Light didn't take on tvOS; the view tree now re-renders cleanly on theme
-  change). The Language picker keeps its "System" (follow device) option.
-- Country flag of the exit point is shown: on the Connect details "Endpoint" row and
-  in the pool card's current-server line (resolved on-device via the bundled MMDB).
-- The "Configs" tab is renamed "VPN" (all languages).
+Bug: device appearance = Light; set Theme=Dark, then back to System → it stayed Dark.
+Cause: tvOS's .preferredColorScheme(nil) doesn't reset the window's
+overrideUserInterfaceStyle back to .unspecified. Fix: the app now sets the UIWindow
+override directly (System = .unspecified → follows the TV, Dark = .dark, Light =
+.light), applied on launch and on every Theme change.
 
-HOW TO TEST:
-1. Connected → open VPN tab → tap a different config/pool → it reconnects to it.
-2. Settings → Theme → System after using Dark/Light → follows the TV appearance.
-3. Connect → the Endpoint row + pool current-server show the country flag.
+HOW TO TEST: with the TV in Light, set Settings → Theme → Dark (UI goes dark), then
+Theme → System → it should go back to Light (the TV's appearance). And vice-versa.

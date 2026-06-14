@@ -9,14 +9,6 @@ struct TVRootView: View {
     // whole tree immediately (mirrors the iOS RootView pattern).
     @ObservedObject private var lang = TVLanguageManager.shared
 
-    private var themeScheme: ColorScheme? {
-        switch state.settings.theme {
-        case "dark":  return .dark
-        case "light": return .light
-        default:      return nil   // follow the system
-        }
-    }
-
     var body: some View {
         ZStack {
             // Sleek depth (HIG: TVs are viewed at distance — use gradients + glow,
@@ -36,14 +28,15 @@ struct TVRootView: View {
             }
         }
         .tint(TVColor.teal)
-        // Theme override (System/Dark/Light) — TVColor is adaptive, so this flips
-        // the whole palette + gradients.
-        .preferredColorScheme(themeScheme)
-        // Re-render the whole tree when the in-app language OR theme changes — the
-        // language swap re-resolves LocalizedStringKeys via the swizzled bundle, and
-        // keying on theme forces preferredColorScheme to re-apply cleanly (tvOS
-        // didn't reliably revert to System when switching back from Dark/Light).
-        .id("\(lang.code)|\(state.settings.theme)")
+        // Theme (System/Dark/Light) is applied by setting the UIWindow's
+        // overrideUserInterfaceStyle directly (TVAppState.applyTheme) — NOT via
+        // .preferredColorScheme, which on tvOS doesn't reset the window override
+        // back to .unspecified when switching from Dark/Light → System (it stayed
+        // dark). TVColor is adaptive, so the window override flips the palette.
+        // Re-render the whole tree when the in-app language changes so every
+        // LocalizedStringKey re-resolves via the swizzled bundle — no relaunch.
+        .id(lang.code)
+        .onAppear { state.applyTheme(state.settings.theme) }
         .environment(\.locale, lang.code.isEmpty
             ? Locale.autoupdatingCurrent : Locale(identifier: lang.code))
         // NOTE: do NOT set a global .foregroundStyle here — it overrides the
