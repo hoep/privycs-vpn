@@ -47,7 +47,8 @@ struct TVMainView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Privycs").font(TVFont.sans(26, .bold)).foregroundStyle(TVColor.onSurface)
-                    Text("VPN").font(TVFont.mono(13)).foregroundStyle(TVColor.teal)
+                    Text("Secure.Private.Simple.").font(TVFont.mono(12)).foregroundStyle(TVColor.teal)
+                        .lineLimit(1).minimumScaleFactor(0.7)
                 }
             }
             .padding(.bottom, 36).padding(.horizontal, 6)

@@ -49,7 +49,8 @@ struct TVEnrollView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 15))
             VStack(alignment: .leading, spacing: 2) {
                 Text("Privycs").font(TVFont.sans(30, .bold)).foregroundStyle(TVColor.onSurface)
-                Text("VPN").font(TVFont.mono(14)).foregroundStyle(TVColor.teal)
+                Text("Secure.Private.Simple.").font(TVFont.mono(14)).foregroundStyle(TVColor.teal)
+                    .lineLimit(1).minimumScaleFactor(0.7)
             }
             Spacer()
         }
