@@ -1,14 +1,14 @@
-v1.1.5.67 (build 163) — tvOS: reliable connection switching + import switches the live
-tunnel.
+v1.1.5.68 (build 164) — tvOS: Connect screen matches the active connection type +
+Always-on survives switches.
 
-- Switching back and forth between connections/pools was unreliable. Cause: rapid
-  switches launched overlapping connect/disconnect operations that raced on the single
-  VPN profile. Fix: all tunnel operations (connect / disconnect / pool / rotate) are
-  now serialized — they run strictly one after another, so a switch always completes
-  cleanly before the next starts.
-- Importing a pool/config while already connected now switches the live tunnel to the
-  just-imported one (and the Connect screen updates) instead of only selecting it.
+- Connecting a normal (single) connection now clears any previous pool state, so the
+  Connect screen shows the plain view (no stale pool/rotation card). Connecting a pool
+  shows the pool card with the current server + rotation. Switching between them now
+  always shows the right screen.
+- Always-on (auto-connect): a disconnect→connect switch re-arms the on-demand rule
+  when Always-on is enabled (the internal teardown only disarms it momentarily to stop
+  the old tunnel; the new connection re-enables it).
 
-HOW TO TEST: connect → switch between a pool and a server config a few times in a row
-→ each switch should land reliably. Import a pool while connected → it should become
-the active connection and show on Connect.
+HOW TO TEST: connect a pool → Connect shows the pool card; switch to a server config →
+shows the plain connect screen; back to the pool → pool card again. With Always-on on,
+switch a few times → it stays armed.

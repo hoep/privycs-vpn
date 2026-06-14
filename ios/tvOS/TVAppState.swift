@@ -430,11 +430,16 @@ final class TVAppState: ObservableObject {
     func connectSelected() async { await runExclusive { await self.doConnectSelected() } }
 
     private func doConnectSelected() async {
-        // Pool — run the rotation engine (same as the phone).
+        // Pool — run the rotation engine (same as the phone). The Connect screen
+        // shows the pool card because doConnectPool sets activePool.
         if let pool = selectedPool {
             await doConnectPool(pool)
             return
         }
+        // Normal (single) connection — NOT a pool. Clear any pool runtime state so
+        // the Connect screen shows the plain view (no stale pool card / rotation).
+        clearPoolState()
+        await poolRepo.setActivePoolID("")
         // Manual (locally-imported) connection — already has its config, no fetch.
         if let saved = selectedSaved {
             connecting = true
@@ -482,6 +487,11 @@ final class TVAppState: ObservableObject {
         } catch {
             configError = error.localizedDescription
         }
+    }
+
+    private func clearPoolState() {
+        rotationTimer?.cancel(); rotationTimer = nil
+        activePool = nil; activePoolMember = nil; nextRotationAt = 0
     }
 
     func disconnect() async { await runExclusive { await self.doDisconnect() } }
