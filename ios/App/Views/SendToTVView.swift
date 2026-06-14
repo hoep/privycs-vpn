@@ -135,12 +135,12 @@ struct SendToTVView: View {
                 guard let pool = appState.pools.first(where: { $0.id == selectedPoolID }) else {
                     status = loc("Pick a connection to send."); isError = true; return
                 }
-                let members = pool.members.filter { $0.config.protocol == .wireguard || $0.config.protocol == .amneziawg }
-                let items = members.map { ["name": "\(pool.name) · \($0.name)", "content": $0.configContent] }
-                let data = try JSONSerialization.data(withJSONObject: items)
+                // Send the whole Pool object — the Apple TV runs the SAME rotation
+                // engine (it filters to WG/AWG members on its side).
+                let data = try JSONEncoder().encode(pool)
                 fields["kind"] = "pool"
                 fields["content"] = String(decoding: data, as: UTF8.self)
-                successMsg = String(format: loc("Sent ✓ — %lld server(s) on your Apple TV."), members.count)
+                successMsg = String(format: loc("Sent ✓ — %lld server(s) on your Apple TV."), poolWGCount)
             default:
                 let data = try await appState.exportBackup(password: passphrase)
                 fields["kind"] = "backup"

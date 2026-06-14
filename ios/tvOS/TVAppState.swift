@@ -45,6 +45,20 @@ final class TVAppState: ObservableObject {
     /// `selectedConfigID` (only one selection source is active at a time).
     @Published var selectedSavedID: String?
 
+    // Pools — full parity with the phone: the shared PrivycsCore PoolRepository +
+    // PoolRotator run the same rotation engine on tvOS. Caveat: tvOS has no
+    // BGTaskScheduler, so rotation advances on a foreground timer while the app is
+    // open + connected; the tunnel itself stays up in the background regardless.
+    let poolRepo = PoolRepository()
+    let poolHealth = PoolHealthStore()
+    private let rotator = PoolRotator()
+    @Published var pools: [Pool] = []
+    @Published var activePool: Pool?
+    @Published var activePoolMember: PoolMember?
+    @Published var nextRotationAt: Int64 = 0
+    @Published var selectedPoolID: String?
+    private var rotationTimer: Task<Void, Never>?
+
     /// Live tunnel status, mirrored from the controller for view convenience.
     @Published var status: VpnStatus = .disconnected
     @Published var connecting = false
@@ -83,33 +97,44 @@ final class TVAppState: ObservableObject {
     }
 
     var selectedConfig: RemoteConfigEntry? {
-        // A selected saved (manual) connection wins — they're mutually exclusive.
-        if selectedSavedID != nil { return nil }
+        // A selected pool or saved (manual) connection wins — mutually exclusive.
+        if selectedPoolID != nil || selectedSavedID != nil { return nil }
         guard let id = selectedConfigID else { return remoteConfigs.first }
         return remoteConfigs.first(where: { $0.id == id }) ?? remoteConfigs.first
     }
 
     var selectedSaved: SavedConnection? {
+        if selectedPoolID != nil { return nil }
         guard let id = selectedSavedID else { return nil }
         return savedConnections.first { $0.id == id }
     }
 
-    /// Whether anything is selected/connectable at all (gateway or saved).
-    var hasSelection: Bool { selectedSaved != nil || selectedConfig != nil }
+    var selectedPool: Pool? {
+        guard let id = selectedPoolID else { return nil }
+        return pools.first { $0.id == id }
+    }
+
+    /// Whether anything is selected/connectable at all (pool / saved / gateway).
+    var hasSelection: Bool { selectedPool != nil || selectedSaved != nil || selectedConfig != nil }
 
     /// Protocol for the dial — live when connected, else the current selection
-    /// (a selected saved connection takes precedence over a gateway entry).
+    /// (pool > saved manual connection > gateway entry).
     var selectionProtocol: VpnProtocol? {
         if status.connected { return status.activeProtocol }
+        if let p = selectedPool {
+            return activePoolMember?.protocol ?? rotator.filterEligible(pool: p).first?.protocol ?? p.members.first?.protocol
+        }
         if let s = selectedSaved { return s.resolvedActiveConfig()?.protocol ?? s.activeProtocol }
         return selectedConfig?.protocol
     }
-    var selectionName: String? { selectedSaved?.name ?? selectedConfig?.name }
+    var selectionName: String? { selectedPool?.name ?? selectedSaved?.name ?? selectedConfig?.name }
 
-    /// Select a saved (manual) connection, clearing any gateway selection.
-    func selectSaved(_ id: String) { selectedSavedID = id; selectedConfigID = nil }
-    /// Select a gateway config, clearing any saved selection.
-    func selectGateway(_ id: Int) { selectedConfigID = id; selectedSavedID = nil }
+    /// Select a pool, clearing the single-connection selections.
+    func selectPool(_ id: String) { selectedPoolID = id; selectedSavedID = nil; selectedConfigID = nil }
+    /// Select a saved (manual) connection, clearing pool + gateway selection.
+    func selectSaved(_ id: String) { selectedSavedID = id; selectedPoolID = nil; selectedConfigID = nil }
+    /// Select a gateway config, clearing pool + saved selection.
+    func selectGateway(_ id: Int) { selectedConfigID = id; selectedPoolID = nil; selectedSavedID = nil }
 
     // MARK: — Lifecycle
 
@@ -132,6 +157,13 @@ final class TVAppState: ObservableObject {
         }
         loadSSIDs()
         savedConnections = (try? await connectionRepo.loadAll()) ?? []
+        pools = (try? await poolRepo.loadAll()) ?? []
+        let activePoolID = await poolRepo.activePoolID()
+        if !activePoolID.isEmpty, let p = pools.first(where: { $0.id == activePoolID }) {
+            activePool = p
+            nextRotationAt = p.rotation?.nextRotationAt ?? 0
+            selectedPoolID = p.id
+        }
         // Observe live tunnel status from the controller.
         observeStatus()
         // Auto-pull the config list if we're already enrolled.
@@ -283,6 +315,11 @@ final class TVAppState: ObservableObject {
     }
 
     func connectSelected() async {
+        // Pool — run the rotation engine (same as the phone).
+        if let pool = selectedPool {
+            await connectPool(pool)
+            return
+        }
         // Manual (locally-imported) connection — already has its config, no fetch.
         if let saved = selectedSaved {
             connecting = true
@@ -335,8 +372,124 @@ final class TVAppState: ObservableObject {
     func disconnect() async {
         connecting = true
         defer { connecting = false }
+        rotationTimer?.cancel(); rotationTimer = nil
         await tunnel.disconnect()
+        activePool = nil; activePoolMember = nil; nextRotationAt = 0
+        await poolRepo.setActivePoolID("")
         status = tunnel.status
+    }
+
+    // MARK: — Pool engine (shared PrivycsCore PoolRotator) — phone parity
+
+    /// Connect a pool: pick an eligible member (round-robin / geo), bring up the
+    /// tunnel, verify it passes traffic, and arm the rotation timer. Up to 3
+    /// attempts, skipping members marked unreachable. Mirrors AppState.connectPool.
+    func connectPool(_ pool: Pool) async {
+        connecting = true
+        defer { connecting = false }
+        configError = nil
+        let unreachable = await poolHealth.unreachableMembers(pool: pool.id)
+        var tried = Set<String>()
+        var lastError: String?
+
+        for _ in 0..<3 {
+            guard let (member, updated) = rotator.pick(
+                from: pool, userCountry: "", excludingMemberIDs: unreachable.union(tried)
+            ) else { break }
+            tried.insert(member.id)
+            try? await poolRepo.save(updated)
+            await poolRepo.setActivePoolID(pool.id)
+            activePool = updated
+            activePoolMember = member
+            nextRotationAt = updated.rotation?.nextRotationAt ?? 0
+
+            let synth = synthConnection(for: member, pool: updated)
+            await tunnel.connect(synth,
+                                 dnsOverride: synth.dnsOverride.isEmpty ? settings.dnsOverride : synth.dnsOverride,
+                                 killSwitch: false,
+                                 onDemand: settings.autoConnectOnStart, ssids: onDemandSSIDs)
+            if let err = tunnel.lastError {
+                lastError = err
+                await poolHealth.markUnreachable(pool: pool.id, member: member.id)
+                continue
+            }
+            // Post-up traffic probe (WG/AWG expose rx via the App Group snapshot).
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            let snap = TunnelStatsStore.read()
+            if snap?.connected != true || (snap?.rxBytes ?? 0) == 0 {
+                await poolHealth.markUnreachable(pool: pool.id, member: member.id)
+                lastError = "\(member.name): no traffic"
+                continue
+            }
+            scheduleRotationIfNeeded(updated)
+            status = tunnel.status
+            configError = nil
+            return
+        }
+        configError = lastError ?? "Pool has no reachable members"
+        status = tunnel.status
+    }
+
+    /// Rotate to the next member of the active pool (manual or timer-driven).
+    func rotatePool() async {
+        guard let pool = activePool else { return }
+        let unreachable = await poolHealth.unreachableMembers(pool: pool.id)
+        guard let (member, updated) = rotator.pick(from: pool, userCountry: "", excludingMemberIDs: unreachable) else { return }
+        try? await poolRepo.save(updated)
+        activePool = updated
+        activePoolMember = member
+        nextRotationAt = updated.rotation?.nextRotationAt ?? 0
+        let synth = synthConnection(for: member, pool: updated)
+        await tunnel.connect(synth,
+                             dnsOverride: synth.dnsOverride.isEmpty ? settings.dnsOverride : synth.dnsOverride,
+                             killSwitch: false,
+                             onDemand: settings.autoConnectOnStart, ssids: onDemandSSIDs)
+        status = tunnel.status
+    }
+
+    /// Foreground rotation timer. tvOS has no BGTaskScheduler, so rotation only
+    /// advances while the app is open + connected; the tunnel stays up regardless.
+    private func scheduleRotationIfNeeded(_ pool: Pool) {
+        rotationTimer?.cancel()
+        guard let rot = pool.rotation, rot.intervalSeconds > 0 else { return }
+        rotationTimer = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self else { return }
+                let now = Int64(Date().timeIntervalSince1970)
+                if self.status.connected, self.activePool != nil, self.nextRotationAt > 0, now >= self.nextRotationAt {
+                    await self.rotatePool()
+                }
+            }
+        }
+    }
+
+    /// Wrap one pool member as a transient SavedConnection (reuse the connect path).
+    private func synthConnection(for member: PoolMember, pool: Pool) -> SavedConnection {
+        let cfg = ProtocolConfig(
+            id: member.id,
+            protocol: member.protocol,
+            filename: member.name,
+            configContent: member.configContent,
+            serverAddress: member.serverAddress
+        )
+        return SavedConnection(
+            id: "pool:\(pool.id)",
+            name: pool.name,
+            protocols: [cfg],
+            activeConfigID: member.id,
+            dnsOverride: pool.dnsOverride
+        )
+    }
+
+    func deletePool(_ id: String) async {
+        try? await poolRepo.delete(id)
+        pools = (try? await poolRepo.loadAll()) ?? pools
+        if selectedPoolID == id { selectedPoolID = nil }
+        if activePool?.id == id {
+            rotationTimer?.cancel()
+            activePool = nil; activePoolMember = nil; nextRotationAt = 0
+        }
     }
 
     // MARK: — Local import (manual config + backup restore over the LAN)
@@ -349,39 +502,55 @@ final class TVAppState: ObservableObject {
         case failure(String)
     }
 
-    /// One server inside a shared pool (wire format from the iPhone app).
-    private struct TVPoolItem: Decodable { let name: String; let content: String }
-
     /// Route a payload received from the local-network import server.
     @discardableResult
     func handleImport(_ payload: TVImportPayload) async -> TVImportResult {
         switch payload.kind {
-        case .config: return await importConfig(name: payload.name, content: payload.content)
-        case .backup: return await importBackup(payload.content, passphrase: payload.passphrase)
-        case .pool:   return await importPool(payload.content)
+        case .config:  return await importConfig(name: payload.name, content: payload.content)
+        case .backup:  return await importBackup(payload.content, passphrase: payload.passphrase)
+        case .pool:    return await importPool(payload.content)
+        case .poolzip: return await importPoolZip(payload.content)
         }
     }
 
-    /// Import a shared pool's servers as individual connections. tvOS has no pool
-    /// rotation engine, so each WG/AWG member becomes its own saved connection;
-    /// OpenVPN/IPSec members are skipped (unsupported on tvOS).
+    /// Import a full Pool sent by the iPhone app (JSON of the Pool model) and run
+    /// it through the SAME rotation engine as the phone.
     func importPool(_ json: String) async -> TVImportResult {
         guard let data = json.data(using: .utf8),
-              let items = try? JSONDecoder().decode([TVPoolItem].self, from: data) else {
+              let pool = try? JSONDecoder().decode(Pool.self, from: data) else {
             return .failure("Invalid pool data")
         }
-        var imported = 0, skipped = 0
-        var lastID: String?
-        for it in items {
-            let proto = ConfigImport.detectProtocol(filename: "\(it.name).conf", content: it.content)
-            guard proto == .wireguard || proto == .amneziawg else { skipped += 1; continue }
-            let name = it.name.isEmpty ? ConfigImport.deriveConnectionName(it.content) : it.name
-            let conn = ConfigImport.makeConnection(name: name, filename: "\(name).conf", content: it.content)
-            if (try? await connectionRepo.save(conn)) != nil { imported += 1; lastID = conn.id } else { skipped += 1 }
+        return await storePool(pool)
+    }
+
+    /// Import a pool from an uploaded ZIP (base64 from the browser upload form).
+    func importPoolZip(_ base64: String) async -> TVImportResult {
+        guard let zip = Data(base64Encoded: base64) else { return .failure("Invalid ZIP data") }
+        let configs = PoolImporter.extractZip(zip)
+        guard !configs.isEmpty else { return .failure("No config files found in the ZIP.") }
+        var members = PoolImporter.makeMembers(configs)
+        members = await PoolImporter.enrichCountries(members)
+        let pool = Pool(id: UUID().uuidString, name: "Imported Pool", policy: .roundRobin,
+                        members: members, rotation: PoolRotation(),
+                        activeMemberID: members.first?.id ?? "")
+        return await storePool(pool)
+    }
+
+    /// Persist a pool (filtered to tvOS-runnable WG/AWG members) and select it.
+    private func storePool(_ pool: Pool) async -> TVImportResult {
+        var p = pool
+        let total = pool.members.count
+        p.members = pool.members.filter { $0.config.protocol == .wireguard || $0.config.protocol == .amneziawg }
+        guard !p.members.isEmpty else { return .pool(count: 0, skipped: total) }
+        if !p.members.contains(where: { $0.id == p.activeMemberID }) { p.activeMemberID = p.members.first?.id ?? "" }
+        do {
+            try await poolRepo.save(p)
+            pools = (try? await poolRepo.loadAll()) ?? pools
+            selectPool(p.id)
+            return .pool(count: p.members.count, skipped: total - p.members.count)
+        } catch {
+            return .failure(error.localizedDescription)
         }
-        savedConnections = (try? await connectionRepo.loadAll()) ?? savedConnections
-        if let id = lastID { selectSaved(id) }
-        return .pool(count: imported, skipped: skipped)
     }
 
     /// Import a raw `.conf` as a saved connection. tvOS runs WireGuard +
@@ -410,10 +579,12 @@ final class TVAppState: ObservableObject {
         do {
             let payload = try BackupManager.decrypt(data, password: passphrase)
             for c in payload.connections.connections { try? await connectionRepo.save(c) }
+            if let pf = payload.pools { for p in pf.pools { try? await poolRepo.save(p) } }
             try? await settingsRepo.save(payload.settings)
             settings = payload.settings
             TVLanguageManager.shared.set(settings.appLanguage)
             savedConnections = (try? await connectionRepo.loadAll()) ?? savedConnections
+            pools = (try? await poolRepo.loadAll()) ?? pools
             return .backup(connections: payload.connections.connections.count)
         } catch {
             let msg = (error as? BackupManager.BackupError)?.errorDescription ?? error.localizedDescription

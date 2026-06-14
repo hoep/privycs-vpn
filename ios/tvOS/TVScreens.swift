@@ -38,6 +38,10 @@ struct TVConnectScreen: View {
                 if let name = state.selectionName {
                     Text(name).font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
                 }
+                if state.status.connected, let m = state.activePoolMember {
+                    Label(m.name, systemImage: "square.stack.3d.up.fill")
+                        .font(TVFont.mono(16)).foregroundStyle(TVColor.teal).lineLimit(1)
+                }
                 protocolPills
             }
             .frame(maxWidth: .infinity)
@@ -181,12 +185,24 @@ struct TVConfigsScreen: View {
                 }
             }
 
+            // Pools — full rotation engine (parity with the phone).
+            if !state.pools.isEmpty {
+                Text(loc("tv.configs.pools")).font(TVFont.mono(15)).tracking(2)
+                    .foregroundStyle(TVColor.onSurfaceVariant).padding(.top, 6)
+                LazyVGrid(columns: cols, spacing: 18) {
+                    ForEach(state.pools) { pool in
+                        Button { state.selectPool(pool.id) } label: { poolRow(pool) }
+                            .buttonStyle(.card)
+                    }
+                }
+            }
+
             // Gateway-pulled configs.
             if state.loadingConfigs && state.remoteConfigs.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, alignment: .center).padding(40)
             } else if let err = state.configError, state.remoteConfigs.isEmpty {
                 Text(err).font(TVFont.sans(18)).foregroundStyle(TVColor.error)
-            } else if state.remoteConfigs.isEmpty && state.savedConnections.isEmpty {
+            } else if state.remoteConfigs.isEmpty && state.savedConnections.isEmpty && state.pools.isEmpty {
                 Text("tv.main.no_configs", tableName: nil).font(TVFont.sans(19)).foregroundStyle(TVColor.onSurfaceVariant)
             } else if !state.remoteConfigs.isEmpty {
                 if !state.savedConnections.isEmpty {
@@ -222,6 +238,26 @@ struct TVConfigsScreen: View {
             }
             Spacer()
             Button(role: .destructive) { Task { await state.deleteSaved(conn.id) } } label: {
+                Image(systemName: "trash")
+            }.buttonStyle(.card)
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(selected ? TVColor.teal : TVColor.onSurfaceVariant)
+        }
+        .padding(18)
+    }
+
+    private func poolRow(_ pool: Pool) -> some View {
+        let selected = state.selectedPoolID == pool.id
+        return HStack(spacing: 16) {
+            Image(systemName: "square.stack.3d.up.fill").font(.system(size: 30)).foregroundStyle(TVColor.teal)
+                .frame(width: 36, height: 36)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(pool.name).font(TVFont.sans(20, .semibold)).foregroundStyle(TVColor.onSurface).lineLimit(1)
+                Text("\(pool.members.count) \(loc("tv.configs.servers"))")
+                    .font(TVFont.mono(14)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
+            }
+            Spacer()
+            Button(role: .destructive) { Task { await state.deletePool(pool.id) } } label: {
                 Image(systemName: "trash")
             }.buttonStyle(.card)
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")

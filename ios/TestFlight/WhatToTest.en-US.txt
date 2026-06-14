@@ -1,17 +1,23 @@
-v1.1.5.49 / iOS 1.1.5.33 (build 145) — tvOS Theme switch + share a Pool to Apple TV.
+v1.1.5.50 / iOS 1.1.5.34 (build 146) — Pools run on Apple TV (full rotation engine)
++ share pools/configs from iPhone + delete on TV.
 
-tvOS:
-- Settings → Theme: System / Dark / Light (segmented). Flips the whole palette
-  immediately (TVColor is adaptive).
-
-iPhone → Apple TV (Settings → Backup → Send to Apple TV):
-- New "A pool" option. Pick a pool and its servers are pushed to the Apple TV as
-  individual connections (one per WireGuard/AmneziaWG member; OpenVPN/IPSec members
-  are skipped since tvOS can't run them). They appear under "Imported" on the TV.
-- Still supports sending a single connection or a full encrypted backup.
+Apple TV now treats pools exactly like the phone — the shared PrivycsCore PoolRotator
+runs on tvOS:
+- Pools appear in Configs (own section). Select one and Connect: it picks a member,
+  verifies traffic, and ROTATES on schedule (foreground timer while the app is open;
+  the tunnel stays up in the background). The active server is shown on Connect.
+- Get a pool onto the TV three ways (no gateway needed):
+  • iPhone → Settings → Backup → Send to Apple TV → "A pool" (sends the whole pool).
+  • Browser upload: on the TV's import page, "Upload pool ZIP" (a .zip of .conf files).
+  • A full encrypted backup now also restores pools.
+  (tvOS runs WireGuard/AmneziaWG only — OpenVPN/IPSec members are skipped.)
+- Delete on the TV: every imported connection AND every pool has a trash button in
+  Configs. (Gateway-pulled configs are managed on the gateway.)
+- "Send to Apple TV" also still sends a single connection (incl. ones you imported on
+  the phone) or a full backup.
 
 HOW TO TEST:
-1. tvOS Settings → Theme → switch Dark/Light/System; the UI should re-theme live.
-2. iPhone: Settings → Backup → Send to Apple TV → scan the TV's QR (Configs →
-   Add / restore, or Settings → Backup & Restore) → choose "A pool" → send. Confirm
-   each pool server shows up under Imported on the TV and connects.
+1. iPhone: Settings → Backup → Send to Apple TV → scan TV QR → "A pool" → send.
+2. TV: Configs → the pool appears under POOLS → select → Connect → watch it rotate;
+   the current server shows on Connect. Trash a pool/connection to delete it.
+3. TV import page → Upload pool ZIP → confirm the pool appears.

@@ -4,10 +4,10 @@ import Network
 /// What the TV received over the local network — either a raw VPN config (manual
 /// import, no gateway) or an encrypted Privycs backup blob (restore).
 struct TVImportPayload: Sendable {
-    enum Kind: String, Sendable { case config, backup, pool }
+    enum Kind: String, Sendable { case config, backup, pool, poolzip }
     let kind: Kind
     let name: String        // connection name (config) — ignored for backup/pool
-    let content: String     // .conf text · backup JSON envelope · pool JSON array
+    let content: String     // .conf text · backup envelope · Pool JSON · base64 ZIP
     let passphrase: String   // backup only
 }
 
@@ -233,6 +233,25 @@ final class TVImportServer: ObservableObject {
           <textarea name="content" rows="14" placeholder="[Interface] ... or the .pvcbackup contents"></textarea>
           <button type="submit">Send to Apple TV</button>
         </form>
+        <hr style="border-color:#243038;margin:26px 0">
+        <label>Or upload a pool (.zip of .conf files)</label>
+        <input type="file" id="zipfile" accept=".zip,application/zip">
+        <button type="button" onclick="sendZip()">Upload pool ZIP</button>
+        <script>
+        function sendZip(){
+          var f=document.getElementById('zipfile').files[0];
+          if(!f){alert('Pick a .zip first');return;}
+          var r=new FileReader();
+          r.onload=function(){
+            var b64=r.result.split(',')[1];
+            fetch('/link',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+              body:'kind=poolzip&pin=\(pin)&content='+encodeURIComponent(b64)})
+              .then(function(){document.body.innerHTML='<h1>Privycs \\u00b7 Sent \\u2713</h1><p>Pool sent to your Apple TV. You can close this page.</p>';})
+              .catch(function(){alert('Upload failed');});
+          };
+          r.readAsDataURL(f);
+        }
+        </script>
         """)
     }
 
