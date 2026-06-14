@@ -87,9 +87,13 @@ struct TVImportView: View {
         VStack(alignment: .leading, spacing: 22) {
             step("1", loc("tv.import.step_scan"))
             if !server.lanURL.isEmpty {
-                Text(server.lanURL.replacingOccurrences(of: "http://", with: ""))
-                    .font(TVFont.mono(22, .semibold)).foregroundStyle(TVColor.teal)
-                    .lineLimit(1).minimumScaleFactor(0.5)
+                // Short base URL (http://ip:port) — the form is served at the root
+                // with the PIN pre-filled, so the user doesn't need the /link?pin
+                // path when typing it manually. Keep http:// shown: it's plain HTTP
+                // (local-network only, no TLS). The QR still carries the full URL.
+                Text(server.lanURL.components(separatedBy: "/link").first ?? server.lanURL)
+                    .font(TVFont.mono(28, .semibold)).foregroundStyle(TVColor.teal)
+                    .lineLimit(1).minimumScaleFactor(0.7)
                     .padding(.leading, 42)
             }
             step("2", loc("tv.import.step_paste"))
