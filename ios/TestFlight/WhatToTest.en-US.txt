@@ -1,9 +1,15 @@
-v1.1.5.64 (build 160) — tvOS: import address shown larger + as http://ip:port.
+v1.1.5.65 (build 161) — tvOS: fix slow connect after switching between pool/configs
+(single VPN profile).
 
-The address under "or open the address" now shows the short base URL with its scheme
-— http://<ip>:<port> — bigger and readable (the page is served at the root with the
-PIN pre-filled, so the long /link?pin path isn't needed when typing it manually). It's
-plain HTTP (local network only, PIN-gated); the QR still carries the full URL.
+Bug: import a pool → connect → disconnect → connect a gateway/server config → very
+slow. Cause: the TV created a separate VPN profile (NETunnelProviderManager) per
+connection name — every pool and every gateway config got its own. They piled up, and
+the system got slow reconciling many profiles / on-demand rules and stalled starting a
+new tunnel while another was tearing down (a race).
 
-HOW TO TEST: VPN → Add / restore → step 1 shows e.g. http://192.168.x.x:8770, large
-and legible; type it in a phone browser on the same Wi-Fi → the upload page opens.
+Fix: the Apple TV now reuses ONE VPN profile and reconfigures it for whatever you
+connect, and removes any extra leftover profiles. Switching between a pool and a
+server config is now fast.
+
+HOW TO TEST: import a 2nd pool → connect → disconnect → connect a server config → it
+should come up quickly now (no long delay).

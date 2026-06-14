@@ -178,7 +178,13 @@ final class TVTunnelController: ObservableObject {
                                dnsOverride: String, killSwitch: Bool,
                                onDemand: Bool, ssids: [String]) async throws {
         let mgrs = (try? await NETunnelProviderManager.loadAllFromPreferences()) ?? []
-        let mgr = mgrs.first { $0.localizedDescription == connection.name } ?? NETunnelProviderManager()
+        // A TV runs ONE connection at a time → reuse a SINGLE manager and
+        // reconfigure it, rather than one-per-connection-name. The old behaviour
+        // accumulated a manager per distinct name (every pool + every gateway
+        // config), and the OS got slow reconciling many managers / on-demand rules
+        // and stalled starting a new tunnel while another was still tearing down.
+        let mgr = mgrs.first ?? NETunnelProviderManager()
+        for extra in mgrs.dropFirst() { try? await extra.removeFromPreferences() }
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = TunnelProviderConfig.bundleIdentifier
         proto.serverAddress = config.serverAddress
