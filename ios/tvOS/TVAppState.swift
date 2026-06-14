@@ -482,6 +482,13 @@ final class TVAppState: ObservableObject {
         )
     }
 
+    /// Persist edits to a pool (rotation/policy/DNS/members) and refresh state.
+    func savePool(_ pool: Pool) async {
+        try? await poolRepo.save(pool)
+        pools = (try? await poolRepo.loadAll()) ?? pools
+        if activePool?.id == pool.id { activePool = pool }
+    }
+
     func deletePool(_ id: String) async {
         try? await poolRepo.delete(id)
         pools = (try? await poolRepo.loadAll()) ?? pools

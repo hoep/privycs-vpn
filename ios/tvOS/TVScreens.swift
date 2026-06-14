@@ -151,7 +151,15 @@ struct TVConnectScreen: View {
 struct TVConfigsScreen: View {
     @EnvironmentObject private var state: TVAppState
     @State private var showImport = false
+    @State private var detailPoolID: String?
     private let cols = [GridItem(.flexible(), spacing: 18), GridItem(.flexible(), spacing: 18)]
+
+    private func deleteButton(_ action: @escaping () async -> Void) -> some View {
+        Button(role: .destructive) { Task { await action() } } label: {
+            Image(systemName: "trash").font(.system(size: 24)).foregroundStyle(TVColor.error).padding(18)
+        }
+        .buttonStyle(.card)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -173,26 +181,35 @@ struct TVConfigsScreen: View {
                 .buttonStyle(.card)
             }
 
-            // Locally-imported (manual) connections.
+            // Locally-imported (manual) connections. Select + delete are SIBLING
+            // buttons — tvOS can't focus a button nested inside another button.
             if !state.savedConnections.isEmpty {
                 Text(loc("tv.configs.imported")).font(TVFont.mono(15)).tracking(2)
                     .foregroundStyle(TVColor.onSurfaceVariant).padding(.top, 6)
-                LazyVGrid(columns: cols, spacing: 18) {
+                VStack(spacing: 14) {
                     ForEach(state.savedConnections) { conn in
-                        Button { state.selectSaved(conn.id) } label: { savedRow(conn) }
-                            .buttonStyle(.card)
+                        HStack(spacing: 12) {
+                            Button { state.selectSaved(conn.id) } label: { savedRow(conn) }.buttonStyle(.card)
+                            deleteButton { await state.deleteSaved(conn.id) }
+                        }
                     }
                 }
             }
 
-            // Pools — full rotation engine (parity with the phone).
+            // Pools — full rotation engine (parity with the phone). Select /
+            // configure / delete are sibling buttons.
             if !state.pools.isEmpty {
                 Text(loc("tv.configs.pools")).font(TVFont.mono(15)).tracking(2)
                     .foregroundStyle(TVColor.onSurfaceVariant).padding(.top, 6)
-                LazyVGrid(columns: cols, spacing: 18) {
+                VStack(spacing: 14) {
                     ForEach(state.pools) { pool in
-                        Button { state.selectPool(pool.id) } label: { poolRow(pool) }
-                            .buttonStyle(.card)
+                        HStack(spacing: 12) {
+                            Button { state.selectPool(pool.id) } label: { poolRow(pool) }.buttonStyle(.card)
+                            Button { detailPoolID = pool.id } label: {
+                                Image(systemName: "gearshape").font(.system(size: 24)).foregroundStyle(TVColor.teal).padding(18)
+                            }.buttonStyle(.card)
+                            deleteButton { await state.deletePool(pool.id) }
+                        }
                     }
                 }
             }
@@ -220,6 +237,10 @@ struct TVConfigsScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
         .sheet(isPresented: $showImport) { TVImportView().environmentObject(state) }
+        .sheet(isPresented: Binding(get: { detailPoolID != nil },
+                                    set: { if !$0 { detailPoolID = nil } })) {
+            if let id = detailPoolID { TVPoolDetailView(poolID: id).environmentObject(state) }
+        }
     }
 
     private func savedRow(_ conn: SavedConnection) -> some View {
@@ -237,12 +258,10 @@ struct TVConfigsScreen: View {
                 }
             }
             Spacer()
-            Button(role: .destructive) { Task { await state.deleteSaved(conn.id) } } label: {
-                Image(systemName: "trash")
-            }.buttonStyle(.card)
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(selected ? TVColor.teal : TVColor.onSurfaceVariant)
         }
+        .frame(maxWidth: .infinity)
         .padding(18)
     }
 
@@ -257,12 +276,10 @@ struct TVConfigsScreen: View {
                     .font(TVFont.mono(14)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
             }
             Spacer()
-            Button(role: .destructive) { Task { await state.deletePool(pool.id) } } label: {
-                Image(systemName: "trash")
-            }.buttonStyle(.card)
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(selected ? TVColor.teal : TVColor.onSurfaceVariant)
         }
+        .frame(maxWidth: .infinity)
         .padding(18)
     }
 
