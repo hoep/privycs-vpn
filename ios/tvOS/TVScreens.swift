@@ -38,17 +38,22 @@ struct TVConnectScreen: View {
                 if let name = state.selectionName {
                     Text(name).font(TVFont.sans(22, .semibold)).foregroundStyle(TVColor.onSurfaceVariant).lineLimit(1)
                 }
-                if state.status.connected, let m = state.activePoolMember {
-                    Label(m.name, systemImage: "square.stack.3d.up.fill")
-                        .font(TVFont.mono(16)).foregroundStyle(TVColor.teal).lineLimit(1)
-                }
                 protocolPills
             }
             .frame(maxWidth: .infinity)
             .focusSection()
 
-            // RIGHT — traffic + details + health
+            // RIGHT — pool status (if any) + traffic + details + health
             VStack(spacing: 20) {
+                if state.status.connected, let pool = state.activePool {
+                    TVPoolStatusCard(
+                        poolName: pool.name, policy: pool.policy,
+                        memberName: state.activePoolMember?.name ?? "",
+                        memberCountry: state.activePoolMember?.country ?? "",
+                        nextRotationAt: state.nextRotationAt,
+                        onRotateNow: { Task { await state.rotatePool() } }
+                    )
+                }
                 HStack(spacing: 20) {
                     trafficCard(loc("tv.stats.download"), "arrow.down",
                                 state.status.rxBytes, state.rxSpeed, state.rxHistory,

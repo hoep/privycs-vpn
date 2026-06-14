@@ -482,11 +482,16 @@ final class TVAppState: ObservableObject {
         )
     }
 
-    /// Persist edits to a pool (rotation/policy/DNS/members) and refresh state.
-    func savePool(_ pool: Pool) async {
+    /// Persist edits to a pool (rotation/policy/DNS). When `reconnect` is set and
+    /// this pool is the one currently connected, re-establish it so the change
+    /// (e.g. DNS) takes effect — but ONLY if a tunnel was already up.
+    func savePool(_ pool: Pool, reconnect: Bool = false) async {
         try? await poolRepo.save(pool)
         pools = (try? await poolRepo.loadAll()) ?? pools
         if activePool?.id == pool.id { activePool = pool }
+        if reconnect, status.connected, activePool?.id == pool.id {
+            await connectPool(pool)
+        }
     }
 
     func deletePool(_ id: String) async {
@@ -526,7 +531,10 @@ final class TVAppState: ObservableObject {
     /// WG/AWG only, so OpenVPN/IPSec configs come back as `.unsupported`.
     func importFile(name: String, base64: String) async -> TVImportResult {
         let ext = (name as NSString).pathExtension.lowercased()
-        if ext == "zip" { return await importPoolZip(base64) }
+        if ext == "zip" {
+            let base = (name as NSString).deletingPathExtension
+            return await importPoolZip(base64, name: base.isEmpty ? "Imported Pool" : base)
+        }
         guard let data = Data(base64Encoded: base64), let text = String(data: data, encoding: .utf8) else {
             return .failure("Invalid file data")
         }
@@ -544,13 +552,13 @@ final class TVAppState: ObservableObject {
     }
 
     /// Import a pool from an uploaded ZIP (base64 from the browser upload form).
-    func importPoolZip(_ base64: String) async -> TVImportResult {
+    func importPoolZip(_ base64: String, name: String = "Imported Pool") async -> TVImportResult {
         guard let zip = Data(base64Encoded: base64) else { return .failure("Invalid ZIP data") }
         let configs = PoolImporter.extractZip(zip)
         guard !configs.isEmpty else { return .failure("No config files found in the ZIP.") }
         var members = PoolImporter.makeMembers(configs)
         members = await PoolImporter.enrichCountries(members)
-        let pool = Pool(id: UUID().uuidString, name: "Imported Pool", policy: .roundRobin,
+        let pool = Pool(id: UUID().uuidString, name: name, policy: .roundRobin,
                         members: members, rotation: PoolRotation(),
                         activeMemberID: members.first?.id ?? "")
         return await storePool(pool)

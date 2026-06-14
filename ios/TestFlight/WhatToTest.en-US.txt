@@ -1,18 +1,18 @@
-v1.1.5.52 (build 148) — tvOS: fix pool/connection delete + configure pools.
+v1.1.5.53 (build 149) — tvOS: name pools, faster pool config, Connect pool/rotation
+card, auto-reconnect on config change.
 
-FIX: the trash icon on imported connections and pools did nothing — it was a button
-nested inside the row's select-button, which tvOS can't focus. Select / configure /
-delete are now SEPARATE focusable buttons on each row, so delete works.
+- Name a pool: the pool-config screen (gear) now has a "Pool name" field. ZIP
+  imports also name the pool after the .zip filename (instead of "Imported Pool").
+- Pool config was crawling because it drew every server (pools can hold hundreds).
+  Removed the server list (the engine manages members); the screen is snappy now and
+  shows the server count. DNS applies on submit (not every keystroke).
+- Connect screen now shows a pool/rotation card (parity with iPhone): pool name +
+  policy, current server + country, a live countdown to the next rotation, and a
+  "Rotate now" button.
+- Changing a pool's config (DNS / policy / rotation) now auto-reconnects with the
+  active config — but ONLY if the VPN was already connected.
 
-NEW — configure a pool on the Apple TV (parity with the phone): each pool row has a
-gear button → pool settings:
-- Selection policy (Geo / Random / Round-robin)
-- Auto-rotate interval (Off / 5 min / 15 min / 1 h / 4 h / Daily)
-- DNS override
-- Per-server management: mark a server "Use" (active) or delete it.
-Edits persist through the shared engine, so rotation honours them.
-
-HOW TO TEST (Apple TV → Configs):
-1. Trash a pool / imported connection → it disappears (delete works now).
-2. Tap the gear on a pool → change rotation interval / policy / DNS, use/delete a
-   server → reconnect the pool and confirm rotation follows the new interval.
+HOW TO TEST (Apple TV):
+1. Configs → gear on a pool → rename it; change rotation/policy/DNS → if connected it
+   reconnects automatically, the Connect card shows the new server + countdown.
+2. Connect a rotating pool → watch the countdown + "Rotate now".

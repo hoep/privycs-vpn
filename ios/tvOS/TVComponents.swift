@@ -112,6 +112,73 @@ struct TVConnectDisc: View {
     }
 }
 
+/// Connect-screen pool/rotation card — port of the iOS PoolIndicatorCard: pool
+/// name + policy, the current server, a live countdown to the next rotation, and
+/// a Rotate-now button.
+struct TVPoolStatusCard: View {
+    let poolName: String
+    let policy: PoolPolicy
+    let memberName: String
+    let memberCountry: String
+    let nextRotationAt: Int64
+    let onRotateNow: () -> Void
+
+    @State private var now = Date()
+    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var countdown: String? {
+        guard nextRotationAt > 0 else { return nil }
+        let r = nextRotationAt - Int64(now.timeIntervalSince1970)
+        if r <= 0 { return "…" }
+        return String(format: "%d:%02d", r / 60, r % 60)
+    }
+
+    private var policyLabel: String {
+        switch policy {
+        case .geoNearest: return loc("tv.pool.policy_geo")
+        case .random:     return loc("tv.pool.policy_random")
+        case .roundRobin: return loc("tv.pool.policy_rr")
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: "square.stack.3d.up.fill").foregroundStyle(TVColor.teal)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(poolName).font(TVFont.sans(20, .semibold)).foregroundStyle(TVColor.onSurface).lineLimit(1)
+                    Text(policyLabel).font(TVFont.mono(14)).foregroundStyle(TVColor.onSurfaceVariant)
+                }
+                Spacer()
+                if let countdown {
+                    VStack(spacing: 2) {
+                        Text(countdown).font(TVFont.mono(20, .semibold)).foregroundStyle(TVColor.teal).monospacedDigit()
+                        Text(loc("tv.pool.next")).font(TVFont.mono(12)).foregroundStyle(TVColor.onSurfaceVariant)
+                    }
+                }
+            }
+            HStack(spacing: 12) {
+                Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(TVColor.teal)
+                Text(memberName.isEmpty ? "—" : memberName).font(TVFont.sans(18)).foregroundStyle(TVColor.onSurface).lineLimit(1)
+                if !memberCountry.isEmpty {
+                    Text(memberCountry.uppercased()).font(TVFont.mono(13)).foregroundStyle(TVColor.onSurfaceVariant)
+                }
+                Spacer()
+                Button { onRotateNow() } label: {
+                    Label(loc("tv.pool.rotate_now"), systemImage: "arrow.triangle.2.circlepath")
+                        .font(TVFont.sans(16, .semibold)).foregroundStyle(TVColor.teal)
+                        .padding(.vertical, 9).padding(.horizontal, 16)
+                }
+                .buttonStyle(.card)
+            }
+        }
+        .padding(24).frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(TVColor.outline.opacity(0.5), lineWidth: 1))
+        .onReceive(ticker) { now = $0 }
+    }
+}
+
 /// Tunnel-health pill — port of the iOS TunnelHealthPill (dot + label, tinted
 /// capsule). tvOS derives the level from connection + handshake age.
 enum TVHealthLevel { case none, healthy, degraded }
