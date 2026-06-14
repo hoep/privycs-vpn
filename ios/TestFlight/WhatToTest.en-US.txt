@@ -1,18 +1,9 @@
-v1.1.5.53 (build 149) — tvOS: name pools, faster pool config, Connect pool/rotation
-card, auto-reconnect on config change.
+v1.1.5.54 (build 150) — tvOS: fix pool-config dialog clipping.
 
-- Name a pool: the pool-config screen (gear) now has a "Pool name" field. ZIP
-  imports also name the pool after the .zip filename (instead of "Imported Pool").
-- Pool config was crawling because it drew every server (pools can hold hundreds).
-  Removed the server list (the engine manages members); the screen is snappy now and
-  shows the server count. DNS applies on submit (not every keystroke).
-- Connect screen now shows a pool/rotation card (parity with iPhone): pool name +
-  policy, current server + country, a live countdown to the next rotation, and a
-  "Rotate now" button.
-- Changing a pool's config (DNS / policy / rotation) now auto-reconnects with the
-  active config — but ONLY if the VPN was already connected.
+The pool-config screen (gear) was cut off at the bottom and the "Activate pool"
+button was clipped / flush-left. Fixed: added side + bottom breathing room inside the
+scroll area so focused buttons aren't clipped by the scroll bounds (tvOS focus lift),
+widened the side margins, and made "Activate pool" a full-width button.
 
-HOW TO TEST (Apple TV):
-1. Configs → gear on a pool → rename it; change rotation/policy/DNS → if connected it
-   reconnects automatically, the Connect card shows the new server + countdown.
-2. Connect a rotating pool → watch the countdown + "Rotate now".
+HOW TO TEST: Configs → gear on a pool → scroll to the bottom; the "Activate pool"
+button should be fully visible and centered, nothing cut off at the edges.

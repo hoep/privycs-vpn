@@ -61,14 +61,20 @@ struct TVPoolDetailView: View {
                         Label(loc(isActive ? "tv.pool.active" : "tv.pool.activate"),
                               systemImage: isActive ? "checkmark.circle.fill" : "bolt.circle")
                             .font(TVFont.sans(24, .semibold)).foregroundStyle(TVColor.teal)
-                            .padding(.vertical, 14).padding(.horizontal, 26)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
                     }
                     .buttonStyle(.card)
                     .padding(.top, 8)
                 }
+                // Side + bottom breathing room so focused .card buttons aren't
+                // clipped by the ScrollView bounds (tvOS focus lift) and the last
+                // control clears the bottom overscan.
+                .padding(.horizontal, 6)
+                .padding(.bottom, 80)
             }
         }
-        .padding(60)
+        .padding(.horizontal, 80).padding(.top, 60).padding(.bottom, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LinearGradient(colors: [TVColor.backgroundTop, TVColor.background],
                                    startPoint: .top, endPoint: .bottom).ignoresSafeArea())
