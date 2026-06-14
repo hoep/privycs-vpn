@@ -102,7 +102,9 @@ struct TVMainView: View {
                     case .settings: TVSettingsScreen()
                     }
                 }
-                .padding(.horizontal, 60).padding(.bottom, 50)
+                // Top padding so the first row's focus-lift (.card scale) isn't
+                // clipped by the ScrollView's top edge under the header.
+                .padding(.top, 16).padding(.horizontal, 60).padding(.bottom, 50)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
