@@ -182,7 +182,7 @@ public enum GatewayError: Error, LocalizedError {
 /// One entry from /api/v1/connect/my-configs. Matches the gateway's
 /// `MyConfigEntry` JSON 1:1. Robust decode — only `id` is required so a
 /// schema drift on a secondary field doesn't abort the whole list.
-public struct RemoteConfigEntry: Decodable, Identifiable, Hashable, Sendable {
+public struct RemoteConfigEntry: Codable, Identifiable, Hashable, Sendable {
     public let id: Int
     public let peerName: String
     /// Raw protocol string from the gateway ("wireguard"/"openvpn"/"ipsec").

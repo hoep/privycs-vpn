@@ -169,6 +169,9 @@ final class TVAppState: ObservableObject {
         Task { [weak self] in self?.userCountry = await SelfIPDetector.shared.country() }
         savedConnections = (try? await connectionRepo.loadAll()) ?? []
         pools = (try? await poolRepo.loadAll()) ?? []
+        // Show last-good gateway configs immediately; a live pull refreshes them
+        // (and won't blank them if it fails through an active tunnel).
+        remoteConfigs = loadCachedConfigs()
         // Observe live tunnel status from the controller (also reads the current
         // OS tunnel state — e.g. one kept up by the on-demand rule across an upgrade).
         observeStatus()
@@ -364,6 +367,17 @@ final class TVAppState: ObservableObject {
 
     // MARK: — Config pull
 
+    private let configCacheKey = "tv_cached_gateway_configs"
+
+    private func cacheRemoteConfigs(_ c: [RemoteConfigEntry]) {
+        if let d = try? JSONEncoder().encode(c) { UserDefaults.standard.set(d, forKey: configCacheKey) }
+    }
+    func loadCachedConfigs() -> [RemoteConfigEntry] {
+        guard let d = UserDefaults.standard.data(forKey: configCacheKey),
+              let c = try? JSONDecoder().decode([RemoteConfigEntry].self, from: d) else { return [] }
+        return c
+    }
+
     func refreshConfigs() async {
         guard let client = gatewayClient else { return }
         loadingConfigs = true
@@ -371,9 +385,20 @@ final class TVAppState: ObservableObject {
         defer { loadingConfigs = false }
         do {
             let configs = try await client.listMyConfigs()
-            remoteConfigs = configs
-            if selectedConfigID == nil { selectedConfigID = configs.first?.id }
+            if !configs.isEmpty {
+                remoteConfigs = configs
+                cacheRemoteConfigs(configs)
+                if selectedConfigID == nil { selectedConfigID = configs.first?.id }
+            } else if !status.connected {
+                // Empty AND not behind a tunnel → trust it (gateway genuinely has
+                // none). While connected, the pull goes THROUGH the tunnel and an
+                // empty/failed result is almost always transient — keep the cache.
+                remoteConfigs = []
+                cacheRemoteConfigs([])
+            }
         } catch {
+            // Pull failed (e.g. gateway unreachable through an active VPN tunnel) —
+            // keep the cached configs visible instead of blanking the list.
             configError = error.localizedDescription
         }
     }

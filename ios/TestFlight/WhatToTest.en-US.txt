@@ -1,10 +1,16 @@
-v1.1.5.60 (build 156) — tvOS: Theme=System now reverts correctly.
+v1.1.5.61 (build 157) — tvOS: gateway server connections no longer vanish while
+connected (config cache).
 
-Bug: device appearance = Light; set Theme=Dark, then back to System → it stayed Dark.
-Cause: tvOS's .preferredColorScheme(nil) doesn't reset the window's
-overrideUserInterfaceStyle back to .unspecified. Fix: the app now sets the UIWindow
-override directly (System = .unspecified → follows the TV, Dark = .dark, Light =
-.light), applied on launch and on every Theme change.
+Bug: while connected to a pool/VPN (e.g. Mullvad), the gateway "server connections"
+disappeared — only the local pool remained — and came back after disconnecting.
+Cause: the gateway config list (GET <gateway>/api/v1/connect/my-configs) is pulled
+LIVE, and while a tunnel is up that request goes THROUGH the tunnel and fails/returns
+empty, which blanked the list.
 
-HOW TO TEST: with the TV in Light, set Settings → Theme → Dark (UI goes dark), then
-Theme → System → it should go back to Light (the TV's appearance). And vice-versa.
+Fix: the Apple TV now caches the last-good gateway configs on-device. A failed pull,
+or an empty result while connected, keeps the cached list visible. An empty result is
+only trusted (list cleared) when NOT connected — i.e. the gateway genuinely has none.
+
+HOW TO TEST: with gateway configs visible, connect the Mullvad pool → the gateway
+server connections should STAY listed (no longer disappear). Disconnect → a fresh
+pull refreshes them.
