@@ -1,10 +1,15 @@
-v1.1.5.56 (build 152) — tvOS: pool-config / import sheets now match the app's skin.
+v1.1.5.57 (build 153) — tvOS mini-server page: dark/light skin + prominent file upload.
 
-The pool-config (gear) and import dialogs are presented as sheets and only had a flat
-gradient — they were missing the teal glow, the accent tint, and (the visible part)
-the Theme color-scheme, so with Light/Dark forced they rendered in the device scheme
-and looked "skinned differently". Both sheets now use the same screen chrome as the
-rest of the app (gradient + glow + tint + the selected Theme).
+The page the Apple TV serves (scan its QR → opens in your phone's browser) is
+redesigned:
+- Follows your phone browser's Dark/Light mode (prefers-color-scheme) — Privycs
+  colors in both, with the brand + "Secure.Private.Simple." header.
+- "Upload a file" is now the primary action and accepts any locally-saved file
+  (Files / iCloud Drive): .zip → a server pool, .conf → a WireGuard/AmneziaWG
+  connection, .ovpn / .sswan are accepted (and reported as not runnable on tvOS,
+  which only does WireGuard/AmneziaWG). Pasting config/backup text is still there as
+  a secondary card.
 
-HOW TO TEST: set Settings → Theme (Dark/Light), open a pool's gear and the import
-dialog — they should match the main screens' look in both themes.
+HOW TO TEST: Apple TV → Configs → Add/restore (or Settings → Backup & Restore) → scan
+the QR with your phone → the page should match your browser's light/dark mode → tap
+"Upload a file", pick a .zip/.conf from Files → it imports on the TV.

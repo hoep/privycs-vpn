@@ -226,25 +226,31 @@ final class TVImportServer: ObservableObject {
 
     private static func formPage(pin: String) -> String {
         page(title: "Send to Apple TV", body: """
-        <form method="POST" action="/link">
-          <input type="hidden" name="pin" value="\(pin)">
-          <label>Type</label>
-          <select name="kind">
-            <option value="config">VPN configuration (.conf)</option>
-            <option value="backup">Encrypted backup (restore)</option>
-          </select>
-          <label>Name (configuration only)</label>
-          <input type="text" name="name" placeholder="My VPN">
-          <label>Passphrase (backup only)</label>
-          <input type="password" name="passphrase" placeholder="backup passphrase">
-          <label>Paste the configuration or backup contents</label>
-          <textarea name="content" rows="14" placeholder="[Interface] ... or the .pvcbackup contents"></textarea>
-          <button type="submit">Send to Apple TV</button>
-        </form>
-        <hr style="border-color:#243038;margin:26px 0">
-        <label>Or upload a file (.zip pool · .conf · .ovpn · .sswan)</label>
-        <input type="file" id="vpnfile" accept=".zip,.conf,.ovpn,.sswan,.mobileconfig">
-        <button type="button" onclick="sendFile()">Upload file</button>
+        <p class="sub">Send a VPN file or config to your Apple TV over your local network — no gateway, no cloud.</p>
+        <div class="card">
+          <h2>Upload a file</h2>
+          <input type="file" id="vpnfile">
+          <button type="button" onclick="sendFile()">Upload to Apple TV</button>
+          <p class="hint">.zip = a server pool · .conf = WireGuard / AmneziaWG · .ovpn / .sswan accepted (Apple TV runs WireGuard &amp; AmneziaWG)</p>
+        </div>
+        <div class="card">
+          <h2>Or paste</h2>
+          <form method="POST" action="/link">
+            <input type="hidden" name="pin" value="\(pin)">
+            <label>Type</label>
+            <select name="kind">
+              <option value="config">VPN configuration (.conf)</option>
+              <option value="backup">Encrypted backup (restore)</option>
+            </select>
+            <label>Name (configuration only)</label>
+            <input type="text" name="name" placeholder="My VPN">
+            <label>Passphrase (backup only)</label>
+            <input type="password" name="passphrase" placeholder="backup passphrase">
+            <label>Contents</label>
+            <textarea name="content" placeholder="[Interface] ... or the .pvcbackup contents"></textarea>
+            <button type="submit">Send to Apple TV</button>
+          </form>
+        </div>
         <script>
         function sendFile(){
           var f=document.getElementById('vpnfile').files[0];
@@ -254,7 +260,7 @@ final class TVImportServer: ObservableObject {
             var b64=r.result.split(',')[1];
             fetch('/link',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
               body:'kind=file&pin=\(pin)&name='+encodeURIComponent(f.name)+'&content='+encodeURIComponent(b64)})
-              .then(function(){document.body.innerHTML='<h1>Privycs \\u00b7 Sent \\u2713</h1><p>Sent to your Apple TV. You can close this page.</p>';})
+              .then(function(){document.body.innerHTML='<div class="wrap"><h1>Sent ✓</h1><p class="sub">Sent to your Apple TV. You can close this page.</p></div>';})
               .catch(function(){alert('Upload failed');});
           };
           r.readAsDataURL(f);
@@ -263,19 +269,41 @@ final class TVImportServer: ObservableObject {
         """)
     }
 
+    /// The page is served to a phone browser, so it follows the BROWSER's
+    /// dark/light preference via `prefers-color-scheme` (CSS custom properties).
     private static func page(title: String, body: String) -> String {
         """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="color-scheme" content="dark light">
         <title>Privycs · \(title)</title>
         <style>
-          body{font-family:-apple-system,system-ui,sans-serif;background:#070B0E;color:#EAF1F3;margin:0;padding:24px}
-          h1{color:#00CDAB;font-size:20px}
-          label{display:block;margin:14px 0 4px;color:#9DB2BD;font-size:13px}
-          input,select,textarea{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:1px solid #243038;background:#0E161C;color:#EAF1F3;font-size:16px}
-          textarea{font-family:ui-monospace,monospace}
-          button{margin-top:18px;width:100%;padding:14px;border:0;border-radius:12px;background:#00CDAB;color:#04130F;font-size:17px;font-weight:600}
-        </style></head><body><h1>Privycs · \(title)</h1>\(body)</body></html>
+          :root{--bg:#070B0E;--card:#0E161C;--fg:#EAF1F3;--muted:#9DB2BD;--line:#243038;--teal:#00CDAB;--onTeal:#04130F}
+          @media (prefers-color-scheme: light){
+            :root{--bg:#EEF3F2;--card:#FFFFFF;--fg:#0E161C;--muted:#5C7280;--line:#D7E0E1;--teal:#0B9E84;--onTeal:#FFFFFF}
+          }
+          *{box-sizing:border-box}
+          body{font-family:-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--fg);margin:0;-webkit-font-smoothing:antialiased}
+          .wrap{max-width:560px;margin:0 auto;padding:28px 20px}
+          .brand{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+          .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--teal);box-shadow:0 0 10px var(--teal)}
+          .brand b{font-size:15px;letter-spacing:.03em}
+          .brand span{font-size:11px;color:var(--teal);font-family:ui-monospace,monospace}
+          h1{font-size:24px;margin:6px 0 4px}
+          .sub{color:var(--muted);font-size:14px;line-height:1.45;margin:0 0 22px}
+          .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:18px}
+          .card h2{font-size:13px;margin:0 0 12px;color:var(--teal);text-transform:uppercase;letter-spacing:.1em}
+          label{display:block;margin:12px 0 5px;color:var(--muted);font-size:13px}
+          input,select,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:16px}
+          input[type=file]{padding:10px;background:transparent}
+          textarea{font-family:ui-monospace,monospace;min-height:150px}
+          button{margin-top:16px;width:100%;padding:14px;border:0;border-radius:12px;background:var(--teal);color:var(--onTeal);font-size:17px;font-weight:700}
+          .hint{color:var(--muted);font-size:12px;line-height:1.5;margin:10px 0 0}
+        </style></head><body><div class="wrap">
+        <div class="brand"><span class="dot"></span><b>Privycs</b><span>Secure.Private.Simple.</span></div>
+        <h1>\(title)</h1>
+        \(body)
+        </div></body></html>
         """
     }
 }
