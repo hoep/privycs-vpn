@@ -405,6 +405,20 @@ final class TVAppState: ObservableObject {
 
     // MARK: — Connect / disconnect
 
+    // Serialize ALL tunnel mutations (connect/disconnect/pool/rotate) so rapid
+    // switches don't launch overlapping operations that race on the single
+    // NETunnelProviderManager — that made "hin- und herschalten" unreliable.
+    private var opChain: Task<Void, Never>?
+    private func runExclusive(_ op: @escaping () async -> Void) async {
+        let prev = opChain
+        let t = Task { @MainActor in
+            await prev?.value
+            await op()
+        }
+        opChain = t
+        await t.value
+    }
+
     func toggle() async {
         if status.connected || tunnel.status.connected {
             await disconnect()
@@ -413,10 +427,12 @@ final class TVAppState: ObservableObject {
         }
     }
 
-    func connectSelected() async {
+    func connectSelected() async { await runExclusive { await self.doConnectSelected() } }
+
+    private func doConnectSelected() async {
         // Pool — run the rotation engine (same as the phone).
         if let pool = selectedPool {
-            await connectPool(pool)
+            await doConnectPool(pool)
             return
         }
         // Manual (locally-imported) connection — already has its config, no fetch.
@@ -468,7 +484,9 @@ final class TVAppState: ObservableObject {
         }
     }
 
-    func disconnect() async {
+    func disconnect() async { await runExclusive { await self.doDisconnect() } }
+
+    private func doDisconnect() async {
         connecting = true
         defer { connecting = false }
         rotationTimer?.cancel(); rotationTimer = nil
@@ -483,7 +501,9 @@ final class TVAppState: ObservableObject {
     /// Connect a pool: pick an eligible member (round-robin / geo), bring up the
     /// tunnel, verify it passes traffic, and arm the rotation timer. Up to 3
     /// attempts, skipping members marked unreachable. Mirrors AppState.connectPool.
-    func connectPool(_ pool: Pool) async {
+    func connectPool(_ pool: Pool) async { await runExclusive { await self.doConnectPool(pool) } }
+
+    private func doConnectPool(_ pool: Pool) async {
         connecting = true
         defer { connecting = false }
         configError = nil
@@ -531,7 +551,9 @@ final class TVAppState: ObservableObject {
     }
 
     /// Rotate to the next member of the active pool (manual or timer-driven).
-    func rotatePool() async {
+    func rotatePool() async { await runExclusive { await self.doRotatePool() } }
+
+    private func doRotatePool() async {
         guard let pool = activePool else { return }
         let unreachable = await poolHealth.unreachableMembers(pool: pool.id)
         guard let (member, updated) = rotator.pick(from: pool, userCountry: userCountry, excludingMemberIDs: unreachable) else { return }
@@ -675,6 +697,9 @@ final class TVAppState: ObservableObject {
             try await poolRepo.save(p)
             pools = (try? await poolRepo.loadAll()) ?? pools
             selectPool(p.id)
+            // If a tunnel is already up, switch to the just-imported pool so the
+            // Connect screen reflects it (fire-and-forget; serialized via runExclusive).
+            if status.connected { Task { await connectSelected() } }
             return .pool(count: p.members.count, skipped: total - p.members.count)
         } catch {
             return .failure(error.localizedDescription)
@@ -700,6 +725,7 @@ final class TVAppState: ObservableObject {
             try await connectionRepo.save(conn)
             savedConnections = (try? await connectionRepo.loadAll()) ?? savedConnections
             selectSaved(conn.id)
+            if status.connected { Task { await connectSelected() } }
             return .config(name: conn.name, proto: proto)
         } catch {
             return .failure(error.localizedDescription)

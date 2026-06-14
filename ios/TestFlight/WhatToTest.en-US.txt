@@ -1,12 +1,14 @@
-v1.1.5.66 (build 162) — tvOS: clean tunnel switch + "Round Robin" label.
+v1.1.5.67 (build 163) — tvOS: reliable connection switching + import switches the live
+tunnel.
 
-- Switching configs/pools while already connected was glitchy and only worked
-  properly after a manual disconnect + reconnect. Cause: a new config was started on
-  the still-connected VPN profile, which flaps. Fix: the app now tears the live tunnel
-  down cleanly (and disarms on-demand so it doesn't auto-reconnect) BEFORE starting the
-  new one — mirroring the manual disconnect→connect that worked.
-- The Round-Robin pool policy is now labelled "Round Robin" in all languages (it's a
-  technical term; was "Reihum" in German).
+- Switching back and forth between connections/pools was unreliable. Cause: rapid
+  switches launched overlapping connect/disconnect operations that raced on the single
+  VPN profile. Fix: all tunnel operations (connect / disconnect / pool / rotate) are
+  now serialized — they run strictly one after another, so a switch always completes
+  cleanly before the next starts.
+- Importing a pool/config while already connected now switches the live tunnel to the
+  just-imported one (and the Connect screen updates) instead of only selecting it.
 
-HOW TO TEST: connected to a pool/config → pick a different one (or import + connect a
-pool) → it should switch cleanly without needing a manual disconnect first.
+HOW TO TEST: connect → switch between a pool and a server config a few times in a row
+→ each switch should land reliably. Import a pool while connected → it should become
+the active connection and show on Connect.
