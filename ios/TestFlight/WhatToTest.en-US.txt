@@ -1,9 +1,17 @@
-v1.1.5.54 (build 150) — tvOS: fix pool-config dialog clipping.
+v1.1.5.55 (build 151) — tvOS: fix pool rotation + exit-point after relaunch/upgrade
++ brand slogan.
 
-The pool-config screen (gear) was cut off at the bottom and the "Activate pool"
-button was clipped / flush-left. Fixed: added side + bottom breathing room inside the
-scroll area so focused buttons aren't clipped by the scroll bounds (tvOS focus lift),
-widened the side margins, and made "Activate pool" a full-width button.
+FIX (pool after upgrade/relaunch): when the app restarted and the OS kept the pool
+tunnel up (always-on), the app didn't restart the rotation timer and didn't know the
+current server, so:
+- the rotation countdown stayed put / didn't run, and
+- the Connect pool card showed no exit point (server).
+Now on launch the app restores the active pool's current member (exit point shows)
+and re-arms the rotation timer (recomputing a stale interval so it doesn't rotate the
+instant you open the app). Always-on auto-connect now also covers pools.
 
-HOW TO TEST: Configs → gear on a pool → scroll to the bottom; the "Activate pool"
-button should be fully visible and centered, nothing cut off at the edges.
+Also: the slogan under the Privycs logo now reads "Secure.Private.Simple." (was "VPN").
+
+HOW TO TEST: connect a rotating pool, force-quit/relaunch (or take the TestFlight
+update) → reopen → the Connect card should show the current server and the rotation
+countdown should be ticking again.

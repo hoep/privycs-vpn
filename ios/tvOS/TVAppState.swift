@@ -158,22 +158,53 @@ final class TVAppState: ObservableObject {
         loadSSIDs()
         savedConnections = (try? await connectionRepo.loadAll()) ?? []
         pools = (try? await poolRepo.loadAll()) ?? []
-        let activePoolID = await poolRepo.activePoolID()
-        if !activePoolID.isEmpty, let p = pools.first(where: { $0.id == activePoolID }) {
-            activePool = p
-            nextRotationAt = p.rotation?.nextRotationAt ?? 0
-            selectedPoolID = p.id
-        }
-        // Observe live tunnel status from the controller.
+        // Observe live tunnel status from the controller (also reads the current
+        // OS tunnel state — e.g. one kept up by the on-demand rule across an upgrade).
         observeStatus()
+        refreshStatus()
+        // Restore a previously-active pool: recover the current member (so the
+        // Connect card shows the exit point) and RE-ARM the rotation timer — after
+        // an upgrade the OS reconnects the tunnel but the app process is fresh, so
+        // the timer was never started and the member was unknown.
+        await resumePoolIfActive()
         // Auto-pull the config list if we're already enrolled.
         if isEnrolled {
             await refreshConfigs()
             // Always-on autostart: connect on launch if armed and not already up.
-            if settings.autoConnectOnStart, !status.connected, selectedConfig != nil {
+            // hasSelection covers pools too (selectedConfig is nil when a pool is picked).
+            if settings.autoConnectOnStart, !status.connected, hasSelection {
                 await connectSelected()
             }
         }
+    }
+
+    /// Restore runtime state for a pool that was active before this launch: bring
+    /// back the current member for the UI and re-arm rotation (recomputing a stale
+    /// next-rotation so it doesn't fire the instant the app opens).
+    private func resumePoolIfActive() async {
+        let id = await poolRepo.activePoolID()
+        guard !id.isEmpty, let p = pools.first(where: { $0.id == id }) else { return }
+        selectedPoolID = p.id
+        let lastID = p.rotation?.lastUsedMemberID ?? ""
+        let memID = lastID.isEmpty ? p.activeMemberID : lastID
+        activePoolMember = p.members.first { $0.id == memID } ?? p.members.first
+        guard let rot = p.rotation, rot.intervalSeconds > 0 else {
+            activePool = p
+            nextRotationAt = p.rotation?.nextRotationAt ?? 0
+            return
+        }
+        var pp = p
+        var r = rot
+        let now = Int64(Date().timeIntervalSince1970)
+        if r.nextRotationAt <= now {
+            r.nextRotationAt = now + Int64(r.intervalSeconds)
+            pp.rotation = r
+            try? await poolRepo.save(pp)
+            pools = (try? await poolRepo.loadAll()) ?? pools
+        }
+        activePool = pp
+        nextRotationAt = pp.rotation?.nextRotationAt ?? 0
+        scheduleRotationIfNeeded(pp)
     }
 
     /// Always-on toggle: arm/disarm auto-connect (an OS on-demand connect rule).
