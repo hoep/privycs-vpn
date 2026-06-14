@@ -3006,37 +3006,37 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configs"
+            "value": "VPN"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Konfigs"
+            "value": "VPN"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configs"
+            "value": "VPN"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configs"
+            "value": "VPN"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Config"
+            "value": "VPN"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configs"
+            "value": "VPN"
           }
         }
       }

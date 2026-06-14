@@ -159,6 +159,8 @@ struct TVPoolStatusCard: View {
             }
             HStack(spacing: 12) {
                 Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(TVColor.teal)
+                let flag = PoolHostnameLabels.flagEmoji(memberCountry)
+                if !flag.isEmpty { Text(flag).font(.system(size: 20)) }
                 Text(memberName.isEmpty ? "—" : memberName).font(TVFont.sans(18)).foregroundStyle(TVColor.onSurface).lineLimit(1)
                 if !memberCountry.isEmpty {
                     Text(memberCountry.uppercased()).font(TVFont.mono(13)).foregroundStyle(TVColor.onSurfaceVariant)

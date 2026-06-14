@@ -1,14 +1,17 @@
-v1.1.5.58 (build 154) — tvOS: fix Geo-Nearest pool picking + Activate-button skin.
+v1.1.5.59 (build 155) — tvOS: config-switch reconnect, Theme=System fix, endpoint
+flags, "VPN" tab.
 
-FIX (Geo pool picked the wrong server, e.g. LAX from Austria): the rotation engine
-was being given an EMPTY user country, so Geo-Nearest fell back to a random member.
-The Apple TV now detects your country (public IP → the bundled on-device MMDB, same
-as the phone) and passes it to the picker, so a Geo pool now picks a nearby server.
-(The MMDB was already bundled via PrivycsCore; the country just wasn't being used.)
+- Switching config while connected now reconnects with the new one: picking a
+  different connection / pool / gateway config in the VPN tab re-establishes the
+  tunnel with that config (only if a tunnel was already up).
+- Theme → System now actually reverts to the TV's appearance (switching back from
+  Dark/Light didn't take on tvOS; the view tree now re-renders cleanly on theme
+  change). The Language picker keeps its "System" (follow device) option.
+- Country flag of the exit point is shown: on the Connect details "Endpoint" row and
+  in the pool card's current-server line (resolved on-device via the bundled MMDB).
+- The "Configs" tab is renamed "VPN" (all languages).
 
-FIX: the "Activate pool" button in pool config was skinned inconsistently (full-width
-block). It now matches the Connect button — centered, content-sized, teal icon+label.
-
-HOW TO TEST: set a pool's policy to Geo, connect from your region → it should pick a
-nearby server (not a far-away one). Open a pool's gear → the Activate button should
-look like the rest of the app and be fully visible.
+HOW TO TEST:
+1. Connected → open VPN tab → tap a different config/pool → it reconnects to it.
+2. Settings → Theme → System after using Dark/Light → follows the TV appearance.
+3. Connect → the Endpoint row + pool current-server show the country flag.

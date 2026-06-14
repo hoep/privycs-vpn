@@ -128,7 +128,9 @@ struct TVConnectScreen: View {
             }
             if !state.status.serverEndpoint.isEmpty {
                 if !state.status.localAddress.isEmpty { Divider().background(TVColor.outline) }
-                detailRow(loc("tv.detail.endpoint"), state.status.serverEndpoint)
+                let flag = PoolHostnameLabels.flagEmoji(state.endpointCountry)
+                detailRow(loc("tv.detail.endpoint"),
+                          flag.isEmpty ? state.status.serverEndpoint : "\(flag)  \(state.status.serverEndpoint)")
             }
             if !state.status.lastHandshake.isEmpty {
                 Divider().background(TVColor.outline)
@@ -166,6 +168,13 @@ struct TVConfigsScreen: View {
         .buttonStyle(.card)
     }
 
+    /// Change the selection and, IF a tunnel is already up, reconnect with the new
+    /// config (switching config while connected should switch the tunnel).
+    private func selectAndMaybeReconnect(_ select: () -> Void) {
+        select()
+        if state.status.connected { Task { await state.connectSelected() } }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Action row — import (manual config / restore, no gateway) + refresh.
@@ -194,7 +203,7 @@ struct TVConfigsScreen: View {
                 VStack(spacing: 14) {
                     ForEach(state.savedConnections) { conn in
                         HStack(spacing: 12) {
-                            Button { state.selectSaved(conn.id) } label: { savedRow(conn) }.buttonStyle(.card)
+                            Button { selectAndMaybeReconnect { state.selectSaved(conn.id) } } label: { savedRow(conn) }.buttonStyle(.card)
                             deleteButton { await state.deleteSaved(conn.id) }
                         }
                     }
@@ -209,7 +218,7 @@ struct TVConfigsScreen: View {
                 VStack(spacing: 14) {
                     ForEach(state.pools) { pool in
                         HStack(spacing: 12) {
-                            Button { state.selectPool(pool.id) } label: { poolRow(pool) }.buttonStyle(.card)
+                            Button { selectAndMaybeReconnect { state.selectPool(pool.id) } } label: { poolRow(pool) }.buttonStyle(.card)
                             Button { detailPoolID = pool.id } label: {
                                 Image(systemName: "gearshape").font(.system(size: 24)).foregroundStyle(TVColor.teal).padding(18)
                             }.buttonStyle(.card)
@@ -233,7 +242,7 @@ struct TVConfigsScreen: View {
                 }
                 LazyVGrid(columns: cols, spacing: 18) {
                     ForEach(state.remoteConfigs) { entry in
-                        Button { state.selectGateway(entry.id) } label: { configRow(entry) }
+                        Button { selectAndMaybeReconnect { state.selectGateway(entry.id) } } label: { configRow(entry) }
                             .buttonStyle(.card)
                     }
                 }

@@ -254,6 +254,26 @@ final class TVAppState: ObservableObject {
         status = tunnel.status
     }
 
+    /// ISO country code of the current exit point — the pool member's country when
+    /// in a pool, else resolved from the endpoint host via the bundled MMDB. Drives
+    /// the flag on the Connect details + pool card.
+    @Published var endpointCountry = ""
+    private var lastEndpointResolved = ""
+
+    private func refreshEndpointCountry() {
+        guard status.connected else { endpointCountry = ""; lastEndpointResolved = ""; return }
+        if let cc = activePoolMember?.country, !cc.isEmpty { endpointCountry = cc; return }
+        let ep = status.serverEndpoint
+        guard !ep.isEmpty, ep != lastEndpointResolved else { return }
+        lastEndpointResolved = ep
+        let host = PoolImporter.endpointHost(ep)
+        Task.detached { [weak self] in
+            guard let ip = await PoolImporter.firstIP(host),
+                  let cc = MmdbCountryResolver.shared?.country(forIP: ip) else { return }
+            await MainActor.run { self?.endpointCountry = cc }
+        }
+    }
+
     private func observeStatus() {
         statusTask?.cancel()
         statusTask = Task { [weak self] in
@@ -264,6 +284,7 @@ final class TVAppState: ObservableObject {
                 self.status = self.tunnel.status
                 self.health = self.tunnel.health
                 self.ingestSpeedSample(self.tunnel.status)
+                self.refreshEndpointCountry()
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }

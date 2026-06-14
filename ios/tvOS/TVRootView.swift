@@ -39,9 +39,11 @@ struct TVRootView: View {
         // Theme override (System/Dark/Light) — TVColor is adaptive, so this flips
         // the whole palette + gradients.
         .preferredColorScheme(themeScheme)
-        // Re-render the whole tree when the in-app language changes so every
-        // LocalizedStringKey re-resolves via the swizzled bundle — no relaunch.
-        .id(lang.code)
+        // Re-render the whole tree when the in-app language OR theme changes — the
+        // language swap re-resolves LocalizedStringKeys via the swizzled bundle, and
+        // keying on theme forces preferredColorScheme to re-apply cleanly (tvOS
+        // didn't reliably revert to System when switching back from Dark/Light).
+        .id("\(lang.code)|\(state.settings.theme)")
         .environment(\.locale, lang.code.isEmpty
             ? Locale.autoupdatingCurrent : Locale(identifier: lang.code))
         // NOTE: do NOT set a global .foregroundStyle here — it overrides the
