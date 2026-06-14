@@ -76,8 +76,7 @@ struct TVPoolDetailView: View {
         }
         .padding(.horizontal, 80).padding(.top, 60).padding(.bottom, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LinearGradient(colors: [TVColor.backgroundTop, TVColor.background],
-                                   startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+        .tvScreenChrome(theme: state.settings.theme)
         .focusSection()
         .onAppear(perform: load)
     }

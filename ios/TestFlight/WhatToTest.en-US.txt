@@ -1,17 +1,10 @@
-v1.1.5.55 (build 151) — tvOS: fix pool rotation + exit-point after relaunch/upgrade
-+ brand slogan.
+v1.1.5.56 (build 152) — tvOS: pool-config / import sheets now match the app's skin.
 
-FIX (pool after upgrade/relaunch): when the app restarted and the OS kept the pool
-tunnel up (always-on), the app didn't restart the rotation timer and didn't know the
-current server, so:
-- the rotation countdown stayed put / didn't run, and
-- the Connect pool card showed no exit point (server).
-Now on launch the app restores the active pool's current member (exit point shows)
-and re-arms the rotation timer (recomputing a stale interval so it doesn't rotate the
-instant you open the app). Always-on auto-connect now also covers pools.
+The pool-config (gear) and import dialogs are presented as sheets and only had a flat
+gradient — they were missing the teal glow, the accent tint, and (the visible part)
+the Theme color-scheme, so with Light/Dark forced they rendered in the device scheme
+and looked "skinned differently". Both sheets now use the same screen chrome as the
+rest of the app (gradient + glow + tint + the selected Theme).
 
-Also: the slogan under the Privycs logo now reads "Secure.Private.Simple." (was "VPN").
-
-HOW TO TEST: connect a rotating pool, force-quit/relaunch (or take the TestFlight
-update) → reopen → the Connect card should show the current server and the rotation
-countdown should be ticking again.
+HOW TO TEST: set Settings → Theme (Dark/Light), open a pool's gear and the import
+dialog — they should match the main screens' look in both themes.

@@ -208,3 +208,24 @@ struct TVHealthPill: View {
         .background(Capsule().fill(color.opacity(0.14)))
     }
 }
+
+extension View {
+    /// The app's full screen chrome — the same gradient + teal glow, accent tint,
+    /// and Theme color-scheme as TVRootView. Applied to SHEETS (import / pool
+    /// config) which otherwise render in the device color scheme and without the
+    /// glow, so they looked "skinned differently" from the rest of the app.
+    func tvScreenChrome(theme: String) -> some View {
+        self
+            .background(
+                ZStack {
+                    LinearGradient(colors: [TVColor.backgroundTop, TVColor.background],
+                                   startPoint: .top, endPoint: .bottom)
+                    RadialGradient(colors: [TVColor.teal.opacity(0.16), .clear],
+                                   center: .init(x: 0.5, y: 0.0), startRadius: 0, endRadius: 1100)
+                }
+                .ignoresSafeArea()
+            )
+            .tint(TVColor.teal)
+            .preferredColorScheme(theme == "dark" ? .dark : theme == "light" ? .light : nil)
+    }
+}

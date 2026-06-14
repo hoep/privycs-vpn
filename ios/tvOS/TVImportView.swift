@@ -37,10 +37,7 @@ struct TVImportView: View {
         }
         .padding(60)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            LinearGradient(colors: [TVColor.backgroundTop, TVColor.background],
-                           startPoint: .top, endPoint: .bottom).ignoresSafeArea()
-        )
+        .tvScreenChrome(theme: state.settings.theme)
         .onAppear {
             server.onPayload = { payload in
                 Task { @MainActor in applyResult(await state.handleImport(payload)) }
