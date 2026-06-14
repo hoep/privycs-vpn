@@ -111,16 +111,33 @@ static char* privycs_nevpn_configure(const char* name, const char* server,
 }
 
 // Start the tunnel. NULL = success.
+//
+// The FIRST startVPNTunnel() right after a fresh saveToPreferences()
+// frequently throws NEVPNErrorConfigurationStale / ...Invalid because the
+// just-saved config hasn't propagated to the NE daemon yet. iOS handles this
+// with a reload+retry loop (VPNTunnelManager.startTunnelRetrying, up to 8×);
+// the previous macOS bridge tried exactly ONCE and therefore failed to connect.
+// Retry up to 8× on stale/invalid, reloading prefs between attempts.
 static char* privycs_nevpn_start(void) {
     @autoreleasepool {
         NEVPNManager *mgr = [NEVPNManager sharedManager];
         NSError *loadErr = privycs_load_sync(mgr);
         if (loadErr) return privycs_err_dup(loadErr, nil);
         NSError *startErr = nil;
-        if (![[mgr connection] startVPNTunnelAndReturnError:&startErr]) {
-            return privycs_err_dup(startErr, @"startVPNTunnel failed");
+        for (int attempt = 0; attempt < 8; attempt++) {
+            startErr = nil;
+            if ([[mgr connection] startVPNTunnelAndReturnError:&startErr]) {
+                return NULL; // success
+            }
+            BOOL retriable = startErr
+                && [startErr.domain isEqualToString:NEVPNErrorDomain]
+                && (startErr.code == NEVPNErrorConfigurationStale
+                    || startErr.code == NEVPNErrorConfigurationInvalid);
+            if (!retriable) break;
+            [NSThread sleepForTimeInterval:0.3];
+            privycs_load_sync(mgr); // reload before the next attempt
         }
-        return NULL;
+        return privycs_err_dup(startErr, @"startVPNTunnel failed");
     }
 }
 
