@@ -1,15 +1,12 @@
-v1.1.5.65 (build 161) — tvOS: fix slow connect after switching between pool/configs
-(single VPN profile).
+v1.1.5.66 (build 162) — tvOS: clean tunnel switch + "Round Robin" label.
 
-Bug: import a pool → connect → disconnect → connect a gateway/server config → very
-slow. Cause: the TV created a separate VPN profile (NETunnelProviderManager) per
-connection name — every pool and every gateway config got its own. They piled up, and
-the system got slow reconciling many profiles / on-demand rules and stalled starting a
-new tunnel while another was tearing down (a race).
+- Switching configs/pools while already connected was glitchy and only worked
+  properly after a manual disconnect + reconnect. Cause: a new config was started on
+  the still-connected VPN profile, which flaps. Fix: the app now tears the live tunnel
+  down cleanly (and disarms on-demand so it doesn't auto-reconnect) BEFORE starting the
+  new one — mirroring the manual disconnect→connect that worked.
+- The Round-Robin pool policy is now labelled "Round Robin" in all languages (it's a
+  technical term; was "Reihum" in German).
 
-Fix: the Apple TV now reuses ONE VPN profile and reconfigures it for whatever you
-connect, and removes any extra leftover profiles. Switching between a pool and a
-server config is now fast.
-
-HOW TO TEST: import a 2nd pool → connect → disconnect → connect a server config → it
-should come up quickly now (no long delay).
+HOW TO TEST: connected to a pool/config → pick a different one (or import + connect a
+pool) → it should switch cleanly without needing a manual disconnect first.

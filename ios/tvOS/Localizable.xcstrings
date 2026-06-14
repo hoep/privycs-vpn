@@ -3566,37 +3566,37 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Round-robin"
+            "value": "Round Robin"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reihum"
+            "value": "Round Robin"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rotativo"
+            "value": "Round Robin"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rotation"
+            "value": "Round Robin"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "A rotazione"
+            "value": "Round Robin"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rotativo"
+            "value": "Round Robin"
           }
         }
       }

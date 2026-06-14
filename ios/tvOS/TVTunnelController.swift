@@ -185,6 +185,27 @@ final class TVTunnelController: ObservableObject {
         // and stalled starting a new tunnel while another was still tearing down.
         let mgr = mgrs.first ?? NETunnelProviderManager()
         for extra in mgrs.dropFirst() { try? await extra.removeFromPreferences() }
+
+        // Switching configs while a tunnel is up: tear the live one down cleanly
+        // FIRST. Calling startVPNTunnel with a new providerConfiguration on an
+        // already-connected manager flaps/glitches — the user saw it only work
+        // properly after a manual disconnect + reconnect. Replicate that here.
+        switch mgr.connection.status {
+        case .connected, .connecting, .reasserting:
+            if mgr.isOnDemandEnabled {
+                mgr.isOnDemandEnabled = false           // else the rule auto-reconnects
+                try? await mgr.saveToPreferences()
+            }
+            mgr.connection.stopVPNTunnel()
+            for _ in 0..<40 {                           // wait up to ~4s for teardown
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                let s = mgr.connection.status
+                if s == .disconnected || s == .invalid { break }
+            }
+        default:
+            break
+        }
+
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = TunnelProviderConfig.bundleIdentifier
         proto.serverAddress = config.serverAddress
