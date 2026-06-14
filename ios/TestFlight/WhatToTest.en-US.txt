@@ -1,23 +1,18 @@
-v1.1.5.50 / iOS 1.1.5.34 (build 146) — Pools run on Apple TV (full rotation engine)
-+ share pools/configs from iPhone + delete on TV.
+v1.1.5.51 / iOS 1.1.5.35 (build 147) — fix "Invalid pool data" + upload files to Apple TV.
 
-Apple TV now treats pools exactly like the phone — the shared PrivycsCore PoolRotator
-runs on tvOS:
-- Pools appear in Configs (own section). Select one and Connect: it picks a member,
-  verifies traffic, and ROTATES on schedule (foreground timer while the app is open;
-  the tunnel stays up in the background). The active server is shown on Connect.
-- Get a pool onto the TV three ways (no gateway needed):
-  • iPhone → Settings → Backup → Send to Apple TV → "A pool" (sends the whole pool).
-  • Browser upload: on the TV's import page, "Upload pool ZIP" (a .zip of .conf files).
-  • A full encrypted backup now also restores pools.
-  (tvOS runs WireGuard/AmneziaWG only — OpenVPN/IPSec members are skipped.)
-- Delete on the TV: every imported connection AND every pool has a trash button in
-  Configs. (Gateway-pulled configs are managed on the gateway.)
-- "Send to Apple TV" also still sends a single connection (incl. ones you imported on
-  the phone) or a full backup.
+FIX: sending a pool from the iPhone failed with "Invalid pool data" — the large pool
+JSON was getting mangled in url-encoding. All app→TV payloads are now base64-wrapped,
+so configs/pools/backups arrive byte-exact.
+
+NEW — upload a file to the Apple TV (no gateway), via the built-in mini-server:
+- In the Privycs app: Settings → Backup → Send to Apple TV → "A file (.zip / .conf /
+  .ovpn / .sswan)" → pick a file → send.
+- In any browser (scan the TV's QR): an "Upload file" button takes the same files.
+The TV routes by type: .zip → a pool (rotation engine), .conf → a connection.
+(.ovpn / .sswan are accepted but reported unsupported — tvOS runs WireGuard/AmneziaWG.)
 
 HOW TO TEST:
-1. iPhone: Settings → Backup → Send to Apple TV → scan TV QR → "A pool" → send.
-2. TV: Configs → the pool appears under POOLS → select → Connect → watch it rotate;
-   the current server shows on Connect. Trash a pool/connection to delete it.
-3. TV import page → Upload pool ZIP → confirm the pool appears.
+1. iPhone → Send to Apple TV → "A pool" → send → it should import (no more error) and
+   appear under POOLS on the TV.
+2. iPhone → Send to Apple TV → "A file" → pick a .zip of .conf files → TV shows a pool.
+3. Browser → scan TV QR → Upload file → same.

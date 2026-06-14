@@ -4,10 +4,10 @@ import Network
 /// What the TV received over the local network — either a raw VPN config (manual
 /// import, no gateway) or an encrypted Privycs backup blob (restore).
 struct TVImportPayload: Sendable {
-    enum Kind: String, Sendable { case config, backup, pool, poolzip }
+    enum Kind: String, Sendable { case config, backup, pool, poolzip, file }
     let kind: Kind
-    let name: String        // connection name (config) — ignored for backup/pool
-    let content: String     // .conf text · backup envelope · Pool JSON · base64 ZIP
+    let name: String        // connection name / uploaded filename
+    let content: String     // text (config/backup/pool) · base64 (file/poolzip)
     let passphrase: String   // backup only
 }
 
@@ -132,7 +132,15 @@ final class TVImportServer: ObservableObject {
                 status = "403 Forbidden"
                 html = Self.page(title: "Wrong PIN", body: "<p>The PIN doesn't match the one on your TV.</p>")
             } else if let kind = TVImportPayload.Kind(rawValue: fields["kind"] ?? "config"),
-                      let content = fields["content"], !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                      let raw = fields["content"], !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // Text payloads (config/backup/pool) may be base64-wrapped (enc=b64)
+                // so large JSON survives url-encoding intact. `file`/`poolzip`
+                // content stays base64 (binary) — decoded TV-side.
+                var content = raw
+                if fields["enc"] == "b64", kind != .file, kind != .poolzip,
+                   let d = Data(base64Encoded: raw), let s = String(data: d, encoding: .utf8) {
+                    content = s
+                }
                 let payload = TVImportPayload(
                     kind: kind,
                     name: (fields["name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
@@ -234,19 +242,19 @@ final class TVImportServer: ObservableObject {
           <button type="submit">Send to Apple TV</button>
         </form>
         <hr style="border-color:#243038;margin:26px 0">
-        <label>Or upload a pool (.zip of .conf files)</label>
-        <input type="file" id="zipfile" accept=".zip,application/zip">
-        <button type="button" onclick="sendZip()">Upload pool ZIP</button>
+        <label>Or upload a file (.zip pool · .conf · .ovpn · .sswan)</label>
+        <input type="file" id="vpnfile" accept=".zip,.conf,.ovpn,.sswan,.mobileconfig">
+        <button type="button" onclick="sendFile()">Upload file</button>
         <script>
-        function sendZip(){
-          var f=document.getElementById('zipfile').files[0];
-          if(!f){alert('Pick a .zip first');return;}
+        function sendFile(){
+          var f=document.getElementById('vpnfile').files[0];
+          if(!f){alert('Pick a file first');return;}
           var r=new FileReader();
           r.onload=function(){
             var b64=r.result.split(',')[1];
             fetch('/link',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
-              body:'kind=poolzip&pin=\(pin)&content='+encodeURIComponent(b64)})
-              .then(function(){document.body.innerHTML='<h1>Privycs \\u00b7 Sent \\u2713</h1><p>Pool sent to your Apple TV. You can close this page.</p>';})
+              body:'kind=file&pin=\(pin)&name='+encodeURIComponent(f.name)+'&content='+encodeURIComponent(b64)})
+              .then(function(){document.body.innerHTML='<h1>Privycs \\u00b7 Sent \\u2713</h1><p>Sent to your Apple TV. You can close this page.</p>';})
               .catch(function(){alert('Upload failed');});
           };
           r.readAsDataURL(f);

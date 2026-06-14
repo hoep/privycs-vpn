@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import PrivycsCore
 
 /// Path B: push a VPN config or an encrypted backup from this phone to a Privycs
@@ -13,10 +14,13 @@ struct SendToTVView: View {
     @State private var target: URL?
     @State private var pin = ""
     @State private var showScanner = false
-    @State private var mode = "config"            // "config" | "pool" | "backup"
+    @State private var mode = "config"            // "config" | "pool" | "file" | "backup"
     @State private var selectedConnID: String?
     @State private var selectedPoolID: String?
     @State private var passphrase = ""
+    @State private var fileData: Data?
+    @State private var fileName: String?
+    @State private var showFileImporter = false
     @State private var status: String?
     @State private var isError = false
     @State private var busy = false
@@ -41,6 +45,7 @@ struct SendToTVView: View {
                     Picker(loc("What to send"), selection: $mode) {
                         Text(loc("A connection")).tag("config")
                         if !appState.pools.isEmpty { Text(loc("A pool")).tag("pool") }
+                        Text(loc("A file (.zip / .conf / .ovpn / .sswan)")).tag("file")
                         Text(loc("Encrypted backup")).tag("backup")
                     }
                     if mode == "config" {
@@ -50,6 +55,12 @@ struct SendToTVView: View {
                     } else if mode == "pool" {
                         Picker(loc("Pool"), selection: $selectedPoolID) {
                             ForEach(appState.pools) { p in Text(p.name).tag(Optional(p.id)) }
+                        }
+                    } else if mode == "file" {
+                        Button {
+                            showFileImporter = true
+                        } label: {
+                            Label(fileName ?? loc("Choose a file…"), systemImage: "doc.badge.plus")
                         }
                     } else {
                         SecureField(loc("Backup passphrase"), text: $passphrase)
@@ -83,6 +94,11 @@ struct SendToTVView: View {
             }
             .ignoresSafeArea()
         }
+        .fileImporter(isPresented: $showFileImporter,
+                      allowedContentTypes: [.data, .zip],
+                      allowsMultipleSelection: false) { result in
+            handleFilePick(result)
+        }
         .onAppear {
             if selectedConnID == nil { selectedConnID = appState.connections.first?.id }
             if selectedPoolID == nil { selectedPoolID = appState.pools.first?.id }
@@ -94,7 +110,23 @@ struct SendToTVView: View {
         switch mode {
         case "config": return selectedConnID != nil
         case "pool":   return poolWGCount > 0
+        case "file":   return fileData != nil
         default:       return passphrase.count >= 4
+        }
+    }
+
+    private func handleFilePick(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        guard url.startAccessingSecurityScopedResource() else {
+            status = loc("Could not open the selected file."); isError = true; return
+        }
+        defer { url.stopAccessingSecurityScopedResource() }
+        do {
+            fileData = try Data(contentsOf: url)
+            fileName = url.lastPathComponent
+            status = nil; isError = false
+        } catch {
+            status = error.localizedDescription; isError = true
         }
     }
 
@@ -120,6 +152,8 @@ struct SendToTVView: View {
         guard let url = target else { return }
         busy = true; defer { busy = false }
         do {
+            // Text payloads are base64-wrapped (enc=b64) so large JSON survives
+            // url-encoding intact; file uploads send base64 binary (kind=file).
             var fields: [String: String] = ["pin": pin]
             var successMsg = loc("Sent ✓ — check your Apple TV.")
             switch mode {
@@ -130,7 +164,8 @@ struct SendToTVView: View {
                 }
                 fields["kind"] = "config"
                 fields["name"] = conn.name
-                fields["content"] = cfg.configContent
+                fields["enc"] = "b64"
+                fields["content"] = Data(cfg.configContent.utf8).base64EncodedString()
             case "pool":
                 guard let pool = appState.pools.first(where: { $0.id == selectedPoolID }) else {
                     status = loc("Pick a connection to send."); isError = true; return
@@ -139,12 +174,21 @@ struct SendToTVView: View {
                 // engine (it filters to WG/AWG members on its side).
                 let data = try JSONEncoder().encode(pool)
                 fields["kind"] = "pool"
-                fields["content"] = String(decoding: data, as: UTF8.self)
+                fields["enc"] = "b64"
+                fields["content"] = data.base64EncodedString()
                 successMsg = String(format: loc("Sent ✓ — %lld server(s) on your Apple TV."), poolWGCount)
+            case "file":
+                guard let data = fileData, let name = fileName else {
+                    status = loc("Choose a file…"); isError = true; return
+                }
+                fields["kind"] = "file"
+                fields["name"] = name
+                fields["content"] = data.base64EncodedString()
             default:
                 let data = try await appState.exportBackup(password: passphrase)
                 fields["kind"] = "backup"
-                fields["content"] = String(decoding: data, as: UTF8.self)
+                fields["enc"] = "b64"
+                fields["content"] = data.base64EncodedString()
                 fields["passphrase"] = passphrase
             }
             try await post(fields, to: url)

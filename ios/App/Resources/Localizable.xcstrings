@@ -1035,6 +1035,40 @@
         }
       }
     },
+    "A file (.zip / .conf / .ovpn / .sswan)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Datei (.zip / .conf / .ovpn / .sswan)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un archivo (.zip / .conf / .ovpn / .sswan)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un fichier (.zip / .conf / .ovpn / .sswan)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un file (.zip / .conf / .ovpn / .sswan)"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um ficheiro (.zip / .conf / .ovpn / .sswan)"
+          }
+        }
+      }
+    },
     "A pool": {
       "localizations": {
         "de": {
@@ -2533,6 +2567,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Intervalo de verificação"
+          }
+        }
+      }
+    },
+    "Choose a file…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei wählen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir un archivo…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un fichier…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli un file…"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher um ficheiro…"
           }
         }
       }

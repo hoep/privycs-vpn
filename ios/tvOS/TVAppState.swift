@@ -510,7 +510,20 @@ final class TVAppState: ObservableObject {
         case .backup:  return await importBackup(payload.content, passphrase: payload.passphrase)
         case .pool:    return await importPool(payload.content)
         case .poolzip: return await importPoolZip(payload.content)
+        case .file:    return await importFile(name: payload.name, base64: payload.content)
         }
+    }
+
+    /// Import an uploaded file (base64) — routed by extension. ZIP → pool; a raw
+    /// config (.conf/.ovpn/.sswan/.mobileconfig) → a single connection. tvOS runs
+    /// WG/AWG only, so OpenVPN/IPSec configs come back as `.unsupported`.
+    func importFile(name: String, base64: String) async -> TVImportResult {
+        let ext = (name as NSString).pathExtension.lowercased()
+        if ext == "zip" { return await importPoolZip(base64) }
+        guard let data = Data(base64Encoded: base64), let text = String(data: data, encoding: .utf8) else {
+            return .failure("Invalid file data")
+        }
+        return await importConfigFile(filename: name, content: text)
     }
 
     /// Import a full Pool sent by the iPhone app (JSON of the Pool model) and run
@@ -553,14 +566,21 @@ final class TVAppState: ObservableObject {
         }
     }
 
-    /// Import a raw `.conf` as a saved connection. tvOS runs WireGuard +
-    /// AmneziaWG only — OpenVPN/IPSec configs are rejected with a clear result.
+    /// Import a raw `.conf` (pasted text) as a saved connection.
     func importConfig(name rawName: String, content: String) async -> TVImportResult {
-        let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let proto = ConfigImport.detectProtocol(filename: "\(trimmedName).conf", content: content)
+        let n = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return await importConfigFile(filename: n.isEmpty ? "config.conf" : "\(n).conf", content: content)
+    }
+
+    /// Shared import: detect the protocol FROM THE FILENAME + content (so .ovpn/
+    /// .sswan are classified correctly), save, select. tvOS runs WireGuard +
+    /// AmneziaWG only — anything else comes back as `.unsupported`.
+    private func importConfigFile(filename: String, content: String) async -> TVImportResult {
+        let proto = ConfigImport.detectProtocol(filename: filename, content: content)
         guard proto == .wireguard || proto == .amneziawg else { return .unsupported(proto) }
-        let name = trimmedName.isEmpty ? ConfigImport.deriveConnectionName(content) : trimmedName
-        let conn = ConfigImport.makeConnection(name: name, filename: "\(name).conf", content: content)
+        let base = (filename as NSString).deletingPathExtension
+        let name = base.isEmpty ? ConfigImport.deriveConnectionName(content) : base
+        let conn = ConfigImport.makeConnection(name: name, filename: filename, content: content)
         do {
             try await connectionRepo.save(conn)
             savedConnections = (try? await connectionRepo.loadAll()) ?? savedConnections
