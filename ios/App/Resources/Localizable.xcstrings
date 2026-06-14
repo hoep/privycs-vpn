@@ -1035,6 +1035,40 @@
         }
       }
     },
+    "A pool": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Pool"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un pool"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un pool"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um pool"
+          }
+        }
+      }
+    },
     "API key": {
       "localizations": {
         "de": {
@@ -9463,6 +9497,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Enviar para a Apple TV"
+          }
+        }
+      }
+    },
+    "Sent ✓ — %lld server(s) on your Apple TV.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesendet ✓ – %lld Server auf deinem Apple TV."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado ✓: %lld servidores en tu Apple TV."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé ✓ — %lld serveurs sur votre Apple TV."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviato ✓ — %lld server sulla tua Apple TV."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado ✓ — %lld servidores na sua Apple TV."
           }
         }
       }

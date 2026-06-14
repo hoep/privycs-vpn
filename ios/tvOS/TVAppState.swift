@@ -344,9 +344,13 @@ final class TVAppState: ObservableObject {
     enum TVImportResult {
         case config(name: String, proto: VpnProtocol)
         case backup(connections: Int)
+        case pool(count: Int, skipped: Int)
         case unsupported(VpnProtocol)
         case failure(String)
     }
+
+    /// One server inside a shared pool (wire format from the iPhone app).
+    private struct TVPoolItem: Decodable { let name: String; let content: String }
 
     /// Route a payload received from the local-network import server.
     @discardableResult
@@ -354,7 +358,30 @@ final class TVAppState: ObservableObject {
         switch payload.kind {
         case .config: return await importConfig(name: payload.name, content: payload.content)
         case .backup: return await importBackup(payload.content, passphrase: payload.passphrase)
+        case .pool:   return await importPool(payload.content)
         }
+    }
+
+    /// Import a shared pool's servers as individual connections. tvOS has no pool
+    /// rotation engine, so each WG/AWG member becomes its own saved connection;
+    /// OpenVPN/IPSec members are skipped (unsupported on tvOS).
+    func importPool(_ json: String) async -> TVImportResult {
+        guard let data = json.data(using: .utf8),
+              let items = try? JSONDecoder().decode([TVPoolItem].self, from: data) else {
+            return .failure("Invalid pool data")
+        }
+        var imported = 0, skipped = 0
+        var lastID: String?
+        for it in items {
+            let proto = ConfigImport.detectProtocol(filename: "\(it.name).conf", content: it.content)
+            guard proto == .wireguard || proto == .amneziawg else { skipped += 1; continue }
+            let name = it.name.isEmpty ? ConfigImport.deriveConnectionName(it.content) : it.name
+            let conn = ConfigImport.makeConnection(name: name, filename: "\(name).conf", content: it.content)
+            if (try? await connectionRepo.save(conn)) != nil { imported += 1; lastID = conn.id } else { skipped += 1 }
+        }
+        savedConnections = (try? await connectionRepo.loadAll()) ?? savedConnections
+        if let id = lastID { selectSaved(id) }
+        return .pool(count: imported, skipped: skipped)
     }
 
     /// Import a raw `.conf` as a saved connection. tvOS runs WireGuard +

@@ -13,8 +13,9 @@ struct SendToTVView: View {
     @State private var target: URL?
     @State private var pin = ""
     @State private var showScanner = false
-    @State private var mode = "config"            // "config" | "backup"
+    @State private var mode = "config"            // "config" | "pool" | "backup"
     @State private var selectedConnID: String?
+    @State private var selectedPoolID: String?
     @State private var passphrase = ""
     @State private var status: String?
     @State private var isError = false
@@ -39,11 +40,16 @@ struct SendToTVView: View {
                 Section {
                     Picker(loc("What to send"), selection: $mode) {
                         Text(loc("A connection")).tag("config")
+                        if !appState.pools.isEmpty { Text(loc("A pool")).tag("pool") }
                         Text(loc("Encrypted backup")).tag("backup")
                     }
                     if mode == "config" {
                         Picker(loc("Connection"), selection: $selectedConnID) {
                             ForEach(appState.connections) { c in Text(c.name).tag(Optional(c.id)) }
+                        }
+                    } else if mode == "pool" {
+                        Picker(loc("Pool"), selection: $selectedPoolID) {
+                            ForEach(appState.pools) { p in Text(p.name).tag(Optional(p.id)) }
                         }
                     } else {
                         SecureField(loc("Backup passphrase"), text: $passphrase)
@@ -77,12 +83,26 @@ struct SendToTVView: View {
             }
             .ignoresSafeArea()
         }
-        .onAppear { if selectedConnID == nil { selectedConnID = appState.connections.first?.id } }
+        .onAppear {
+            if selectedConnID == nil { selectedConnID = appState.connections.first?.id }
+            if selectedPoolID == nil { selectedPoolID = appState.pools.first?.id }
+        }
     }
 
     private var canSend: Bool {
         guard target != nil else { return false }
-        return mode == "config" ? selectedConnID != nil : passphrase.count >= 4
+        switch mode {
+        case "config": return selectedConnID != nil
+        case "pool":   return poolWGCount > 0
+        default:       return passphrase.count >= 4
+        }
+    }
+
+    /// WireGuard/AmneziaWG members in the selected pool — only these can run on
+    /// the Apple TV (no OpenVPN/IPSec there).
+    private var poolWGCount: Int {
+        guard let p = appState.pools.first(where: { $0.id == selectedPoolID }) else { return 0 }
+        return p.members.filter { $0.config.protocol == .wireguard || $0.config.protocol == .amneziawg }.count
     }
 
     private func handleScan(_ raw: String) {
@@ -101,7 +121,9 @@ struct SendToTVView: View {
         busy = true; defer { busy = false }
         do {
             var fields: [String: String] = ["pin": pin]
-            if mode == "config" {
+            var successMsg = loc("Sent ✓ — check your Apple TV.")
+            switch mode {
+            case "config":
                 guard let conn = appState.connections.first(where: { $0.id == selectedConnID }),
                       let cfg = conn.resolvedActiveConfig() else {
                     status = loc("Pick a connection to send."); isError = true; return
@@ -109,14 +131,24 @@ struct SendToTVView: View {
                 fields["kind"] = "config"
                 fields["name"] = conn.name
                 fields["content"] = cfg.configContent
-            } else {
+            case "pool":
+                guard let pool = appState.pools.first(where: { $0.id == selectedPoolID }) else {
+                    status = loc("Pick a connection to send."); isError = true; return
+                }
+                let members = pool.members.filter { $0.config.protocol == .wireguard || $0.config.protocol == .amneziawg }
+                let items = members.map { ["name": "\(pool.name) · \($0.name)", "content": $0.configContent] }
+                let data = try JSONSerialization.data(withJSONObject: items)
+                fields["kind"] = "pool"
+                fields["content"] = String(decoding: data, as: UTF8.self)
+                successMsg = String(format: loc("Sent ✓ — %lld server(s) on your Apple TV."), members.count)
+            default:
                 let data = try await appState.exportBackup(password: passphrase)
                 fields["kind"] = "backup"
                 fields["content"] = String(decoding: data, as: UTF8.self)
                 fields["passphrase"] = passphrase
             }
             try await post(fields, to: url)
-            status = loc("Sent ✓ — check your Apple TV."); isError = false
+            status = successMsg; isError = false
         } catch {
             status = error.localizedDescription; isError = true
         }

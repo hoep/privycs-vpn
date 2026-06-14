@@ -135,6 +135,8 @@ struct TVImportView: View {
             resultOK = true;  resultText = loc("tv.import.ok_config")
         case .backup(let n):
             resultOK = true;  resultText = "\(loc("tv.import.ok_backup")) (\(n))"
+        case .pool(let n, _):
+            resultOK = n > 0; resultText = "\(loc("tv.import.ok_pool")) (\(n))"
         case .unsupported:
             resultOK = false; resultText = loc("tv.import.unsupported")
         case .failure(let msg):

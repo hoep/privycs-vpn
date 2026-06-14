@@ -299,6 +299,7 @@ struct TVSettingsScreen: View {
     @State private var healthInterval = 0
     @State private var healthThreshold = 0
     @State private var language = ""
+    @State private var theme = "system"
     @State private var showImport = false
 
     private var languageOptions: [(value: String, label: String)] {
@@ -343,7 +344,13 @@ struct TVSettingsScreen: View {
                 }
             }
 
-            // ── Language ──
+            // ── Appearance: Theme + Language ──
+            TVSettingsBlock(title: loc("tv.settings.theme")) {
+                TVSegmented(options: [("system", loc("tv.theme.system")), ("dark", loc("tv.theme.dark")), ("light", loc("tv.theme.light"))],
+                            selection: $theme) { v in
+                    Task { await state.saveSettings { $0.theme = v } }
+                }
+            }
             TVSettingsBlock(title: loc("tv.settings.language")) {
                 TVSegmented(options: languageOptions, selection: $language) { v in
                     Task { await state.saveSettings { $0.appLanguage = v } }
@@ -380,6 +387,7 @@ struct TVSettingsScreen: View {
             healthInterval = state.settings.tunnelHealthPingIntervalSec
             healthThreshold = state.settings.tunnelHealthDeadThreshold
             language = state.settings.appLanguage
+            theme = state.settings.theme
         }
     }
 

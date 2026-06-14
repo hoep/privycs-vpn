@@ -1,18 +1,17 @@
-v1.1.5.48 (build 144) — tvOS: Settings & Rules rebuilt to the design template.
+v1.1.5.49 / iOS 1.1.5.33 (build 145) — tvOS Theme switch + share a Pool to Apple TV.
 
-The Settings/Rules screens were a 10-foot usability mess — raw tvOS pickers, system
-toggles and bare text fields. Rebuilt them on the design template's component
-vocabulary:
-- Setting rows now follow the template's "setrow": bold title + muted description on
-  the left, control on the right, full-width focusable cards with the teal focus glow.
-- Custom toggle pills (the template's .tg) instead of system toggles.
-- Segmented controls (.seg) for Health mode / interval / threshold and Language —
-  big tappable segments, selected one in teal — instead of pop-up pickers.
-- DNS: a mono field + a horizontal row of preset chips (Cloudflare, Quad9, …).
-- Backup & Restore and Unlink are proper setrows with .setb-style action buttons.
-- Rules screen uses the same toggle-pill row + setting blocks.
+tvOS:
+- Settings → Theme: System / Dark / Light (segmented). Flips the whole palette
+  immediately (TVColor is adaptive).
 
-HOW TO TEST (Apple TV): open Settings and Rules. Everything should look consistent
-with the Connect/Configs design — large rows, teal focus, no pop-up pickers. Move
-focus through every control with the remote and confirm it's all reachable + legible.
-Send a screenshot of Settings and Rules.
+iPhone → Apple TV (Settings → Backup → Send to Apple TV):
+- New "A pool" option. Pick a pool and its servers are pushed to the Apple TV as
+  individual connections (one per WireGuard/AmneziaWG member; OpenVPN/IPSec members
+  are skipped since tvOS can't run them). They appear under "Imported" on the TV.
+- Still supports sending a single connection or a full encrypted backup.
+
+HOW TO TEST:
+1. tvOS Settings → Theme → switch Dark/Light/System; the UI should re-theme live.
+2. iPhone: Settings → Backup → Send to Apple TV → scan the TV's QR (Configs →
+   Add / restore, or Settings → Backup & Restore) → choose "A pool" → send. Confirm
+   each pool server shows up under Imported on the TV and connects.

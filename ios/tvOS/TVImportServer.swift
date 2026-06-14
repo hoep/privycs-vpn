@@ -4,10 +4,10 @@ import Network
 /// What the TV received over the local network — either a raw VPN config (manual
 /// import, no gateway) or an encrypted Privycs backup blob (restore).
 struct TVImportPayload: Sendable {
-    enum Kind: String, Sendable { case config, backup }
+    enum Kind: String, Sendable { case config, backup, pool }
     let kind: Kind
-    let name: String        // connection name (config) — ignored for backup
-    let content: String     // .conf text, or the backup JSON envelope
+    let name: String        // connection name (config) — ignored for backup/pool
+    let content: String     // .conf text · backup JSON envelope · pool JSON array
     let passphrase: String   // backup only
 }
 
