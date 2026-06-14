@@ -1,8 +1,8 @@
-v1.1.5.62 (build 158) — tvOS: fix top buttons clipped by the header.
+v1.1.5.63 (build 159) — tvOS: show the import address under "or open the address".
 
-The "Add / restore" and "Refresh" buttons at the top of the VPN tab were slightly cut
-off at the top — their focus lift was clipped by the ScrollView edge under the screen
-header. Added top padding inside the scroll content so focused buttons have room.
+In Add config, step 1 said "scan this code, or open the address below" but the
+address only appeared (tiny) in the QR card, not below the instruction. The
+local-network address is now shown clearly right under step 1.
 
-HOW TO TEST: VPN tab → focus the Add/restore + Refresh buttons → the top edge should
-no longer be clipped.
+HOW TO TEST: Configs/VPN → Add / restore → step 1 shows the address (e.g.
+192.168.x.x:port/link?pin=NNNN) to type in a phone browser.

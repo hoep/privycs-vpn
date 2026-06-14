@@ -64,9 +64,6 @@ struct TVImportView: View {
                     .frame(width: 260, height: 260)
                     .padding(18)
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
-                Text(server.lanURL.replacingOccurrences(of: "http://", with: ""))
-                    .font(TVFont.mono(18)).foregroundStyle(TVColor.teal)
-                    .lineLimit(1).minimumScaleFactor(0.5)
                 HStack(spacing: 10) {
                     Text(loc("tv.import.pin")).font(TVFont.sans(18)).foregroundStyle(TVColor.onSurfaceVariant)
                     Text(server.pin).font(TVFont.mono(28, .bold)).tracking(4).foregroundStyle(TVColor.onSurface)
@@ -89,6 +86,12 @@ struct TVImportView: View {
     private var stepsCard: some View {
         VStack(alignment: .leading, spacing: 22) {
             step("1", loc("tv.import.step_scan"))
+            if !server.lanURL.isEmpty {
+                Text(server.lanURL.replacingOccurrences(of: "http://", with: ""))
+                    .font(TVFont.mono(22, .semibold)).foregroundStyle(TVColor.teal)
+                    .lineLimit(1).minimumScaleFactor(0.5)
+                    .padding(.leading, 42)
+            }
             step("2", loc("tv.import.step_paste"))
             if server.isRunning {
                 HStack(spacing: 12) {
