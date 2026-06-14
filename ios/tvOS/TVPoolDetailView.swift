@@ -54,18 +54,24 @@ struct TVPoolDetailView: View {
                             .onSubmit { persist(reconnect: true) }
                     }
 
-                    Button {
-                        state.selectPool(poolID)
-                        Task { if let p = state.pools.first(where: { $0.id == poolID }) { await state.connectPool(p) }; dismiss() }
-                    } label: {
-                        Label(loc(isActive ? "tv.pool.active" : "tv.pool.activate"),
-                              systemImage: isActive ? "checkmark.circle.fill" : "bolt.circle")
-                            .font(TVFont.sans(24, .semibold)).foregroundStyle(TVColor.teal)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button {
+                            state.selectPool(poolID)
+                            Task { if let p = state.pools.first(where: { $0.id == poolID }) { await state.connectPool(p) }; dismiss() }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: isActive ? "checkmark.circle.fill" : "bolt.fill").font(.system(size: 24))
+                                Text(loc(isActive ? "tv.pool.active" : "tv.pool.activate")).font(TVFont.sans(26, .bold))
+                                    .lineLimit(1).minimumScaleFactor(0.7)
+                            }
+                            .foregroundStyle(TVColor.teal)
+                            .padding(.vertical, 18).padding(.horizontal, 44)
+                        }
+                        .buttonStyle(.card)
+                        Spacer(minLength: 0)
                     }
-                    .buttonStyle(.card)
-                    .padding(.top, 8)
+                    .padding(.top, 12)
                 }
                 // Side + bottom breathing room so focused .card buttons aren't
                 // clipped by the ScrollView bounds (tvOS focus lift) and the last

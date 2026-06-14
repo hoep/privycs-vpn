@@ -58,6 +58,10 @@ final class TVAppState: ObservableObject {
     @Published var nextRotationAt: Int64 = 0
     @Published var selectedPoolID: String?
     private var rotationTimer: Task<Void, Never>?
+    /// User's pre-VPN country (ISO alpha-2) from the IP→MMDB SelfIPDetector — needed
+    /// for the Geo-Nearest pool policy. Empty made the picker fall back to a RANDOM
+    /// member (e.g. picking LAX from Austria).
+    private var userCountry = ""
 
     /// Live tunnel status, mirrored from the controller for view convenience.
     @Published var status: VpnStatus = .disconnected
@@ -156,6 +160,9 @@ final class TVAppState: ObservableObject {
             }
         }
         loadSSIDs()
+        // Detect the user's country (public IP → bundled MMDB) for Geo-Nearest —
+        // fire-and-forget so it doesn't block launch (connectPool re-checks it).
+        Task { [weak self] in self?.userCountry = await SelfIPDetector.shared.country() }
         savedConnections = (try? await connectionRepo.loadAll()) ?? []
         pools = (try? await poolRepo.loadAll()) ?? []
         // Observe live tunnel status from the controller (also reads the current
@@ -419,13 +426,14 @@ final class TVAppState: ObservableObject {
         connecting = true
         defer { connecting = false }
         configError = nil
+        if userCountry.isEmpty { userCountry = await SelfIPDetector.shared.country() }
         let unreachable = await poolHealth.unreachableMembers(pool: pool.id)
         var tried = Set<String>()
         var lastError: String?
 
         for _ in 0..<3 {
             guard let (member, updated) = rotator.pick(
-                from: pool, userCountry: "", excludingMemberIDs: unreachable.union(tried)
+                from: pool, userCountry: userCountry, excludingMemberIDs: unreachable.union(tried)
             ) else { break }
             tried.insert(member.id)
             try? await poolRepo.save(updated)
@@ -465,7 +473,7 @@ final class TVAppState: ObservableObject {
     func rotatePool() async {
         guard let pool = activePool else { return }
         let unreachable = await poolHealth.unreachableMembers(pool: pool.id)
-        guard let (member, updated) = rotator.pick(from: pool, userCountry: "", excludingMemberIDs: unreachable) else { return }
+        guard let (member, updated) = rotator.pick(from: pool, userCountry: userCountry, excludingMemberIDs: unreachable) else { return }
         try? await poolRepo.save(updated)
         activePool = updated
         activePoolMember = member

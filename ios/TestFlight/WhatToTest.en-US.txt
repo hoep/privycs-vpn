@@ -1,15 +1,14 @@
-v1.1.5.57 (build 153) — tvOS mini-server page: dark/light skin + prominent file upload.
+v1.1.5.58 (build 154) — tvOS: fix Geo-Nearest pool picking + Activate-button skin.
 
-The page the Apple TV serves (scan its QR → opens in your phone's browser) is
-redesigned:
-- Follows your phone browser's Dark/Light mode (prefers-color-scheme) — Privycs
-  colors in both, with the brand + "Secure.Private.Simple." header.
-- "Upload a file" is now the primary action and accepts any locally-saved file
-  (Files / iCloud Drive): .zip → a server pool, .conf → a WireGuard/AmneziaWG
-  connection, .ovpn / .sswan are accepted (and reported as not runnable on tvOS,
-  which only does WireGuard/AmneziaWG). Pasting config/backup text is still there as
-  a secondary card.
+FIX (Geo pool picked the wrong server, e.g. LAX from Austria): the rotation engine
+was being given an EMPTY user country, so Geo-Nearest fell back to a random member.
+The Apple TV now detects your country (public IP → the bundled on-device MMDB, same
+as the phone) and passes it to the picker, so a Geo pool now picks a nearby server.
+(The MMDB was already bundled via PrivycsCore; the country just wasn't being used.)
 
-HOW TO TEST: Apple TV → Configs → Add/restore (or Settings → Backup & Restore) → scan
-the QR with your phone → the page should match your browser's light/dark mode → tap
-"Upload a file", pick a .zip/.conf from Files → it imports on the TV.
+FIX: the "Activate pool" button in pool config was skinned inconsistently (full-width
+block). It now matches the Connect button — centered, content-sized, teal icon+label.
+
+HOW TO TEST: set a pool's policy to Geo, connect from your region → it should pick a
+nearby server (not a far-away one). Open a pool's gear → the Activate button should
+look like the rest of the app and be fully visible.
