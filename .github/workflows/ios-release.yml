@@ -642,6 +642,10 @@ jobs:
 
   propagate-previous-ios:
     name: Propagate previous iOS IPA
+    # Best-effort re-attachment of the prior IPA to a non-iOS release — a 404
+    # race against the concurrent desktop/android jobs creating the same release
+    # must NOT turn the whole run red.
+    continue-on-error: true
     needs: [check-changes, build-ios]
     if: |
       always() &&
@@ -734,6 +738,9 @@ jobs:
 
   propagate-previous-tvos:
     name: Propagate previous tvOS IPA
+    # Best-effort (see propagate-previous-ios) — never fail the run on a
+    # propagate 404/race for a non-tvOS (e.g. desktop-only) release.
+    continue-on-error: true
     needs: [check-changes, build-tvos]
     if: |
       always() &&
