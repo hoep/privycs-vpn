@@ -789,6 +789,7 @@ jobs:
             -archivePath build/PrivycsVPNmacOS.xcarchive \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
             CODE_SIGN_STYLE=Manual \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
             LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out-macos' \
             LICENSE_PUBLIC_KEY_HEX="${LICENSE_PUBLIC_KEY_HEX}" \
             -allowProvisioningUpdates
