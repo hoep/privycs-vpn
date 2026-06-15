@@ -475,7 +475,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.privycs.macvpn
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "Apple Distribution"
-        PROVISIONING_PROFILE_SPECIFIER: "Privycs MacVPN MAS App"
+        PROVISIONING_PROFILE_SPECIFIER: "com.privycs.macvpn"
 
   # ───── Mac App Store Packet Tunnel Extension (NE App Extension) ─────
   # Reuses the SAME Tunnel/ sources as iOS. OpenVPNAdapter builds for macOS,
@@ -523,4 +523,4 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.privycs.macvpn.tunnel
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "Apple Distribution"
-        PROVISIONING_PROFILE_SPECIFIER: "Privycs MacVPN MAS Tunnel"
+        PROVISIONING_PROFILE_SPECIFIER: "com.privycs.macvpn.tunnel"

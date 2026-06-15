@@ -763,6 +763,19 @@ jobs:
           echo "$PROFILE_APP_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/macvpn-app.provisionprofile
           echo "$PROFILE_TUNNEL_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/macvpn-tunnel.provisionprofile
 
+      - name: Diagnose installed macOS profiles
+        run: |
+          for p in macvpn-app macvpn-tunnel; do
+            f="$HOME/Library/MobileDevice/Provisioning Profiles/$p.provisionprofile"
+            echo "===== $p.provisionprofile ====="
+            if [ ! -s "$f" ]; then echo "  !! MISSING or EMPTY"; continue; fi
+            plist=$(security cms -D -i "$f" 2>/dev/null) || { echo "  !! not a valid .provisionprofile"; continue; }
+            printf '%s' "$plist" | plutil -extract Name raw - 2>/dev/null | sed 's/^/  Name: /'
+            printf '%s' "$plist" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null | sed 's/^/  AppID: /'
+            printf '%s' "$plist" | plutil -extract TeamIdentifier.0 raw - 2>/dev/null | sed 's/^/  Team: /'
+            printf '%s' "$plist" | grep -q ProvisionedDevices && echo "  Type: development/ad-hoc" || echo "  Type: app-store"
+          done
+
       - name: Archive
         working-directory: ios
         env:
@@ -797,8 +810,8 @@ jobs:
             <key>installerSigningCertificate</key><string>3rd Party Mac Developer Installer</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.privycs.macvpn</key><string>Privycs MacVPN MAS App</string>
-              <key>com.privycs.macvpn.tunnel</key><string>Privycs MacVPN MAS Tunnel</string>
+              <key>com.privycs.macvpn</key><string>com.privycs.macvpn</string>
+              <key>com.privycs.macvpn.tunnel</key><string>com.privycs.macvpn.tunnel</string>
             </dict>
           </dict></plist>
           EOF
