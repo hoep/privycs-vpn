@@ -46,11 +46,11 @@ struct LicenseKeyImportSheet: View {
             .navigationTitle("Import License")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .pvcsTrailing) {
                     Button("Import") { Task { await importKey() } }
                         .disabled(keyText.isEmpty || importing)
                 }
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .pvcsLeading) {
                     Button("Cancel") { dismiss() }
                 }
             }

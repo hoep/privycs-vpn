@@ -79,8 +79,8 @@ struct AddRuleSheet: View {
             .navigationTitle("New Rule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button("Save") { Task { await save() } } }
-                ToolbarItem(placement: .navigationBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .pvcsTrailing) { Button("Save") { Task { await save() } } }
+                ToolbarItem(placement: .pvcsLeading) { Button("Cancel") { dismiss() } }
             }
         }
     }

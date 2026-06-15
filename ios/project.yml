@@ -15,6 +15,10 @@ options:
     # are iOS 17) so it's simply unavailable below 17 while the app runs fully.
     iOS: "15.0"
     tvOS: "17.0"
+    # Mac App Store port (native SwiftUI reusing the iPhone views). 14.0 floor
+    # matches PrivycsCore (.macOS(.v14)) and gives modern NavigationStack/
+    # dynamic-colour APIs the shared views rely on.
+    macOS: "14.0"
   developmentLanguage: en
   defaultConfig: Release
   groupSortPosition: bottom
@@ -177,14 +181,15 @@ targets:
     platform: iOS
     sources:
       - path: Tunnel
-        # Both tunnel targets glob the shared Tunnel/ dir, and XcodeGen writes
-        # each target's generated Info.plist INTO that dir. Exclude BOTH plists
-        # from the source glob so the iOS target never picks up the tvOS plist
-        # (and vice-versa) as a stray Copy-Bundle-Resources entry — which would
+        # All tunnel targets glob the shared Tunnel/ dir, and XcodeGen writes
+        # each target's generated Info.plist INTO that dir. Exclude ALL plists
+        # from the source glob so no target picks up another's Info.plist (iOS
+        # / tvOS / macOS) as a stray Copy-Bundle-Resources entry — which would
         # trip "Multiple commands produce .../Info.plist".
         excludes:
           - "Info.plist"
           - "InfoTV.plist"
+          - "InfoMac.plist"
     info:
       path: Tunnel/Info.plist
       properties:
@@ -352,11 +357,12 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: Tunnel
-        # See PrivycsVPNTunnel above — exclude both generated plists so the
-        # tvOS tunnel doesn't glob the iOS tunnel's Info.plist as a resource.
+        # See PrivycsVPNTunnel above — exclude all generated plists so the
+        # tvOS tunnel doesn't glob another tunnel's Info.plist as a resource.
         excludes:
           - "Info.plist"
           - "InfoTV.plist"
+          - "InfoMac.plist"
     info:
       path: Tunnel/InfoTV.plist
       properties:
@@ -387,3 +393,134 @@ targets:
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "Apple Distribution"
         PROVISIONING_PROFILE_SPECIFIER: "Privycs VPN Tunnel tvOS App Store"
+
+  # ───── Mac App Store App (native SwiftUI, reuses the iPhone views) ──
+  # Separate App Store record + bundle id (com.privycs.macvpn) — NOT a
+  # Universal Purchase and NOT the Wails desktop (which can't be sandboxed
+  # for MAS). Reuses the SAME App/ SwiftUI sources as iOS (compact / iPhone
+  # presentation forced in RootView), with a handful of macOS shims
+  # (App/Components/PlatformCompat.swift) + macOS stand-ins under macOS/ for
+  # the three iOS-only files (camera QR scanner, UIActivity share sheet,
+  # BGTaskScheduler rotation). App-Sandbox ON; tunnel is an NE App Extension
+  # (System Extensions are forbidden in MAS). WG/AWG/IPSec + OpenVPN.
+  PrivycsVPNmacOS:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: App
+        # The macOS app reuses every App/ source EXCEPT the three iOS-only
+        # files (replaced by macOS stand-ins under macOS/) and the generated
+        # iOS Info.plist (the macOS target has its own at macOS/Info.plist).
+        excludes:
+          - "Info.plist"
+          - "BackgroundRotation.swift"
+          - "Views/QRScannerView.swift"
+          - "Components/ShareSheet.swift"
+      - path: macOS
+        excludes:
+          - "Info.plist"
+    resources:
+      - path: App/Resources
+    info:
+      path: macOS/Info.plist
+      properties:
+        CFBundleDisplayName: Privycs VPN
+        CFBundleLocalizations:
+          - en
+          - de
+          - es
+          - fr
+          - it
+          - pt
+        LSApplicationCategoryType: public.app-category.utilities
+        LSMinimumSystemVersion: "14.0"
+        ITSAppUsesNonExemptEncryption: false
+        LicensePublicKeyHex: "$(LICENSE_PUBLIC_KEY_HEX)"
+        NSLocationWhenInUseUsageDescription: >
+          Privycs uses your location only to read the current Wi-Fi
+          name so On-Demand Network Rules can match against trusted
+          SSIDs. No location coordinates are stored or transmitted.
+        NSLocalNetworkUsageDescription: >
+          Privycs uses the local network so you can send a VPN configuration
+          or backup to your Apple TV. Nothing leaves your network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: macOS/PrivycsVPNmacOS.entitlements
+      properties:
+        # App Sandbox is mandatory for the Mac App Store.
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        # File import/export (config + backup) via NSOpenPanel / fileImporter
+        # in the sandbox needs the user-selected file access entitlement.
+        com.apple.security.files.user-selected.read-write: true
+        # macOS reads the current Wi-Fi SSID via CoreLocation (Location-gated),
+        # for On-Demand SSID rules.
+        com.apple.security.personal-information.location: true
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.privycs.vpn
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.privycs.vpn
+        com.apple.developer.networking.vpn.api:
+          - allow-vpn
+    dependencies:
+      - package: PrivycsCore
+      - target: PrivycsVPNmacOSTunnel
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.privycs.macvpn
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Distribution"
+        PROVISIONING_PROFILE_SPECIFIER: "Privycs MacVPN MAS App"
+
+  # ───── Mac App Store Packet Tunnel Extension (NE App Extension) ─────
+  # Reuses the SAME Tunnel/ sources as iOS. OpenVPNAdapter builds for macOS,
+  # so OpenVPN is included (canImport(OpenVPNAdapter) true → bridge active).
+  # IPSec is NEVPNManager-in-app (not here). libwg-go.a macOS slice is built
+  # in CI (build-macos job) to /tmp/wg-out-macos.
+  PrivycsVPNmacOSTunnel:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Tunnel
+        excludes:
+          - "Info.plist"
+          - "InfoTV.plist"
+          - "InfoMac.plist"
+    info:
+      path: Tunnel/InfoMac.plist
+      properties:
+        CFBundleDisplayName: Privycs VPN Tunnel
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PrivycsPacketTunnelProvider
+    entitlements:
+      path: macOS/PrivycsVPNmacOSTunnel.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.privycs.vpn
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.privycs.vpn
+    dependencies:
+      - package: PrivycsCore
+      - package: WireGuardKit
+        product: WireGuardKit
+      - package: OpenVPNAdapter
+        product: OpenVPNAdapter
+      - sdk: SystemConfiguration.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.privycs.macvpn.tunnel
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Distribution"
+        PROVISIONING_PROFILE_SPECIFIER: "Privycs MacVPN MAS Tunnel"

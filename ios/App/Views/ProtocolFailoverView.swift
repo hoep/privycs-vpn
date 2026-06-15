@@ -37,7 +37,9 @@ struct ProtocolFailoverView: View {
         }
         .navigationTitle("Protocol Failover")
         .navigationBarTitleDisplayMode(.inline)
+        #if os(iOS)
         .toolbar { EditButton() }
+        #endif
         .task {
             let stored = appState.settings.protocolFailoverOrder
             order = stored.isEmpty ? VpnProtocol.defaultFailoverOrder : completed(stored)

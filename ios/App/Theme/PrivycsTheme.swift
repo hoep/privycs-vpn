@@ -1,5 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import PrivycsCore
 
 /// Privycs design system — 1:1 port of the Android `ui/theme/Theme.kt`
@@ -103,17 +107,28 @@ extension Color {
     }
 
     /// Adaptive colour that resolves to `light` or `dark` based on the
-    /// active UITraitCollection — the iOS equivalent of Android's
-    /// dark/light ColorScheme split.
+    /// active appearance — the iOS equivalent of Android's dark/light
+    /// ColorScheme split. Backed by a UIColor dynamic provider on iOS and an
+    /// NSColor dynamic provider on macOS (Mac App Store port).
     init(light: UInt32, dark: UInt32) {
+        #if canImport(UIKit)
         self.init(uiColor: UIColor { traits in
             traits.userInterfaceStyle == .dark
                 ? UIColor(hexValue: dark)
                 : UIColor(hexValue: light)
         })
+        #elseif canImport(AppKit)
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark ? NSColor(hexValue: dark) : NSColor(hexValue: light)
+        })
+        #else
+        self.init(hex: light)
+        #endif
     }
 }
 
+#if canImport(UIKit)
 private extension UIColor {
     convenience init(hexValue: UInt32) {
         self.init(
@@ -124,3 +139,15 @@ private extension UIColor {
         )
     }
 }
+#elseif canImport(AppKit)
+private extension NSColor {
+    convenience init(hexValue: UInt32) {
+        self.init(
+            srgbRed: CGFloat((hexValue >> 16) & 0xFF) / 255.0,
+            green:   CGFloat((hexValue >> 8) & 0xFF) / 255.0,
+            blue:    CGFloat(hexValue & 0xFF) / 255.0,
+            alpha:   1.0
+        )
+    }
+}
+#endif

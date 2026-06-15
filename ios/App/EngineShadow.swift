@@ -1,6 +1,8 @@
 import Foundation
 import PrivycsCore
+#if canImport(Engine)
 import Engine // gomobile xcframework (engine/ffi), prefix=Pvcs
+#endif
 
 /// Shadow-mode bridge to the cross-platform Smart Decision Engine — the same Go
 /// core (engine/ffi) the desktop and Android run, packaged here as the gomobile
@@ -21,7 +23,9 @@ import Engine // gomobile xcframework (engine/ffi), prefix=Pvcs
 /// `pollDecisions() -> String`, `close()`.
 @MainActor
 final class EngineShadow {
+    #if canImport(Engine)
     private var session: PvcsFfiSession?
+    #endif
     private var orderJSON = ""
 
     /// Build or refresh the session from the protocol-failover order. No-op
@@ -29,22 +33,31 @@ final class EngineShadow {
     /// rawValues ("amneziawg"/"wireguard"/"openvpn"/"ipsec"), matching the
     /// desktop/Android shadow stores.
     func ensure(order: [VpnProtocol]) {
+        #if canImport(Engine)
         let js = Self.orderToJSON(order)
         if session != nil && js == orderJSON { return }
         session?.close()
         session = PvcsFfiNewSession(js)
         orderJSON = js
+        #endif
     }
 
     func observeConnect(_ proto: String, country: String, awgAvailable: Bool) {
+        #if canImport(Engine)
         // gomobile labels every arg after the first: observeConnect(_:country:awgAvailable:)
         session?.observeConnect(proto, country: country, awgAvailable: awgAvailable)
+        #endif
     }
 
-    func observeDisconnect() { session?.observeDisconnect() }
+    func observeDisconnect() {
+        #if canImport(Engine)
+        session?.observeDisconnect()
+        #endif
+    }
 
     func observeHealth(_ health: TunnelHealthPill.Health?) {
         guard let health else { return } // nil = inactive → ignore
+        #if canImport(Engine)
         let token: String
         switch health {
         case .healthy: token = "healthy"
@@ -52,6 +65,7 @@ final class EngineShadow {
         case .recovering: token = "recovering"
         }
         session?.observeHealth(token)
+        #endif
     }
 
     /// Active-mode engine protocol order (country-aware), most-preferred first;
@@ -87,18 +101,27 @@ final class EngineShadow {
     /// Active-mode ranked order (context + roaming-interface + adaptive stats)
     /// over the connection's available protocols, most-preferred first.
     func selectOrder(available: [VpnProtocol], country: String, iface: String) -> [VpnProtocol] {
+        #if canImport(Engine)
         let avail = available.map { $0.rawValue }.joined(separator: ",")
         let now = Int64(Date().timeIntervalSince1970)
         return PvcsFfiSelectOrder(avail, country, iface, false, "", statsJSON(iface: iface), now)
             .split(separator: ",")
             .compactMap { VpnProtocol(rawValue: String($0).trimmingCharacters(in: .whitespaces)) }
+        #else
+        // No engine slice on macOS → keep the connection's own order.
+        return available
+        #endif
     }
 
     /// Recent decisions (newest last); empty on any error.
     func decisions() -> [EngineDecision] {
+        #if canImport(Engine)
         guard let raw = session?.pollDecisions(),
               let data = raw.data(using: .utf8) else { return [] }
         return (try? JSONDecoder().decode([EngineDecision].self, from: data)) ?? []
+        #else
+        return []
+        #endif
     }
 
     private static func orderToJSON(_ order: [VpnProtocol]) -> String {

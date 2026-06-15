@@ -36,12 +36,18 @@ struct RootView: View {
 
     var body: some View {
         Group {
+            #if os(macOS)
+            // Mac App Store port: always the compact (iPhone) tab layout —
+            // we reuse the iPhone presentation, not the iPad split view.
+            tabView
+            #else
             if hSize == .regular, #available(iOS 16, *) {
                 splitView
             } else {
                 // iPhone, or iPad on iOS 15 (NavigationSplitView is 16+).
                 tabView
             }
+            #endif
         }
         // Re-render the whole tree (incl. tab bar / sidebar) when the in-app
         // language changes so every LocalizedStringKey re-resolves via the

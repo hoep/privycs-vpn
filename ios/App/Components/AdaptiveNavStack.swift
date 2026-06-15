@@ -9,11 +9,18 @@ struct AdaptiveNavStack<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
+        #if os(macOS)
+        // macOS (14.0 floor) always has NavigationStack; the `.stack`
+        // NavigationView style below is unavailable on macOS, so take the
+        // modern path unconditionally.
+        NavigationStack { content() }
+        #else
         if #available(iOS 16, tvOS 16, *) {
             NavigationStack { content() }
         } else {
             NavigationView { content() }
                 .navigationViewStyle(.stack)
         }
+        #endif
     }
 }

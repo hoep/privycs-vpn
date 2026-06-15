@@ -10,7 +10,13 @@ struct PrivycsVPNApp: App {
 
     init() {
         // BGTaskScheduler handlers must be registered during launch.
+        // (No-op on macOS — see macOS/BackgroundRotationMac.swift.)
         BackgroundRotation.register()
+        #if os(macOS)
+        // macOS doesn't honour UIAppFonts; register the bundled Inter / Fira
+        // Code TTFs at launch so PrivycsFont.custom resolves them by name.
+        PrivycsMacFonts.register()
+        #endif
     }
 
     var body: some Scene {
@@ -21,6 +27,13 @@ struct PrivycsVPNApp: App {
                 // app font (Text/labels without an explicit .font pick it
                 // up). Explicit per-view fonts use PrivycsFont.inter/.mono.
                 .font(PrivycsFont.inter(17))
+                #if os(macOS)
+                // iPhone-proportioned window for the Mac App Store port — we
+                // reuse the compact (phone) presentation, not an iPad/desktop
+                // layout. A tall-narrow default frame matches the iOS views.
+                .frame(minWidth: 380, idealWidth: 420, maxWidth: 560,
+                       minHeight: 640, idealHeight: 820, maxHeight: .infinity)
+                #endif
                 .task {
                     await appState.bootstrap()
                 }
@@ -29,6 +42,9 @@ struct PrivycsVPNApp: App {
                     appState.onScenePhase(phase == .active)
                 }
         }
+        #if os(macOS)
+        .windowResizability(.contentSize)
+        #endif
     }
 }
 

@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#endif
 import PrivycsCore
 
 /// Live tunnel-log viewer — port of Android's LogsScreen. Reads the
@@ -58,7 +60,7 @@ struct LogsView: View {
         .navigationTitle("Logs")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .pvcsTrailing) {
                 Menu {
                     Button {
                         UIPasteboard.general.string = PrivycsLog.read()   // full log

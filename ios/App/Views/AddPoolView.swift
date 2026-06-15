@@ -56,13 +56,13 @@ struct AddPoolView: View {
             .navigationTitle("New Pool")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .pvcsTrailing) {
                     Button("Save") {
                         Task { await save() }
                     }
                     .disabled(name.isEmpty || configs.isEmpty)
                 }
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .pvcsLeading) {
                     Button("Cancel") { dismiss() }
                 }
             }

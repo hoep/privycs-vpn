@@ -520,7 +520,7 @@ struct MultiConfigPickerSheet: View {
             .navigationTitle("Choose protocol")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .pvcsTrailing) {
                     Button("Done") { dismiss() }
                 }
             }

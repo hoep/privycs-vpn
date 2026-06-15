@@ -1,0 +1,15 @@
+First Mac App Store build — native macOS app built from the iOS codebase
+(same screens as iPhone, in a Mac window). WireGuard / AmneziaWG / OpenVPN /
+IPSec, pools + rotation, on-demand network rules, backup/restore, gateway
+import.
+
+HOW TO TEST:
+- Import a config (file or paste a gateway/QR link in the Add screen) and connect.
+- Try each protocol you have a config for.
+- Create a pool and watch rotation.
+- Set an On-Demand rule (e.g. a trusted Wi-Fi → no VPN) and switch networks.
+- Export a backup, then restore it.
+
+Known first-build gaps (being polished): app icon may be generic; QR uses
+paste-input instead of the camera; reading the current Wi-Fi name needs
+Location permission.

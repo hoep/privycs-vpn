@@ -240,7 +240,7 @@ struct GatewayConfigSheet: View {
             .navigationTitle("Remote Configs")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .pvcsTrailing) { Button("Done") { dismiss() } }
             }
             .task { await load() }
         }
