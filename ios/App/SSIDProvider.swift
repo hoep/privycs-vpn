@@ -34,9 +34,14 @@ final class SSIDProvider: NSObject, ObservableObject {
     /// rules silently never match and the UI should warn.
     var isAuthorized: Bool {
 #if canImport(CoreLocation)
-        authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways
+        #if os(macOS)
+        // macOS has no `.authorizedWhenInUse`; a granted Mac maps to Always.
+        return authorizationStatus == .authorizedAlways
+        #else
+        return authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways
+        #endif
 #else
-        false
+        return false
 #endif
     }
 

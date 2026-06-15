@@ -349,7 +349,12 @@ final class VPNTunnelManager: ObservableObject {
     private static func onDemandInterface(_ v: String) -> NEOnDemandRuleInterfaceType {
         switch v.lowercased() {
         case "wifi":             return .wiFi
-        case "mobile", "cellular": return .cellular
+        case "mobile", "cellular":
+            #if os(macOS)
+            return .any   // no cellular interface on macOS
+            #else
+            return .cellular
+            #endif
         default:                 return .any
         }
     }

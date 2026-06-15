@@ -702,17 +702,31 @@ jobs:
           fi
 
           cd .deps/wireguard-apple/Sources/WireGuardKitGo
-          echo "==> libwg-go.a for macosx arm64"
+          # Universal libwg-go.a (arm64 + x86_64) so the macOS app runs on both
+          # Apple Silicon and Intel Macs. Build each slice, then lipo together.
+          build_slice() {
+            local arch="$1" out="$2"
+            echo "==> libwg-go.a for macosx $arch"
+            make clean || true
+            mkdir -p "$out"
+            PLATFORM_NAME=macosx ARCHS="$arch" \
+              MACOSX_DEPLOYMENT_TARGET=14.0 \
+              DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mmacosx-version-min \
+              DEPLOYMENT_TARGET_CLANG_ENV_NAME=MACOSX_DEPLOYMENT_TARGET \
+              SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" \
+              DESTDIR="$out" CONFIGURATION_BUILD_DIR="$out" \
+              CONFIGURATION_TEMP_DIR="$out/tmp" \
+              make build
+            ls -la "$out/libwg-go.a"
+          }
+          build_slice arm64  /tmp/wg-out-macos-arm64
+          build_slice x86_64 /tmp/wg-out-macos-x86_64
           mkdir -p /tmp/wg-out-macos
-          PLATFORM_NAME=macosx ARCHS=arm64 \
-            MACOSX_DEPLOYMENT_TARGET=14.0 \
-            DEPLOYMENT_TARGET_CLANG_FLAG_NAME=mmacosx-version-min \
-            DEPLOYMENT_TARGET_CLANG_ENV_NAME=MACOSX_DEPLOYMENT_TARGET \
-            SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" \
-            DESTDIR=/tmp/wg-out-macos CONFIGURATION_BUILD_DIR=/tmp/wg-out-macos \
-            CONFIGURATION_TEMP_DIR=/tmp/wg-out-macos/tmp \
-            make build
-          ls -la /tmp/wg-out-macos/libwg-go.a
+          lipo -create \
+            /tmp/wg-out-macos-arm64/libwg-go.a \
+            /tmp/wg-out-macos-x86_64/libwg-go.a \
+            -output /tmp/wg-out-macos/libwg-go.a
+          lipo -info /tmp/wg-out-macos/libwg-go.a
 
       - name: Build Smart Decision Engine xcframework (gomobile)
         working-directory: ios
@@ -789,7 +803,7 @@ jobs:
             -archivePath build/PrivycsVPNmacOS.xcarchive \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
             CODE_SIGN_STYLE=Manual \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
             LIBRARY_SEARCH_PATHS='$(inherited) /tmp/wg-out-macos' \
             LICENSE_PUBLIC_KEY_HEX="${LICENSE_PUBLIC_KEY_HEX}" \
             -allowProvisioningUpdates
