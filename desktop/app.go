@@ -2822,6 +2822,17 @@ func (a *App) connectActiveTarget() {
 	}
 	defer a.connectMu.Unlock()
 
+	// Network-rules connect-gate: never auto-connect on a network the user
+	// marked "No VPN (trusted)". The monitor's no_vpn teardown only fires once
+	// on transition, so without this gate a pool-keepalive / failover /
+	// post-disconnect reconnect re-dials the tunnel on an excluded network —
+	// the VPN appeared to "ignore" excluded networks (worst on Windows IPSec,
+	// whose RAS link the app re-adopts). Manual Connect() stays an override.
+	if res := a.currentNetworkResolution(); res.Action == "no_vpn" {
+		log.Printf("connectActiveTarget: current network is No-VPN (trusted) per network rules — refusing auto-connect")
+		return
+	}
+
 	a.mu.RLock()
 	poolID := a.activePoolID
 	proto := a.activeProtocol

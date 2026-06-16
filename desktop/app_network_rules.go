@@ -129,6 +129,42 @@ func (a *App) triggerNetworkReeval() {
 	}
 }
 
+// currentNetworkResolution resolves the active network rules against the
+// CURRENT network (type / SSID / BSSID). Returns an empty Action when the
+// rules engine is off, there are no rules, or nothing matches.
+//
+// Used as a CONNECT-TIME GATE: the monitor's no_vpn teardown fires only ONCE
+// on transition (network_monitor.go transition guard), so a subsequent
+// pool-keepalive / failover / post-disconnect reconnect would re-dial the
+// tunnel on a network the user marked "No VPN (trusted)" — the VPN appeared to
+// "ignore" excluded networks (worst on Windows IPSec, whose self-redialable
+// RAS link the app re-adopts). connectActiveTarget consults this before every
+// internal connect. Manual Connect() is a deliberate override and is NOT gated.
+func (a *App) currentNetworkResolution() RuleResolution {
+	a.mu.RLock()
+	enabled := a.settings != nil && a.settings.NetworkRulesEnabled
+	a.mu.RUnlock()
+	if !enabled || a.networkRules == nil || len(a.networkRules.List()) == 0 {
+		return RuleResolution{}
+	}
+	if a.autoConnect == nil {
+		return RuleResolution{}
+	}
+	nm := a.autoConnect.NetworkMonitor()
+	if nm == nil {
+		return RuleResolution{}
+	}
+	st := nm.CurrentState()
+	if st.NetworkType == "" || st.NetworkType == "none" {
+		return RuleResolution{}
+	}
+	bssid := ""
+	if st.NetworkType == "wifi" {
+		bssid = detectCurrentBssid()
+	}
+	return a.networkRules.Resolve(st.NetworkType, st.SSID, bssid)
+}
+
 // applyRuleResolution drives target switching when a rule matched.
 // Mirrors Android NetworkMonitor.applyRuleResolution. Routes
 // through the existing switch helpers so we get the same

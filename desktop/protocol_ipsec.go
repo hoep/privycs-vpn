@@ -1069,6 +1069,11 @@ func (i *IPSecProtocol) downWindows(ctx context.Context) error {
 	log.Printf("Disconnecting IPSec %s via rasdial /disconnect...", i.connName)
 	execHiddenContext(ctx, "rasdial", i.connName, "/disconnect").Run()
 	i.connectedAt = time.Time{}
+	// Clear the post-connect "trust Connected" fast-path window. Without this,
+	// Status() keeps reporting Connected=true for up to 5s AFTER a disconnect
+	// (e.g. a rules-engine no_vpn teardown), masking the teardown so the app
+	// still believes the tunnel is up on an excluded network.
+	i.windowsConnectedTrustUntil = time.Time{}
 	log.Printf("IPSec disconnected: %s", i.connName)
 	return nil
 }
