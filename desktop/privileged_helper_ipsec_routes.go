@@ -132,7 +132,7 @@ func (h *PrivilegedHelper) cmdIPSecInstallWindowsRoutes(cmd HelperCommand) Helpe
 
 	var b strings.Builder
 	b.WriteString("$ErrorActionPreference = 'Stop'\n")
-	b.WriteString("$ok = 0\n$fail = 0\n$bok = 0\n$bfail = 0\n")
+	b.WriteString("$ok = 0\n$fail = 0\n$bok = 0\n$bfail = 0\n$v6ok = 0\n$v6fail = 0\n")
 	// One-shot split-tunnel enable. Errors here are surfaced (it is
 	// the gate that makes Add-VpnConnectionRoute have any effect).
 	// All-User scope: the connection is created by the SYSTEM helper in the
@@ -174,7 +174,22 @@ func (h *PrivilegedHelper) cmdIPSecInstallWindowsRoutes(cmd HelperCommand) Helpe
 		}
 	}
 
-	b.WriteString("Write-Output \"routes-ok=$ok fail=$fail bypass-ok=$bok bypass-fail=$bfail\"\n")
+	// IPv6 through the tunnel. If the IPSec adapter carries a non-link-local v6
+	// (the gateway assigned a v6 VIP + NAT66s it — confirmed working on
+	// iOS/Android), route global IPv6 (2000::/3) INTO the tunnel. Without this
+	// the only ::/0 stays on the physical NIC, so v6 leaves via the physical
+	// interface (no working global v6 there) and fails → "only IPv4". The
+	// gateway's Windows routes-script is v4-oriented and never lays a working
+	// v6 tunnel route, unlike the .sswan/strongSwan path iOS/Android use.
+	fmt.Fprintf(&b,
+		"$tv6 = Get-NetIPAddress -InterfaceAlias '%s' -AddressFamily IPv6 -ErrorAction SilentlyContinue | "+
+			"Where-Object { $_.IPAddress -notlike 'fe80*' }\n", connName)
+	fmt.Fprintf(&b,
+		"if ($tv6) { foreach ($p in @('2000::/3')) { "+
+			"try { Add-VpnConnectionRoute -ConnectionName '%s' -DestinationPrefix $p -AllUserConnection -PassThru -ErrorAction Stop | Out-Null; $v6ok++ } catch { $v6fail++ } } }\n",
+		connName)
+
+	b.WriteString("Write-Output \"routes-ok=$ok fail=$fail bypass-ok=$bok bypass-fail=$bfail v6tun-ok=$v6ok v6tun-fail=$v6fail\"\n")
 
 	// Write to a temp .ps1 in the OS temp dir. UTF-8 with BOM so
 	// PowerShell reliably picks up the encoding regardless of the
