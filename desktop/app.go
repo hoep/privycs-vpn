@@ -1382,8 +1382,10 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 					routesScript = pc.WindowsRoutesScript
 				}
 			}
+			var excludedNets []string
 			if ipsecProto, ok := a.protocols["ipsec"].(*IPSecProtocol); ok {
 				connName = ipsecProto.ConnectionName()
+				excludedNets = ipsecProto.SplitTunneling()
 			}
 			a.mu.RUnlock()
 			if routesScript == "" {
@@ -1398,6 +1400,22 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 			if len(cidrs) == 0 {
 				log.Printf("Windows IPSec routes: WindowsRoutesScript parsed to 0 CIDRs — skipping")
 				return
+			}
+			// Carve out the .sswan "Excluded networks" (split-tunneling bypass
+			// subnets) so they DON'T traverse the tunnel. The gateway's route
+			// script is the VPN include-set; with Set-VpnConnection
+			// -SplitTunneling $true, removing the excluded subnets makes them
+			// bypass via the physical default route. This is the Windows-desktop
+			// equivalent of Android/iOS excludedSubnets — previously the desktop
+			// parsed split-tunneling but never applied it on Windows (only Linux).
+			if len(excludedNets) > 0 {
+				before := len(cidrs)
+				cidrs = SubtractCidrStrings(cidrs, excludedNets)
+				log.Printf("Windows IPSec routes: applied %d excluded network(s) (split-tunneling) — route set %d -> %d CIDRs", len(excludedNets), before, len(cidrs))
+				if len(cidrs) == 0 {
+					log.Printf("Windows IPSec routes: all routes excluded — skipping install")
+					return
+				}
 			}
 			log.Printf("Windows IPSec routes: installing %d CIDRs on connection %q", len(cidrs), connName)
 			client := NewHelperClient()

@@ -113,6 +113,73 @@ func SubtractFromUniverse(bypass []Cidr) []Cidr {
 	return out
 }
 
+// SubtractCidrs removes the `exclude` ranges from each route in `routes`,
+// splitting a route that partially overlaps an excluded range and dropping a
+// route fully inside one. Family-aware (v4 excludes only affect v4 routes).
+//
+// Used for Windows IPSec split-tunnel: the gateway pushes the VPN include-routes
+// (Add-VpnConnectionRoute list), but the .sswan `split-tunneling` excluded/bypass
+// subnets must be carved OUT of that set so they don't traverse the tunnel —
+// with `Set-VpnConnection -SplitTunneling $true`, anything not in the route set
+// bypasses via the physical default route. Mirrors the working Android client's
+// strongSwan `setExcludedSubnets` (IpSecTunnel.kt).
+func SubtractCidrs(routes, exclude []Cidr) []Cidr {
+	if len(exclude) == 0 {
+		return routes
+	}
+	v4ex := make([]Cidr, 0, len(exclude))
+	v6ex := make([]Cidr, 0, len(exclude))
+	for _, e := range exclude {
+		if e.IsV4() {
+			v4ex = append(v4ex, e)
+		} else {
+			v6ex = append(v6ex, e)
+		}
+	}
+	out := make([]Cidr, 0, len(routes))
+	for _, r := range routes {
+		if r.IsV4() {
+			out = append(out, subtractWithinFamily(r.Start(), r.End(), v4ex, 32)...)
+		} else {
+			out = append(out, subtractWithinFamily(r.Start(), r.End(), v6ex, 128)...)
+		}
+	}
+	return out
+}
+
+// SubtractCidrStrings parses route + exclude CIDR strings, subtracts the
+// excludes from the routes (SubtractCidrs), and returns the surviving routes as
+// strings. Unparseable excludes are ignored; unparseable routes pass through
+// unchanged (defensive — never drop a route we couldn't reason about).
+func SubtractCidrStrings(routes, exclude []string) []string {
+	if len(exclude) == 0 {
+		return routes
+	}
+	ex := make([]Cidr, 0, len(exclude))
+	for _, s := range exclude {
+		if c, err := ParseCidr(s); err == nil {
+			ex = append(ex, c)
+		}
+	}
+	if len(ex) == 0 {
+		return routes
+	}
+	rs := make([]Cidr, 0, len(routes))
+	passthrough := make([]string, 0)
+	for _, s := range routes {
+		if c, err := ParseCidr(s); err == nil {
+			rs = append(rs, c)
+		} else {
+			passthrough = append(passthrough, s)
+		}
+	}
+	out := make([]string, 0, len(rs)+len(passthrough))
+	for _, c := range SubtractCidrs(rs, ex) {
+		out = append(out, c.String())
+	}
+	return append(out, passthrough...)
+}
+
 // subtractWithinFamily: range-based subtraction for one family.
 // Treat [start, end] as a list of "kept" intervals; for each bypass
 // CIDR split intervals around the bypass range. Convert surviving

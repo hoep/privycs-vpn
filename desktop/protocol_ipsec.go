@@ -123,6 +123,14 @@ func (i *IPSecProtocol) ConnectionName() string {
 	return i.connName
 }
 
+// SplitTunneling returns the .sswan-defined bypass/excluded CIDRs (the
+// "Excluded networks" the gateway pushes). Used on Windows to carve these out
+// of the installed VPN route set so they bypass the tunnel — Android/iOS apply
+// the same list via strongSwan setExcludedSubnets / NE excludedRoutes.
+func (i *IPSecProtocol) SplitTunneling() []string {
+	return i.splitTunneling
+}
+
 // IPSecConfig holds IPSec-specific configuration
 type IPSecConfig struct {
 	ConnectionName string `json:"connection_name"`
