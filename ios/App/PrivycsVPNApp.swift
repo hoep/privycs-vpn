@@ -28,11 +28,11 @@ struct PrivycsVPNApp: App {
                 // up). Explicit per-view fonts use PrivycsFont.inter/.mono.
                 .font(PrivycsFont.inter(17))
                 #if os(macOS)
-                // iPhone-proportioned window for the Mac App Store port — we
-                // reuse the compact (phone) presentation, not an iPad/desktop
-                // layout. A tall-narrow default frame matches the iOS views.
-                .frame(minWidth: 380, idealWidth: 420, maxWidth: 560,
-                       minHeight: 640, idealHeight: 820, maxHeight: .infinity)
+                // iPhone-proportioned but FREELY RESIZABLE window. NOTE: an
+                // earlier .windowResizability(.contentSize) collapsed the window
+                // to the chrome (no content area) — removed. Just a sensible
+                // min size; the default comes from .defaultSize below.
+                .frame(minWidth: 380, minHeight: 600)
                 #endif
                 .task {
                     await appState.bootstrap()
@@ -43,7 +43,7 @@ struct PrivycsVPNApp: App {
                 }
         }
         #if os(macOS)
-        .windowResizability(.contentSize)
+        .defaultSize(width: 440, height: 820)
         #endif
     }
 }

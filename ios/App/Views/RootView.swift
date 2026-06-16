@@ -37,9 +37,11 @@ struct RootView: View {
     var body: some View {
         Group {
             #if os(macOS)
-            // Mac App Store port: always the compact (iPhone) tab layout —
-            // we reuse the iPhone presentation, not the iPad split view.
-            tabView
+            // Mac App Store port: macOS turns a SwiftUI TabView's .tabItem tabs
+            // into a toolbar/menu-bar ("Navigation Tab Bar") overflow instead of
+            // a visible bottom bar — looks broken/empty. Use an explicit
+            // content + bottom-bar VStack to keep the iPhone presentation.
+            macTabView
             #else
             if hSize == .regular, #available(iOS 16, *) {
                 splitView
@@ -68,6 +70,38 @@ struct RootView: View {
             }
         }
     }
+
+    // MARK: macOS — content + custom visible bottom tab bar (iPhone-like)
+
+    #if os(macOS)
+    private var macTabView: some View {
+        VStack(spacing: 0) {
+            screen(for: tab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            HStack(spacing: 0) {
+                ForEach(Tab.allCases, id: \.self) { t in
+                    Button {
+                        tab = t
+                    } label: {
+                        VStack(spacing: 3) {
+                            Image(systemName: t.systemImage)
+                                .font(.system(size: 18))
+                            Text(t.titleKey)
+                                .font(.system(size: 10))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .contentShape(Rectangle())
+                        .foregroundStyle(tab == t ? PrivycsColor.accent : PrivycsColor.onSurfaceVariant)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .background(PrivycsColor.surface)
+        }
+    }
+    #endif
 
     // MARK: iPad — sidebar + detail
 
