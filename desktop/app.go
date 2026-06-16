@@ -1332,7 +1332,14 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 	// unchanged. The scan + single helper RPC are cheap; blocking the
 	// connect path on them is the correct trade for closing the leak.
 	tunV4 := proto.Status().LocalAddress
-	a.applyIPv6Killswitch(tunV4)
+	// Windows IPSec reports an empty LocalAddress, so the killswitch can't see
+	// the tunnel's v6 from tunV4 alone — pass the IPSec adapter name so it can
+	// check that adapter directly for a global v6 (dual-stack tunnel ⇒ no block).
+	tunIface := ""
+	if ipsecProto, ok := proto.(*IPSecProtocol); ok {
+		tunIface = ipsecProto.ConnectionName()
+	}
+	a.applyIPv6Killswitch(tunV4, tunIface)
 
 	a.connected = true
 	a.connectedAt = time.Now()

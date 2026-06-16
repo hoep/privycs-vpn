@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -35,14 +36,60 @@ import (
 // critical security bug, not a user preference. The two short-circuits
 // below are about CORRECTNESS (no point blocking when there's no
 // leak vector), not about user choice.
-func (a *App) shouldEnableIPv6Killswitch(tunV4 string) (bool, string) {
+func (a *App) shouldEnableIPv6Killswitch(tunV4, tunIface string) (bool, string) {
 	if tunHasIPv6(tunV4) {
 		return false, "tunnel is dual-stack (v6 endpoint present), no leak risk"
+	}
+	// Windows IPSec reports an EMPTY Status().LocalAddress, so tunHasIPv6 above
+	// can't see the tunnel's v6 from the conf and we'd block a dual-stack
+	// tunnel by mistake (the reported bug). Check the tunnel ADAPTER directly
+	// by name: if it carries a global / ULA v6 the gateway assigned v6 over the
+	// tunnel — v6 flows THROUGH the tunnel, no leak, don't block. Short retry
+	// because the v6 VIP can lag the v4 connect by a few hundred ms.
+	if tunIface != "" && interfaceHasGlobalIPv6Retry(tunIface) {
+		return false, "tunnel adapter " + tunIface + " carries global IPv6 (dual-stack), no leak risk"
 	}
 	if !osHasIPv6Connectivity(tunV4) {
 		return false, "OS has no live IPv6 connectivity, no leak vector"
 	}
 	return true, "v4-only tunnel + dual-stack OS: block IPv6 outbound"
+}
+
+// interfaceHasGlobalIPv6 reports whether the named interface (e.g. the Windows
+// IPSec RAS adapter "gw-ipsec-2") has a non-link-local, non-loopback IPv6
+// address bound — i.e. the tunnel itself carries v6 and there is no leak.
+func interfaceHasGlobalIPv6(name string) bool {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return false
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return false
+	}
+	for _, ad := range addrs {
+		ip, _, err := net.ParseCIDR(ad.String())
+		if err != nil {
+			continue
+		}
+		if ip.To4() == nil && !ip.IsLinkLocalUnicast() && !ip.IsLoopback() {
+			return true
+		}
+	}
+	return false
+}
+
+// interfaceHasGlobalIPv6Retry polls interfaceHasGlobalIPv6 for ~1s to absorb
+// the brief window where the IKEv2 v6 virtual IP is assigned slightly after the
+// v4 connect completes. Returns true as soon as a global v6 appears.
+func interfaceHasGlobalIPv6Retry(name string) bool {
+	for i := 0; i < 4; i++ {
+		if interfaceHasGlobalIPv6(name) {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return false
 }
 
 // tunHasIPv6 returns true if the tunnel is dual-stack. The protocol
@@ -202,13 +249,13 @@ func osHasIPv6Connectivity(tunV4 string) bool {
 // event "vpn:ipv6_leak_warning" so the frontend can show a banner.
 // Critical: a silent failure here would mean the user sees
 // "Connected" but their v6 traffic still leaks — must be visible.
-func (a *App) applyIPv6Killswitch(tunV4 string) {
-	enable, reason := a.shouldEnableIPv6Killswitch(tunV4)
+func (a *App) applyIPv6Killswitch(tunV4, tunIface string) {
+	enable, reason := a.shouldEnableIPv6Killswitch(tunV4, tunIface)
 	if !enable {
 		log.Printf("IPv6 killswitch: skipping (%s)", reason)
 		return
 	}
-	log.Printf("IPv6 killswitch: enabling (%s, tunV4=%s)", reason, tunV4)
+	log.Printf("IPv6 killswitch: enabling (%s, tunV4=%s tunIface=%s)", reason, tunV4, tunIface)
 	client := NewHelperClient()
 	if !client.IsHelperReachable() {
 		// v1.0.5 i18n pattern: emit a stable English KEY + detail so
