@@ -568,25 +568,50 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f | sort
 
+      # NOTE: was softprops/action-gh-release@v2 — it deterministically failed
+      # with "422 already_exists / tag_name" whenever the CONCURRENT
+      # ios-release.yml / android-release.yml runs (separate workflows) created
+      # the SAME release first via `gh release create`: softprops found the
+      # release but then called the CREATE endpoint on its finalisation step
+      # instead of UPDATE. The in-workflow `needs: release` ordering on the
+      # propagate job can't fix a CROSS-workflow race. Replaced with the same
+      # race-tolerant gh pattern the propagate job + the ios jobs already use:
+      # create-if-missing, then clobber-upload with retry + re-resolve.
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          name: Privycs VPN ${{ github.ref_name }}
-          draft: false
-          # Dash in the tag (e.g. v1.0.7-alpha.4) => prerelease.
-          # Mirrors the android-release.yml + ios-release.yml setting
-          # so the first-to-create-the-release Workflow doesn't strand
-          # the GH release with prerelease=false when later workflows
-          # would have set it to true.
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"; REPO="${{ github.repository }}"
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --title "Privycs VPN $TAG" \
+              $([ "${TAG#*-}" != "$TAG" ] && echo --prerelease) --generate-notes \
+              || echo "Race: release was created by another workflow just now."
+          fi
+          shopt -s nullglob
+          FILES=(
             artifacts/privycs-vpn-linux-amd64/*
             artifacts/privycs-vpn-darwin-amd64/*
             artifacts/privycs-vpn-darwin-arm64/*
             artifacts/privycs-vpn-windows-amd64/*
             artifacts/privycs-vpn-windows-amd64-setup/*
-          fail_on_unmatched_files: false
+          )
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No desktop artifacts to upload."; exit 0
+          fi
+          uploaded=0
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$TAG" --repo "$REPO" --clobber "${FILES[@]}"; then
+              uploaded=1
+              echo "Uploaded ${#FILES[@]} desktop asset(s)."
+              break
+            fi
+            echo "Upload attempt $attempt hit a release race — re-resolving + retrying in 15s."
+            gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 \
+              || gh release create "$TAG" --repo "$REPO" --title "Privycs VPN $TAG" --generate-notes || true
+            sleep 15
+          done
+          [ "$uploaded" -eq 1 ] || { echo "Desktop asset upload failed after retries"; exit 1; }
 
   propagate-previous-desktop:
     # Propagate per-OS. When at least one OS skipped its build (its
