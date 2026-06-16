@@ -63,6 +63,11 @@ let package = Package(
                 // to resolve pool/server country codes → flags.
                 .copy("Resources/country.mmdb"),
                 .copy("Resources/country.mmdb.LICENSE"),
+            ],
+            linkerSettings: [
+                // macOS reads the current Wi-Fi SSID/BSSID via CoreWLAN
+                // (WiFiInfo.current()); platform-gated so iOS/tvOS/Linux ignore it.
+                .linkedFramework("CoreWLAN", .when(platforms: [.macOS])),
             ]
         ),
         .testTarget(
