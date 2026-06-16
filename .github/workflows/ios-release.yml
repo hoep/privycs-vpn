@@ -980,11 +980,18 @@ jobs:
           fi
           echo "Propagating iOS assets from $PREV_TAG → $CURRENT_TAG"
           mkdir -p /tmp/ios-assets
-          # iOS-ONLY patterns — must not grab the tvOS/macOS artefacts that
-          # share the release (re-uploading privycs-vpn-tvos-*.ipa was the cause
-          # of the cross-asset 404 churn).
+          # SINGLE NEWEST iOS IPA only — NOT '*.ipa' (which dragged every
+          # historical version forward, so each release accumulated dozens of
+          # stale IPAs). Pick the highest version by filename, propagate just it
+          # + its .sha256. Must also not grab the tvOS/macOS artefacts.
+          NEWEST=$(gh release view "$PREV_TAG" --repo "$REPO" --json assets --jq '.assets[].name' \
+            | grep -E '^privycs-vpn-ios-.*\.ipa$' | sort -V | tail -1)
+          if [ -z "$NEWEST" ]; then
+            echo "No iOS IPA on $PREV_TAG — nothing to propagate."; exit 0
+          fi
+          echo "Newest iOS IPA on $PREV_TAG: $NEWEST"
           gh release download "$PREV_TAG" --repo "$REPO" --dir /tmp/ios-assets \
-            --pattern 'privycs-vpn-ios-*.ipa' --pattern 'privycs-vpn-ios-*.ipa.sha256'
+            --pattern "$NEWEST" --pattern "$NEWEST.sha256"
           # Ensure current release exists (race-tolerant — desktop/android may
           # have already created it).
           if ! gh release view "$CURRENT_TAG" --repo "$REPO" >/dev/null 2>&1; then
@@ -1095,8 +1102,18 @@ jobs:
           fi
           echo "Propagating tvOS assets from $PREV_TAG → $CURRENT_TAG"
           mkdir -p /tmp/tvos-assets
+          # SINGLE NEWEST tvOS IPA only — NOT '*.ipa'. The broad pattern dragged
+          # every historical tvOS version forward, so each release accumulated
+          # 20+ stale IPAs. Pick the highest version by filename, propagate just
+          # it + its .sha256.
+          NEWEST=$(gh release view "$PREV_TAG" --repo "$REPO" --json assets --jq '.assets[].name' \
+            | grep -E '^privycs-vpn-tvos-.*\.ipa$' | sort -V | tail -1)
+          if [ -z "$NEWEST" ]; then
+            echo "No tvOS IPA on $PREV_TAG — nothing to propagate."; exit 0
+          fi
+          echo "Newest tvOS IPA on $PREV_TAG: $NEWEST"
           gh release download "$PREV_TAG" --repo "$REPO" --dir /tmp/tvos-assets \
-            --pattern 'privycs-vpn-tvos-*.ipa' --pattern 'privycs-vpn-tvos-*.ipa.sha256'
+            --pattern "$NEWEST" --pattern "$NEWEST.sha256"
           # Ensure current release exists (race-tolerant — desktop/android may
           # have already created it).
           if ! gh release view "$CURRENT_TAG" --repo "$REPO" >/dev/null 2>&1; then
