@@ -1426,6 +1426,11 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 			resp, err := client.SendCommand("ipsec_install_windows_routes", map[string]string{
 				"connection_name": connName,
 				"cidrs":           strings.Join(cidrs, "\n"),
+				// Excluded subnets get explicit physical-gateway bypass routes in
+				// the helper (longest-prefix override of the full-tunnel VPN
+				// 0.0.0.0/0). Mirrors Android setExcludedSubnets so LAN/local
+				// networks stay reachable while connected.
+				"excluded_cidrs": strings.Join(excludedNets, "\n"),
 			})
 			if err != nil {
 				log.Printf("Windows IPSec routes: helper IPC failed: %v", err)

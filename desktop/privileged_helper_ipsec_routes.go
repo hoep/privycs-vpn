@@ -111,9 +111,28 @@ func (h *PrivilegedHelper) cmdIPSecInstallWindowsRoutes(cmd HelperCommand) Helpe
 	// length limit is ~8 KB effective, and 300 CIDRs of inline PS
 	// renders to ~24 KB. The temp-file path bypasses that limit
 	// because the script lives on disk, not in the process args.
+	// Excluded networks (split-tunneling bypass subnets, from the .sswan).
+	// On a full-tunnel IKEv2 SA (negotiated TS = 0.0.0.0/0) Windows installs a
+	// default route THROUGH the VPN, so dropping these from the include set is
+	// not enough — they need an explicit MORE-SPECIFIC route via the PHYSICAL
+	// default gateway, which wins by longest-prefix over the VPN's 0.0.0.0/0.
+	// This is the Windows equivalent of Android strongSwan setExcludedSubnets.
+	var excl4, excl6 []string
+	for _, c := range strings.Split(cmd.Args["excluded_cidrs"], "\n") {
+		c = strings.TrimSpace(c)
+		if c == "" || !safeCIDRRoute.MatchString(c) {
+			continue
+		}
+		if strings.Contains(c, ":") {
+			excl6 = append(excl6, c)
+		} else {
+			excl4 = append(excl4, c)
+		}
+	}
+
 	var b strings.Builder
 	b.WriteString("$ErrorActionPreference = 'Stop'\n")
-	b.WriteString("$ok = 0\n$fail = 0\n")
+	b.WriteString("$ok = 0\n$fail = 0\n$bok = 0\n$bfail = 0\n")
 	// One-shot split-tunnel enable. Errors here are surfaced (it is
 	// the gate that makes Add-VpnConnectionRoute have any effect).
 	// All-User scope: the connection is created by the SYSTEM helper in the
@@ -130,7 +149,32 @@ func (h *PrivilegedHelper) cmdIPSecInstallWindowsRoutes(cmd HelperCommand) Helpe
 			connName, c,
 		)
 	}
-	b.WriteString("Write-Output \"routes-ok=$ok fail=$fail\"\n")
+
+	// Bypass routes for the excluded subnets via the PHYSICAL default gateway
+	// (the 0.0.0.0/0 / ::/0 route that is NOT on the VPN connection's adapter).
+	if len(excl4) > 0 || len(excl6) > 0 {
+		fmt.Fprintf(&b,
+			"$pv4 = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | "+
+				"Where-Object { $_.InterfaceAlias -ne '%s' -and $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } | "+
+				"Sort-Object RouteMetric | Select-Object -First 1\n", connName)
+		fmt.Fprintf(&b,
+			"$pv6 = Get-NetRoute -DestinationPrefix '::/0' -ErrorAction SilentlyContinue | "+
+				"Where-Object { $_.InterfaceAlias -ne '%s' -and $_.NextHop -ne '::' -and $_.NextHop -ne '0.0.0.0' } | "+
+				"Sort-Object RouteMetric | Select-Object -First 1\n", connName)
+		// helper that (re)creates a bypass route in the non-persistent
+		// ActiveStore so it never outlives a reboot.
+		b.WriteString("function Add-Bypass($pfx,$p){ if(-not $p){ $script:bfail++; return }; " +
+			"try { Remove-NetRoute -DestinationPrefix $pfx -InterfaceIndex $p.ifIndex -Confirm:$false -ErrorAction SilentlyContinue } catch {}; " +
+			"try { New-NetRoute -DestinationPrefix $pfx -InterfaceIndex $p.ifIndex -NextHop $p.NextHop -RouteMetric 1 -PolicyStore ActiveStore -ErrorAction Stop | Out-Null; $script:bok++ } catch { $script:bfail++ } }\n")
+		for _, c := range excl4 {
+			fmt.Fprintf(&b, "Add-Bypass '%s' $pv4\n", c)
+		}
+		for _, c := range excl6 {
+			fmt.Fprintf(&b, "Add-Bypass '%s' $pv6\n", c)
+		}
+	}
+
+	b.WriteString("Write-Output \"routes-ok=$ok fail=$fail bypass-ok=$bok bypass-fail=$bfail\"\n")
 
 	// Write to a temp .ps1 in the OS temp dir. UTF-8 with BOM so
 	// PowerShell reliably picks up the encoding regardless of the
