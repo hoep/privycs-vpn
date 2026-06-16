@@ -980,8 +980,11 @@ jobs:
           fi
           echo "Propagating iOS assets from $PREV_TAG → $CURRENT_TAG"
           mkdir -p /tmp/ios-assets
+          # iOS-ONLY patterns — must not grab the tvOS/macOS artefacts that
+          # share the release (re-uploading privycs-vpn-tvos-*.ipa was the cause
+          # of the cross-asset 404 churn).
           gh release download "$PREV_TAG" --repo "$REPO" --dir /tmp/ios-assets \
-            --pattern '*.ipa' --pattern '*.ipa.sha256'
+            --pattern 'privycs-vpn-ios-*.ipa' --pattern 'privycs-vpn-ios-*.ipa.sha256'
           # Ensure current release exists (race-tolerant — desktop/android may
           # have already created it).
           if ! gh release view "$CURRENT_TAG" --repo "$REPO" >/dev/null 2>&1; then
@@ -991,10 +994,27 @@ jobs:
               || echo "Race: release was created by another job just now."
           fi
           shopt -s nullglob
-          ASSETS=(/tmp/ios-assets/*.ipa /tmp/ios-assets/*.ipa.sha256)
+          ASSETS=(/tmp/ios-assets/privycs-vpn-ios-*.ipa /tmp/ios-assets/privycs-vpn-ios-*.ipa.sha256)
           if [ "${#ASSETS[@]}" -gt 0 ]; then
-            gh release upload "$CURRENT_TAG" --repo "$REPO" --clobber "${ASSETS[@]}"
-            echo "Propagated ${#ASSETS[@]} iOS asset(s) from $PREV_TAG."
+            # The release node can be deleted+recreated by a concurrent
+            # desktop/android/tvos job mid-upload (stale release id → HTTP 404).
+            # Retry with a re-resolve; never fail the job on a benign race.
+            uploaded=0
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$CURRENT_TAG" --repo "$REPO" --clobber "${ASSETS[@]}"; then
+                uploaded=1
+                echo "Propagated ${#ASSETS[@]} iOS asset(s) from $PREV_TAG."
+                break
+              fi
+              echo "Upload attempt $attempt hit a release race — re-resolving + retrying in 15s."
+              gh release view "$CURRENT_TAG" --repo "$REPO" >/dev/null 2>&1 \
+                || gh release create "$CURRENT_TAG" --repo "$REPO" \
+                     --title "Privycs VPN $CURRENT_TAG" --generate-notes || true
+              sleep 15
+            done
+            [ "$uploaded" -eq 1 ] || echo "Could not propagate iOS assets after retries (benign release race) — skipping."
+          else
+            echo "No iOS IPA in $PREV_TAG after filtering — nothing to propagate."
           fi
 
   propagate-previous-tvos:
@@ -1088,6 +1108,20 @@ jobs:
           shopt -s nullglob
           ASSETS=(/tmp/tvos-assets/privycs-vpn-tvos-*.ipa /tmp/tvos-assets/privycs-vpn-tvos-*.ipa.sha256)
           if [ "${#ASSETS[@]}" -gt 0 ]; then
-            gh release upload "$CURRENT_TAG" --repo "$REPO" --clobber "${ASSETS[@]}"
-            echo "Propagated ${#ASSETS[@]} tvOS asset(s) from $PREV_TAG."
+            # Same race-tolerant upload as propagate-previous-ios: a concurrent
+            # job can delete+recreate the release mid-upload (stale id → 404).
+            uploaded=0
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$CURRENT_TAG" --repo "$REPO" --clobber "${ASSETS[@]}"; then
+                uploaded=1
+                echo "Propagated ${#ASSETS[@]} tvOS asset(s) from $PREV_TAG."
+                break
+              fi
+              echo "Upload attempt $attempt hit a release race — re-resolving + retrying in 15s."
+              gh release view "$CURRENT_TAG" --repo "$REPO" >/dev/null 2>&1 \
+                || gh release create "$CURRENT_TAG" --repo "$REPO" \
+                     --title "Privycs VPN $CURRENT_TAG" --generate-notes || true
+              sleep 15
+            done
+            [ "$uploaded" -eq 1 ] || echo "Could not propagate tvOS assets after retries (benign release race) — skipping."
           fi
