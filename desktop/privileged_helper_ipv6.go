@@ -118,9 +118,12 @@ func ipv6BlockMacOS() HelperResponse {
 
 	// Anchor rules: pass on lo0 (loopback exempt), block everything
 	// else outbound v6.
+	// pf grammar is strict on keyword order: action [in|out] [log] [quick] ...
+	// (direction BEFORE quick). The previous "pass quick out" / "block quick
+	// out" reversed it → "stdin: syntax error" → rules never loaded.
 	rules := `
-pass quick out on lo0 inet6 all
-block quick out inet6 all
+pass out quick on lo0 inet6 all
+block out quick inet6 all
 `
 	cmd := exec.Command("pfctl", "-a", ipv6MacOSAnchor, "-f", "-")
 	cmd.Stdin = strings.NewReader(rules)

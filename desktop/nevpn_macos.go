@@ -73,6 +73,13 @@ static char* privycs_nevpn_configure(const char* name, const char* server,
             p.identityDataPassword = [NSString stringWithUTF8String:p12pass];
         }
         p.useExtendedAuthentication = NO;
+        // CRITICAL: mirror iOS (VPNTunnelManager.makeIKEv2Proto, =false). Left
+        // unset this defaults to YES on macOS → the tunnel only routes the
+        // IKEv2 INTERNAL_IP4_SUBNET config-mode attribute the gateway pushes
+        // (often a /32 or nothing) instead of full-tunnel → NEVPNManager
+        // reports "connected" but NO traffic flows → 20s blackhole → failover.
+        // NO = route all traffic through the tunnel (full tunnel), like iOS.
+        p.useConfigurationAttributeInternalIPSubnet = NO;
         p.disableMOBIKE = NO;
         p.disableRedirect = NO;
         p.enablePFS = YES;
