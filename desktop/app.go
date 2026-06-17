@@ -1337,7 +1337,11 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 	// check that adapter directly for a global v6 (dual-stack tunnel ⇒ no block).
 	tunIface := ""
 	if ipsecProto, ok := proto.(*IPSecProtocol); ok {
-		tunIface = ipsecProto.ConnectionName()
+		// TunnelInterfaceName resolves to the real OS adapter: connName on
+		// Windows (RAS adapter == conn name), "ipsecN" on macOS (NEVPN kernel
+		// iface). Passing connName on macOS made the dual-stack check fail →
+		// the killswitch mis-flagged the v6-carrying tunnel as v4-only.
+		tunIface = ipsecProto.TunnelInterfaceName()
 	}
 	a.applyIPv6Killswitch(tunV4, tunIface)
 

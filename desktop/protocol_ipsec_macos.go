@@ -28,10 +28,14 @@ import (
 	"strings"
 )
 
-// darwinUtunNames returns the set of current utun interface names. Used to
-// identify the IKEv2 tunnel utun by diffing the set before vs after connect
-// (NEVPNManager exposes no inner-IP, so a VIP match isn't possible). Pure Go
-// (compiles everywhere; only meaningful on macOS).
+// darwinUtunNames returns the set of current tunnel interface names. Used to
+// identify the IKEv2 tunnel interface by diffing the set before vs after
+// connect (NEVPNManager exposes no inner-IP, so a VIP match isn't possible).
+// Matches BOTH "utun*" AND "ipsec*": Apple's NEVPNManager IKEv2 stack creates
+// an "ipsecN" interface (not utun) — matching only utun left macosTunIface
+// empty for IPSec, so the traffic counter read 0 ("no traffic data") and the
+// v6 killswitch couldn't see the tunnel's dual-stack v6. Pure Go (compiles
+// everywhere; only meaningful on macOS).
 func darwinUtunNames() map[string]bool {
 	out := map[string]bool{}
 	ifaces, err := net.Interfaces()
@@ -39,7 +43,7 @@ func darwinUtunNames() map[string]bool {
 		return out
 	}
 	for _, ifc := range ifaces {
-		if strings.HasPrefix(ifc.Name, "utun") {
+		if strings.HasPrefix(ifc.Name, "utun") || strings.HasPrefix(ifc.Name, "ipsec") {
 			out[ifc.Name] = true
 		}
 	}

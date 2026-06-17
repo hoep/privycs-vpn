@@ -123,6 +123,21 @@ func (i *IPSecProtocol) ConnectionName() string {
 	return i.connName
 }
 
+// TunnelInterfaceName returns the OS network interface backing the tunnel —
+// for callers (the v6 leak killswitch) that must inspect the adapter directly
+// for a gateway-assigned v6. On Windows the RAS adapter is named after the
+// connection (connName), so that's correct. On macOS the NEVPNManager kernel
+// interface is "ipsecN" (captured into macosTunIface at Up), NOT the connName
+// — passing connName made InterfaceByName fail → the killswitch mis-flagged a
+// dual-stack tunnel as v4-only. Falls back to connName if the macOS interface
+// hasn't been captured yet.
+func (i *IPSecProtocol) TunnelInterfaceName() string {
+	if runtime.GOOS == "darwin" && i.macosTunIface != "" {
+		return i.macosTunIface
+	}
+	return i.connName
+}
+
 // SplitTunneling returns the .sswan-defined bypass/excluded CIDRs (the
 // "Excluded networks" the gateway pushes). Used on Windows to carve these out
 // of the installed VPN route set so they bypass the tunnel — Android/iOS apply
