@@ -419,6 +419,54 @@ func (i *IPSecProtocol) removeMacOSSplitTunnelRoutes() {
 	deleteMacOSSplitRouteState(i.connName)
 }
 
+// snapshotMacOSDNS captures the pre-VPN primary-service DNS via the
+// privileged helper so restoreMacOSDNS can put it back on disconnect. macOS
+// leaves the gateway-pushed DNS active after an NEVPN IPSec tunnel goes down
+// (the resolver entry isn't torn down) → the user is stranded on a now-dead
+// DNS server until reboot. Best-effort; darwin-only. Must run BEFORE the
+// tunnel connects, while the physical DNS is still in place.
+func (i *IPSecProtocol) snapshotMacOSDNS() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		log.Printf("IPSec: macOS DNS snapshot skipped — helper not reachable")
+		return
+	}
+	resp, err := client.SendCommand("macos_dns_snapshot", map[string]string{
+		"connection_name": i.connName,
+	})
+	if err != nil || !resp.Success {
+		log.Printf("IPSec: macOS DNS snapshot failed (non-fatal): err=%v resp=%+v", err, resp)
+		return
+	}
+	log.Printf("IPSec: macOS DNS %s", resp.Output)
+}
+
+// restoreMacOSDNS puts the pre-VPN DNS back on disconnect (see
+// snapshotMacOSDNS). Reuses the helper's macos_dns_override_restore, which
+// reads the backup, re-applies it (or "Empty" → DHCP) and deletes the
+// backup. Idempotent; a clean no-op when no snapshot was taken.
+func (i *IPSecProtocol) restoreMacOSDNS() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	client := NewHelperClient()
+	if !client.IsHelperReachable() {
+		log.Printf("IPSec: macOS DNS restore skipped — helper not reachable")
+		return
+	}
+	resp, err := client.SendCommand("macos_dns_override_restore", map[string]string{
+		"connection_name": i.connName,
+	})
+	if err != nil || !resp.Success {
+		log.Printf("IPSec: macOS DNS restore failed (non-fatal): err=%v resp=%+v", err, resp)
+		return
+	}
+	log.Printf("IPSec: macOS DNS restore — %s", resp.Output)
+}
+
 // splitCIDRsByFamily separates a mixed v4/v6 CIDR list into two
 // per-family slices. Heuristic: presence of ":" → IPv6, else IPv4.
 func splitCIDRsByFamily(cidrs []string) (v4, v6 []string) {

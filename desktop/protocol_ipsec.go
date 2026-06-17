@@ -1012,6 +1012,10 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 	// traffic counter) as the new one that appears after connect.
 	i.macosPreUtuns = darwinUtunNames()
 	i.macosTunIface = ""
+	// Snapshot the pre-VPN DNS NOW (before NEVPN pushes the gateway DNS) so we
+	// can restore it on disconnect — macOS leaves the gateway DNS set after the
+	// tunnel goes down, stranding the user on a dead resolver.
+	i.snapshotMacOSDNS()
 	// Capture the PHYSICAL default gateway BEFORE NEVPN installs the tunnel
 	// default — needed for the split-tunnel bypass routes below. After connect
 	// there are two defaults and route(8) returns the tunnel's, so grab it now.
@@ -1047,9 +1051,13 @@ func (i *IPSecProtocol) downMacOS(ctx context.Context) error {
 	// Tear down the split-tunnel bypass routes we added in upMacOS (best-effort,
 	// idempotent — no-op if none were installed).
 	i.removeMacOSSplitTunnelRoutes()
+	err := macosDownNEVPN(i, ctx)
+	// Restore the pre-VPN DNS AFTER the tunnel is down — macOS leaves the
+	// gateway-pushed DNS active otherwise (lingering resolver = dead DNS).
+	i.restoreMacOSDNS()
 	i.macosTunIface = ""
 	i.macosPreUtuns = nil
-	return macosDownNEVPN(i, ctx)
+	return err
 }
 
 // ============================================================================

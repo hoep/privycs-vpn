@@ -55,6 +55,7 @@ var allowedActions = map[string]bool{
 	"macos_dns_override_set":     true, // primary-service DNS override (swanctl-darwin)
 	"macos_dns_override_restore": true,
 	"macos_dns_override_clean":   true, // orphan-cleanup at app startup
+	"macos_dns_snapshot":         true, // capture pre-VPN DNS for restore-on-disconnect (NEVPN IPSec)
 	"remove_legacy_sudoers":      true,
 	"wlan_ssid":                  true, // SSID query (bypasses user-level Location GPO)
 	// v0.9.15.37: IPv6 leak-killswitch actions. Dispatcher cases
@@ -482,6 +483,8 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdMacOSDNSOverrideRestore(cmd)
 	case "macos_dns_override_clean":
 		return h.cmdMacOSDNSOverrideClean(cmd)
+	case "macos_dns_snapshot":
+		return h.cmdMacOSDNSSnapshot(cmd)
 	case "windows_dns_set":
 		return h.cmdWindowsDNSSet(cmd)
 	case "remove_legacy_sudoers":
@@ -2799,6 +2802,39 @@ func (h *PrivilegedHelper) cmdMacOSDNSOverrideSet(cmd HelperCommand) HelperRespo
 	}
 	log.Printf("DNS override (macOS swanctl): primary-service=%q dns=%s", svc, dnsList)
 	return HelperResponse{Success: true, Output: fmt.Sprintf("DNS override applied to %q", svc)}
+}
+
+// cmdMacOSDNSSnapshot captures the CURRENT primary-service DNS into the
+// per-connection backup WITHOUT applying any override. Used by the macOS
+// NEVPN IPSec path: the Apple IKEv2 stack pushes the gateway DNS on connect
+// but does NOT restore the previous DNS on disconnect (the resolver entry
+// lingers), stranding the user on a dead DNS server. We snapshot before
+// connect, then cmdMacOSDNSOverrideRestore puts it back on disconnect.
+// Reuses the same backup format + restore path as the swanctl override.
+func (h *PrivilegedHelper) cmdMacOSDNSSnapshot(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "darwin" {
+		return HelperResponse{Success: true, Output: "macos_dns_snapshot: no-op on non-darwin"}
+	}
+	connName := cmd.Args["connection_name"]
+	if connName == "" {
+		return HelperResponse{Success: false, Error: "connection_name required"}
+	}
+	svc := findMacOSPrimaryNetworkService()
+	if svc == "" {
+		return HelperResponse{Success: false, Error: "no primary network service detected"}
+	}
+	curOut, _ := exec.Command("networksetup", "-getdnsservers", svc).CombinedOutput()
+	current := strings.TrimSpace(string(curOut))
+	// "There aren't any DNS servers set on Wi-Fi." → the "Empty" sentinel so
+	// restore clears back to DHCP rather than pinning a stale manual list.
+	if strings.Contains(current, "aren't any") {
+		current = "Empty"
+	}
+	if err := persistDNSOverrideBackup(connName, svc, current); err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("backup write: %v", err)}
+	}
+	log.Printf("DNS snapshot (macOS IPSec restore-on-disconnect): service=%q dns=%s", svc, current)
+	return HelperResponse{Success: true, Output: fmt.Sprintf("DNS snapshot saved for %q (%s)", svc, current)}
 }
 
 // cmdMacOSDNSOverrideRestore reads the per-connection backup and
