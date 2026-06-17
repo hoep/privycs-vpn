@@ -183,11 +183,14 @@ func (h *PrivilegedHelper) cmdIPSecInstallWindowsRoutes(cmd HelperCommand) Helpe
 	// v6 tunnel route, unlike the .sswan/strongSwan path iOS/Android use.
 	fmt.Fprintf(&b,
 		"$tv6 = Get-NetIPAddress -InterfaceAlias '%s' -AddressFamily IPv6 -ErrorAction SilentlyContinue | "+
-			"Where-Object { $_.IPAddress -notlike 'fe80*' }\n", connName)
-	fmt.Fprintf(&b,
-		"if ($tv6) { foreach ($p in @('2000::/3')) { "+
-			"try { Add-VpnConnectionRoute -ConnectionName '%s' -DestinationPrefix $p -AllUserConnection -PassThru -ErrorAction Stop | Out-Null; $v6ok++ } catch { $v6fail++ } } }\n",
-		connName)
+			"Where-Object { $_.IPAddress -notlike 'fe80*' } | Select-Object -First 1\n", connName)
+	// Use New-NetRoute on the tunnel adapter (by ifIndex) — the SAME mechanism
+	// that works for the bypass routes. Add-VpnConnectionRoute didn't take for
+	// v6. On-link (point-to-point tunnel, no -NextHop). Remove-first =
+	// idempotent on reconnect. ActiveStore = reboot-safe.
+	b.WriteString("if ($tv6) { foreach ($p in @('2000::/3','::/0')) { " +
+		"try { Remove-NetRoute -DestinationPrefix $p -InterfaceIndex $tv6.ifIndex -Confirm:$false -ErrorAction SilentlyContinue } catch {}; " +
+		"try { New-NetRoute -DestinationPrefix $p -InterfaceIndex $tv6.ifIndex -RouteMetric 1 -PolicyStore ActiveStore -ErrorAction Stop | Out-Null; $v6ok++ } catch { $v6fail++ } } }\n")
 
 	b.WriteString("Write-Output \"routes-ok=$ok fail=$fail bypass-ok=$bok bypass-fail=$bfail v6tun-ok=$v6ok v6tun-fail=$v6fail\"\n")
 
