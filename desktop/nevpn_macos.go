@@ -59,6 +59,29 @@ static char* privycs_nevpn_configure(const char* name, const char* server,
         NSError *loadErr = privycs_load_sync(mgr);
         if (loadErr) return privycs_err_dup(loadErr, nil);
 
+        NSString *wantServer = [NSString stringWithUTF8String:server];
+        NSString *wantName = [NSString stringWithUTF8String:name];
+
+        // IDEMPOTENCY — avoid the per-connect auth prompt.
+        // configure() runs on EVERY connect. saveToPreferences re-writes the
+        // system VPN config and re-imports the PKCS#12 identity into the
+        // keychain, which makes macOS prompt the user (admin/keychain) on
+        // EVERY connect. Skip the save entirely when the already-saved config
+        // is the one we'd write (same server + name + IKEv2 cert-auth +
+        // enabled): reconnecting to the same endpoint then needs no save → no
+        // prompt. A genuinely different endpoint still saves once (unavoidable:
+        // macOS gates VPN-config changes for Developer-ID apps). Mirrors the
+        // iOS pattern of configuring a slot once and reusing it.
+        NEVPNProtocol *cur = mgr.protocolConfiguration;
+        if (mgr.isEnabled && [cur isKindOfClass:[NEVPNProtocolIKEv2 class]]) {
+            NEVPNProtocolIKEv2 *ck = (NEVPNProtocolIKEv2 *)cur;
+            if ([ck.serverAddress isEqualToString:wantServer]
+                && [mgr.localizedDescription isEqualToString:wantName]
+                && ck.authenticationMethod == NEVPNIKEAuthenticationMethodCertificate) {
+                return NULL; // identical config already saved — no save, no prompt
+            }
+        }
+
         NEVPNProtocolIKEv2 *p = [[NEVPNProtocolIKEv2 alloc] init];
         p.serverAddress = [NSString stringWithUTF8String:server];
         p.remoteIdentifier = [NSString stringWithUTF8String:remoteID];

@@ -1012,6 +1012,14 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 	// traffic counter) as the new one that appears after connect.
 	i.macosPreUtuns = darwinUtunNames()
 	i.macosTunIface = ""
+	// Capture the PHYSICAL default gateway BEFORE NEVPN installs the tunnel
+	// default — needed for the split-tunnel bypass routes below. After connect
+	// there are two defaults and route(8) returns the tunnel's, so grab it now.
+	var gw4, iface4, gw6 string
+	if len(i.splitTunneling) > 0 {
+		gw4, iface4, _ = defaultRouteIPv4()
+		gw6, _, _ = defaultRouteIPv6()
+	}
 	if err := macosUpNEVPN(i, ctx); err != nil {
 		return err
 	}
@@ -1021,10 +1029,24 @@ func (i *IPSecProtocol) upMacOS(ctx context.Context) error {
 			break
 		}
 	}
+	// Excluded networks (.sswan split-tunneling): since v86 the tunnel is
+	// full-tunnel (useConfigurationAttributeInternalIPSubnet=NO), so the
+	// default route sends the excluded LAN subnets INTO the tunnel and they
+	// become unreachable. Re-add a more-specific route per excluded CIDR via
+	// the captured physical gateway (longest-prefix beats the tunnel default).
+	// This is the macOS equivalent of the Windows v82 bypass and Android
+	// setExcludedSubnets. No-op when there are no excluded networks; the helper
+	// persists state for removeMacOSSplitTunnelRoutes on disconnect.
+	if len(i.splitTunneling) > 0 {
+		i.installMacOSSplitTunnelRoutes(gw4, iface4, gw6)
+	}
 	return nil
 }
 
 func (i *IPSecProtocol) downMacOS(ctx context.Context) error {
+	// Tear down the split-tunnel bypass routes we added in upMacOS (best-effort,
+	// idempotent — no-op if none were installed).
+	i.removeMacOSSplitTunnelRoutes()
 	i.macosTunIface = ""
 	i.macosPreUtuns = nil
 	return macosDownNEVPN(i, ctx)
