@@ -75,10 +75,16 @@ static char* privycs_nevpn_configure(const char* name, const char* server,
         NEVPNProtocol *cur = mgr.protocolConfiguration;
         if (mgr.isEnabled && [cur isKindOfClass:[NEVPNProtocolIKEv2 class]]) {
             NEVPNProtocolIKEv2 *ck = (NEVPNProtocolIKEv2 *)cur;
+            // Compare ONLY the fields that reliably round-trip through
+            // loadFromPreferences: serverAddress + the manager's
+            // localizedDescription. authenticationMethod is NOT reliably
+            // restored on load → requiring it (v1.1.5.87) made this check
+            // never match → we re-saved every connect → keychain re-import
+            // → the per-connect password prompt. Return a SKIPPED sentinel so
+            // the Go side logs which path actually ran.
             if ([ck.serverAddress isEqualToString:wantServer]
-                && [mgr.localizedDescription isEqualToString:wantName]
-                && ck.authenticationMethod == NEVPNIKEAuthenticationMethodCertificate) {
-                return NULL; // identical config already saved — no save, no prompt
+                && [mgr.localizedDescription isEqualToString:wantName]) {
+                return strdup("PRIVYCS_SKIPPED");
             }
         }
 
@@ -196,6 +202,7 @@ import "C"
 
 import (
 	"errors"
+	"log"
 	"unsafe"
 )
 
@@ -220,8 +227,19 @@ func nevpnConfigure(name, server, remoteID, localID string, p12 []byte, p12pass 
 		p12ptr, C.int(len(p12)), cPass)
 	if cerr != nil {
 		defer C.free(unsafe.Pointer(cerr))
-		return errors.New(C.GoString(cerr))
+		msg := C.GoString(cerr)
+		if msg == "PRIVYCS_SKIPPED" {
+			// Saved config already matches (same server + name) — we did NOT
+			// call saveToPreferences, so no PKCS#12 keychain re-import and no
+			// macOS authorization prompt this connect.
+			log.Printf("IPSec NEVPNManager: config unchanged — skipped save (no auth prompt)")
+			return nil
+		}
+		return errors.New(msg)
 	}
+	// NULL return = saveToPreferences ran (first save for this endpoint, or
+	// the server/name changed) — macOS shows its authorization prompt here.
+	log.Printf("IPSec NEVPNManager: saved config (auth prompt expected — first save or endpoint change)")
 	return nil
 }
 
