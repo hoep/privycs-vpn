@@ -520,6 +520,7 @@ final class VPNTunnelManager: ObservableObject {
             dnsOverride: dnsOverride,
             killSwitch: killSwitch
         )
+        applyKillSwitch(proto)
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = mgrName
         mgr.isEnabled = true
@@ -583,6 +584,7 @@ final class VPNTunnelManager: ObservableObject {
             dnsOverride: dnsOverride,
             killSwitch: killSwitch
         )
+        applyKillSwitch(proto)
         mgr.protocolConfiguration = proto
         mgr.localizedDescription = mgrName
         mgr.isEnabled = true
@@ -673,7 +675,23 @@ final class VPNTunnelManager: ObservableObject {
         esp.encryptionAlgorithm = .algorithmAES256
         esp.integrityAlgorithm = .SHA256
         esp.diffieHellmanGroup = .group14
+        applyKillSwitch(proto)
         return proto
+    }
+
+    /// Apply the REAL OS-level kill switch to a VPN protocol configuration.
+    /// `includeAllNetworks` makes the OS route ALL traffic through the tunnel
+    /// AND drop traffic whenever the tunnel is not up — the genuine "nothing
+    /// leaves outside the VPN" guarantee. The previous build only re-injected
+    /// an IPv6 AllowedIPs route, which did NOT block on tunnel drop / before
+    /// connect (audit finding 2026-06-18: "Kill Switch" was a misnomer).
+    /// `excludeLocalNetworks` keeps the LAN reachable. Applied to both the
+    /// NETunnelProviderProtocol (WG/AWG/OpenVPN) and the NEVPNProtocolIKEv2
+    /// (IPSec) configs, only when the user enabled the kill switch.
+    private func applyKillSwitch(_ proto: NEVPNProtocol) {
+        guard killSwitch else { return }
+        proto.includeAllNetworks = true
+        proto.excludeLocalNetworks = true
     }
 
     /// Pre-create a READY-TO-START manager for EVERY protocol of `connection` so
@@ -713,6 +731,7 @@ final class VPNTunnelManager: ObservableObject {
                     protocolRaw: cfg.protocol.rawValue, configContent: cfg.configContent,
                     connectionId: connection.id, configId: cfg.id,
                     dnsOverride: dnsOverride, killSwitch: killSwitch)
+                applyKillSwitch(p)
                 m.protocolConfiguration = p
                 m.localizedDescription = name
                 m.isOnDemandEnabled = false
