@@ -61,11 +61,10 @@ packages:
     # (Mullvad-proprietary obfuscation libs) which need a Rust toolchain
     # and don't apply to our use case.
     path: .deps/wireguard-apple
-  # Sentry temporarily removed for Xcode 26 alpha track —
-  # see ios/Core/Package.swift comment.
-  # Sentry:
-  #   url: https://github.com/getsentry/sentry-cocoa
-  #   from: 9.15.0
+  # Sentry re-enabled 2026-06-18 — 9.15.x is Xcode-26/Swift-6.1 compatible.
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: 9.15.0
   OpenVPNAdapter:
     url: https://github.com/ss-abramchuk/OpenVPNAdapter
     from: 0.8.0
@@ -161,8 +160,8 @@ targets:
       - package: PrivycsCore
       - package: Engine
         product: Engine
-      # - package: Sentry        # temporarily removed, see packages: comment
-      #   product: Sentry
+      - package: Sentry
+        product: Sentry
       - target: PrivycsVPNTunnel
         embed: true
       - target: PrivycsVPNWidget

@@ -36,7 +36,10 @@ let package = Package(
         // (Event.message, Exception.stacktrace etc.) — migration is
         // tracked separately. CrashReporter.swift has `#if
         // canImport(Sentry)` guards, so removing the dep is inert.
-        // .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "9.15.0"),
+        // Sentry 9.15.x: Xcode-26 / Swift-6.1 compatible (9.7.0+); the only
+        // 8.x→9.x API change touching our code is Exception.value being nullable
+        // (handled in CrashReporter.redact). Re-enabled 2026-06-18.
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "9.15.0"),
 
         // Apple swift-collections for OrderedSet (used in PoolRotator).
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
@@ -52,7 +55,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "GRDB", package: "GRDB.swift"),
-                // .product(name: "Sentry", package: "sentry-cocoa"),  // see comment above
+                .product(name: "Sentry", package: "sentry-cocoa"),
                 .product(name: "Collections", package: "swift-collections"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],

@@ -37,7 +37,7 @@ public actor CrashReporter {
     /// Bugsink-DSN für das iOS-Projekt (project id 3). Wird in der
     /// Phase-0-Anlage bei `https://crashes.privycs.com/` erzeugt.
     /// PLATZHALTER — vor Production-Launch durch echte DSN ersetzen.
-    public static let dsn = "https://0000000000000000000000000000000000000000@crashes.privycs.com/3"
+    public static let dsn = "https://39be28e9033a428d9a27c0240af97692@crashes.privycs.com/3"
 
     private let secretStore: KeychainSecretStore
     private var started = false
@@ -140,7 +140,8 @@ public actor CrashReporter {
         // `formatted` is a get-only computed property derived from `message`
         // + params — no manual redaction needed; redacting `message` propagates.
         event.exceptions?.forEach { ex in
-            ex.value = redactString(ex.value)
+            // Sentry 9.x: Exception.value is now nullable (was non-optional in 8.x).
+            if let v = ex.value { ex.value = redactString(v) }
             ex.stacktrace?.frames.forEach { f in
                 if let path = f.fileName {
                     f.fileName = redactPath(path)
