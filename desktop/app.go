@@ -576,6 +576,21 @@ func (a *App) startup(ctx context.Context) {
 	// engages/releases the OS firewall on state transitions.
 	go a.sinkholeController.Run(a.ctx)
 
+	// Post-update kill-switch un-brick (parity with the iOS fix). The desktop
+	// sinkhole lives in the privileged helper and persists across an app
+	// update; if the new build can't immediately reconnect, a ForceSinkhole at
+	// startup keeps ALL traffic blocked (recoverable only by toggling KS off in
+	// the UI). On a detected version change we DEFER the startup block — the
+	// auto-reconnect's Arm() (and the on-drop EngageSinkhole) restore protection
+	// once the tunnel is up, so a post-update reconnect failure leaves the user
+	// with connectivity instead of a lockout. (user report 2026-06-18)
+	oldVersion := a.settings.LastRunVersion
+	postUpdate := oldVersion != "" && oldVersion != AppVersion
+	if oldVersion != AppVersion {
+		a.settings.LastRunVersion = AppVersion
+		SaveSettings(a.settings)
+	}
+
 	// Drive the new state machine according to settings.
 	if a.settings.KillSwitchEnabled {
 		switch {
@@ -583,6 +598,10 @@ func (a *App) startup(ctx context.Context) {
 			// Tunnel up at startup (we restored a running session).
 			// Arm so an unexpected drop engages the sinkhole.
 			a.ksManager.Arm()
+		case a.connections.Active() != nil && postUpdate:
+			// Post-update launch: do NOT block immediately — let the reconnect
+			// re-arm so an update doesn't lock the user out.
+			log.Printf("KillSwitch: post-update startup (%s→%s) — deferring sinkhole; reconnect will re-arm (avoids update-time lockout)", oldVersion, AppVersion)
 		case a.connections.Active() != nil:
 			// KS on, no tunnel, but a configured connection exists.
 			// Hardcore semantics: traffic must be blocked NOW.

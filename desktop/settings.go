@@ -33,6 +33,10 @@ type ConnectOnDemandSettings struct {
 type AppSettings struct {
 	ActiveProtocol     string                  `json:"active_protocol"`
 	KillSwitchEnabled  bool                    `json:"kill_switch_enabled"`
+	// Last app version seen at startup. Used to detect an update so the
+	// kill-switch startup block can be deferred to a clean reconnect rather
+	// than locking the user out post-update (see app.go startup KS logic).
+	LastRunVersion     string                  `json:"last_run_version,omitempty"`
 	AutoConnectOnStart bool                    `json:"auto_connect_on_start"` // legacy, kept for backward compat
 	ConnectOnDemand    ConnectOnDemandSettings `json:"connect_on_demand"`
 	AutostartEnabled   bool                    `json:"autostart_enabled"`
