@@ -1,15 +1,20 @@
-First Mac App Store build — native macOS app built from the iOS codebase
-(same screens as iPhone, in a Mac window). WireGuard / AmneziaWG / OpenVPN /
-IPSec, pools + rotation, on-demand network rules, backup/restore, gateway
-import.
+Native macOS app built from the iOS codebase (same screens as iPhone, in a Mac
+window). WireGuard / AmneziaWG / OpenVPN / IPSec, pools + rotation, on-demand
+network rules, backup/restore, gateway import.
+
+NEW this build:
+- Real KILL SWITCH: with it ON, all traffic is forced through the tunnel and the
+  system DROPS traffic when the tunnel is down / (re)connecting — no leak. LAN
+  stays reachable.
+- Cross-platform BACKUP now round-trips with iPhone/Android/Desktop (active
+  protocol + last-connected time written in the shared format).
 
 HOW TO TEST:
-- Import a config (file or paste a gateway/QR link in the Add screen) and connect.
-- Try each protocol you have a config for.
-- Create a pool and watch rotation.
-- Set an On-Demand rule (e.g. a trusted Wi-Fi → no VPN) and switch networks.
-- Export a backup, then restore it.
+- Import a config (file or paste a gateway/QR link) and connect; try each protocol.
+- Kill Switch ON → disconnect Wi-Fi/Ethernet briefly → traffic stays BLOCKED until
+  the tunnel re-establishes; LAN still reachable.
+- Create a pool and watch rotation; set an On-Demand rule and switch networks.
+- Export a backup on Mac, restore it on iPhone/Android/Desktop (and vice-versa).
 
-Known first-build gaps (being polished): app icon may be generic; QR uses
-paste-input instead of the camera; reading the current Wi-Fi name needs
-Location permission.
+Known gaps (being polished): app icon may be generic; QR uses paste-input instead
+of the camera; reading the current Wi-Fi name needs Location permission.

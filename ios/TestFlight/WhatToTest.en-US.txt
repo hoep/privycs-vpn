@@ -1,14 +1,18 @@
-v1.1.5.70 (build 165) — tvOS: Connect screen matches the active connection type +
-Always-on survives switches.
+v1.1.5.89 (build 36) — Real kill switch + cross-platform backup fix.
 
-- Connecting a normal (single) connection now clears any previous pool state, so the
-  Connect screen shows the plain view (no stale pool/rotation card). Connecting a pool
-  shows the pool card with the current server + rotation. Switching between them now
-  always shows the right screen.
-- Always-on (auto-connect): a disconnect→connect switch re-arms the on-demand rule
-  when Always-on is enabled (the internal teardown only disarms it momentarily to stop
-  the old tunnel; the new connection re-enables it).
+- KILL SWITCH is now a real OS-level block: with it ON, all traffic is forced
+  through the tunnel and the system DROPS any traffic when the tunnel is down or
+  while it is (re)connecting — nothing leaks outside the VPN. Your local network
+  (LAN/printers/AirPlay) stays reachable.
+- Cross-platform BACKUP now round-trips correctly with Android/Desktop: the
+  "last connected" time and the active protocol are written in the shared format,
+  so a backup exported on iOS restores on Android (and vice-versa) without errors
+  or lost fields.
 
-HOW TO TEST: connect a pool → Connect shows the pool card; switch to a server config →
-shows the plain connect screen; back to the pool → pool card again. With Always-on on,
-switch a few times → it stays armed.
+HOW TO TEST:
+1) Settings → turn Kill Switch ON → connect → on a working tunnel browsing works
+   and the LAN is reachable. Now force a drop (toggle airplane mode briefly /
+   kill signal): traffic should be BLOCKED until the tunnel re-establishes — no
+   leak to the open network.
+2) Settings → Export backup on iOS → import it on the Android/Desktop app: all
+   connections, the active protocol and timestamps come across intact.
