@@ -623,7 +623,9 @@ func (o *OpenVPNProtocol) Status() ProtocolStatus {
 			}
 		}
 	} else if runtime.GOOS == "linux" {
-		ovpnIface = "tun0"
+		// OpenVPN auto-assigns tun0/tun1/… — a hardcoded "tun0" mis-reads stats
+		// when another tun already exists. Detect the active tun (audit 2026-06-18).
+		ovpnIface = findLinuxTunInterface()
 		status.BytesRx, status.BytesTx = getLinuxInterfaceStats(ovpnIface)
 	} else if runtime.GOOS == "darwin" {
 		if iface := o.findUtunInterface(); iface != "" {
@@ -698,6 +700,26 @@ func findFirstTunlikeInterface(needles []string) string {
 		}
 	}
 	return ""
+}
+
+// findLinuxTunInterface returns the active OpenVPN tun device on Linux.
+// OpenVPN auto-assigns tun0/tun1/…, so the previous hardcoded "tun0" read the
+// wrong counters when another tun already existed. Pick the first up tun*
+// interface that carries an address; fall back to "tun0". Audit 2026-06-18.
+func findLinuxTunInterface() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "tun0"
+	}
+	for _, ifc := range ifaces {
+		if !strings.HasPrefix(ifc.Name, "tun") || ifc.Flags&net.FlagUp == 0 {
+			continue
+		}
+		if addrs, _ := ifc.Addrs(); len(addrs) > 0 {
+			return ifc.Name
+		}
+	}
+	return "tun0"
 }
 
 // findUtunInterface discovers the utun device assigned to the current

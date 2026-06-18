@@ -964,6 +964,29 @@ func (a *App) Status() *StatusResponse {
 	return resp
 }
 
+// linuxDepHint returns an actionable "install X" message when a protocol's
+// required external binary is missing on Linux. WG/AmneziaWG/OpenVPN/strongSwan
+// are system packages there (macOS/Windows bundle or run them in-process), so a
+// missing dep otherwise surfaces only as a silent "not available". Empty on
+// non-Linux. Distro-agnostic phrasing (apt example) — the package name is the
+// portable part. Audit finding 2026-06-18.
+func linuxDepHint(protocol string) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	switch protocol {
+	case "wireguard":
+		return "install the WireGuard tools (e.g. `sudo apt install wireguard-tools`; AmneziaWG needs `awg-quick` from amneziawg-tools)"
+	case "amneziawg":
+		return "install AmneziaWG tools (`awg-quick` from the amneziawg-tools package)"
+	case "openvpn":
+		return "install OpenVPN (e.g. `sudo apt install openvpn`)"
+	case "ipsec":
+		return "install strongSwan + swanctl (e.g. `sudo apt install strongswan strongswan-swanctl`)"
+	}
+	return ""
+}
+
 // Connect establishes a VPN connection using the active protocol
 func (a *App) Connect(protocol string) (*StatusResponse, error) {
 	// Serialise tunnel-state mutation. See `tunnelMu` doc on App.
@@ -1080,7 +1103,15 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 
 	if !proto.IsAvailable() {
 		log.Printf("Connect: REFUSED - protocol %s not available on this system", a.activeProtocol)
-		return nil, fmt.Errorf("%s is not available on this system", a.activeProtocol)
+		msg := fmt.Sprintf("%s is not available on this system", a.activeProtocol)
+		// Linux ships protocol backends as system packages (unlike macOS/Windows
+		// which bundle / run them in-process). A missing binary previously
+		// surfaced only as this generic "not available" — give the user the
+		// actual install command (audit finding 2026-06-18).
+		if hint := linuxDepHint(a.activeProtocol); hint != "" {
+			msg += " — " + hint
+		}
+		return nil, fmt.Errorf("%s", msg)
 	}
 
 	// Check if already connected. Stale Windows-WG service state
