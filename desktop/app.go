@@ -1502,6 +1502,22 @@ func (a *App) connectInternal(protocol string) (*StatusResponse, error) {
 			a.engineBridge.recordOutcome(activeProto, a.engineNetKey(), true, time.Now().Unix())
 			a.tunnelHealth.Start(target, a.settings.TunnelHealthPingIntervalSec, a.settings.TunnelHealthDeadThreshold, func() {
 				log.Printf("TunnelHealth: recovery triggered — tunnel dead per ICMP probe, disconnecting + trying failover")
+				// SECURITY (kill-switch fail-closed): block traffic NOW, before
+				// we tear the tunnel down for failover/reconnect.
+				// disconnectInternal() removes the tunnel routes, so without this
+				// the OS falls back to the physical NIC and egresses in the CLEAR
+				// until a reconnect succeeds — the exact leak a kill switch must
+				// prevent. The sinkhole controller (a KillSwitchManager
+				// subscriber) installs the OS block on the ARMED->SINKHOLE
+				// transition; a successful (re)connect re-arms (SINKHOLE->ARMED)
+				// via the status-tick/connect path and releases it, while a
+				// FAILED reconnect leaves it engaged (fail-closed). No-op when KS
+				// is off (state stays IDLE). This wires EngageSinkhole, which the
+				// state machine always documented but no drop-detector ever
+				// called (audit finding 2026-06-18).
+				if a.settings.KillSwitchEnabled && a.ksManager != nil {
+					a.ksManager.EngageSinkhole("tunnel dead per ICMP probe — block during failover/reconnect")
+				}
 				// Serialise against concurrent UI Connect/Disconnect.
 				// Held across the disconnect → settle-delay → failover
 				// sequence; released BEFORE the connectActiveTarget
