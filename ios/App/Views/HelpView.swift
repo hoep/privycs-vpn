@@ -19,6 +19,14 @@ struct HelpView: View {
                     Link("Email Support", destination: URL(string: "mailto:support@privycs.com")!)
                     Link("Open Source", destination: URL(string: "https://github.com/hoep/privycs-vpn")!)
                 }
+                Section("Legal") {
+                    NavigationLink {
+                        OssLicensesView()
+                    } label: {
+                        Label(loc("Open-Source Licenses"), systemImage: "doc.text")
+                    }
+                    Link("License (AGPL-3.0)", destination: URL(string: "https://github.com/hoep/privycs-vpn/blob/main/LICENSE.AGPL-3.0.txt")!)
+                }
             }
             .navigationTitle("Help")
         }

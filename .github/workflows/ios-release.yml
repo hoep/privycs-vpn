@@ -184,6 +184,18 @@ jobs:
         working-directory: ios
         run: ./Scripts/build-engine-xcframework.sh
 
+      - name: Set monotonic build number (avoids TestFlight -19232 "bundle version already used")
+        working-directory: ios
+        run: |
+          # CURRENT_PROJECT_VERSION must be strictly higher than every prior
+          # upload. A hardcoded value collides whenever a release forgets to bump
+          # it (cost us v1.1.5.90). Derive a always-increasing date-based number
+          # (YYMMDDHHmm) so it can never collide again. BSD sed on the macOS runner.
+          BN=$(date -u +%y%m%d%H%M)
+          sed -i '' "s/CURRENT_PROJECT_VERSION: \"[0-9]*\"/CURRENT_PROJECT_VERSION: \"$BN\"/" project.yml
+          echo "CURRENT_PROJECT_VERSION set to $BN"
+          grep CURRENT_PROJECT_VERSION project.yml
+
       - name: Generate .xcodeproj
         working-directory: ios
         env:
@@ -481,6 +493,18 @@ jobs:
         working-directory: ios
         run: ./Scripts/build-engine-xcframework.sh
 
+      - name: Set monotonic build number (avoids TestFlight -19232 "bundle version already used")
+        working-directory: ios
+        run: |
+          # CURRENT_PROJECT_VERSION must be strictly higher than every prior
+          # upload. A hardcoded value collides whenever a release forgets to bump
+          # it (cost us v1.1.5.90). Derive a always-increasing date-based number
+          # (YYMMDDHHmm) so it can never collide again. BSD sed on the macOS runner.
+          BN=$(date -u +%y%m%d%H%M)
+          sed -i '' "s/CURRENT_PROJECT_VERSION: \"[0-9]*\"/CURRENT_PROJECT_VERSION: \"$BN\"/" project.yml
+          echo "CURRENT_PROJECT_VERSION set to $BN"
+          grep CURRENT_PROJECT_VERSION project.yml
+
       - name: Generate .xcodeproj
         working-directory: ios
         env:
@@ -734,6 +758,18 @@ jobs:
         # canImport(Engine)), but the Engine SwiftPM package is still in the
         # project graph (the iOS app references it), so it must resolve.
         run: ./Scripts/build-engine-xcframework.sh
+
+      - name: Set monotonic build number (avoids TestFlight -19232 "bundle version already used")
+        working-directory: ios
+        run: |
+          # CURRENT_PROJECT_VERSION must be strictly higher than every prior
+          # upload. A hardcoded value collides whenever a release forgets to bump
+          # it (cost us v1.1.5.90). Derive a always-increasing date-based number
+          # (YYMMDDHHmm) so it can never collide again. BSD sed on the macOS runner.
+          BN=$(date -u +%y%m%d%H%M)
+          sed -i '' "s/CURRENT_PROJECT_VERSION: \"[0-9]*\"/CURRENT_PROJECT_VERSION: \"$BN\"/" project.yml
+          echo "CURRENT_PROJECT_VERSION set to $BN"
+          grep CURRENT_PROJECT_VERSION project.yml
 
       - name: Generate .xcodeproj
         working-directory: ios
