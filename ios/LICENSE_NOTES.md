@@ -1,15 +1,42 @@
 # Lizenz-Strategie & Third-Party-Dependencies
 
-Privycs VPN iOS Client steht unter **GPL-3.0** (gleicher Lizenztyp wie der Privycs Android- und Desktop-Client). Diese Datei dokumentiert die genaue Lizenz-Stack jeder verwendeten 3rd-party-Bibliothek und warum die Kombination App-Store-kompatibel ist.
+Der Privycs VPN iOS/macOS-Client ist **Freie Software**. Der Privycs-eigene Code
+steht unter **GPL-3.0** (gleicher Lizenztyp wie der Privycs Android- und
+Desktop-Client). Da der Client den **AGPL-3.0**-lizenzierten `OpenVPNAdapter`
+einlinkt, wird die **kombinierte App als AGPL-3.0 ausgeliefert** (GPL-3 und
+AGPL-3 sind über §13 kompatibel; AGPL ist die stärkere und damit maßgebliche
+Lizenz). Der vollständige korrespondierende Quellcode ist öffentlich:
+https://github.com/hoep/privycs-vpn
 
-## App-Store-Kompatibilität
+> **Korrektur 2026-06-18 (Audit):** Frühere Versionen dieser Datei behaupteten,
+> OpenVPNAdapter sei MIT und OpenVPN3 Apache-2.0, und „AGPL = NEVER". Das war
+> **falsch**: `OpenVPNAdapter` ist **AGPL-3.0** (README, kein kommerzielles
+> Dual-License-Angebot), OpenVPN3-Core ist **MPL-2.0 OR AGPL-3.0**. Die App ist
+> daher AGPL-3.0. Da der Quellcode ohnehin öffentlich ist (FOSS), ist das
+> compliant — analog ProtonVPN iOS.
 
-Apple's App Store Licensed Application End User License Agreement (EULA) erzwingt Restrictions die mit **GPL-2** in Konflikt stehen (§6 "no further restrictions"). Der historische VLC-Precedent zeigt das Risiko.
+## App-Store-Kompatibilität (FOSS/AGPL-Modell, wie ProtonVPN)
 
-**Privycs umgeht das Risiko vollständig**:
+Apples App Store EULA fügt Restriktionen hinzu, die mit GPL/AGPL §6 ("no further
+restrictions") kollidieren (historischer VLC-Precedent). Privycs löst das über
+das offene FOSS-Modell:
 
-1. **Eigener App-Code = GPL-3.0** (nicht GPL-2). GPL-3 hat in §7 expliziten "Additional Permissions" Mechanismus den Apps-Store-Distributors nutzen können. Privycs ist als alleiniger Copyright-Holder berechtigt, eine zusätzliche Permission für App Store Distribution selbst festzulegen.
-2. **Alle 3rd-Party-Dependencies sind permissiv** (MIT / Apache 2 / BSD) — keine copyleft-Klauseln die mit App-Store-EULA kollidieren würden.
+1. **Öffentlicher Quellcode** erfüllt die GPL/AGPL-Quellpflicht (corresponding
+   source) für *alle* Empfänger — auch App-Store-Nutzer. Das ist der Kern der
+   AGPL-Konformität.
+2. **§7-Zusatzerlaubnis** (`EXCEPTIONS.md`): Als alleiniger Copyright-Holder des
+   Privycs-eigenen Codes gewährt Privycs die App-Store-Distribution ungeachtet
+   §6. Greift für den Privycs-Code; Drittkomponenten behalten ihre Lizenz.
+3. **Etablierter Präzedenzfall**: ProtonVPN iOS (Open-Source, AGPL) liefert
+   OpenVPNAdapter/OpenVPN3 genau so über den App Store aus.
+
+> ⚠️ Die App-Store-Distribution AGPL-lizenzierter **Dritt**komponenten (ohne
+> deren eigene §7-Erlaubnis) ist die verbleibende rechtliche Grauzone. Der
+> Standard-Weg ist „FOSS + öffentliche Quelle" (ProtonVPN). **Finale Abnahme
+> durch einen Anwalt vor Public Release.** Alternativen, falls Closed-Source
+> gewünscht wäre: eigenen MPL-2.0-OpenVPN3-Wrapper schreiben (statt des
+> AGPL-Adapters) oder kommerzielle OpenVPN-Lizenz — beides aktuell NICHT
+> verfolgt, da der Client ohnehin FOSS ist.
 
 ## Dependency-Stack mit Lizenzen
 
@@ -26,16 +53,9 @@ Apple's App Store Licensed Application End User License Agreement (EULA) erzwing
 |---|---|---|---|
 | WireGuardKit | MIT | https://git.zx2c4.com/wireguard-apple | WireGuard-Protokoll |
 | amneziawg-go (XCFramework) | MIT | https://github.com/amnezia-vpn/amneziawg-go | AmneziaWG (= WG + Obfuskation) |
-| OpenVPNAdapter | MIT | https://github.com/ss-abramchuk/OpenVPNAdapter | OpenVPN3-Wrapper für iOS |
-| OpenVPN3 (transitiv via OpenVPNAdapter) | Apache 2.0 | https://github.com/OpenVPN/openvpn3 | OpenVPN-Protokoll (modern Apache-2 reimpl) |
-| mbedTLS (transitiv) | Apache 2.0 | OpenVPN3-Build-Dep | TLS-Crypto |
-
-**Bewusste Entscheidung**: NICHT canonical OpenVPN 2.x (GPL-2 mit linking exception). Begründung:
-
-- Apple App Store EULA fügt Restrictions hinzu die §6 von GPL-2 nominell verbietet
-- Historischer VLC-Precedent (App-Store-Pull 2011 nach FSF-Beschwerde)
-- OpenVPN Inc. hat **selbst** OpenVPN3 als Apache 2.0 reimpl entwickelt, genau um diesen Konflikt zu vermeiden
-- OpenVPN3 wird produktiv von ProtonVPN iOS, NordVPN iOS, OpenVPN Connect (Apple's own app) genutzt — etabliert
+| **OpenVPNAdapter** | **AGPL-3.0** | https://github.com/ss-abramchuk/OpenVPNAdapter | OpenVPN3-Wrapper für iOS — **macht die App AGPL-3.0** |
+| OpenVPN3 (transitiv via OpenVPNAdapter) | MPL-2.0 OR AGPL-3.0 (WITH openvpn3-openssl-exception) | https://github.com/OpenVPN/openvpn3 | OpenVPN-Protokoll-Core |
+| mbedTLS / OpenSSL (transitiv) | Apache 2.0 / Apache 2.0 | OpenVPN3-Build-Dep | TLS-Crypto |
 
 ### UI / Storage / Telemetry
 
@@ -46,56 +66,32 @@ Apple's App Store Licensed Application End User License Agreement (EULA) erzwing
 | swift-system | Apache 2.0 | https://github.com/apple/swift-system | Low-level POSIX wrappers |
 | swift-collections | Apache 2.0 | https://github.com/apple/swift-collections | OrderedSet etc. für Pool-Logik |
 
-## Verbotene Dependencies
+## Lizenz-Klassen-Politik (für neue Dependencies)
 
-Diese 3rd-party Libraries dürfen NICHT in den iOS-Bundle:
-
-- **Original OpenVPN 2.x** (GPL-2.0 mit linking exception) — siehe oben
-- **ics-openvpn** (Android-Port, GPL-2) — nicht für iOS portiert, und Lizenz-Problem
-- **strongSwan** (GPL-2.0) — wir nutzen Apple's NEVPNManager + NEIKEv2 stattdessen
-- **wg-quick** (GPL-2.0 shell script) — nutzen WireGuardKit's Swift API stattdessen
-- Anything **GPL-2-only** ohne ausdrückliche "linking exception"
-- **AGPL** anywhere — incompatible mit App-Store-EULA
+- **MIT / Apache-2.0 / BSD / MPL-2.0** = unbedenklich (permissiv bzw. schwaches,
+  datei-basiertes Copyleft) — kombinierbar, App-Store-unkritisch.
+- **GPL-3.0** = ok für eigenen Code; App-Store via `EXCEPTIONS.md` (§7).
+- **AGPL-3.0** = ok, SOLANGE die App FOSS/AGPL bleibt und die Quelle öffentlich
+  ist (aktuell durch `OpenVPNAdapter` der Fall). Eine NEUE AGPL-Dep ist kein
+  K.o., ändert aber nichts mehr (App ist bereits AGPL) — trotzdem bewusst prüfen.
+- **GPL-2-only ohne linking exception** = vermeiden (nicht mit der GPL-3/AGPL-3
+  der App kombinierbar). Daher weiterhin NICHT: canonical OpenVPN 2.x,
+  ics-openvpn, strongSwan, wg-quick — auf iOS via WireGuardKit / OpenVPNAdapter /
+  Apple-NEVPNManager-IKEv2 gelöst.
 
 ## Compat-Layer-Code
 
-Der iOS-spezifische **OpenVPN 2.x → 3.x Config-Preprocessor** in `Core/Sources/PrivycsCore/OVPNCompat/` ist Eigen-Code unter GPL-3 (Teil des Privycs-Clients). Strippt Direktiven die in OpenVPN3 nicht verfügbar sind (`script-security`, `up`/`down`, `plugin`) und normalisiert deprecated Optionen.
-
-## Wenn Apple bei Review meckert
-
-Falls App Store Review die GPL-3-Lizenz unseres eigenen Codes als Issue flaggt:
-
-1. Verweis auf §7 "Additional Permissions": "*Du kannst diesem Programm-Code zusätzliche Berechtigungen hinzufügen, die für dich vorteilhaft sind*"
-2. Verweis auf `EXCEPTIONS.md` (siehe unten): "*Hiermit gewährt Privycs allen Empfängern dieser App, die diese über den Apple App Store erhalten haben, zusätzlich die Erlaubnis, die App unter den Bedingungen der Apple App Store EULA zu nutzen, ungeachtet GPL-3 §6 die diese Bedingungen anderweitig einschränken könnte.*"
-3. App Review hat in Praxis GPL-3-Apps mit Apache/MIT-Dependencies routinemäßig akzeptiert
-
-## EXCEPTIONS.md (Template)
-
-Bei Production-Release dieses Repo wird folgender Text in `EXCEPTIONS.md` aufgenommen:
-
-```
-Privycs VPN (iOS) — Additional Permission per GPL-3 §7
-
-This program is licensed under the GNU General Public License version 3
-(see LICENSE).
-
-As a special exception under section 7 of the GPLv3, the copyright
-holders of this Program grant you permission to convey the resulting
-work as part of an Apple App Store distribution, subject to the
-Apple App Store EULA, notwithstanding the GPLv3 §6 restrictions on
-"further restrictions imposed by the recipient".
-
-This additional permission is given by the sole copyright holder of
-the Privycs VPN iOS Client, Privycs.
-
-Effective: [release date]
-```
+Der iOS-spezifische **OpenVPN 2.x → 3.x Config-Preprocessor** in
+`Core/Sources/PrivycsCore/OVPNCompat/` ist Eigen-Code unter GPL-3 (Teil des
+Privycs-Clients). Strippt Direktiven, die in OpenVPN3 nicht verfügbar sind
+(`script-security`, `up`/`down`, `plugin`) und normalisiert deprecated Optionen.
 
 ## Audit-Trail
 
 Bei jeder neuen Dependency:
 
-1. Lizenz prüfen — `cat ${DEP}/LICENSE` oder Repo-Root
-2. Diese Datei updaten — Tabelle ergänzen
-3. Falls neue Lizenz-Klasse: Apple-Review-Risiko prüfen (Apache 2.0, MIT, BSD-2/3 = unbedenklich; GPL-2/3 only via §7-permission; AGPL = NEVER)
-4. CI-Job validiert keine verbotenen Dependencies (`Scripts/check-licenses.sh`)
+1. Lizenz prüfen — `cat ${DEP}/LICENSE` oder Repo-Root (NICHT aus dem Kopf —
+   der MIT/Apache-Fehlannahme oben verdanken wir dieses Audit).
+2. Diese Datei updaten — Tabelle ergänzen.
+3. Lizenz-Klasse gegen die Politik oben prüfen.
+4. In-App OSS-Screen (`App/Views/OssLicensesView.swift`) konsistent halten.

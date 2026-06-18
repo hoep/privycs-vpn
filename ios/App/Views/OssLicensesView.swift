@@ -36,7 +36,7 @@ struct OssLicensesView: View {
             } header: {
                 Text("Bundled components")
             } footer: {
-                Text("Privycs VPN is licensed under GPL-3.0. Full license texts ship with the source.")
+                Text("Privycs VPN's own code is GPL-3.0; because it includes the AGPL-3.0 OpenVPNAdapter, the app as a whole is licensed under AGPL-3.0. Full source + license texts are published at the link below.")
             }
 
             Section {
