@@ -174,11 +174,16 @@ const reIPv4 = /\b(\d{1,3}\.){3}\d{1,3}\b/g
 const reIPv6Global = /\b[23][0-9a-fA-F]{3}(:[0-9a-fA-F]{0,4}){1,7}\b/g
 const reUserPathUnix = /(\/(Users|home))\/[^/\s:"]+/g
 const reUserPathWin = /(C:\\Users\\)[^\\/\s:"]+/gi
+// Wi-Fi SSID — strip the value after an ssid key (ssid=Foo, "ssid":"Foo",
+// SSID: Foo). Mirrors Android reSSIDKv + the Go backend; the privacy policy
+// claims SSIDs are stripped (audit finding 2026-06-18).
+const reSSID = /(ssid["\s=:]+)[^\s,"]+/gi
 
 function redactString(s: string): string {
   if (!s || s.length < 7) return s
   return (
     s
+      .replace(reSSID, '$1<redacted-ssid>')
       .replace(reAPIKey, '<redacted-token>')
       .replace(reIPv6Global, '<redacted-ipv6>')
       .replace(reIPv4, (ip) => (isPrivateIPv4(ip) ? ip : '<redacted-ipv4>'))

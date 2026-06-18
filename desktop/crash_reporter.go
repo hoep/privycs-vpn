@@ -233,6 +233,13 @@ var (
 	// File paths with /Users/<name>/, C:\Users\<name>\, /home/<name>/
 	reUserPathUnix = regexp.MustCompile(`(/(?:Users|home))/[^/\s:"]+`)
 	reUserPathWin  = regexp.MustCompile(`(?i)(C:\\Users\\)[^\\/\s:"]+`)
+
+	// Wi-Fi SSID — strip the value after an ssid key (ssid=Foo,
+	// "ssid":"Foo", SSID: Foo). Mirrors Android's reSSIDKv. SSIDs appear
+	// in Network-Rules state + connect logs; the docstring above and the
+	// published privacy policy claim SSIDs are stripped, so this makes
+	// that actually true on desktop (audit finding 2026-06-18).
+	reSSID = regexp.MustCompile(`(?i)(ssid["\s=:]+)[^\s,"]+`)
 )
 
 // beforeSendRedact is the per-event redaction hook. Never returns
@@ -313,6 +320,7 @@ func redactString(s string) string {
 	if len(s) < 7 {
 		return s
 	}
+	s = reSSID.ReplaceAllString(s, "${1}<redacted-ssid>")
 	s = reAPIKey.ReplaceAllString(s, "<redacted-token>")
 	s = reIPv6Global.ReplaceAllString(s, "<redacted-ipv6>")
 	s = reIPv4.ReplaceAllStringFunc(s, redactPublicIPv4)
