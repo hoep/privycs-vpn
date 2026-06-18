@@ -73,10 +73,31 @@ public struct SavedConnection: Codable, Identifiable, Equatable, Hashable {
         case protocolFailoverOrder = "protocol_failover_order"
         case dnsOverride = "dns_override"
         case verified
-        case lastConnectedAt = "last_connected_at"
+        // Android wire key is "last_connected" (RFC3339 STRING), not the old
+        // iOS "last_connected_at" (numeric Date). Cross-platform restore broke
+        // on BOTH the key and the type — audit finding 2026-06-18.
+        case lastConnectedAt = "last_connected"
+        case legacyLastConnectedAt = "last_connected_at" // tolerate older iOS backups
         case activeProtocol = "active_protocol"
         case createdAt = "created_at"
         case isFavorite = "is_favorite"
+    }
+
+    // RFC3339 (UTC) — the on-the-wire format Android uses for last_connected.
+    static let rfc3339: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    /// Always-non-nil active protocol for the wire format. Android declares
+    /// `active_protocol` as a REQUIRED non-null field, so an omitted/nil value
+    /// hard-fails kotlinx decode on restore. Derive from the active config (or
+    /// the first protocol) when not explicitly set.
+    private var wireActiveProtocol: VpnProtocol {
+        if let ap = activeProtocol { return ap }
+        if let active = protocols.first(where: { $0.id == activeConfigID }) { return active.protocol }
+        return protocols.first?.protocol ?? .wireguard
     }
 
     public init(from decoder: Decoder) throws {
@@ -88,10 +109,38 @@ public struct SavedConnection: Codable, Identifiable, Equatable, Hashable {
         protocolFailoverOrder = try c.decodeIfPresent([VpnProtocol].self, forKey: .protocolFailoverOrder) ?? []
         dnsOverride = try c.decodeIfPresent(String.self, forKey: .dnsOverride) ?? ""
         verified = try c.decodeIfPresent(Bool.self, forKey: .verified) ?? false
-        lastConnectedAt = try c.decodeIfPresent(Date.self, forKey: .lastConnectedAt)
+        // Primary: Android/desktop "last_connected" RFC3339 string. Fallback:
+        // older iOS backups that wrote a numeric Date under "last_connected_at".
+        if let s = try c.decodeIfPresent(String.self, forKey: .lastConnectedAt), !s.isEmpty {
+            lastConnectedAt = SavedConnection.rfc3339.date(from: s)
+        } else {
+            lastConnectedAt = try? c.decodeIfPresent(Date.self, forKey: .legacyLastConnectedAt)
+        }
         activeProtocol = try c.decodeIfPresent(VpnProtocol.self, forKey: .activeProtocol)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
         isFavorite = try c.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+    }
+
+    // Custom encode so the wire format matches Android EXACTLY: last_connected
+    // as an RFC3339 STRING (never a numeric Date — the synthesized encoder +
+    // BackupManager's bare JSONEncoder emitted seconds-since-2001), and
+    // active_protocol ALWAYS present + non-null. Without this, iOS→Android
+    // restore silently dropped last_connected and hard-failed on the missing
+    // required active_protocol (audit finding 2026-06-18).
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(protocols, forKey: .protocols)
+        try c.encode(activeConfigID, forKey: .activeConfigID)
+        try c.encode(protocolFailoverOrder, forKey: .protocolFailoverOrder)
+        try c.encode(dnsOverride, forKey: .dnsOverride)
+        try c.encode(verified, forKey: .verified)
+        let lc = lastConnectedAt.map { SavedConnection.rfc3339.string(from: $0) } ?? ""
+        try c.encode(lc, forKey: .lastConnectedAt)
+        try c.encode(wireActiveProtocol, forKey: .activeProtocol)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(isFavorite, forKey: .isFavorite)
     }
 }
 
