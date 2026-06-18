@@ -273,7 +273,7 @@ public extension SavedConnection {
 
 /// One of four supported VPN protocol classes. Stable serialised
 /// values match Android `VpnProtocol` enum.
-public enum VpnProtocol: String, Codable, CaseIterable, Identifiable, Hashable {
+public enum VpnProtocol: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case amneziawg = "amneziawg"
     case wireguard = "wireguard"
     case openvpn = "openvpn"

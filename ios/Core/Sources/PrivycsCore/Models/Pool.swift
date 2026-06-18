@@ -80,7 +80,7 @@ public struct Pool: Codable, Identifiable, Equatable, Hashable {
 /// Per-pool selection strategy. Serialized values are byte-identical to
 /// the Android `PoolPolicy` @SerialName values so pool backups
 /// round-trip across platforms.
-public enum PoolPolicy: String, Codable, CaseIterable, Identifiable, Hashable {
+public enum PoolPolicy: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case geoNearest = "geo-nearest"
     case random = "random"
     case roundRobin = "round-robin-region"

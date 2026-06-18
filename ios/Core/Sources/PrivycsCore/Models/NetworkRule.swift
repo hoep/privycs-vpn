@@ -2,7 +2,7 @@ import Foundation
 
 /// Match type for a NetworkRule. Serialized values are byte-identical
 /// to Android `RuleMatchType` @SerialName so rules round-trip in backups.
-public enum RuleMatchType: String, Codable, CaseIterable, Hashable {
+public enum RuleMatchType: String, Codable, CaseIterable, Hashable, Sendable {
     case ssidExact = "ssid_exact"
     case ssidPattern = "ssid_pattern"
     case networkType = "network_type"
@@ -11,7 +11,7 @@ public enum RuleMatchType: String, Codable, CaseIterable, Hashable {
 }
 
 /// Action a matched rule applies. Mirrors Android `RuleAction`.
-public enum RuleAction: String, Codable, CaseIterable, Hashable {
+public enum RuleAction: String, Codable, CaseIterable, Hashable, Sendable {
     /// Disconnect if connected — the "trusted network" pattern.
     case noVpn = "no_vpn"
     /// Switch to the pool with id = targetId.
@@ -32,7 +32,7 @@ public enum NetworkType: String, Codable, CaseIterable, Hashable {
 /// Per-network auto-tunnel routing rule — field-for-field port of the
 /// Android `NetworkRule` data class. The engine walks the list in
 /// priority order on every network event; the first matching rule wins.
-public struct NetworkRule: Codable, Identifiable, Equatable, Hashable {
+public struct NetworkRule: Codable, Identifiable, Equatable, Hashable, Sendable {
     public let id: String
     public var priority: Int
     public var matchType: RuleMatchType
