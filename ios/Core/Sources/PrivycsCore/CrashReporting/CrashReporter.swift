@@ -69,14 +69,19 @@ public actor CrashReporter {
             opts.sampleRate = 1.0
             // No performance traces, no profiling.
             opts.tracesSampleRate = 0
+#if canImport(UIKit)
+            // These Sentry options are UIKit-only — they do NOT exist in the
+            // macOS Sentry SDK (build-macos failed: 'Options' has no member
+            // 'attachScreenshot'). UIKit is present on iOS/tvOS, absent on macOS,
+            // so canImport(UIKit) gates them to the platforms where they compile.
+            // No screenshots / view hierarchies — would leak SSIDs in input
+            // fields or license keys in error dialogs. Hard-disable.
 #if !targetEnvironment(simulator)
-            // No screenshots, no view hierarchies — would leak SSIDs
-            // visible in input fields or license keys in error
-            // dialogs. Hard-disable.
             opts.attachScreenshot = false
             opts.attachViewHierarchy = false
 #endif
             opts.enableUserInteractionTracing = false
+#endif
             opts.maxBreadcrumbs = 50
             opts.beforeSend = { event in
                 CrashReporter.redact(event)
