@@ -76,7 +76,16 @@ struct RootView: View {
     #if os(macOS)
     private var macTabView: some View {
         VStack(spacing: 0) {
+            // MAS look-alike (one source of truth): native macOS renders a
+            // default Form as gray boxed "settings" fields and Lists with mac
+            // chrome — unlike iOS's grouped insets. .formStyle(.grouped) +
+            // .listStyle(.inset) propagate via the environment to EVERY child
+            // Form/List (across all screens + their pushed destinations), so the
+            // whole app gets the iPhone-style grouped look from here. Tune in one
+            // place after device verification.
             screen(for: tab)
+                .formStyle(.grouped)
+                .listStyle(.inset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             HStack(spacing: 0) {
