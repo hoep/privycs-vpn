@@ -933,9 +933,31 @@ final class AppState: ObservableObject {
             self.nextRotationAt = p.rotation?.nextRotationAt ?? 0
         }
 
+        // Post-update kill-switch UN-BRICK (user report 2026-06-18). A
+        // TestFlight/App Store update replaces the NE extension binary; with the
+        // kill switch ON, includeAllNetworks + on-demand keep the OS blocking
+        // ALL traffic while the stale extension is gone, and the OS auto-
+        // reconnect races the app's reconnect → "nothing works" and the
+        // reconnect itself wedges. On a detected build change we disarm
+        // on-demand FIRST (lifts the OS-enforced block + stops the race) and do
+        // NOT blindly re-arm this launch — connectivity returns immediately and
+        // a clean reconnect re-arms the kill switch.
+        let curBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        let lastBuild = UserDefaults.standard.string(forKey: "privycs.lastRunBuild") ?? ""
+        UserDefaults.standard.set(curBuild, forKey: "privycs.lastRunBuild")
+        let postUpdateUnbrick = !lastBuild.isEmpty && lastBuild != curBuild && settings.killSwitchEnabled
+        if postUpdateUnbrick {
+            PrivycsLog.log("post-update self-heal: build \(lastBuild)→\(curBuild), kill switch ON — disarming on-demand to clear the stale block + reconnect race; a reconnect re-arms the kill switch")
+            await tunnelManager.disarmOnDemand()
+        }
+
         // Arm persistent background on-demand if the master toggle is on
-        // (so it works in doze even before a manual connect).
-        await syncOnDemand()
+        // (so it works in doze even before a manual connect). Skipped on the
+        // first launch right after an update (postUpdateUnbrick) so we don't
+        // immediately re-arm the OS block before a clean reconnect.
+        if !postUpdateUnbrick {
+            await syncOnDemand()
+        }
 
         // Observe transitions
         Task {
