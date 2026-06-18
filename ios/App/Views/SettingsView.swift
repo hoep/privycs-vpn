@@ -157,6 +157,13 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            #if os(macOS)
+            // MAS parity: native macOS renders a default Form as boxed gray
+            // "settings" fields (unlike iOS's grouped insets). .formStyle(.grouped)
+            // makes the macOS Form render iOS-like grouped sections. PROTOTYPE for
+            // the macOS look-alike pass — verify on device, then scale to the rest.
+            .formStyle(.grouped)
+            #endif
             .task {
                 crashReportsEnabled = appState.settings.crashReportsEnabled
                 theme = appState.settings.theme
