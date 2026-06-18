@@ -149,11 +149,16 @@ Requires Android Studio, Android SDK 35, JDK 17 and NDK 27.3.13750724.
 The vendor-patch workflow is documented in
 [`android/vendor/strongswan-patches/README.md`](android/vendor/strongswan-patches/README.md).
 
-### iOS *(planned)*
+### iOS / macOS *(TestFlight beta)*
 
-A SwiftUI app with a Network Extension — WireGuardKit and the native
-`NEVPNProtocolIKEv2` API. OpenVPN is initially excluded: the open-source
-iOS OpenVPN wrapper is AGPL-3.0, which would relicense the whole iOS app.
+A SwiftUI app with a Network Extension — WireGuardKit, the native
+`NEVPNProtocolIKEv2` API, AmneziaWG (gomobile), and OpenVPN via
+OpenVPNAdapter. Because OpenVPNAdapter/OpenVPN3 is **AGPL-3.0**, the iOS /
+macOS (App Store) app as a whole is distributed under **AGPL-3.0**. The full
+source is public (FOSS), which satisfies the copyleft, and App Store
+distribution is covered by an additional permission — the same model
+ProtonVPN uses. See [`ios/LICENSE_NOTES.md`](ios/LICENSE_NOTES.md) +
+[`ios/EXCEPTIONS.md`](ios/EXCEPTIONS.md).
 
 ---
 
@@ -206,11 +211,15 @@ reports, see [SECURITY.md](SECURITY.md).
 
 ## License
 
-**GPL-3.0** — see [LICENSE](LICENSE). The Android app links GPL-2.0
-libraries (ics-openvpn, strongSwan), which makes the combined work
-GPL-3.0. WireGuard and AmneziaWG components are MIT / permissively
-licensed. Full open-source attributions are listed in-app under
-Settings → About → Open-Source Licenses.
+**GPL-3.0** — see [LICENSE](LICENSE) — for the Android + Desktop apps (the
+Android app links GPL-2.0 ics-openvpn / strongSwan → combined work GPL-3.0;
+the Desktop app *invokes* OpenVPN/strongSwan as external binaries, so it
+stays GPL-3.0). The **iOS / macOS (App Store) app is AGPL-3.0**, because it
+links the AGPL-3.0 OpenVPNAdapter — the full source is public (FOSS), which
+satisfies the copyleft, and App Store distribution is covered by
+[`ios/EXCEPTIONS.md`](ios/EXCEPTIONS.md) (GPLv3/AGPLv3 §7). WireGuard and
+AmneziaWG components are MIT / permissively licensed. Full open-source
+attributions are listed in-app under Settings → About → Open-Source Licenses.
 
 ---
 
