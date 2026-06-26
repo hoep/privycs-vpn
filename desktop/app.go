@@ -3343,6 +3343,31 @@ func (a *App) PickBackupOpenPath() (string, error) {
 	})
 }
 
+// PickPoolConfigFiles opens the native multi-select file dialog for pool
+// import and returns the chosen absolute paths. Empty slice = cancelled
+// (caller treats as no-op, never an error).
+//
+// Why native instead of the HTML <input type=file> + FileReader path: on
+// the desktop webviews (notably macOS WKWebView) FileReader on a picked
+// file can resolve neither onload nor onerror, and base64-encoding a large
+// provider ZIP in JS can fail silently — so the pool import did nothing,
+// with no error and no backend call (so not even a log line). Going through
+// the OS dialog yields real paths that CreatePoolFromPaths reads server-side
+// — no FileReader, no base64, and big ZIPs are streamed off disk in Go.
+func (a *App) PickPoolConfigFiles() ([]string, error) {
+	paths, err := wailsRuntime.OpenMultipleFilesDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "Select VPN configs or a ZIP",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "VPN configs & archives", Pattern: "*.zip;*.conf;*.ovpn;*.sswan"},
+			{DisplayName: "All Files", Pattern: "*"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return paths, nil
+}
+
 // GetVersion returns the app version
 func (a *App) GetVersion() string {
 	return AppVersion

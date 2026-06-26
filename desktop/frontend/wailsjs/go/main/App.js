@@ -194,6 +194,10 @@ export function PickBackupSavePath() {
   return window['go']['main']['App']['PickBackupSavePath']();
 }
 
+export function PickPoolConfigFiles() {
+  return window['go']['main']['App']['PickPoolConfigFiles']();
+}
+
 export function PoolRotatorStatus() {
   return window['go']['main']['App']['PoolRotatorStatus']();
 }

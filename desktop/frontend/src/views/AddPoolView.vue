@@ -28,7 +28,7 @@
           @drop.prevent="onDrop"
           @dragover.prevent="dragHover = true"
           @dragleave.prevent="dragHover = false"
-          @click="filePicker?.click()"
+          @click="openNativePicker"
           :class="['border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors',
                    dragHover ? 'border-primary-500 bg-primary-500/10' : 'border-gray-300 dark:border-gray-700 hover:border-primary-400']"
         >
@@ -40,17 +40,8 @@
           </i18n-t>
           <p class="text-[10px] text-gray-500 mt-1">{{ $t('add-pool.dropzone.or-browse') }}</p>
         </div>
-        <input
-          ref="filePicker"
-          type="file"
-          multiple
-          accept=".zip,.conf,.ovpn,.sswan"
-          @change="onFileChange"
-          class="hidden"
-        />
-        <p v-if="selectedFiles.length > 0" class="text-[10px] text-primary-400 mt-2">
-          {{ $tc('add-pool.selected.count', selectedFiles.length, { n: selectedFiles.length }) }}
-          <span class="text-gray-500"> ({{ formatBytes(totalSize) }})</span>
+        <p v-if="fileCount > 0" class="text-[10px] text-primary-400 mt-2">
+          {{ $tc('add-pool.selected.count', fileCount, { n: fileCount }) }}
         </p>
       </div>
 
@@ -113,6 +104,8 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { usePoolStore, type PoolPolicy } from '@/stores/pool'
 import { ArrowLeftIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
+import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime'
+import { PickPoolConfigFiles } from '../../wailsjs/go/main/App'
 
 const router = useRouter()
 const pool = usePoolStore()
@@ -120,9 +113,15 @@ const { t } = useI18n()
 
 const poolName = ref('')
 const policy = ref<PoolPolicy>('geo-nearest')
-const selectedFiles = ref<File[]>([])
+// Absolute file paths chosen via the native OS dialog (click) or delivered by
+// Wails' native file-drop (OnFileDrop). Both go through the path-based importer
+// CreatePoolFromPaths — Go reads the files server-side. We deliberately do NOT
+// use <input type=file> + FileReader: on the desktop webviews (macOS WKWebView
+// especially) FileReader on a picked file can resolve neither onload nor
+// onerror and base64-encoding a large ZIP in JS fails silently, so the import
+// did nothing — no error, no backend call, no log.
+const selectedPaths = ref<string[]>([])
 const dragHover = ref(false)
-const filePicker = ref<HTMLInputElement | null>(null)
 
 const importing = ref(false)
 const error = ref<string | null>(null)
@@ -130,15 +129,9 @@ const progress = ref({ stage: '', current: 0, total: 0, imported: 0, skipped: 0 
 
 let stopProgressListener: (() => void) | null = null
 
-const canImport = computed(() => poolName.value.trim() !== '' && selectedFiles.value.length > 0)
+const fileCount = computed(() => selectedPaths.value.length)
 
-const totalSize = computed(() => selectedFiles.value.reduce((sum, f) => sum + f.size, 0))
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
+const canImport = computed(() => poolName.value.trim() !== '' && fileCount.value > 0)
 
 const policyDescription = computed(() => {
   switch (policy.value) {
@@ -157,44 +150,25 @@ const progressLabel = computed(() => {
   return t('add-pool.progress.working')
 })
 
-function onDrop(e: DragEvent) {
+// onDrop only resets the hover state. The actual dropped files arrive through
+// Wails' native OnFileDrop callback (registered in onMounted) as absolute
+// paths — the HTML5 dataTransfer.files is empty for OS file drags on the
+// desktop webviews, which is exactly why the silent "nothing happens" bug
+// existed before EnableFileDrop + OnFileDrop were wired up.
+function onDrop() {
   dragHover.value = false
-  if (!e.dataTransfer?.files) return
-  selectedFiles.value = Array.from(e.dataTransfer.files)
 }
 
-function onFileChange(e: Event) {
-  const input = e.target as HTMLInputElement
-  if (!input.files) return
-  selectedFiles.value = Array.from(input.files)
-}
-
-// readFileAsBytes returns the file's raw bytes as a Uint8Array. We
-// use ArrayBuffer for both ZIPs (binary) and config files (text) for
-// uniformity - text files just happen to contain printable ASCII.
-function readFileAsBytes(file: File): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = () => {
-      const buf = r.result as ArrayBuffer
-      resolve(new Uint8Array(buf))
-    }
-    r.onerror = () => reject(new Error(t('add-pool.error.failed-to-read', { name: file.name, error: String(r.error) })))
-    r.readAsArrayBuffer(file)
-  })
-}
-
-// uint8ToBase64 converts a Uint8Array into a base64 string. Wails
-// transparently base64-decodes string fields landing in []byte
-// parameters on the Go side, so we ship the content as a base64
-// string per upload.
-function uint8ToBase64(data: Uint8Array): string {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let i = 0; i < data.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, data.subarray(i, i + chunkSize) as unknown as number[])
+// openNativePicker opens the OS file dialog via Go and stores the chosen
+// absolute paths. Replaces the old <input type=file> + FileReader path which
+// failed silently on macOS WKWebView.
+async function openNativePicker() {
+  try {
+    const paths = await PickPoolConfigFiles()
+    if (paths && paths.length > 0) selectedPaths.value = paths
+  } catch (e: any) {
+    error.value = e?.toString() || t('add-pool.error.import-failed')
   }
-  return btoa(binary)
 }
 
 async function doImport() {
@@ -208,17 +182,10 @@ async function doImport() {
   })
 
   try {
-    // Read every selected file's bytes in JS - the browser sandbox
-    // does not give us absolute filesystem paths to pass to the
-    // backend, so we ship the content directly. Mirrors how
-    // AddConnectionView already works for single configs.
-    const uploads = await Promise.all(
-      selectedFiles.value.map(async (f) => ({
-        filename: f.name,
-        content: uint8ToBase64(await readFileAsBytes(f)),
-      }))
-    )
-    await pool.createFromUploads(poolName.value.trim(), policy.value, uploads)
+    // Both click (native dialog) and drop deliver absolute paths — Go reads
+    // the files directly (CreatePoolFromPaths). No FileReader / base64 round
+    // trip, and large provider ZIPs stream off disk server-side.
+    await pool.create(poolName.value.trim(), policy.value, selectedPaths.value)
     router.push('/connections')
   } catch (e: any) {
     error.value = e?.toString() || t('add-pool.error.import-failed')
@@ -233,9 +200,23 @@ async function doImport() {
 
 onMounted(() => {
   pool.refresh()
+  // Receive OS file drops as absolute paths (the only reliable way on the
+  // desktop webviews — HTML5 dataTransfer.files is empty for OS drags).
+  // useDropTarget=false: any file dropped on the window while this view is
+  // mounted counts, so the user can drop anywhere over the page, not only
+  // the dashed zone. Filter to importable extensions defensively.
+  OnFileDrop((_x, _y, paths) => {
+    const accepted = (paths || []).filter((p) =>
+      /\.(zip|conf|ovpn|sswan)$/i.test(p)
+    )
+    if (accepted.length === 0) return
+    selectedPaths.value = accepted
+    dragHover.value = false
+  }, false)
 })
 
 onUnmounted(() => {
   if (stopProgressListener) stopProgressListener()
+  OnFileDropOff()
 })
 </script>

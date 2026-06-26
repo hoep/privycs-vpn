@@ -88,6 +88,17 @@ func main() {
 			UniqueId:               "com.privycs.vpn-client",
 			OnSecondInstanceLaunch: app.onSecondInstance,
 		},
+		// Native file-drop: without this, macOS WKWebView (and the GTK/
+		// WebView2 webviews) hand the HTML5 @drop handler an EMPTY
+		// dataTransfer.files for OS file drags — so dropping a .zip / .conf
+		// onto the pool / config drop-zones silently did nothing (no file,
+		// no error, no backend call). EnableFileDrop makes Wails deliver the
+		// dropped files' absolute paths via runtime.OnFileDrop, which the
+		// frontend feeds into the path-based importers (CreatePoolFromPaths /
+		// path config import).
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop: true,
+		},
 		Bind: []interface{}{
 			app,
 		},

@@ -98,6 +98,8 @@ export function PickBackupOpenPath():Promise<string>;
 
 export function PickBackupSavePath():Promise<string>;
 
+export function PickPoolConfigFiles():Promise<Array<string>>;
+
 export function PoolRotatorStatus():Promise<main.RotatorStatus>;
 
 export function ProGatingEnabledJS():Promise<boolean>;
