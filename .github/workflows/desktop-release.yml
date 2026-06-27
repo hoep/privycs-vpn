@@ -166,7 +166,10 @@ jobs:
           cd desktop/build/bin && sha256sum privycs-vpn-linux-amd64 > privycs-vpn-linux-amd64.sha256
       - name: Build .deb package
         run: |
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          # Pinned: nfpm v2.47.0+ requires Go >= 1.26.4, but this job runs
+          # Go 1.25 with GOTOOLCHAIN=local (no auto-upgrade), so @latest fails
+          # to install. v2.46.0 is the last release that builds on Go 1.25.
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.0
           cd desktop
           cp build/bin/privycs-vpn-linux-amd64 build/bin/privycs-vpn
           VERSION="${GITHUB_REF#refs/tags/}"
