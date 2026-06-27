@@ -20,13 +20,15 @@ import (
 )
 
 const (
-	// Combined IPv4+IPv6 country database from sapics/ip-location-db.
-	// The sibling file `geolite2-country-ipv4.mmdb` (which we used in
-	// earlier releases) only carries IPv4 ranges - IPv6-only endpoints
-	// would silently miss the country lookup. The combined `.mmdb`
-	// file is ~6 MB total (still under the binary-size budget) and
-	// covers both stacks.
-	sourceURL = "https://github.com/sapics/ip-location-db/raw/main/geolite2-country-mmdb/geolite2-country.mmdb"
+	// GeoLite2-Country MMDB (IPv4 + IPv6) from P3TERX/GeoLite.mmdb, a
+	// weekly-rebuilt mirror on the stable `download` branch (~9 MB,
+	// under the binary-size budget). This replaced sapics/ip-location-db's
+	// `geolite2-country-mmdb/geolite2-country.mmdb`, which started 404ing
+	// in mid-2026 when that project dropped its MMDB outputs and kept only
+	// CSV. The reader (geoip/geoip.go) decodes both the official nested
+	// `country.iso_code` schema this file uses and the flat `country_code`
+	// schema, so the source is swappable without touching the lookup code.
+	sourceURL = "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb"
 	maxAge    = 7 * 24 * time.Hour // skip download if existing file is newer than this
 )
 
