@@ -461,7 +461,13 @@ async function handleQrScanned(raw: string) {
 }
 const editingId = ref('')
 const editName = ref('')
-const renameInput = ref<HTMLInputElement | null>(null)
+// A static template ref placed inside a v-for is collected by Vue as an
+// ARRAY of the matching elements (even though only one rename input is ever
+// rendered at a time, gated by editingId). So renameInput.value is
+// HTMLInputElement[] here, not a single element — startRename normalises it
+// before calling .focus(). (Calling .focus() on the array threw
+// "z.value.focus is not a function" and tore down ConnectionsView.)
+const renameInput = ref<HTMLInputElement | HTMLInputElement[] | null>(null)
 const loadingConnections = ref(false)
 const actionError = ref('')
 
@@ -673,9 +679,11 @@ async function startRename(conn: any) {
   editingId.value = conn.id
   editName.value = conn.name
   await nextTick()
-  if (renameInput.value) {
-    renameInput.value.focus()
-    renameInput.value.select()
+  // renameInput.value is an array (ref inside v-for) — take the live element.
+  const el = Array.isArray(renameInput.value) ? renameInput.value[0] : renameInput.value
+  if (el) {
+    el.focus()
+    el.select()
   }
 }
 
