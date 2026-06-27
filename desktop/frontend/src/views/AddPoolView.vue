@@ -41,7 +41,7 @@
           <p class="text-[10px] text-gray-500 mt-1">{{ $t('add-pool.dropzone.or-browse') }}</p>
         </div>
         <p v-if="fileCount > 0" class="text-[10px] text-primary-400 mt-2">
-          {{ $tc('add-pool.selected.count', fileCount, { n: fileCount }) }}
+          {{ $t('add-pool.selected.count', { n: fileCount }, fileCount) }}
         </p>
       </div>
 
