@@ -2,7 +2,11 @@ Native macOS app built from the iOS codebase (same screens as iPhone, in a Mac
 window). WireGuard / AmneziaWG / OpenVPN / IPSec, pools + rotation, on-demand
 network rules, backup/restore, gateway import.
 
-NEW this build:
+v1.1.5.100 — coordinated all-platform rebuild (one shared version across iOS /
+Apple TV / Mac / Android / Desktop). No new Mac features vs the previous beta;
+re-ships the latest fixes on the aligned version.
+
+NEW (recent builds):
 - Real KILL SWITCH: with it ON, all traffic is forced through the tunnel and the
   system DROPS traffic when the tunnel is down / (re)connecting — no leak. LAN
   stays reachable.
