@@ -53,6 +53,12 @@ jobs:
 
       - name: Resolve build_apks flag
         id: flags
+        env:
+          # Pass context through env (not inline ${{ }}) so nothing is spliced
+          # into the shell. build_apks is a boolean input + event_name an enum,
+          # so neither is actually injectable — this is Aikido-pattern hygiene.
+          EVENT_NAME: ${{ github.event_name }}
+          BUILD_APKS_INPUT: ${{ inputs.build_apks }}
         # Default behaviour:
         #   - tag push    → AAB only (false). Play Store is the
         #                   primary distribution; APK builds add ~10
@@ -63,8 +69,8 @@ jobs:
         # already published; the propagator stays AAB-only on the
         # original release.
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "build_apks=${{ inputs.build_apks }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "build_apks=$BUILD_APKS_INPUT" >> "$GITHUB_OUTPUT"
           else
             echo "build_apks=false" >> "$GITHUB_OUTPUT"
           fi
