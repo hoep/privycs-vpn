@@ -593,13 +593,30 @@ jobs:
               || echo "Race: release was created by another workflow just now."
           fi
           shopt -s nullglob
-          FILES=(
-            artifacts/privycs-vpn-linux-amd64/*
-            artifacts/privycs-vpn-darwin-amd64/*
-            artifacts/privycs-vpn-darwin-arm64/*
-            artifacts/privycs-vpn-windows-amd64/*
-            artifacts/privycs-vpn-windows-amd64-setup/*
-          )
+          # Stamp the version into every asset filename so the release page
+          # matches the Android/iOS naming (privycs-vpn-<os>-<arch>-<ver>.<ext>).
+          # Done HERE (post-build, pre-upload) so the fragile build / codesign /
+          # notarize steps stay untouched. The version is inserted right after
+          # the os-arch token (before the first dot), e.g.
+          #   privycs-vpn-linux-amd64.deb      -> privycs-vpn-linux-amd64-1.2.3.4.deb
+          #   privycs-vpn-windows-amd64-setup.exe -> ...-setup-1.2.3.4.exe
+          # sha256 sidecars are regenerated afterwards so their content (bare
+          # basename) tracks the new filename. Renaming a .dmg/.zip/.exe does
+          # NOT touch its (internal, filename-independent) signature.
+          VER="${REF_NAME#v}"
+          for d in artifacts/privycs-vpn-*/; do
+            [ -d "$d" ] || continue
+            for f in "$d"*; do
+              case "$f" in *.sha256) continue;; esac   # sidecars regenerated below
+              name="$(basename "$f")"; base="${name%%.*}"; rest="${name#"$base"}"
+              mv "$f" "${d}${base}-${VER}${rest}"
+            done
+            rm -f "$d"*.sha256
+            for f in "$d"*; do
+              ( cd "$d" && sha256sum "$(basename "$f")" > "$(basename "$f").sha256" )
+            done
+          done
+          FILES=( artifacts/privycs-vpn-*/* )
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No desktop artifacts to upload."; exit 0
           fi
@@ -675,9 +692,13 @@ jobs:
           # download list later. Each OS gets its own regex so we
           # don't drag a Linux-only previous release's macOS-asset
           # absence into the picker.
-          LINUX_RE='privycs-vpn-linux-amd64(\.sha256|\.deb(\.sha256)?)?$'
-          MACOS_RE='privycs-vpn-darwin-(amd64|arm64)\.(zip|dmg)(\.sha256)?$'
-          WINDOWS_RE='privycs-vpn-windows-amd64(-setup)?\.exe(\.sha256)?$'
+          # The optional (-[0-9][0-9.]*)? group accepts the versioned names
+          # (privycs-vpn-linux-amd64-1.2.3.4.deb) AND the legacy version-less
+          # ones from releases made before versioned naming — so propagation
+          # keeps working across the transition.
+          LINUX_RE='privycs-vpn-linux-amd64(-[0-9][0-9.]*)?(\.sha256|\.deb(\.sha256)?)?$'
+          MACOS_RE='privycs-vpn-darwin-(amd64|arm64)(-[0-9][0-9.]*)?\.(zip|dmg)(\.sha256)?$'
+          WINDOWS_RE='privycs-vpn-windows-amd64(-setup)?(-[0-9][0-9.]*)?\.exe(\.sha256)?$'
 
           # Combined regex used by the wait-for-prior-build poll
           # (any desktop asset means the prior tag is no longer
@@ -751,10 +772,7 @@ jobs:
             if [ -n "$PREV" ]; then
               echo "Linux: propagating from $PREV"
               gh release download "$PREV" --repo "$REPO" --dir /tmp/desktop-assets \
-                --pattern "privycs-vpn-linux-amd64" \
-                --pattern "privycs-vpn-linux-amd64.sha256" \
-                --pattern "privycs-vpn-linux-amd64.deb" \
-                --pattern "privycs-vpn-linux-amd64.deb.sha256" \
+                --pattern "privycs-vpn-linux-amd64*" \
                 || true
             else
               echo "Linux: no prior release with Linux assets — skipping propagation"
@@ -766,14 +784,8 @@ jobs:
             if [ -n "$PREV" ]; then
               echo "macOS: propagating from $PREV"
               gh release download "$PREV" --repo "$REPO" --dir /tmp/desktop-assets \
-                --pattern "privycs-vpn-darwin-amd64.zip" \
-                --pattern "privycs-vpn-darwin-amd64.zip.sha256" \
-                --pattern "privycs-vpn-darwin-arm64.zip" \
-                --pattern "privycs-vpn-darwin-arm64.zip.sha256" \
-                --pattern "privycs-vpn-darwin-amd64.dmg" \
-                --pattern "privycs-vpn-darwin-amd64.dmg.sha256" \
-                --pattern "privycs-vpn-darwin-arm64.dmg" \
-                --pattern "privycs-vpn-darwin-arm64.dmg.sha256" \
+                --pattern "privycs-vpn-darwin-amd64*" \
+                --pattern "privycs-vpn-darwin-arm64*" \
                 || true
             else
               echo "macOS: no prior release with macOS assets — skipping propagation"
@@ -785,10 +797,7 @@ jobs:
             if [ -n "$PREV" ]; then
               echo "Windows: propagating from $PREV"
               gh release download "$PREV" --repo "$REPO" --dir /tmp/desktop-assets \
-                --pattern "privycs-vpn-windows-amd64.exe" \
-                --pattern "privycs-vpn-windows-amd64.exe.sha256" \
-                --pattern "privycs-vpn-windows-amd64-setup.exe" \
-                --pattern "privycs-vpn-windows-amd64-setup.exe.sha256" \
+                --pattern "privycs-vpn-windows-amd64*" \
                 || true
             else
               echo "Windows: no prior release with Windows assets — skipping propagation"

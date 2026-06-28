@@ -12,10 +12,12 @@
       .\sign-windows-release.ps1 a.exe b.exe           # signs the given files
       .\sign-windows-release.ps1 -Thumbprint ABC123    # pin a specific cert (if several)
 
-  FULL RELEASE FLOW (CI builds unsigned -> you sign -> replace on the release):
-      gh release download v1.1.5.78 --pattern "privycs-vpn-windows-amd64*.exe"
+  FULL RELEASE FLOW (CI builds unsigned -> you sign -> replace on the release).
+  Filenames are versioned now (privycs-vpn-windows-amd64-<ver>.exe /
+  -setup-<ver>.exe), so download + re-upload via glob:
+      gh release download v1.1.5.99 --pattern "privycs-vpn-windows-amd64*.exe"
       .\sign-windows-release.ps1
-      gh release upload v1.1.5.78 privycs-vpn-windows-amd64.exe privycs-vpn-windows-amd64-setup.exe --clobber
+      gh release upload v1.1.5.99 (Get-ChildItem privycs-vpn-windows-amd64*.exe, privycs-vpn-windows-amd64*.exe.sha256) --clobber
 #>
 param(
   [string[]]$Files,
@@ -57,11 +59,13 @@ if (-not $Thumbprint) {
   Write-Host "Using cert: $($certs[0].Subject)  [$Thumbprint]"
 }
 
-# 3. Default to the two Privycs Windows artifacts if no files given
+# 3. Default to all Privycs Windows artifacts in CWD if no files given.
+#    Glob (not fixed names) so it matches the versioned filenames
+#    privycs-vpn-windows-amd64-<ver>.exe / -setup-<ver>.exe as well as any
+#    legacy version-less ones.
 if (-not $Files -or $Files.Count -eq 0) {
-  $Files = @("privycs-vpn-windows-amd64.exe", "privycs-vpn-windows-amd64-setup.exe") |
-           Where-Object { Test-Path $_ }
-  if (-not $Files) { throw "No files given and no default Privycs exes found in $(Get-Location)." }
+  $Files = @(Get-ChildItem -File -Filter 'privycs-vpn-windows-amd64*.exe' | ForEach-Object { $_.Name })
+  if (-not $Files) { throw "No files given and no privycs-vpn-windows-amd64*.exe found in $(Get-Location)." }
 }
 
 # 4. Sign + verify each, refresh any .sha256 sidecar

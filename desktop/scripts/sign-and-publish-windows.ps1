@@ -65,7 +65,9 @@ try {
   & gh release download $Tag --repo $Repo --pattern "privycs-vpn-windows-amd64*" --clobber
   if ($LASTEXITCODE -ne 0) { throw "gh release download failed (exit $LASTEXITCODE)" }
 
-  $exes = @("privycs-vpn-windows-amd64.exe", "privycs-vpn-windows-amd64-setup.exe") | Where-Object { Test-Path $_ }
+  # Glob (not fixed names) so it matches the versioned filenames
+  # privycs-vpn-windows-amd64-<ver>.exe / -setup-<ver>.exe (and any legacy ones).
+  $exes = @(Get-ChildItem -File -Filter 'privycs-vpn-windows-amd64*.exe' | ForEach-Object { $_.Name })
   if (-not $exes) { throw "No Windows .exe found in release $Tag." }
 
   # 2. sign + verify + refresh sha256

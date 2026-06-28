@@ -28,26 +28,29 @@ The Desktop Client replaces standalone VPN tools (WireGuard app, OpenVPN Connect
 
 ## Installation
 
+> Download filenames carry the release version, e.g. `privycs-vpn-linux-amd64-1.1.5.99.deb`.
+> Below, `<version>` stands for the version shown on the downloads / releases page.
+
 ### Windows
 
-1. Download **privycs-vpn-windows-amd64-setup.exe** from your Privycs gateway downloads page
+1. Download **privycs-vpn-windows-amd64-setup-\<version>.exe** from your Privycs gateway downloads page
 2. Run the installer (requires Administrator privileges for the VPN driver)
 3. Follow the setup wizard -- it installs the application and required WebView2 runtime
 4. Launch **Privycs VPN** from the Start Menu
 
-The standalone **privycs-vpn-windows-amd64.exe** is also available if you prefer a portable version without installation.
+The standalone **privycs-vpn-windows-amd64-\<version>.exe** is also available if you prefer a portable version without installation.
 
 ### macOS
 
 **Apple Silicon (M1/M2/M3):**
 
-1. Download **privycs-vpn-darwin-arm64.dmg**
+1. Download **privycs-vpn-darwin-arm64-\<version>.dmg**
 2. Open the DMG and drag **Privycs VPN** to your Applications folder
 3. On first launch, right-click the app and select **Open** to bypass Gatekeeper (the app is not yet notarized)
 
 **Intel Mac:**
 
-1. Download **privycs-vpn-darwin-amd64.dmg** (or the `.zip` archive)
+1. Download **privycs-vpn-darwin-amd64-\<version>.dmg** (or the `.zip` archive)
 2. Same process as above
 
 ### Linux
@@ -55,7 +58,7 @@ The standalone **privycs-vpn-windows-amd64.exe** is also available if you prefer
 **Debian/Ubuntu (.deb package):**
 
 ```bash
-sudo dpkg -i privycs-vpn-linux-amd64.deb
+sudo dpkg -i privycs-vpn-linux-amd64-<version>.deb
 sudo apt-get install -f   # install dependencies if needed
 ```
 
@@ -64,8 +67,8 @@ The package installs to `/usr/local/bin/privycs-vpn` with a desktop entry and ap
 **Binary (any distribution):**
 
 ```bash
-chmod +x privycs-vpn-linux-amd64
-sudo mv privycs-vpn-linux-amd64 /usr/local/bin/privycs-vpn
+chmod +x privycs-vpn-linux-amd64-<version>
+sudo mv privycs-vpn-linux-amd64-<version> /usr/local/bin/privycs-vpn
 ```
 
 ### Dependencies
