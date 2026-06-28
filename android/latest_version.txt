@@ -1,2 +1,2 @@
-versionCode=10304
-versionName=1.1.5
+versionCode=10305
+versionName=1.1.5.98

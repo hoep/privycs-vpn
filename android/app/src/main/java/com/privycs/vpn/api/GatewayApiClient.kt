@@ -51,6 +51,12 @@ class GatewayApiClient(
             config {
                 connectTimeout(15, TimeUnit.SECONDS)
                 readTimeout(15, TimeUnit.SECONDS)
+                // Never follow redirects: the request carries the Bearer API
+                // key. A compromised/malicious gateway could 30x-bounce it to
+                // an attacker host (SSRF / credential exfil). Pin the key to the
+                // exact host the user configured.
+                followRedirects(false)
+                followSslRedirects(false)
             }
         }
         defaultRequest {

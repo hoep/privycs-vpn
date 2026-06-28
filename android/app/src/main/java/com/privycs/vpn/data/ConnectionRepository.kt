@@ -647,6 +647,11 @@ class ConnectionRepository(private val context: Context) {
                         .getAppWidgetIds(android.content.ComponentName(context, cls))
                     if (ids.isEmpty()) continue
                     val intent = android.content.Intent(context, cls).apply {
+                        // Component-explicit already (Intent(context, cls)), so it
+                        // never fans out to other apps; setPackage is belt-and-braces
+                        // (and silences the Aikido "broadcast without receiver
+                        // permission" pattern-match).
+                        setPackage(context.packageName)
                         action = android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE
                         putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
                     }

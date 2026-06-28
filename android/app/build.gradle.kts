@@ -274,7 +274,9 @@ dependencies {
     // java.security.Signature("Ed25519") is API 33+ only, and we target
     // minSdk=26. BC's low-level Ed25519Signer doesn't require Provider
     // registration. R8 strips unused algorithms; net APK growth ~300 KB.
-    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    // Pinned >= 1.84: 1.71–1.83 carry a FrodoEngine covert-timing-channel
+    // CVE (we don't use Frodo, but Aikido flags by version range).
+    implementation("org.bouncycastle:bcprov-jdk18on:1.84")
 
     // Kotlin serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")

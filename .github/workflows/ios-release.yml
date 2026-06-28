@@ -31,8 +31,10 @@ jobs:
           MACOS_VERSION=$(cat ios/macos_latest_version.txt 2>/dev/null | tr -d '[:space:]')
           echo "macos_version=$MACOS_VERSION" >> $GITHUB_OUTPUT
       - id: check
+        env:
+          GH_REF: ${{ github.ref }}
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 "${{ github.ref }}^" 2>/dev/null || echo "")
+          PREV_TAG=$(git describe --tags --abbrev=0 "$GH_REF^" 2>/dev/null || echo "")
           if [ -z "$PREV_TAG" ]; then
             echo "ios_changed=true" >> $GITHUB_OUTPUT
             echo "tvos_changed=true" >> $GITHUB_OUTPUT
@@ -47,7 +49,7 @@ jobs:
           # the duplicate (v1.0.7.8 failed exactly here). Building + uploading
           # to TestFlight must require a deliberate iOS version bump, which
           # also honors "no iOS release until feature parity".
-          CHANGED=$(git diff --name-only "$PREV_TAG" "${{ github.ref }}")
+          CHANGED=$(git diff --name-only "$PREV_TAG" "$GH_REF")
           # iOS and tvOS gate on SEPARATE version files so an iOS-only tag doesn't
           # rebuild/upload tvOS and vice versa (they're distinct App Store platforms
           # under the Universal Purchase app record).
@@ -337,9 +339,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"; REPO="${{ github.repository }}"
+          TAG="$REF_NAME"; REPO="${{ github.repository }}"
           # Race-safe: build-ios + build-tvos both attach to the SAME release.
           # softprops/action-gh-release raced on create → the loser hit
           # "already_exists" (422) and the job showed a cosmetic failure.
@@ -663,9 +666,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"; REPO="${{ github.repository }}"
+          TAG="$REF_NAME"; REPO="${{ github.repository }}"
           # Race-safe attach (see build-ios): create-if-missing then clobber-upload
           # so build-ios + build-tvos never collide on the shared release (422).
           if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
@@ -927,9 +931,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"; REPO="${{ github.repository }}"
+          TAG="$REF_NAME"; REPO="${{ github.repository }}"
           if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "$REPO" --title "Privycs VPN $TAG" \
               $([ "${TAG#*-}" != "$TAG" ] && echo --prerelease) --generate-notes || true

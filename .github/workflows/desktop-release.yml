@@ -583,9 +583,10 @@ jobs:
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"; REPO="${{ github.repository }}"
+          TAG="$REF_NAME"; REPO="${{ github.repository }}"
           if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "$REPO" --title "Privycs VPN $TAG" \
               $([ "${TAG#*-}" != "$TAG" ] && echo --prerelease) --generate-notes \

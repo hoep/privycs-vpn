@@ -94,7 +94,17 @@ func (a *App) apiRequest(method, path string) ([]byte, error) {
 
 	reqURL := strings.TrimRight(settings.GatewayURL, "/") + path
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Refuse redirects: the request carries the Bearer API key, and a
+	// compromised/malicious gateway could 30x-bounce it to an attacker host
+	// (SSRF / token-exfil). validateGatewayURL already pins https + rejects
+	// non-loopback http; blocking redirects closes the post-connect hop so the
+	// key only ever reaches the exact host the user configured.
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	req, err := http.NewRequest(method, reqURL, nil)
 	if err != nil {
 		log.Printf("apiRequest: NewRequest FAILED: %v", err)

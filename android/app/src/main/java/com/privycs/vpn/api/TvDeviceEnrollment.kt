@@ -77,6 +77,10 @@ class TvDeviceEnrollment(
             config {
                 connectTimeout(15, TimeUnit.SECONDS)
                 readTimeout(15, TimeUnit.SECONDS)
+                // Don't follow redirects to a host the user didn't configure
+                // (SSRF hardening, consistent with GatewayApiClient).
+                followRedirects(false)
+                followSslRedirects(false)
             }
         }
         defaultRequest {
