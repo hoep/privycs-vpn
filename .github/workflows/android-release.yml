@@ -297,10 +297,18 @@ jobs:
               || echo "Race: release was created by another workflow just now."
           fi
           shopt -s nullglob
-          files=(android/app/build/outputs/bundle/release/*.aab \
-                 android/app/build/outputs/bundle/release/*.aab.sha256 \
-                 android/app/build/outputs/apk/release/*.apk \
-                 android/app/build/outputs/apk/release/*.sha256)
+          # Paths are relative to the job's working-directory (android/), so NO
+          # "android/" prefix here — unlike the upload-artifact action steps,
+          # which run from the repo root. (A leading android/ made these globs
+          # match nothing -> empty array -> "gh release upload requires at
+          # least 2 args" on v1.1.5.100.)
+          files=(app/build/outputs/bundle/release/*.aab \
+                 app/build/outputs/bundle/release/*.aab.sha256 \
+                 app/build/outputs/apk/release/*.apk \
+                 app/build/outputs/apk/release/*.sha256)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No AAB/APK artifacts found to upload"; exit 1
+          fi
           gh release upload "$TAG" "${files[@]}" --repo "$REPO" --clobber
 
   # Debug APK build — parallel to build-aab when build_apks=true.
@@ -438,8 +446,12 @@ jobs:
               || echo "Race: release was created by another workflow just now."
           fi
           shopt -s nullglob
-          files=(android/app/build/outputs/apk/debug/*.apk \
-                 android/app/build/outputs/apk/debug/*.sha256)
+          # Relative to working-directory (android/) — no android/ prefix.
+          files=(app/build/outputs/apk/debug/*.apk \
+                 app/build/outputs/apk/debug/*.sha256)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No debug APK found to upload"; exit 1
+          fi
           gh release upload "$TAG" "${files[@]}" --repo "$REPO" --clobber
 
   propagate-previous-android:
