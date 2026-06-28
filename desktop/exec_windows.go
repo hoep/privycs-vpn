@@ -30,11 +30,9 @@ func execHiddenContext(ctx context.Context, name string, args ...string) *exec.C
 	return cmd
 }
 
-// runElevated runs a command with UAC elevation (runas) on Windows.
-// This triggers a UAC prompt for the user to approve admin access.
-func runElevated(executable string, args string) error {
-	verb := "runas"
-	cmd := exec.Command("cmd", "/C", "start", "", "/wait", "/b", verb, executable, args)
-	hideWindow(cmd)
-	return cmd.Run()
-}
+// NOTE: a previous runElevated() helper that shelled out via
+// `cmd /C start ... runas <exe> <args>` was removed — it had no callers
+// (elevation now goes through the privileged helper / SCM service, not an
+// ad-hoc UAC shell-out) and `cmd /C` is a real shell, so it was a standing
+// command-injection footgun (flagged by Aikido). Don't reintroduce a
+// cmd.exe-based elevation path; route privileged actions through the helper.

@@ -116,6 +116,11 @@ func sanitizeNotificationText(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "`", "'")
 	s = strings.ReplaceAll(s, `\`, "/")
+	// Drop double quotes too: the macOS path embeds these strings into an
+	// osascript program. fmt's %q already escapes quotes for the AppleScript
+	// literal, but stripping them here makes the sanitizer self-sufficient so
+	// no caller/format change can ever open an AppleScript-injection hole.
+	s = strings.ReplaceAll(s, `"`, "'")
 	if len(s) > 256 {
 		s = s[:253] + "..."
 	}
