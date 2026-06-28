@@ -272,23 +272,30 @@ jobs:
           retention-days: 90
 
       # Attach the AAB (and release APK if built) to the GitHub Release.
-      # softprops/action-gh-release is idempotent so the debug-APK job
-      # below can append its own asset later without conflict. Only
-      # runs on tag pushes — workflow_dispatch runs don't create a
-      # Release (the human triggering them already has the tag).
+      # Uses the gh CLI (not softprops/action-gh-release) so a release the
+      # Desktop/iOS workflow already created for the SAME tag is tolerated:
+      # softprops races on concurrent create and fails with
+      # "already_exists" (v1.1.5.98 hit exactly this). create-if-missing +
+      # upload --clobber is race-safe AND re-run-safe.
       - name: Create / append to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          name: Privycs VPN ${{ github.ref_name }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
-            android/app/build/outputs/bundle/release/*.aab
-            android/app/build/outputs/bundle/release/*.aab.sha256
-            android/app/build/outputs/apk/release/*.apk
-            android/app/build/outputs/apk/release/*.sha256
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TAG="$REF_NAME"; REPO="${{ github.repository }}"
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --title "Privycs VPN $TAG" \
+              $([ "${TAG#*-}" != "$TAG" ] && echo --prerelease) --generate-notes \
+              || echo "Race: release was created by another workflow just now."
+          fi
+          shopt -s nullglob
+          files=(android/app/build/outputs/bundle/release/*.aab \
+                 android/app/build/outputs/bundle/release/*.aab.sha256 \
+                 android/app/build/outputs/apk/release/*.apk \
+                 android/app/build/outputs/apk/release/*.sha256)
+          gh release upload "$TAG" "${files[@]}" --repo "$REPO" --clobber
 
   # Debug APK build — parallel to build-aab when build_apks=true.
   # Conditional: only runs when the user opted into APK builds (via
@@ -408,20 +415,26 @@ jobs:
             android/app/build/outputs/apk/debug/*.sha256
           retention-days: 90
 
-      # Append the debug APK to the existing GitHub Release that
-      # build-aab created. Idempotent — softprops re-uses the
-      # existing release; the new files are added alongside the AAB.
+      # Append the debug APK to the existing GitHub Release. gh upload
+      # --clobber so it's safe whether build-aab or another platform
+      # workflow created the release first (same race-tolerance as above).
       - name: Append debug APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          name: Privycs VPN ${{ github.ref_name }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
-            android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/debug/*.sha256
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TAG="$REF_NAME"; REPO="${{ github.repository }}"
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --title "Privycs VPN $TAG" \
+              $([ "${TAG#*-}" != "$TAG" ] && echo --prerelease) --generate-notes \
+              || echo "Race: release was created by another workflow just now."
+          fi
+          shopt -s nullglob
+          files=(android/app/build/outputs/apk/debug/*.apk \
+                 android/app/build/outputs/apk/debug/*.sha256)
+          gh release upload "$TAG" "${files[@]}" --repo "$REPO" --clobber
 
   propagate-previous-android:
     name: Propagate previous Android APKs
