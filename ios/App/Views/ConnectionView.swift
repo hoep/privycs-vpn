@@ -264,11 +264,16 @@ struct ConnectionView: View {
 
     // MARK: Multi-config protocol badge row
 
-    /// Protocol pills appear ONLY for a standard connection with more than
-    /// one distinct protocol — never for a pool (a pool has its own
-    /// indicator card; switching its protocol via a pill makes no sense).
+    /// Protocol pills appear for any standard (non-pool) connection that holds
+    /// at least one protocol — matching Android & Desktop, which both render the
+    /// badge row even for a single-protocol connection (informational; tapping a
+    /// multi-config protocol opens the picker). Previously iOS gated on `> 1`,
+    /// so a connection with only WireGuard (e.g. 4 single-protocol WG configs)
+    /// showed NO pill on iOS while Android/Desktop showed a WireGuard pill —
+    /// the lone cross-platform inconsistency. Never shown for a pool (it has its
+    /// own indicator card).
     private var showProtocolPills: Bool {
-        appState.activePool == nil && appState.selectedPool == nil && uniqueProtocols.count > 1
+        appState.activePool == nil && appState.selectedPool == nil && !uniqueProtocols.isEmpty
     }
 
     private var protocolBadgeRow: some View {

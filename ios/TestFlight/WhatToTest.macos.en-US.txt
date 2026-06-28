@@ -2,9 +2,9 @@ Native macOS app built from the iOS codebase (same screens as iPhone, in a Mac
 window). WireGuard / AmneziaWG / OpenVPN / IPSec, pools + rotation, on-demand
 network rules, backup/restore, gateway import.
 
-v1.1.5.100 — coordinated all-platform rebuild (one shared version across iOS /
-Apple TV / Mac / Android / Desktop). No new Mac features vs the previous beta;
-re-ships the latest fixes on the aligned version.
+v1.1.5.101 — Connect screen now shows the protocol pill even for single-protocol
+connections (e.g. WireGuard-only), matching Android/Desktop. Previously the pill
+row only appeared for multi-protocol connections.
 
 NEW (recent builds):
 - Real KILL SWITCH: with it ON, all traffic is forced through the tunnel and the

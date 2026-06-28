@@ -1,7 +1,8 @@
-v1.1.5.100 — Coordinated all-platform rebuild (iOS / Apple TV / Mac / Android /
-Desktop now share one version). No new iOS features vs the previous beta; this
-build re-ships the latest fixes (real kill switch + cross-platform backup) on the
-aligned version. Please re-verify the two flows below.
+v1.1.5.101 — Connect screen now shows the protocol pill even when a connection
+has only one protocol (e.g. a WireGuard-only setup) — matching Android/Desktop.
+Previously the pill row only appeared for multi-protocol connections, so iPhone/
+iPad users with only WireGuard saw no protocol pill. Please check the Connect
+screen shows the WireGuard (or other) pill for a single-protocol connection.
 
 - KILL SWITCH is now a real OS-level block: with it ON, all traffic is forced
   through the tunnel and the system DROPS any traffic when the tunnel is down or
