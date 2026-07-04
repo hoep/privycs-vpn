@@ -19,9 +19,27 @@ Privycs Connect is a zero-touch VPN client designed for end users who need to co
 
 ## Installation
 
-Download the binary for your platform and make it executable.
+### Quick install (recommended)
 
-### Linux (amd64)
+The gateway serves a one-liner installer at `/install-connect.sh`. It detects your OS and architecture, installs the WireGuard dependencies (`wireguard-tools` plus `openresolv`/`resolvconf` for DNS), downloads the matching `privycs-connect` binary, and installs it to `/usr/local/bin/privycs-connect`. Replace `vpn.company.com` with your gateway's address.
+
+```bash
+sudo curl -fsSL https://vpn.company.com/install-connect.sh | bash
+```
+
+Pass an enrollment token to install **and** enroll in a single step. When a token is supplied and `systemctl` is present, the installer also runs `service install` + `service enable`, so the tunnel auto-starts on boot:
+
+```bash
+sudo curl -fsSL https://vpn.company.com/install-connect.sh | bash -s -- <enrollment-token>
+```
+
+The script covers Linux (amd64/arm64) and macOS (Intel/Apple Silicon). It installs missing WireGuard tooling automatically via `apt` (Debian/Ubuntu), `dnf`/`yum` (RHEL/Fedora), `pacman` (Arch), or `brew` (macOS), and must run as root (via `sudo`).
+
+### Manual download
+
+If you prefer to place the binary yourself, download it for your platform, make it executable, and install the WireGuard tools separately (`wireguard-tools` + `openresolv`/`resolvconf` on Linux, `brew install wireguard-tools` on macOS, WireGuard for Windows).
+
+**Linux (amd64)**
 
 ```bash
 curl -sL https://www.privycs.com/downloads/privycs-connect-linux-amd64 \
@@ -29,7 +47,7 @@ curl -sL https://www.privycs.com/downloads/privycs-connect-linux-amd64 \
 chmod +x /usr/local/bin/privycs-connect
 ```
 
-### Linux (arm64)
+**Linux (arm64)**
 
 ```bash
 curl -sL https://www.privycs.com/downloads/privycs-connect-linux-arm64 \
@@ -37,7 +55,7 @@ curl -sL https://www.privycs.com/downloads/privycs-connect-linux-arm64 \
 chmod +x /usr/local/bin/privycs-connect
 ```
 
-### macOS (Intel)
+**macOS (Intel)**
 
 ```bash
 curl -sL https://www.privycs.com/downloads/privycs-connect-darwin-amd64 \
@@ -45,7 +63,7 @@ curl -sL https://www.privycs.com/downloads/privycs-connect-darwin-amd64 \
 chmod +x /usr/local/bin/privycs-connect
 ```
 
-### macOS (Apple Silicon)
+**macOS (Apple Silicon)**
 
 ```bash
 curl -sL https://www.privycs.com/downloads/privycs-connect-darwin-arm64 \
@@ -53,7 +71,7 @@ curl -sL https://www.privycs.com/downloads/privycs-connect-darwin-arm64 \
 chmod +x /usr/local/bin/privycs-connect
 ```
 
-### Windows
+**Windows**
 
 Download `privycs-connect-windows-amd64.exe` from `https://www.privycs.com/downloads/` and place it in a directory on your PATH. All commands below that use `privycs-connect` should use `privycs-connect.exe` on Windows. Administrator privileges are required for enrollment and tunnel management (run Command Prompt or PowerShell as Administrator).
 
@@ -86,14 +104,16 @@ This brings up the WireGuard tunnel using the saved configuration.
 ### Step 4: Verify
 
 ```bash
-privycs-connect status
+sudo privycs-connect status
 ```
 
-This shows the current connection state, assigned IP address, and gateway information. This command does not require root.
+This shows the current connection state, assigned IP address, and gateway information.
 
 ---
 
 ## Command Reference
+
+> **Privycs Connect runs as root only.** Every command must be run with `sudo` (or as the root user). The client keeps its enrollment state and WireGuard configuration under `/etc/privycs/connect/` (root-owned, `0600`) and manages network interfaces, routing, and DNS — all of which require root. On Windows, run the terminal as Administrator.
 
 ### enroll
 
@@ -216,7 +236,7 @@ The enrollment state and configuration files are preserved. You can run `up` aga
 Shows the current enrollment and connection state.
 
 ```
-privycs-connect status
+sudo privycs-connect status
 ```
 
 **What it shows:**
@@ -228,7 +248,7 @@ privycs-connect status
 - **Address:** the assigned VPN IP address
 - **Last Connect:** timestamp of the last successful connection
 
-**Does NOT require root.**
+**Requires:** root/sudo. Privycs Connect reads its state and configuration from `/etc/privycs/connect/` (root-owned, `0600`), so every command — including `status` — must run under `sudo` or as root.
 
 **Example output:**
 
@@ -251,7 +271,7 @@ Enrolled: no
 
 ### update
 
-Checks the gateway for a newer version of the Privycs Connect binary and installs it.
+Checks the gateway for a newer Privycs Connect binary and, if one is published, downloads and installs it in place.
 
 ```
 sudo privycs-connect update
@@ -259,47 +279,48 @@ sudo privycs-connect update
 
 **What it does:**
 
-1. Queries the gateway for the latest available version
-2. Compares it with the currently running version
-3. If a newer version is available, downloads it
-4. Verifies the SHA-256 checksum provided by the gateway
-5. Replaces the running binary with the new version
+1. Reads the gateway URL from the device's enrollment state (the device must be enrolled)
+2. Calls the gateway's version-check endpoint and compares the running **semantic** version against the published one (build numbers are ignored — the connect and gateway binaries have independent build counters)
+3. If they match, prints `Already up to date.` and exits
+4. Otherwise downloads the new binary for this OS/architecture
+5. Verifies the SHA-256 checksum the gateway reports. This is **mandatory** — if the gateway returns no checksum, or it does not match, the update is refused and nothing is replaced
+6. Atomically swaps the binary in place (the previous binary is briefly kept as a `.old` backup and restored automatically if the swap fails)
 
-**Requires:** root/sudo
+**Requires:** root/sudo, and the device must already be enrolled.
 
-**Example:**
-
-```bash
-sudo privycs-connect update
-```
-
-**Output when up to date:**
+**Example (already current):**
 
 ```
-Already running latest version (1.4.2).
+Checking for updates from https://vpn.company.com ...
+  Current: v1.4.2
+  Latest:  v1.4.2
+Already up to date.
 ```
 
-**Output when updating:**
+**Example (update applied):**
 
 ```
-Downloading version 1.5.0...
-Checksum verified.
-Updated successfully. Please restart privycs-connect.
+Checking for updates from https://vpn.company.com ...
+  Current: v1.4.2
+  Latest:  v1.5.0
+
+Update available. Downloading ...
+  Downloaded: 7314216 bytes
+  Checksum: verified
+
+Updated successfully: v1.4.2 -> v1.5.0
+Restart the VPN connection to use the new version:
+  sudo privycs-connect down && sudo privycs-connect up
 ```
 
-After updating, restart the tunnel if it is active:
-
-```bash
-sudo privycs-connect down
-sudo privycs-connect up
-```
-
-If using the systemd service, restart the service instead:
+After updating, restart the tunnel so the new binary takes over. If you run it via the systemd service, restart that instead:
 
 ```bash
 sudo privycs-connect service stop
 sudo privycs-connect service start
 ```
+
+For unattended or fleet updates — or to recover a broken binary without invoking it — use the standalone [`update-connect.sh`](#standalone-updater-update-connect-sh) script instead.
 
 ---
 
@@ -357,7 +378,7 @@ sudo privycs-connect service <action>
 | `disable` | Disables automatic start on boot (does not stop the service) | Yes |
 | `start` | Starts the VPN service immediately | Yes |
 | `stop` | Stops the VPN service immediately | Yes |
-| `status` | Shows the current service status (active, inactive, failed) | No |
+| `status` | Shows the current service status (active, inactive, failed) | Yes |
 
 **Examples:**
 
@@ -367,8 +388,8 @@ sudo privycs-connect service install
 sudo privycs-connect service enable
 sudo privycs-connect service start
 
-# Check status (no root needed)
-privycs-connect service status
+# Check status
+sudo privycs-connect service status
 
 # Disable and remove
 sudo privycs-connect service stop
@@ -423,7 +444,7 @@ The proxy attempts connection methods in this order:
 sudo privycs-connect proxy
 ```
 
-In most cases, you do not need to run the proxy separately. Use `privycs-connect up --proxy` instead, which starts the proxy integrated with the tunnel.
+In most cases, you do not need to run the proxy separately. Use `sudo privycs-connect up --proxy` instead, which starts the proxy integrated with the tunnel.
 
 ---
 
@@ -432,10 +453,10 @@ In most cases, you do not need to run the proxy separately. Use `privycs-connect
 Shows version information.
 
 ```
-privycs-connect version
+sudo privycs-connect version
 ```
 
-**Does NOT require root.**
+**Requires:** root/sudo (like every Privycs Connect command).
 
 **Example output:**
 
@@ -445,6 +466,42 @@ Build:  287
 Commit: a3f8c91
 Date:   2026-03-20T10:15:00Z
 ```
+
+---
+
+## Standalone Updater (`update-connect.sh`)
+
+Alongside the in-app `update` command, the gateway serves a self-contained shell updater at `/update-connect.sh`. It does the same job — version-check, checksum-verified download, atomic binary swap — but as an out-of-band script rather than the binary updating itself. Use it for:
+
+- **Cron / automation** — schedule unattended updates across a fleet
+- **Recovery** — replace a broken or partially-written binary that can no longer run its own `update`
+- **Fleet rollout** — update many hosts without invoking each binary directly
+
+On an enrolled host the script reads the gateway URL from the device's own state (`/etc/privycs/connect/connect.json`), so no arguments are needed. It works on any systemd-based Linux distribution, stops any running `privycs-connect` / `privycs-connect-daemon` services before swapping the binary, and restarts whichever were active afterwards.
+
+**One-liner:**
+
+```bash
+curl -fsSL https://vpn.company.com/update-connect.sh | sudo bash
+```
+
+**Or download and run it:**
+
+```bash
+sudo ./update-connect.sh
+```
+
+**Flags:**
+
+| Flag | Description |
+|---|---|
+| `--gateway <url>` | Use this gateway instead of the one in the enrollment state (required if the host is not enrolled) |
+| `--check` | Report whether an update is available, but do not install it |
+| `--force` | Reinstall even when the versions already match |
+| `--insecure`, `-k` | Accept a self-signed gateway TLS certificate |
+| `-h`, `--help` | Print usage |
+
+The updater refuses to install a binary whose SHA-256 checksum does not match what the gateway reports, and it requires root (run via `sudo`).
 
 ---
 
@@ -567,8 +624,8 @@ If the problem persists, download the binary manually from `https://www.privycs.
 
 ### DNS not resolving through VPN
 
-- Check that the VPN is connected: `privycs-connect status`
-- Verify DNS configuration: `cat /etc/privycs/connect/privycs0.conf | grep DNS`
+- Check that the VPN is connected: `sudo privycs-connect status`
+- Verify DNS configuration: `sudo cat /etc/privycs/connect/privycs0.conf | grep DNS`
 - On Linux, check that `resolvconf` or `systemd-resolved` is handling DNS correctly
 - Try flushing the DNS cache and reconnecting:
 
@@ -597,8 +654,8 @@ The `AllowedIPs` field in the WireGuard configuration controls which traffic is 
 
 ### Service fails to start on boot
 
-- Check service status: `privycs-connect service status`
-- Check journal logs: `journalctl -u privycs-connect --no-pager -n 50`
+- Check service status: `sudo privycs-connect service status`
+- Check journal logs: `sudo journalctl -u privycs-connect --no-pager -n 50`
 - Ensure the service was installed and enabled:
 
 ```bash
