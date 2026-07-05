@@ -604,27 +604,36 @@ jobs:
           # basename) tracks the new filename. Renaming a .dmg/.zip/.exe does
           # NOT touch its (internal, filename-independent) signature.
           VER="${REF_NAME#v}"
-          for d in artifacts/privycs-vpn-*/; do
-            [ -d "$d" ] || continue
-            for f in "$d"*; do
-              # ONLY version our own artifacts. Bundled third-party deps that
-              # ship alongside (e.g. wintun.dll, which the portable .exe loads
-              # by its exact name) must keep their filename — versioning them
-              # breaks the app.
-              case "$(basename "$f")" in privycs-vpn-*) ;; *) continue;; esac
-              case "$f" in *.sha256) continue;; esac   # sidecars regenerated below
-              name="$(basename "$f")"; base="${name%%.*}"; rest="${name#"$base"}"
-              mv "$f" "${d}${base}-${VER}${rest}"
-            done
-            # Regenerate sidecars only for our (now versioned) artifacts; leave
-            # bundled deps (and their lack of a sidecar) untouched.
-            rm -f "$d"privycs-vpn-*.sha256
-            for f in "$d"privycs-vpn-*; do
-              case "$f" in *.sha256) continue;; esac
-              ( cd "$d" && sha256sum "$(basename "$f")" > "$(basename "$f").sha256" )
-            done
+          # download-artifact lays files out as artifacts/<artifact>/<file> when
+          # SEVERAL artifacts exist, but FLATTENS to artifacts/<file> when only
+          # one artifact was produced (a single-OS release, e.g. Linux-only —
+          # this silently shipped a release with NO Linux assets before the fix).
+          # Handle both depths via `artifacts/* artifacts/*/*`.
+          # ONLY version our own artifacts — bundled third-party deps (e.g.
+          # wintun.dll, which the portable .exe loads by its exact name) keep
+          # their filename; versioning them breaks the app.
+          version_one() {
+            local f="$1" name base rest
+            [ -f "$f" ] || return 0
+            case "$(basename "$f")" in privycs-vpn-*) ;; *) return 0;; esac
+            case "$f" in *.sha256) return 0;; esac   # sidecars regenerated below
+            name="$(basename "$f")"; base="${name%%.*}"; rest="${name#"$base"}"
+            mv "$f" "$(dirname "$f")/${base}-${VER}${rest}"
+          }
+          for f in artifacts/* artifacts/*/*; do version_one "$f"; done
+          # Drop stale sidecars for our artifacts, then regenerate from the
+          # renamed files (bundled-dep sidecars, if any, are left untouched).
+          for f in artifacts/* artifacts/*/*; do
+            case "$(basename "$f")" in privycs-vpn-*.sha256) rm -f "$f";; esac
           done
-          FILES=( artifacts/privycs-vpn-*/* )
+          for f in artifacts/* artifacts/*/*; do
+            [ -f "$f" ] || continue
+            case "$(basename "$f")" in privycs-vpn-*) ;; *) continue;; esac
+            case "$f" in *.sha256) continue;; esac
+            ( cd "$(dirname "$f")" && sha256sum "$(basename "$f")" > "$(basename "$f").sha256" )
+          done
+          FILES=()
+          for f in artifacts/* artifacts/*/*; do [ -f "$f" ] && FILES+=("$f"); done
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No desktop artifacts to upload."; exit 0
           fi
