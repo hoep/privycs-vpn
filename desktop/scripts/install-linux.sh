@@ -7,12 +7,14 @@
 # families. AmneziaWG userland (awg-quick) has no package in the default repos,
 # so it is opt-in (--with-amneziawg builds it from source).
 #
-# Quick start (end users):
-#   curl -fsSL https://www.privycs.com/install-linux.sh | sudo bash
+# Quick start (end users) — the downloads area is password-protected, so pass
+# the download token to BOTH curl (for this script) and the script (--token):
+#   curl -fsSL -u 'dl:TOKEN' https://www.privycs.com/downloads/install-linux-client.sh | sudo bash -s -- --token TOKEN
 #
 # Options:
 #   --with-amneziawg     also build+install amneziawg-tools + amneziawg-go
 #   --version X.Y.Z.W    install a specific version (default: latest)
+#   --token TOKEN        download auth token (or $PRIVYCS_DOWNLOAD_TOKEN)
 #   --base URL           download base (default: $PRIVYCS_DOWNLOAD_BASE or
 #                        https://www.privycs.com/downloads)
 #   --deb PATH           install a local .deb instead of downloading (apt only)
@@ -29,6 +31,7 @@ WITH_AWG=0
 LOCAL_DEB=""
 DO_DEPS=1
 DO_APP=1
+DOWNLOAD_TOKEN="${PRIVYCS_DOWNLOAD_TOKEN:-}"
 
 log()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
@@ -39,6 +42,8 @@ while [ $# -gt 0 ]; do
     --with-amneziawg) WITH_AWG=1 ;;
     --version) VERSION="${2:?}"; shift ;;
     --base)    DOWNLOAD_BASE="${2:?}"; shift ;;
+    --token)   DOWNLOAD_TOKEN="${2:?}"; shift ;;
+    --token=*) DOWNLOAD_TOKEN="${1#*=}" ;;
     --deb)     LOCAL_DEB="${2:?}"; shift ;;
     --deps-only) DO_APP=0 ;;
     --no-deps)   DO_DEPS=0 ;;
@@ -48,6 +53,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Download auth: the privycs.com downloads area is password-protected (user
+# 'dl'), exactly like the server install.sh / update.sh. Pass the same token via
+# --token / $PRIVYCS_DOWNLOAD_TOKEN so the internal downloads below authenticate.
+CURL_AUTH=""
+[ -n "$DOWNLOAD_TOKEN" ] && CURL_AUTH="-u dl:$DOWNLOAD_TOKEN"
+
 # ---- must be root ---------------------------------------------------------
 if [ "$(id -u)" != "0" ]; then
   log "Re-running with sudo…"
@@ -55,6 +66,7 @@ if [ "$(id -u)" != "0" ]; then
     $([ "$WITH_AWG" = 1 ] && echo --with-amneziawg) \
     $([ -n "$VERSION" ] && echo --version "$VERSION") \
     --base "$DOWNLOAD_BASE" \
+    $([ -n "$DOWNLOAD_TOKEN" ] && echo --token "$DOWNLOAD_TOKEN") \
     $([ -n "$LOCAL_DEB" ] && echo --deb "$LOCAL_DEB") \
     $([ "$DO_APP" = 0 ] && echo --deps-only) \
     $([ "$DO_DEPS" = 0 ] && echo --no-deps)
@@ -140,8 +152,15 @@ install_amneziawg() {
 resolve_version() {
   [ -n "$VERSION" ] && return 0
   log "Resolving latest version…"
-  VERSION="$(curl -fsSL "$DOWNLOAD_BASE/latest_version_linux.txt" 2>/dev/null | tr -d '[:space:]' || true)"
-  [ -n "$VERSION" ] || die "could not determine latest version from $DOWNLOAD_BASE/latest_version_linux.txt — pass --version X.Y.Z.W"
+  VERSION="$(curl -fsSL $CURL_AUTH "$DOWNLOAD_BASE/latest_version_linux.txt" 2>/dev/null | tr -d '[:space:]' || true)"
+  if [ -z "$VERSION" ]; then
+    warn "Download base $DOWNLOAD_BASE is not reachable (the privycs.com downloads page may not be set up yet)."
+    warn "Fixes:"
+    warn "  • install a locally-downloaded package:  sudo bash $0 --deb ./privycs-vpn-linux-amd64-<ver>.deb"
+    warn "  • point at another host:                 PRIVYCS_DOWNLOAD_BASE=https://host bash $0"
+    warn "  • pin a version (still needs the base):  --version X.Y.Z.W"
+    die "could not determine latest version from $DOWNLOAD_BASE/latest_version_linux.txt"
+  fi
   log "Latest version: $VERSION"
 }
 
@@ -155,7 +174,7 @@ install_app_apt() {
     resolve_version
     deb="$(mktemp --suffix=.deb)"
     log "Downloading privycs-vpn-linux-amd64-$VERSION.deb…"
-    curl -fSL -o "$deb" "$DOWNLOAD_BASE/privycs-vpn-linux-amd64-$VERSION.deb" \
+    curl -fSL $CURL_AUTH -o "$deb" "$DOWNLOAD_BASE/privycs-vpn-linux-amd64-$VERSION.deb" \
       || die "download failed from $DOWNLOAD_BASE"
   fi
   log "Installing the .deb (pulls any remaining recommends)…"
@@ -166,7 +185,7 @@ install_app_apt() {
 install_app_binary() {
   resolve_version
   log "Downloading standalone binary privycs-vpn-linux-amd64-$VERSION…"
-  curl -fSL -o /usr/local/bin/privycs-vpn "$DOWNLOAD_BASE/privycs-vpn-linux-amd64-$VERSION" \
+  curl -fSL $CURL_AUTH -o /usr/local/bin/privycs-vpn "$DOWNLOAD_BASE/privycs-vpn-linux-amd64-$VERSION" \
     || die "download failed from $DOWNLOAD_BASE"
   chmod 0755 /usr/local/bin/privycs-vpn
   # Desktop launcher entry (the .deb ships this; for rpm/arch/suse we write it).
