@@ -84,8 +84,8 @@ type IPSecProtocol struct {
 	// the tunnel utun by diffing the utun set captured just before connect vs
 	// once connected (the new one is the tunnel). macosTunIface is then read
 	// for rx/tx via netstat. macOS-only.
-	macosPreUtuns  map[string]bool
-	macosTunIface  string
+	macosPreUtuns map[string]bool
+	macosTunIface string
 }
 
 // SetDnsOverride records the user's manual DNS server list (from
@@ -930,6 +930,19 @@ func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
 	// whichever pools it has; a v4-only server simply ignores the :: request
 	// (no v6 vip -> v6 stays contained). Mirrors the Windows/macOS/Android
 	// clients, which always request a config-mode address.
+	//
+	// start_action = none (NOT trap): with trap, `swanctl --load-all` — which
+	// runs at IMPORT/select time, BEFORE the user connects — installs kernel
+	// IPsec trap policies for the entire remote_ts. That set is nearly all of
+	// IPv4+IPv6 (the full-tunnel complement), so it BLACKHOLES traffic to the
+	// Privycs OpenVPN/WireGuard servers too (same Hetzner range, e.g.
+	// 2a01:4f8:13a::/52). A loaded-but-not-connected IPSec config then breaks
+	// connecting via any OTHER protocol (and failover). Linux-only — macOS/iOS
+	// use NEVPNManager, Windows uses RAS, none install swanctl traps, which is
+	// why the same gateway configs work everywhere except Linux. connectIPSec
+	// calls swanctl --initiate explicitly, so trap is unnecessary; with none,
+	// policies exist only for a negotiated SA and a failed initiate leaves
+	// nothing behind.
 	swanctlConf := fmt.Sprintf(`connections {
     %s {
         version = 2
@@ -950,7 +963,7 @@ func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
         children {
             %s {
                 remote_ts = %s
-                start_action = trap
+                start_action = none
                 dpd_action = restart
                 esp_proposals = %s
             }

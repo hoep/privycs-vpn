@@ -490,8 +490,13 @@ func buildWGConfigWithBypass(src string) (string, error) {
 			// default | sed 's/default//'` trick captures gateway+device
 			// in one go, then prepends a /32 host route that beats the
 			// 0.0.0.0/1 tunnel route by being more specific.
+			// head -1: a multi-homed box (this user's) has SEVERAL default
+			// routes, so `ip route show default` emits multiple `via … dev …`
+			// lines that concatenate into one invalid `ip route add … via X …
+			// via Y …` ("use nexthop syntax to specify multiple via"). Take
+			// only the first default route's gateway/dev.
 			bypassRules += fmt.Sprintf(
-				"PostUp = ip route add %s/32 $(ip route show default | sed 's/default//') || true\n"+
+				"PostUp = ip route add %s/32 $(ip route show default | head -1 | sed 's/default//') || true\n"+
 					"PreDown = ip route del %s/32 || true\n",
 				endpointIP, endpointIP)
 		}
@@ -506,7 +511,7 @@ func buildWGConfigWithBypass(src string) (string, error) {
 	// dead there.
 	if runtime.GOOS != "darwin" && endpointIPv6 != "" && !strings.Contains(content, endpointIPv6+"/128") {
 		bypassRules += fmt.Sprintf(
-			"PostUp = ip -6 route add %s/128 $(ip -6 route show default | sed 's/default//') || true\n"+
+			"PostUp = ip -6 route add %s/128 $(ip -6 route show default | head -1 | sed 's/default//') || true\n"+
 				"PreDown = ip -6 route del %s/128 || true\n",
 			endpointIPv6, endpointIPv6)
 	}
