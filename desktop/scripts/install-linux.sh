@@ -81,26 +81,29 @@ install_deps() {
       # webkit 4.1 (newer) with a 4.0 fallback for older releases (20.04).
       local webkit="libwebkit2gtk-4.1-0"
       apt-cache show "$webkit" >/dev/null 2>&1 || webkit="libwebkit2gtk-4.0-37"
+      # resolvconf provides the `resolvconf` command wg-quick needs to apply the
+      # DNS= lines from Privycs WireGuard configs — without it the whole WG DNS
+      # stack silently fails to set the tunnel resolver.
       apt-get install -y \
-        wireguard-tools openvpn strongswan strongswan-swanctl libcharon-extra-plugins \
+        wireguard-tools openvpn strongswan strongswan-swanctl libcharon-extra-plugins resolvconf \
         libgtk-3-0 "$webkit" libayatana-appindicator3-1 || \
         warn "some packages failed to install — check the output above"
       ;;
     dnf)
       dnf install -y \
-        wireguard-tools openvpn strongswan \
+        wireguard-tools openvpn strongswan openresolv \
         gtk3 webkit2gtk4.1 libappindicator-gtk3 || \
         warn "some packages failed — on RHEL you may need EPEL (dnf install epel-release)"
       ;;
     pacman)
       pacman -Sy --needed --noconfirm \
-        wireguard-tools openvpn strongswan \
+        wireguard-tools openvpn strongswan openresolv \
         gtk3 webkit2gtk-4.1 libayatana-appindicator || \
         warn "some packages failed to install"
       ;;
     zypper)
       zypper --non-interactive install -y \
-        wireguard-tools openvpn strongswan \
+        wireguard-tools openvpn strongswan openresolv \
         gtk3 libwebkit2gtk-4_1-0 libayatana-appindicator3-1 || \
         warn "some packages failed to install"
       ;;
