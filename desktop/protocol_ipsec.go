@@ -683,6 +683,33 @@ func (i *IPSecProtocol) configureLinuxFromSSwan(profile *sswanProfile) error {
 		LocalID:        profile.Local.ID,
 		BypassNetworks: profile.SplitTunneling,
 	}
+
+	// Extract the client credential from the .sswan PKCS#12 so the helper
+	// actually writes /etc/swanctl/{x509,private,x509ca}/*.pem that the
+	// generated swanctl.conf references (auth = pubkey, certs = privycs-client.pem).
+	// Without this the cert args are empty, cmdIPSecConfigure skips the empty
+	// files, and `swanctl --load-all` fails at IMPORT — the Linux-only "IPSec
+	// gateway config won't load" bug. macOS (swanctl) + Windows both consume the
+	// P12; Linux was the only path dropping it. extractPKCS12ToPEMs lives in
+	// protocol_ipsec_macos_swanctl.go (no build tag → compiled on Linux too).
+	if profile.Local.P12 != "" {
+		password := profile.Local.P12Password
+		if password == "" {
+			password = "privycs" // server default export password (matches macOS/Windows paths)
+		}
+		p12Bytes, err := base64Decode(profile.Local.P12)
+		if err != nil {
+			return fmt.Errorf("decode .sswan PKCS#12: %w", err)
+		}
+		caPEM, certPEM, keyPEM, err := extractPKCS12ToPEMs(p12Bytes, password)
+		if err != nil {
+			return fmt.Errorf("extract PKCS#12: %w", err)
+		}
+		ipsecCfg.CACertPEM = caPEM
+		ipsecCfg.ClientCertPEM = certPEM
+		ipsecCfg.ClientKeyPEM = keyPEM
+	}
+
 	return i.configureLinux(ipsecCfg)
 }
 

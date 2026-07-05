@@ -22,8 +22,8 @@ import (
 // which variant the user gets; the client has no user-facing toggle
 // (see AMNEZIAWG_CLIENT_PLAN.md §1).
 type WireGuardProtocol struct {
-	confPath    string
-	ifaceName   string
+	confPath  string
+	ifaceName string
 	// variant: "wireguard" (default) or "amneziawg". Set by
 	// Configure() based on content detection; consulted by
 	// IsAvailable/Up/Down/Status. Empty == vanilla, treated same as
@@ -456,8 +456,8 @@ func buildWGConfigWithBypass(src string) (string, error) {
 
 	endpointIP, endpointIPv6 := parseEndpointIPs(content)
 
+	var bypassRules string
 	if endpointIP != "" && !strings.Contains(content, endpointIP+"/32") {
-		var bypassRules string
 		switch runtime.GOOS {
 		case "darwin":
 			// macOS: use BSD `route` instead of Linux `ip route`. Without
@@ -481,7 +481,7 @@ func buildWGConfigWithBypass(src string) (string, error) {
 			// (visible in the user's wg-quick output as `route -q -n
 			// add -inet6 <endpoint-v6> -gateway <fe80::...%en0>`).
 			// Adding our own would conflict with wg-quick's.
-			bypassRules = fmt.Sprintf(
+			bypassRules += fmt.Sprintf(
 				"PostUp = route -q -n add -inet %s/32 -gateway $(route -n get default 2>/dev/null | awk '/gateway:/ {print $2}') || true\n"+
 					"PreDown = route -q -n delete -inet %s/32 || true\n",
 				endpointIP, endpointIP)
@@ -490,22 +490,32 @@ func buildWGConfigWithBypass(src string) (string, error) {
 			// default | sed 's/default//'` trick captures gateway+device
 			// in one go, then prepends a /32 host route that beats the
 			// 0.0.0.0/1 tunnel route by being more specific.
-			bypassRules = fmt.Sprintf(
+			bypassRules += fmt.Sprintf(
 				"PostUp = ip route add %s/32 $(ip route show default | sed 's/default//') || true\n"+
 					"PreDown = ip route del %s/32 || true\n",
 				endpointIP, endpointIP)
-			if endpointIPv6 != "" {
-				bypassRules += fmt.Sprintf(
-					"PostUp = ip -6 route add %s/128 $(ip -6 route show default | sed 's/default//') || true\n"+
-						"PreDown = ip -6 route del %s/128 || true\n",
-					endpointIPv6, endpointIPv6)
-			}
 		}
+	}
 
+	// IPv6 endpoint bypass — INDEPENDENT of the v4 endpoint, mirroring macOS
+	// (wg_macos.go gates on `endpointIPv6 != ""` alone). It used to be nested
+	// under `if endpointIP != ""`, so a v6-literal endpoint (Endpoint =
+	// [2a01::1]:51820 → endpointIP empty) got NO v6 bypass and its handshake
+	// packet looped into the ::/0 tunnel route. Linux only: macOS doesn't run
+	// wg-quick (wgDarwinUp installs v6 routes in-process), so a PostUp would be
+	// dead there.
+	if runtime.GOOS != "darwin" && endpointIPv6 != "" && !strings.Contains(content, endpointIPv6+"/128") {
+		bypassRules += fmt.Sprintf(
+			"PostUp = ip -6 route add %s/128 $(ip -6 route show default | sed 's/default//') || true\n"+
+				"PreDown = ip -6 route del %s/128 || true\n",
+			endpointIPv6, endpointIPv6)
+	}
+
+	if bypassRules != "" {
 		peerIdx := strings.Index(content, "[Peer]")
 		if peerIdx > 0 {
 			content = content[:peerIdx] + bypassRules + "\n" + content[peerIdx:]
-			log.Printf("Injected endpoint bypass routes for %s (IPv6: %s) [%s syntax]", endpointIP, endpointIPv6, runtime.GOOS)
+			log.Printf("Injected endpoint bypass routes (v4: %q, v6: %q) [%s syntax]", endpointIP, endpointIPv6, runtime.GOOS)
 		}
 	}
 

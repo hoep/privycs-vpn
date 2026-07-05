@@ -1069,6 +1069,14 @@ func (h *PrivilegedHelper) connectOpenVPN(cmd HelperCommand) HelperResponse {
 		"--writepid", pidPath,
 		"--management", mgmtHost, mgmtPort,
 	)
+	// Same PATH fix the WireGuard spawn gets (see wgExecEnv + the wg-quick
+	// spawn above): the helper runs as a systemd service / launchd daemon whose
+	// inherited PATH can lack /usr/sbin:/sbin, and on Linux openvpn applies the
+	// server-pushed default route + DNS by shelling out to `ip`/`route`/
+	// `resolvconf` BY BARE NAME. Without a PATH that finds them the tunnel comes
+	// up but no IPv4 default route is installed → "connects but no IPv4" (Linux
+	// only; macOS uses the route socket, Windows the interactive service).
+	c.Env = wgExecEnv()
 	out, err := c.CombinedOutput()
 	if err != nil {
 		return HelperResponse{Success: false, Error: fmt.Sprintf("openvpn start failed: %s", string(out)), Output: string(out)}
