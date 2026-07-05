@@ -80,7 +80,7 @@ jobs:
           #   a rebuild. Adds a few wasted minutes when only an
           #   _other.go file changed but avoids breakage.
           MACOS_RE='(_darwin\.go$|_macos(\.go|_[^/]*\.go)$|^desktop/build/darwin/|^desktop/latest_version_macos\.txt$)'
-          LINUX_RE='(_linux\.go$|_linux_[^/]*\.go$|_unix\.go$|^desktop/build/linux/|^desktop/latest_version_linux\.txt$)'
+          LINUX_RE='(_linux\.go$|_linux_[^/]*\.go$|_unix\.go$|^desktop/build/linux/|^desktop/latest_version_linux\.txt$|^desktop/nfpm\.yaml$|^desktop/build/postinstall\.sh$|^desktop/build/postremove\.sh$|^desktop/scripts/install-linux\.sh$)'
           WINDOWS_RE='(_windows\.go$|_windows_[^/]*\.go$|_win\.go$|^desktop/build/windows/|^desktop/latest_version_windows\.txt$)'
           # _unix.go targets non-Windows = Linux + macOS, so it also
           # counts as a macOS trigger.

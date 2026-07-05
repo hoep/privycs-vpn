@@ -55,20 +55,41 @@ The standalone **privycs-vpn-windows-amd64-\<version>.exe** is also available if
 
 ### Linux
 
+**Recommended — one-line installer (the closest thing to a Windows `setup.exe`):**
+
+```bash
+curl -fsSL https://www.privycs.com/install-linux.sh | sudo bash
+```
+
+This detects your distribution (Debian/Ubuntu, Fedora/RHEL, Arch, openSUSE),
+installs the app **and** the VPN protocol tools it needs — **WireGuard,
+OpenVPN and strongSwan/IPSec** — then adds a desktop launcher entry. Add
+`--with-amneziawg` to also build the AmneziaWG userland (needs a Go toolchain;
+see the AmneziaWG section below):
+
+```bash
+curl -fsSL https://www.privycs.com/install-linux.sh | sudo bash -s -- --with-amneziawg
+```
+
 **Debian/Ubuntu (.deb package):**
 
 ```bash
-sudo dpkg -i privycs-vpn-linux-amd64-<version>.deb
-sudo apt-get install -f   # install dependencies if needed
+# apt pulls in the VPN tools (declared as Recommends) automatically:
+sudo apt install ./privycs-vpn-linux-amd64-<version>.deb
 ```
 
-The package installs to `/usr/local/bin/privycs-vpn` with a desktop entry and application icon.
+The package installs to `/usr/local/bin/privycs-vpn` with a desktop entry and
+application icon, and recommends `wireguard-tools`, `openvpn`, `strongswan` +
+`strongswan-swanctl`. (`sudo dpkg -i …` also works but does **not** pull the
+recommended VPN tools — use `apt install ./…deb`, or install them by hand.)
 
 **Binary (any distribution):**
 
 ```bash
 chmod +x privycs-vpn-linux-amd64-<version>
 sudo mv privycs-vpn-linux-amd64-<version> /usr/local/bin/privycs-vpn
+# then install the VPN tools your protocols need, e.g. on Debian/Ubuntu:
+sudo apt install wireguard-tools openvpn strongswan strongswan-swanctl
 ```
 
 ### Dependencies
@@ -572,6 +593,7 @@ All files are stored with restricted permissions (owner read/write only).
 
 The Desktop Client shares its version-space with the Android Client. Tags are unified (`v0.9.10.X` covers both clients).
 
+- **v1.1.5.102** *(Linux only)* — **One-line Linux installer + the `.deb` now pulls in the VPN tools.** New `curl -fsSL https://www.privycs.com/install-linux.sh | sudo bash` installer — the closest thing to a Windows `setup.exe` on Linux: it detects your distro (Debian/Ubuntu, Fedora/RHEL, Arch, openSUSE), installs the app **and** its VPN protocol tools (WireGuard, OpenVPN, strongSwan/IPSec), and adds a launcher entry (`--with-amneziawg` also builds the AmneziaWG userland). The Debian package now recommends `wireguard-tools`, `openvpn`, `strongswan` + `strongswan-swanctl`, so `sudo apt install ./privycs-vpn-…​.deb` pulls them in automatically. macOS/Windows unchanged.
 - **v1.1.5.100** *(coordinated all-platform rebuild; all desktop OSes rebuilt)* — **Version alignment — iOS, Apple TV, Mac, Android and Desktop now share one version (1.1.5.100), all rebuilt from scratch.** No functional desktop changes; this also rolls out the new versioned download filenames (e.g. `privycs-vpn-linux-amd64-1.1.5.100.deb`, `privycs-vpn-windows-amd64-setup-1.1.5.100.exe`) for parity with the mobile builds.
 - **v1.1.5.99** *(cross-platform security hardening; all desktop OSes rebuilt)* — **Removed an unused elevation shell-out + hardened notification text.** Housekeeping from a security audit, no user-facing change: deleted a dead Windows helper that launched programs through the command shell (`cmd /C`) — it had no callers and was a latent command-injection footgun; privileged actions already go through the signed helper service. Also made the desktop-notification text sanitizer strip quote characters so the macOS notification path (which builds an AppleScript snippet) is injection-proof by construction.
 - **v1.1.5.98** *(cross-platform security hardening; all desktop OSes rebuilt)* — **Gateway requests no longer follow redirects.** When pulling your configs from a Privycs Gateway (Pro), the request carries your API key. The client now refuses to follow HTTP redirects on that request, so a misconfigured or hostile gateway can't bounce the key to a different host — it only ever reaches the exact gateway you configured (which is already pinned to HTTPS). No change for normal use. Part of a cross-platform security pass shipped alongside Android v1.1.5.98.

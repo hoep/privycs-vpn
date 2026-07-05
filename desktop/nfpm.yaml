@@ -25,6 +25,18 @@ depends:
   - libwebkit2gtk-4.0-0 | libwebkit2gtk-4.1-0
   - libayatana-appindicator3-1
 
+# VPN protocol userland. Recommends (not Depends) so `apt install ./pkg.deb`
+# pulls them in by default, but users who only use one protocol can drop the
+# rest (`apt --no-install-recommends`) and dpkg -i still works without them.
+# AmneziaWG (awg-quick) is NOT here — it has no package in the default Debian/
+# Ubuntu repos; the install script / docs cover it separately.
+recommends:
+  - wireguard-tools
+  - openvpn
+  - strongswan
+  - strongswan-swanctl
+  - libcharon-extra-plugins
+
 scripts:
   postinstall: build/postinstall.sh
   postremove: build/postremove.sh
