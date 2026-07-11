@@ -123,16 +123,65 @@ install_deps() {
   log "Dependencies done (WireGuard / OpenVPN / IPSec)."
 }
 
+# ---- Go toolchain (for the AmneziaWG source build) ------------------------
+# amneziawg-go's go.mod pins a RECENT Go (currently `go 1.25.x`). Distro
+# packages are far older — Ubuntu 22.04's `golang` is Go 1.18, which dies with
+#   go.mod:3: invalid go version '1.25.0': must match format 1.23
+# So never rely on the distro package: use the system Go only when it's new
+# enough, otherwise fetch the official toolchain into /usr/local/go.
+GO_MIN_MINOR=23        # need >= 1.23
+GO_PIN="1.25.5"        # official toolchain installed when the system one is too old
+GO_BIN=""
+
+ensure_modern_go() {
+  if command -v go >/dev/null 2>&1; then
+    local v maj min
+    v="$(go env GOVERSION 2>/dev/null | sed 's/^go//')"
+    maj="${v%%.*}"; min="${v#*.}"; min="${min%%.*}"
+    if [ "${maj:-0}" -gt 1 ] || { [ "${maj:-0}" -eq 1 ] && [ "${min:-0}" -ge "$GO_MIN_MINOR" ]; }; then
+      GO_BIN="$(command -v go)"
+      log "Using system Go $v"
+      return 0
+    fi
+    warn "System Go $v is too old for amneziawg-go (needs >= 1.$GO_MIN_MINOR) — fetching the official toolchain."
+  else
+    log "No Go toolchain found — fetching the official one."
+  fi
+
+  local arch
+  case "$(uname -m)" in
+    x86_64)        arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) warn "unsupported architecture $(uname -m) for the Go toolchain"; return 1 ;;
+  esac
+
+  local tgz; tgz="$(mktemp --suffix=.tar.gz)"
+  log "Downloading Go $GO_PIN ($arch)…"
+  if ! curl -fSL -o "$tgz" "https://go.dev/dl/go${GO_PIN}.linux-${arch}.tar.gz"; then
+    warn "Go download failed"; rm -f "$tgz"; return 1
+  fi
+  rm -rf /usr/local/go
+  tar -C /usr/local -xzf "$tgz"
+  rm -f "$tgz"
+  GO_BIN=/usr/local/go/bin/go
+  [ -x "$GO_BIN" ] || { warn "Go install to /usr/local/go failed"; return 1; }
+  log "Installed Go $GO_PIN to /usr/local/go"
+}
+
 # ---- AmneziaWG userland (opt-in, source build) ----------------------------
 install_amneziawg() {
   log "Installing AmneziaWG userland (awg-quick + amneziawg-go)…"
+  # NOTE: no `golang`/`go` here on purpose — ensure_modern_go handles the
+  # toolchain (the distro one is too old to build amneziawg-go).
   case "$PM" in
-    apt)    apt-get install -y git make gcc golang ;;
-    dnf)    dnf install -y git make gcc golang ;;
-    pacman) pacman -Sy --needed --noconfirm git make gcc go ;;
-    zypper) zypper --non-interactive install -y git make gcc go ;;
+    apt)    apt-get install -y git make gcc ;;
+    dnf)    dnf install -y git make gcc ;;
+    pacman) pacman -Sy --needed --noconfirm git make gcc ;;
+    zypper) zypper --non-interactive install -y git make gcc ;;
   esac
-  command -v go >/dev/null 2>&1 || { warn "Go toolchain not available — skipping AmneziaWG. Install 'go' and re-run with --with-amneziawg."; return 0; }
+
+  ensure_modern_go || { warn "No usable Go toolchain — skipping AmneziaWG. WireGuard/OpenVPN/IPSec still work."; return 0; }
+  export PATH="$(dirname "$GO_BIN"):$PATH"
 
   local tmp; tmp="$(mktemp -d)"
   (
@@ -152,14 +201,36 @@ install_amneziawg() {
 resolve_version() {
   [ -n "$VERSION" ] && return 0
   log "Resolving latest version…"
-  VERSION="$(curl -fsSL $CURL_AUTH "$DOWNLOAD_BASE/latest_version_linux.txt" 2>/dev/null | tr -d '[:space:]' || true)"
-  if [ -z "$VERSION" ]; then
-    warn "Download base $DOWNLOAD_BASE is not reachable (the privycs.com downloads page may not be set up yet)."
-    warn "Fixes:"
-    warn "  • install a locally-downloaded package:  sudo bash $0 --deb ./privycs-vpn-linux-amd64-<ver>.deb"
-    warn "  • point at another host:                 PRIVYCS_DOWNLOAD_BASE=https://host bash $0"
-    warn "  • pin a version (still needs the base):  --version X.Y.Z.W"
-    die "could not determine latest version from $DOWNLOAD_BASE/latest_version_linux.txt"
+
+  # Capture the HTTP status so we can tell "needs a token" (401/403) apart from
+  # "genuinely unreachable" — the downloads area is password-protected, and a
+  # bare "not reachable" message sent people hunting a non-existent outage.
+  local tmpf code
+  tmpf="$(mktemp)"
+  code="$(curl -sS -o "$tmpf" -w '%{http_code}' $CURL_AUTH "$DOWNLOAD_BASE/latest_version_linux.txt" 2>/dev/null || echo 000)"
+  [ "$code" = "200" ] && VERSION="$(tr -d '[:space:]' < "$tmpf")"
+  rm -f "$tmpf"
+
+  if [ -z "${VERSION:-}" ]; then
+    case "$code" in
+      401|403)
+        warn "The downloads area is password-protected (HTTP $code) — the URL is fine, the request just wasn't authenticated."
+        if [ -n "$DOWNLOAD_TOKEN" ]; then
+          warn "A token WAS supplied but the server rejected it — double-check it."
+        else
+          warn "Pass the download token — curl needs it too:"
+          warn "  curl -fsSL -u 'dl:TOKEN' $DOWNLOAD_BASE/install-linux-client.sh | sudo bash -s -- --token TOKEN"
+          warn "(or export PRIVYCS_DOWNLOAD_TOKEN=TOKEN)"
+        fi
+        ;;
+      000) warn "Could not reach $DOWNLOAD_BASE (network / DNS / TLS)." ;;
+      404) warn "$DOWNLOAD_BASE/latest_version_linux.txt not found (HTTP 404)." ;;
+      *)   warn "Unexpected HTTP $code from $DOWNLOAD_BASE/latest_version_linux.txt" ;;
+    esac
+    warn "Alternatives:"
+    warn "  • install a locally-downloaded package:  --deb ./privycs-vpn-linux-amd64-<ver>.deb"
+    warn "  • point at another host:                 PRIVYCS_DOWNLOAD_BASE=https://host"
+    die "could not determine the latest version"
   fi
   log "Latest version: $VERSION"
 }
