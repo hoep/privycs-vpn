@@ -877,74 +877,62 @@ func base64StdDecode(s string) ([]byte, error) {
 // linuxFullTS is the dual-stack full tunnel: both families captured.
 const linuxFullTS = "0.0.0.0/0, ::/0"
 
-// computeLinuxRemoteTS turns the .sswan split-tunneling (bypass) CIDRs into the
-// strongSwan child remote_ts. With no bypass it returns the full dual-stack
-// tunnel "0.0.0.0/0, ::/0"; with bypass nets it returns the v4+v6 complement of
-// those nets so strongSwan's start_action=trap never traps the bypass CIDRs --
-// they flow via the local gateway. IPv6 is now tunnelled (Variant B): the v6
-// bypass entries are honoured and ::/0 is captured. If the gateway IKE peer
-// only negotiates a v4 child SA, the v6 trap simply has no SA and v6 traffic is
-// dropped (contained, not leaked) until the server offers v6. Malformed entries
-// are skipped.
-func computeLinuxRemoteTS(bypass []string) string {
-	var nets []Cidr
+// bypassConnSuffix names the auxiliary strongSwan connection that carries the
+// split-tunnel exclusions.
+const bypassConnSuffix = "-bypass"
+
+// normalizeBypassNets parses the .sswan split-tunneling CIDRs, dropping
+// malformed entries.
+func normalizeBypassNets(bypass []string) []string {
+	var out []string
 	for _, s := range bypass {
 		c, err := ParseCidr(s)
 		if err != nil {
 			continue
 		}
-		nets = append(nets, c)
+		out = append(out, c.String())
 	}
-	if len(nets) == 0 {
-		return linuxFullTS
-	}
-	var parts []string
-	for _, c := range SubtractFromUniverse(nets) {
-		parts = append(parts, c.String())
-	}
-	if len(parts) == 0 {
-		// Bypass covered the entire address space -> nothing to tunnel. Fall
-		// back to the full tunnel rather than emitting an empty remote_ts.
-		return linuxFullTS
-	}
-	return strings.Join(parts, ", ")
+	return out
 }
 
-func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
-	ikeProposals := cfg.IKEProposals
-	if ikeProposals == "" {
-		ikeProposals = "aes256-sha256-modp2048"
-	}
-	espProposals := cfg.ESPProposals
-	if espProposals == "" {
-		espProposals = "aes256-sha256-modp2048"
-	}
+// buildLinuxSwanctlConf renders the swanctl.conf for a split-tunnel IPSec
+// connection.
+//
+// The child's remote_ts is ALWAYS the full dual-stack tunnel, and the excluded
+// subnets are carved out with a second connection whose child runs `mode = pass`
+// — strongSwan's canonical bypass mechanism. Those install XFRM *pass* policies
+// (plaintext, no SA required) which, being more specific than the 0.0.0.0/0
+// tunnel policy, win the kernel's longest-prefix policy lookup. Net effect on
+// the wire is identical to listing the complement; net effect on IKE is not.
+//
+// Why not put the complement in remote_ts (what we did until v1.1.5.109): the
+// exclusions' complement is ~300 prefixes, and remote_ts prefixes are sent to
+// the peer as IKEv2 traffic selectors. That inflated IKE_AUTH to 11760 bytes →
+// 11 UDP fragments → the server never answered, and every connect died with
+// "establishing IKE_SA failed, peer not responding" after 5 retransmits. Traced
+// on a live tunnel: IKE_SA_INIT completed fine (464 bytes out, 577 back), so the
+// peer was reachable all along — only the oversized IKE_AUTH went unanswered.
+// With the full TS, IKE_AUTH carries 2 selectors and fits in one packet.
+//
+// Linux-only problem by construction: Windows drives RAS (routes come from a
+// separate gateway-supplied script), macOS/iOS use NEVPNManager's
+// includedRoutes/excludedRoutes. Neither negotiates the exclusions in IKE, which
+// is why the identical gateway config connects everywhere except here.
+//
+// start_action on the tunnel child stays `none` (NOT trap): with trap,
+// `swanctl --load-all` — which runs at IMPORT/select time, BEFORE the user
+// connects — would install kernel IPsec trap policies for the whole remote_ts.
+// Those demand an SA and BLACKHOLE anything they match, so a loaded-but-not-
+// connected IPSec config broke connecting via any OTHER protocol (v1.1.5.104).
+// connectIPSec calls swanctl --initiate explicitly, so trap is unnecessary.
+// The bypass child DOES use trap, which is safe and necessary: pass policies
+// demand no SA — they say "send this in the clear" — so installing them at load
+// time is a no-op until a tunnel policy exists for them to override.
+func buildLinuxSwanctlConf(cfg *IPSecConfig, ikeProposals, espProposals string) string {
+	var b strings.Builder
 
-	remoteTS := computeLinuxRemoteTS(cfg.BypassNetworks)
-	if remoteTS != linuxFullTS {
-		log.Printf("IPSec Linux split-tunnel: bypass carved out, remote_ts=%s", remoteTS)
-	}
-
-	// Request a dual-stack virtual IP (v4 + v6) via IKEv2 config-mode so the
-	// tunnel has a v6 source address to carry ::/0. The server assigns from
-	// whichever pools it has; a v4-only server simply ignores the :: request
-	// (no v6 vip -> v6 stays contained). Mirrors the Windows/macOS/Android
-	// clients, which always request a config-mode address.
-	//
-	// start_action = none (NOT trap): with trap, `swanctl --load-all` — which
-	// runs at IMPORT/select time, BEFORE the user connects — installs kernel
-	// IPsec trap policies for the entire remote_ts. That set is nearly all of
-	// IPv4+IPv6 (the full-tunnel complement), so it BLACKHOLES traffic to the
-	// Privycs OpenVPN/WireGuard servers too (same Hetzner range, e.g.
-	// 2a01:4f8:13a::/52). A loaded-but-not-connected IPSec config then breaks
-	// connecting via any OTHER protocol (and failover). Linux-only — macOS/iOS
-	// use NEVPNManager, Windows uses RAS, none install swanctl traps, which is
-	// why the same gateway configs work everywhere except Linux. connectIPSec
-	// calls swanctl --initiate explicitly, so trap is unnecessary; with none,
-	// policies exist only for a negotiated SA and a failed initiate leaves
-	// nothing behind.
-	swanctlConf := fmt.Sprintf(`connections {
-    %s {
+	b.WriteString("connections {\n")
+	fmt.Fprintf(&b, `    %s {
         version = 2
         remote_addrs = %s
         vips = 0.0.0.0, ::
@@ -970,9 +958,45 @@ func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
         }
         proposals = %s
     }
-}
 `, cfg.ConnectionName, cfg.RemoteAddress, cfg.LocalID, cfg.RemoteID,
-		cfg.ConnectionName, remoteTS, espProposals, ikeProposals)
+		cfg.ConnectionName, linuxFullTS, espProposals, ikeProposals)
+
+	// remote_addrs = 127.0.0.1 keeps charon from ever initiating IKE for this
+	// pseudo-connection; it exists purely to carry the pass policies.
+	if bypass := normalizeBypassNets(cfg.BypassNetworks); len(bypass) > 0 {
+		name := cfg.ConnectionName + bypassConnSuffix
+		fmt.Fprintf(&b, `    %s {
+        remote_addrs = 127.0.0.1
+        children {
+            %s {
+                remote_ts = %s
+                mode = pass
+                start_action = trap
+            }
+        }
+    }
+`, name, name, strings.Join(bypass, ", "))
+	}
+
+	b.WriteString("}\n")
+	return b.String()
+}
+
+func (i *IPSecProtocol) configureLinux(cfg *IPSecConfig) error {
+	ikeProposals := cfg.IKEProposals
+	if ikeProposals == "" {
+		ikeProposals = "aes256-sha256-modp2048"
+	}
+	espProposals := cfg.ESPProposals
+	if espProposals == "" {
+		espProposals = "aes256-sha256-modp2048"
+	}
+
+	if bypass := normalizeBypassNets(cfg.BypassNetworks); len(bypass) > 0 {
+		log.Printf("IPSec Linux split-tunnel: full remote_ts + %d bypass net(s) as XFRM pass policies", len(bypass))
+	}
+
+	swanctlConf := buildLinuxSwanctlConf(cfg, ikeProposals, espProposals)
 
 	client := NewHelperClient()
 	if !client.IsHelperReachable() {

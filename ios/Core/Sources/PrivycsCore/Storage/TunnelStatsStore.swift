@@ -31,6 +31,17 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
     /// app-written history is stale when the app is closed).
     public var rxHistory: [Double]
     public var txHistory: [Double]
+    /// Epoch MILLIseconds at which the extension sampled rxBytes/txBytes.
+    ///
+    /// The producer's clock, not the reader's. The app polls this store on its
+    /// own free-running 1s timer while the extension writes on ITS own — two
+    /// unsynchronised timers, so a reader tick regularly lands before the next
+    /// write and re-reads identical counters. Timing that delta against the
+    /// READER's clock yields 0 B/s for that tick and ~2x on the next, beating in
+    /// and out as the phases drift. Timing it against this stamp (and skipping
+    /// re-reads of an unchanged snapshot) makes the readout independent of when
+    /// the reader happens to look. 0 = written by a build without this field.
+    public var updatedAtEpochMs: Int64
 
     public init(
         connected: Bool = false,
@@ -45,7 +56,8 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
         rxSpeed: Int64 = 0,
         txSpeed: Int64 = 0,
         rxHistory: [Double] = [],
-        txHistory: [Double] = []
+        txHistory: [Double] = [],
+        updatedAtEpochMs: Int64 = 0
     ) {
         self.connected = connected
         self.rxBytes = rxBytes
@@ -60,12 +72,13 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
         self.txSpeed = txSpeed
         self.rxHistory = rxHistory
         self.txHistory = txHistory
+        self.updatedAtEpochMs = updatedAtEpochMs
     }
 
     private enum CodingKeys: String, CodingKey {
         case connected, rxBytes, txBytes, localAddress, serverEndpoint
         case protocolRaw, connectedAtEpoch, lastError, lastHandshakeEpoch
-        case rxSpeed, txSpeed, rxHistory, txHistory
+        case rxSpeed, txSpeed, rxHistory, txHistory, updatedAtEpochMs
     }
 
     // Tolerant decoder so a snapshot written by an older build (without
@@ -85,6 +98,7 @@ public struct TunnelStatsSnapshot: Codable, Equatable, Sendable {
         txSpeed = try c.decodeIfPresent(Int64.self, forKey: .txSpeed) ?? 0
         rxHistory = try c.decodeIfPresent([Double].self, forKey: .rxHistory) ?? []
         txHistory = try c.decodeIfPresent([Double].self, forKey: .txHistory) ?? []
+        updatedAtEpochMs = try c.decodeIfPresent(Int64.self, forKey: .updatedAtEpochMs) ?? 0
     }
 }
 

@@ -820,7 +820,8 @@ final class VPNTunnelManager: ObservableObject {
             localAddress: snap?.localAddress ?? "",
             serverEndpoint: snap?.serverEndpoint ?? "",
             lastHandshake: Self.formatHandshakeAge(snap?.lastHandshakeEpoch ?? 0),
-            error: snap?.lastError ?? ""
+            error: snap?.lastError ?? "",
+            countersAtEpochMs: snap?.updatedAtEpochMs ?? 0
         )
     }
 
@@ -904,7 +905,8 @@ final class VPNTunnelManager: ObservableObject {
             rxBytes: rx,
             txBytes: tx,
             localAddress: localAddr,
-            serverEndpoint: connected ? ipsecServerEndpoint : ""
+            serverEndpoint: connected ? ipsecServerEndpoint : "",
+            countersAtEpochMs: Int64(Date().timeIntervalSince1970 * 1000)
         )
     }
 

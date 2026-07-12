@@ -136,7 +136,10 @@ final class AppState: ObservableObject {
     @Published var txHistory: [Double] = []
     private var lastSampleRx: Int64 = 0
     private var lastSampleTx: Int64 = 0
-    private var lastSampleAt: Date?
+    /// Epoch ms at which the last accepted sample's counters were taken (producer clock).
+    private var lastSampleAtEpochMs: Int64 = 0
+    /// Consecutive samples whose counters sat below the baseline.
+    private var regressionStreak = 0
     private let historyWindow = 24
 
     var colorScheme: ColorScheme? {
@@ -787,20 +790,59 @@ final class AppState: ObservableObject {
         rxSpeed = 0; txSpeed = 0
         rxHistory = []; txHistory = []
         lastSampleRx = 0; lastSampleTx = 0
-        lastSampleAt = nil
+        lastSampleAtEpochMs = 0
+        regressionStreak = 0
     }
 
-    /// Feeds a fresh status sample into the throughput tracker. Called
-    /// from the status observe loop. Derives bytes/sec from the delta
-    /// against the previous sample and appends to the sparkline window.
+    /// Feeds a fresh status sample into the throughput tracker. Called from the
+    /// status observe loop. Derives bytes/sec from the delta against the previous
+    /// sample and appends to the sparkline window.
+    ///
+    /// Timed against `countersAtEpochMs` — when the counters were SAMPLED — not
+    /// against our own read clock. For PTP protocols the counters come from an App
+    /// Group snapshot the tunnel extension writes on its own free-running 1s timer
+    /// while we poll on ours: our tick regularly lands before the extension's next
+    /// write, so we re-read identical byte totals. Dividing that zero delta by our
+    /// own ~1s produced 0 B/s, and the next tick then billed two write-intervals of
+    /// bytes to one read-interval — the 0 / 2x flapping the readout showed. Now an
+    /// unchanged snapshot is skipped outright (no sample, no re-baseline) and real
+    /// samples are divided by the true producer-side interval.
     private func ingestSpeedSample(_ s: VpnStatus) {
         guard s.connected else { resetSpeedTracking(); return }
-        let now = Date()
-        if let last = lastSampleAt {
-            let dt = now.timeIntervalSince(last)
+
+        // Same snapshot as last time → the extension hasn't published since we last
+        // looked. Not "no traffic", just "nothing new to say".
+        if s.countersAtEpochMs > 0, s.countersAtEpochMs == lastSampleAtEpochMs { return }
+
+        let nowMs = s.countersAtEpochMs > 0
+            ? s.countersAtEpochMs
+            : Int64(Date().timeIntervalSince1970 * 1000)
+
+        if lastSampleAtEpochMs > 0 {
+            let dt = Double(nowMs - lastSampleAtEpochMs) / 1000.0
+            // A transient dip lasts one tick and the counter returns to its true
+            // value — re-baselining to the dip would bill the recovery's catch-up
+            // bytes to one interval and show a spike. A GENUINE reset (tunnel
+            // restarted, protocol switched) persists; ignoring that forever would
+            // peg the readout at 0 until the next disconnect. Tell them apart by
+            // whether it sticks.
+            if s.rxBytes < lastSampleRx || s.txBytes < lastSampleTx {
+                regressionStreak += 1
+                if regressionStreak >= 3 {
+                    lastSampleRx = s.rxBytes
+                    lastSampleTx = s.txBytes
+                    lastSampleAtEpochMs = nowMs
+                    regressionStreak = 0
+                }
+                rxSpeed = 0; txSpeed = 0
+                rxHistory = Array((rxHistory + [0]).suffix(historyWindow))
+                txHistory = Array((txHistory + [0]).suffix(historyWindow))
+                return
+            }
+            regressionStreak = 0
             if dt > 0.1 {
-                let dRx = max(0, Double(s.rxBytes - lastSampleRx)) / dt
-                let dTx = max(0, Double(s.txBytes - lastSampleTx)) / dt
+                let dRx = Double(s.rxBytes - lastSampleRx) / dt
+                let dTx = Double(s.txBytes - lastSampleTx) / dt
                 rxSpeed = dRx
                 txSpeed = dTx
                 rxHistory = Array((rxHistory + [dRx]).suffix(historyWindow))
@@ -809,7 +851,7 @@ final class AppState: ObservableObject {
         }
         lastSampleRx = s.rxBytes
         lastSampleTx = s.txBytes
-        lastSampleAt = now
+        lastSampleAtEpochMs = nowMs
     }
 
     private var lastWidgetReloadKey = ""

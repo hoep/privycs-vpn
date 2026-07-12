@@ -123,17 +123,30 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
         statsTask = Task { [weak self] in
             var tick = 0
             var prevRx: Int64 = 0, prevTx: Int64 = 0
-            var havePrev = false
+            var prevAt: Date?
             var rxHist: [Double] = [], txHist: [Double] = []
             while !Task.isCancelled {
                 guard let self, let bridge = self.activeBridge else { break }
                 let s = await bridge.currentStats()
-                // ~1s loop → byte delta ≈ bytes/sec. Published (speed + a rolling
-                // history) so the widget shows the real live throughput + sparkline
-                // on each refresh, even when the app is closed.
-                let rxSpeed = havePrev ? max(0, s.rx - prevRx) : 0
-                let txSpeed = havePrev ? max(0, s.tx - prevTx) : 0
-                prevRx = s.rx; prevTx = s.tx; havePrev = true
+                let now = Date()
+
+                // Divide by the MEASURED interval, not by an assumed 1 second. The
+                // loop period is 1s PLUS however long currentStats() and the App
+                // Group write take, so it is always over a second and stretches
+                // further under load — treating the raw byte delta as "per second"
+                // reported a throughput that was systematically low and wandered
+                // with system load. A counter regression (bridge restart, rekey)
+                // clamps to 0 and re-baselines rather than emitting a spike.
+                var rxSpeed: Int64 = 0
+                var txSpeed: Int64 = 0
+                if let last = prevAt {
+                    let dt = now.timeIntervalSince(last)
+                    if dt > 0.1 {
+                        rxSpeed = Int64(max(0, Double(s.rx - prevRx) / dt))
+                        txSpeed = Int64(max(0, Double(s.tx - prevTx) / dt))
+                    }
+                }
+                prevRx = s.rx; prevTx = s.tx; prevAt = now
                 rxHist.append(Double(rxSpeed)); txHist.append(Double(txSpeed))
                 if rxHist.count > 30 { rxHist.removeFirst(rxHist.count - 30) }
                 if txHist.count > 30 { txHist.removeFirst(txHist.count - 30) }
@@ -149,7 +162,8 @@ public final class PrivycsPacketTunnelProvider: NEPacketTunnelProvider {
                     rxSpeed: rxSpeed,
                     txSpeed: txSpeed,
                     rxHistory: rxHist,
-                    txHistory: txHist
+                    txHistory: txHist,
+                    updatedAtEpochMs: Int64(now.timeIntervalSince1970 * 1000)
                 ))
                 // Nudge the home-screen widget to re-read the fresh counters every
                 // ~30s. iOS throttles widget refreshes (a closed-app widget can't

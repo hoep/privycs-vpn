@@ -77,7 +77,10 @@ final class TVAppState: ObservableObject {
     @Published var health: TVHealthLevel = .none
     private var lastSampleRx: Int64 = 0
     private var lastSampleTx: Int64 = 0
-    private var lastSampleAt: Date?
+    /// Epoch ms at which the last accepted sample's counters were taken (producer clock).
+    private var lastSampleAtEpochMs: Int64 = 0
+    /// Consecutive samples whose counters sat below the baseline.
+    private var regressionStreak = 0
     private let historyWindow = 32
 
     private var statusTask: Task<Void, Never>?
@@ -310,18 +313,54 @@ final class TVAppState: ObservableObject {
 
     /// Derive live rx/tx speed + sparkline history from byte deltas between
     /// status samples (mirrors AppState.ingestSpeedSample on the phone).
+    ///
+    /// Timed against `countersAtEpochMs` — when the extension SAMPLED the counters
+    /// — not against our read clock. tvOS stacks THREE free-running 1s timers (the
+    /// extension's snapshot writer, TVTunnelController's poller, this loop), so a
+    /// tick landing between writes re-reads identical byte totals; billing that
+    /// zero delta to a full second showed 0 B/s, and the next tick then billed two
+    /// producer intervals to one reader interval. Skipping unchanged snapshots and
+    /// dividing by the true producer-side interval makes the readout independent of
+    /// where the timers happen to line up.
     private func ingestSpeedSample(_ s: VpnStatus) {
         guard s.connected else {
             rxSpeed = 0; txSpeed = 0; rxHistory = []; txHistory = []
-            lastSampleAt = nil; lastSampleRx = 0; lastSampleTx = 0
+            lastSampleAtEpochMs = 0; lastSampleRx = 0; lastSampleTx = 0
+            regressionStreak = 0
             return
         }
-        let now = Date()
-        if let last = lastSampleAt {
-            let dt = now.timeIntervalSince(last)
+
+        if s.countersAtEpochMs > 0, s.countersAtEpochMs == lastSampleAtEpochMs { return }
+
+        let nowMs = s.countersAtEpochMs > 0
+            ? s.countersAtEpochMs
+            : Int64(Date().timeIntervalSince1970 * 1000)
+
+        if lastSampleAtEpochMs > 0 {
+            let dt = Double(nowMs - lastSampleAtEpochMs) / 1000.0
+            // A transient dip lasts one tick and the counter returns to its true
+            // value — re-baselining to the dip would bill the recovery's catch-up
+            // bytes to one interval and show a spike. A GENUINE reset (tunnel
+            // restarted, protocol switched) persists; ignoring that forever would
+            // peg the readout at 0 until the next disconnect. Tell them apart by
+            // whether it sticks.
+            if s.rxBytes < lastSampleRx || s.txBytes < lastSampleTx {
+                regressionStreak += 1
+                if regressionStreak >= 3 {
+                    lastSampleRx = s.rxBytes
+                    lastSampleTx = s.txBytes
+                    lastSampleAtEpochMs = nowMs
+                    regressionStreak = 0
+                }
+                rxSpeed = 0; txSpeed = 0
+                rxHistory = Array((rxHistory + [0]).suffix(historyWindow))
+                txHistory = Array((txHistory + [0]).suffix(historyWindow))
+                return
+            }
+            regressionStreak = 0
             if dt > 0.1 {
-                let dRx = max(0, Double(s.rxBytes - lastSampleRx)) / dt
-                let dTx = max(0, Double(s.txBytes - lastSampleTx)) / dt
+                let dRx = Double(s.rxBytes - lastSampleRx) / dt
+                let dTx = Double(s.txBytes - lastSampleTx) / dt
                 rxSpeed = dRx
                 txSpeed = dTx
                 rxHistory = Array((rxHistory + [dRx]).suffix(historyWindow))
@@ -330,7 +369,7 @@ final class TVAppState: ObservableObject {
         }
         lastSampleRx = s.rxBytes
         lastSampleTx = s.txBytes
-        lastSampleAt = now
+        lastSampleAtEpochMs = nowMs
     }
 
     // MARK: — Enrollment

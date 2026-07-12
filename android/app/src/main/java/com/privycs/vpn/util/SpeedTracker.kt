@@ -26,6 +26,20 @@ object SpeedTracker {
 
     private const val HISTORY_LEN = 30
 
+    /**
+     * Ignore samples arriving sooner than this after the previous one. The service
+     * polls once a second; anything faster is an off-cadence push from a state
+     * listener whose byte delta is ~0 and would only inject a false 0 B/s.
+     */
+    private const val MIN_SAMPLE_INTERVAL_MS = 250L
+
+    /**
+     * Consecutive below-baseline samples after which a counter regression is taken as
+     * a genuine reset (tunnel restart / protocol switch) rather than a transient
+     * backend hiccup, and the lower value is accepted as the new baseline.
+     */
+    private const val REGRESSION_TOLERANCE = 3
+
     private val zeros = List(HISTORY_LEN) { 0f }
     private val _rxSpeedHistory = MutableStateFlow(zeros)
     private val _txSpeedHistory = MutableStateFlow(zeros)
@@ -37,6 +51,8 @@ object SpeedTracker {
     @Volatile private var lastRxBytes: Long = 0L
     @Volatile private var lastTxBytes: Long = 0L
     @Volatile private var lastSampleAtMs: Long = 0L
+    /** Consecutive samples whose counters sat below the baseline. */
+    @Volatile private var regressionStreak: Int = 0
 
     /**
      * Feed a new sample. `connected=false` resets the history and the
@@ -52,6 +68,7 @@ object SpeedTracker {
             lastRxBytes = 0L
             lastTxBytes = 0L
             lastSampleAtMs = 0L
+            regressionStreak = 0
             return
         }
 
@@ -64,6 +81,40 @@ object SpeedTracker {
             lastSampleAtMs = now
             return
         }
+
+        // A counter regression is a backend hiccup, not negative traffic. The byte
+        // readers can briefly report a lower total: OpenVpnTunnel takes max() over
+        // three independent sources and the winner can switch, IpSecTunnel's
+        // TrafficStats resets across a rekey, WG reports 0 between handshakes.
+        // Clamping the negative delta to 0 — all we used to do — is not enough: the
+        // baseline was still overwritten with the LOWER value, so the next honest
+        // reading measured against a too-low baseline and came out as a spike. That
+        // is the 0 / spike / 0 / spike the speed readout showed.
+        //
+        // Such a dip lasts one tick and the counter then returns to its true value,
+        // so ignore it and keep the last good baseline. A GENUINE reset (tunnel
+        // restarted, protocol switched) looks identical for one tick but PERSISTS,
+        // and ignoring that forever would peg the readout at 0 until the next
+        // disconnect. Tell them apart by whether it sticks.
+        if (rxBytes < lastRxBytes || txBytes < lastTxBytes) {
+            regressionStreak++
+            if (regressionStreak >= REGRESSION_TOLERANCE) {
+                lastRxBytes = rxBytes
+                lastTxBytes = txBytes
+                lastSampleAtMs = now
+                regressionStreak = 0
+            }
+            _rxSpeedHistory.value = (_rxSpeedHistory.value.drop(1) + 0f)
+            _txSpeedHistory.value = (_txSpeedHistory.value.drop(1) + 0f)
+            return
+        }
+        regressionStreak = 0
+
+        // The service polls once a second, but record() is also reached from the
+        // OpenVPN/IPSec state listeners and the pool broadcasts. Such an off-cadence
+        // call re-reads counters that have not moved: delta 0 over a few ms, which
+        // lands a false 0 B/s at the head of the ring and makes the readout blink.
+        if (now - lastSampleAtMs < MIN_SAMPLE_INTERVAL_MS) return
 
         val elapsedSec = maxOf(0.001f, (now - lastSampleAtMs) / 1000f)
         val rxSpeed = maxOf(0f, (rxBytes - lastRxBytes) / elapsedSec)

@@ -134,7 +134,8 @@ final class TVTunnelController: ObservableObject {
             localAddress: snap?.localAddress ?? "",
             serverEndpoint: snap?.serverEndpoint ?? "",
             lastHandshake: Self.formatHandshakeAge(hsEpoch),
-            error: snap?.lastError ?? ""
+            error: snap?.lastError ?? "",
+            countersAtEpochMs: snap?.updatedAtEpochMs ?? 0
         )
         // Health: WG/AWG handshake older than 3 min → degraded; otherwise (fresh,
         // or OpenVPN which has no handshake) healthy while connected.

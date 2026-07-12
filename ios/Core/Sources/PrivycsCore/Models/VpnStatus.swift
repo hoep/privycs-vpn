@@ -63,6 +63,16 @@ public struct VpnStatus: Equatable, Sendable {
     /// geplant.
     public let nextRotationAt: Int64
 
+    /// Epoch-MILLIsekunden, zu denen rxBytes/txBytes ERHOBEN wurden — die Uhr des
+    /// Produzenten, nicht die des Lesers. Für PTP-Protokolle stammt der Wert aus
+    /// dem App-Group-Snapshot der Extension; für IKEv2 (Live-Syscall gegen
+    /// NEVPNConnection) ist es schlicht der Lesezeitpunkt. Der Throughput-Tracker
+    /// misst sein dt daran und überspringt Ticks, bei denen sich der Stempel nicht
+    /// bewegt hat — sonst aliast der freilaufende 1s-Poller der App gegen den
+    /// freilaufenden 1s-Writer der Extension und die Anzeige springt zwischen
+    /// 0 B/s und dem doppelten Wert. 0 = unbekannt (alter Snapshot).
+    public let countersAtEpochMs: Int64
+
     public init(
         connected: Bool = false,
         connectionName: String = "",
@@ -84,7 +94,8 @@ public struct VpnStatus: Equatable, Sendable {
         activeMemberCountry: String = "",
         pendingMemberName: String = "",
         pendingMemberCountry: String = "",
-        nextRotationAt: Int64 = 0
+        nextRotationAt: Int64 = 0,
+        countersAtEpochMs: Int64 = 0
     ) {
         self.connected = connected
         self.connectionName = connectionName
@@ -107,6 +118,7 @@ public struct VpnStatus: Equatable, Sendable {
         self.pendingMemberName = pendingMemberName
         self.pendingMemberCountry = pendingMemberCountry
         self.nextRotationAt = nextRotationAt
+        self.countersAtEpochMs = countersAtEpochMs
     }
 
     public static let disconnected = VpnStatus()

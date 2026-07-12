@@ -73,6 +73,16 @@ function friendlyError(e: any, fallback: string): string {
 // enough to show a meaningful trend without being visually noisy.
 const SPEED_HISTORY_LEN = 30
 
+// Ignore speed samples that arrive sooner than this after the previous one. The
+// backend emits status once a second; anything faster is an out-of-band UI read
+// whose byte delta is ~0 and would only inject a false 0 B/s.
+const MIN_SAMPLE_INTERVAL_MS = 250
+
+// Consecutive below-baseline samples after which a counter regression is taken as
+// a genuine reset (tunnel restart / protocol switch) rather than a transient
+// backend hiccup, and the lower value is accepted as the new baseline.
+const REGRESSION_TOLERANCE = 3
+
 export const useVpnStore = defineStore('vpn', () => {
   const status = ref<any>(null)
   const protocols = ref<any[]>([])
@@ -95,6 +105,9 @@ export const useVpnStore = defineStore('vpn', () => {
   let lastBytesRx = 0
   let lastBytesTx = 0
   let lastSampleAt = 0
+  // Consecutive samples whose counters sat below the baseline. See the guard in
+  // updateSpeedSamples: a transient dip is ignored, a persistent one is a real reset.
+  let regressionStreak = 0
 
   // updateSpeedSamples pushes one new pair into the ring buffers.
   // Deltas are divided by the elapsed wall-clock time (not the nominal
@@ -116,6 +129,7 @@ export const useVpnStore = defineStore('vpn', () => {
       lastBytesRx = 0
       lastBytesTx = 0
       lastSampleAt = 0
+      regressionStreak = 0
       return
     }
 
@@ -149,11 +163,37 @@ export const useVpnStore = defineStore('vpn', () => {
     // buffer for that interval (no traffic-data-known is the same
     // visual as no-traffic-flowing — a flat second on the chart),
     // but DON'T mutate the baseline.
+    // A transient dip lasts one tick and the counter then returns to its true
+    // (higher) value — re-baselining to the dip would bill the recovery to one
+    // interval and show a spike, so we keep the last good baseline and ignore it.
+    // A GENUINE reset (tunnel restarted, protocol switched, counters legitimately
+    // restart near zero) looks identical for one tick but PERSISTS — and ignoring
+    // that forever would peg the readout at 0 until the next disconnect. Tell them
+    // apart by whether it sticks: accept the lower baseline once it has held for
+    // REGRESSION_TOLERANCE consecutive samples.
     if (rxBytes < lastBytesRx || txBytes < lastBytesTx) {
+      regressionStreak++
+      if (regressionStreak >= REGRESSION_TOLERANCE) {
+        lastBytesRx = rxBytes
+        lastBytesTx = txBytes
+        lastSampleAt = now
+        regressionStreak = 0
+      }
       rxSpeedHistory.value = [...rxSpeedHistory.value.slice(1), 0]
       txSpeedHistory.value = [...txSpeedHistory.value.slice(1), 0]
       return
     }
+    regressionStreak = 0
+
+    // The status emitter ticks once a second, but updateSpeedSamples ALSO runs
+    // on every ad-hoc fetchStatus() — and the UI fires those from a dozen places
+    // (view mounts, connect/disconnect, protocol switch, refresh buttons). Such
+    // a call landing right after an emitter tick re-reads counters that haven't
+    // moved: delta 0 over a few ms, so a 0 B/s sample lands at the head of the
+    // ring and the readout blinks to zero between honest values. Sample only on
+    // the emitter's cadence; an out-of-band status read still updates `status`,
+    // it just doesn't get a vote on the speed.
+    if (now - lastSampleAt < MIN_SAMPLE_INTERVAL_MS) return
 
     const elapsedSec = Math.max(0.001, (now - lastSampleAt) / 1000)
     const rxSpeed = Math.max(0, (rxBytes - lastBytesRx) / elapsedSec)
