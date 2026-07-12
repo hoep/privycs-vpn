@@ -708,4 +708,6 @@
     <string name="engine_reason_country_restrictive_awg">%1$s è noto per DPI/censura — l’offuscamento di AmneziaWG è il protocollo giusto qui.</string>
     <string name="engine_reason_country_restrictive_use_awg">%1$s censura il traffico VPN — AmneziaWG (offuscato) è disponibile; usarlo evita il rilevamento.</string>
     <string name="engine_reason_country_restrictive_no_awg">%1$s censura il traffico VPN — nessun profilo AmneziaWG qui, quindi questo protocollo potrebbe essere bloccato.</string>
+    <string name="gateway_search_hint">Cerca per nome o interfaccia</string>
+    <string name="gateway_search_no_matches">Nessuna configurazione corrisponde alla ricerca.</string>
 </resources>

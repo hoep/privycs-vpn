@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -688,7 +689,54 @@ private fun GatewayPanel(
                 }
 
                 else -> {
-                    configs.forEach { entry ->
+                    // A Pro account can carry well over a hundred gateway configs, so
+                    // let the user narrow them down. Match on BOTH the peer name and
+                    // the interface name: peer names are often near-identical
+                    // ("laptop", "laptop-2") and the interface name is what actually
+                    // tells them apart. Hidden for a single config — nothing to search.
+                    var query by remember { mutableStateOf("") }
+                    val shown = remember(configs, query) {
+                        val q = query.trim()
+                        if (q.isBlank()) configs
+                        else configs.filter {
+                            it.peerName.contains(q, ignoreCase = true) ||
+                                it.interfaceName.contains(q, ignoreCase = true)
+                        }
+                    }
+
+                    if (configs.size > 1) {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            placeholder = {
+                                Text(
+                                    text = stringResource(R.string.gateway_search_hint),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Search,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
+                    if (shown.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.gateway_search_no_matches),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    shown.forEach { entry ->
                         val key = "${entry.protocol}-${entry.id}"
                         Row(
                             modifier = Modifier

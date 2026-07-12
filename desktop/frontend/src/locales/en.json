@@ -376,7 +376,9 @@
       "loading": "Loading...",
       "refresh": "Refresh",
       "no-configs": "No configs available. Click Refresh.",
-      "import": "Import"
+      "import": "Import",
+      "search-placeholder": "Search by name or interface...",
+      "no-matches": "No configs match your search."
     },
     "list": {
       "loading": "Loading connections...",
@@ -445,7 +447,9 @@
       "loading": "Loading...",
       "refresh": "Refresh",
       "no-configs": "No configs available. Click Refresh.",
-      "import": "Import"
+      "import": "Import",
+      "search-placeholder": "Search by name or interface...",
+      "no-matches": "No configs match your search."
     },
     "intro": {
       "import": "Import a VPN configuration file",

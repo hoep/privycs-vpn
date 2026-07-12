@@ -95,12 +95,22 @@
         </button>
       </div>
       <p v-if="remoteError" class="text-[10px] text-red-400 mb-2">{{ remoteError }}</p>
+      <input
+        v-if="remoteConfigs.length > 1"
+        v-model="remoteSearch"
+        type="text"
+        :placeholder="$t('connections.gateway.search-placeholder')"
+        class="w-full mb-2 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded text-xs border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-1 focus:ring-primary-500"
+      />
       <div v-if="remoteConfigs.length === 0 && !loadingRemote" class="text-[10px] text-gray-500 text-center py-2">
         {{ $t('connections.gateway.no-configs') }}
       </div>
+      <div v-else-if="filteredRemoteConfigs.length === 0 && !loadingRemote" class="text-[10px] text-gray-500 text-center py-2">
+        {{ $t('connections.gateway.no-matches') }}
+      </div>
       <div v-else class="space-y-1.5 max-h-48 overflow-y-auto">
         <div
-          v-for="rc in remoteConfigs"
+          v-for="rc in filteredRemoteConfigs"
           :key="rc.protocol + '-' + rc.id"
           class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700/50"
         >
@@ -362,7 +372,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useVpnStore } from '@/stores/vpn'
@@ -475,7 +485,20 @@ const actionError = ref('')
 const hasApiKey = ref(!!localStorage.getItem('privycs-api-user'))
 const showRemoteConfigs = ref(false)
 const remoteConfigs = ref<any[]>([])
+const remoteSearch = ref('')
 const loadingRemote = ref(false)
+
+// Match on BOTH the peer name and the interface name: a Pro account can carry
+// well over a hundred configs whose peer names are near-identical, and the
+// interface name is what actually tells them apart.
+const filteredRemoteConfigs = computed(() => {
+  const q = remoteSearch.value.trim().toLowerCase()
+  if (!q) return remoteConfigs.value
+  return remoteConfigs.value.filter((rc: any) =>
+    (rc.peer_name || '').toLowerCase().includes(q) ||
+    (rc.interface_name || '').toLowerCase().includes(q)
+  )
+})
 const remoteError = ref('')
 const downloadingId = ref('')
 

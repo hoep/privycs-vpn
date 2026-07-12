@@ -159,6 +159,18 @@ struct TVConfigsScreen: View {
     @EnvironmentObject private var state: TVAppState
     @State private var showImport = false
     @State private var detailPoolID: String?
+    @State private var gatewaySearch = ""
+
+    /// Gateway configs narrowed by the search field. Matches peer name OR interface
+    /// name — see the search field below for why both.
+    private var shownGatewayConfigs: [RemoteConfigEntry] {
+        let q = gatewaySearch.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return state.remoteConfigs }
+        return state.remoteConfigs.filter {
+            $0.name.localizedCaseInsensitiveContains(q) ||
+                $0.interfaceName.localizedCaseInsensitiveContains(q)
+        }
+    }
     private let cols = [GridItem(.flexible(), spacing: 18), GridItem(.flexible(), spacing: 18)]
 
     private func deleteButton(_ action: @escaping () async -> Void) -> some View {
@@ -240,10 +252,24 @@ struct TVConfigsScreen: View {
                     Text(loc("tv.configs.gateway")).font(TVFont.mono(15)).tracking(2)
                         .foregroundStyle(TVColor.onSurfaceVariant).padding(.top, 6)
                 }
-                LazyVGrid(columns: cols, spacing: 18) {
-                    ForEach(state.remoteConfigs) { entry in
-                        Button { selectAndMaybeReconnect { state.selectGateway(entry.id) } } label: { configRow(entry) }
-                            .buttonStyle(.card)
+                // A Pro account can carry well over a hundred gateway configs, and on
+                // a TV grid that is a long D-pad journey. Match on BOTH the peer name
+                // and the interface name — peer names are often near-identical
+                // ("laptop", "laptop-2") and the interface name tells them apart.
+                if state.remoteConfigs.count > 1 {
+                    TextField(loc("tv.configs.search_placeholder"), text: $gatewaySearch)
+                        .font(TVFont.sans(21))
+                        .padding(.bottom, 4)
+                }
+                if shownGatewayConfigs.isEmpty {
+                    Text(loc("tv.configs.search_no_matches")).font(TVFont.sans(19))
+                        .foregroundStyle(TVColor.onSurfaceVariant)
+                } else {
+                    LazyVGrid(columns: cols, spacing: 18) {
+                        ForEach(shownGatewayConfigs) { entry in
+                            Button { selectAndMaybeReconnect { state.selectGateway(entry.id) } } label: { configRow(entry) }
+                                .buttonStyle(.card)
+                        }
                     }
                 }
             }

@@ -44,8 +44,18 @@
         </button>
       </div>
       <p v-if="gatewayError" class="text-[10px] text-red-400 mb-2">{{ gatewayError }}</p>
-      <div v-if="filteredGatewayConfigs.length === 0 && !loadingGateway" class="text-[10px] text-gray-500 text-center py-2">
+      <input
+        v-if="gatewayConfigs.length > 1"
+        v-model="gatewaySearch"
+        type="text"
+        :placeholder="$t('add-connection.gateway.search-placeholder')"
+        class="w-full mb-2 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded text-xs border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-1 focus:ring-primary-500"
+      />
+      <div v-if="gatewayConfigs.length === 0 && !loadingGateway" class="text-[10px] text-gray-500 text-center py-2">
         {{ $t('add-connection.gateway.no-configs') }}
+      </div>
+      <div v-else-if="filteredGatewayConfigs.length === 0 && !loadingGateway" class="text-[10px] text-gray-500 text-center py-2">
+        {{ $t('add-connection.gateway.no-matches') }}
       </div>
       <div v-else class="space-y-1.5 max-h-64 overflow-y-auto">
         <div
@@ -227,6 +237,7 @@ const existingConnections = ref<any[]>([])
 const hasApiKey = ref(!!localStorage.getItem('privycs-api-user'))
 const showGateway = ref(false)
 const gatewayConfigs = ref<any[]>([])
+const gatewaySearch = ref('')
 const loadingGateway = ref(false)
 const gatewayError = ref('')
 const gatewayImportingId = ref('')
@@ -259,11 +270,21 @@ async function loadConnections() {
 // Gateway-configs fetched from the gateway API. Multi-config-
 // per-protocol (v0.9.15.4): a connection may hold any number of
 // configs of any protocol type, including multiples of the same
-// protocol. So we don't filter the listing — every available
+// protocol. So we don't filter by protocol — every available
 // gateway config is offered, even if the connection already
 // has one of the same protocol. The user picks which to attach.
+//
+// The only filter is the user's own search. A Pro account can carry
+// well over a hundred configs, so match on BOTH the peer name and the
+// interface name: peers are often near-identical ("laptop", "laptop-2")
+// and the interface name is what actually disambiguates them.
 const filteredGatewayConfigs = computed(() => {
-  return gatewayConfigs.value
+  const q = gatewaySearch.value.trim().toLowerCase()
+  if (!q) return gatewayConfigs.value
+  return gatewayConfigs.value.filter((rc: any) =>
+    (rc.peer_name || '').toLowerCase().includes(q) ||
+    (rc.interface_name || '').toLowerCase().includes(q)
+  )
 })
 
 function toggleGatewayPanel() {

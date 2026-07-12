@@ -376,7 +376,9 @@
       "loading": "Wird geladen...",
       "refresh": "Aktualisieren",
       "no-configs": "Keine Konfigurationen verfügbar. Auf Aktualisieren klicken.",
-      "import": "Importieren"
+      "import": "Importieren",
+      "search-placeholder": "Nach Name oder Interface suchen ...",
+      "no-matches": "Keine Konfigurationen passen zur Suche."
     },
     "list": {
       "loading": "Verbindungen werden geladen...",
@@ -445,7 +447,9 @@
       "loading": "Wird geladen...",
       "refresh": "Aktualisieren",
       "no-configs": "Keine Konfigurationen verfügbar. Auf Aktualisieren klicken.",
-      "import": "Importieren"
+      "import": "Importieren",
+      "search-placeholder": "Nach Name oder Interface suchen ...",
+      "no-matches": "Keine Konfigurationen passen zur Suche."
     },
     "intro": {
       "import": "VPN-Konfigurationsdatei importieren",

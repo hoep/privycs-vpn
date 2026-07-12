@@ -44,8 +44,8 @@ public actor GatewayAPIClient {
         // .mobileconfig signed plist our importer can't parse). Returned
         // verbatim — SswanProfile.parse consumes it.
         let path = proto == "ipsec"
-            ? "/api/v1/connect/my-configs/ipsec-\(entry.id)?format=sswan"
-            : "/api/v1/connect/my-configs/\(proto)-\(entry.id)"
+            ? "/api/v1/connect/my-configs/ipsec-\(entry.configID)?format=sswan"
+            : "/api/v1/connect/my-configs/\(proto)-\(entry.configID)"
         let (data, resp) = try await request(path: path, method: "GET", body: nil)
         try ensureSuccess(response: resp, data: data)
 
@@ -183,7 +183,16 @@ public enum GatewayError: Error, LocalizedError {
 /// `MyConfigEntry` JSON 1:1. Robust decode — only `id` is required so a
 /// schema drift on a secondary field doesn't abort the whole list.
 public struct RemoteConfigEntry: Codable, Identifiable, Hashable, Sendable {
-    public let id: Int
+    /// The gateway's numeric config id. **Unique only WITHIN a protocol** — the
+    /// gateway keeps one id space per protocol table and addresses configs as
+    /// `<protocol>-<id>` (see `fetchConfig`). An IPSec config and an OpenVPN
+    /// config both numbered 2 are entirely normal.
+    ///
+    /// This is therefore NOT an identity: use `id` (below) to key lists and to
+    /// remember a selection, and `configID` only when talking to the API. Keying a
+    /// SwiftUI `ForEach` on this number gives duplicate identities, and SwiftUI
+    /// responds by swapping row content around and dropping rows while scrolling.
+    public let configID: Int
     public let peerName: String
     /// Raw protocol string from the gateway ("wireguard"/"openvpn"/"ipsec").
     /// Used verbatim for the download path.
@@ -192,8 +201,11 @@ public struct RemoteConfigEntry: Codable, Identifiable, Hashable, Sendable {
     public let vpnIP: String
     public let obfuscationEnabled: Bool
 
+    /// Stable identity across protocols — what `Identifiable` hands to SwiftUI.
+    public var id: String { "\(protocolRaw)-\(configID)" }
+
     private enum CodingKeys: String, CodingKey {
-        case id
+        case configID = "id"
         case peerName = "peer_name"
         case protocolRaw = "protocol"
         case interfaceName = "interface_name"
@@ -203,7 +215,7 @@ public struct RemoteConfigEntry: Codable, Identifiable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(Int.self, forKey: .id)
+        configID = try c.decode(Int.self, forKey: .configID)
         peerName = (try? c.decode(String.self, forKey: .peerName)) ?? ""
         protocolRaw = (try? c.decode(String.self, forKey: .protocolRaw)) ?? "wireguard"
         interfaceName = (try? c.decode(String.self, forKey: .interfaceName)) ?? ""
@@ -212,7 +224,7 @@ public struct RemoteConfigEntry: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// Display name for the UI.
-    public var name: String { peerName.isEmpty ? "config-\(id)" : peerName }
+    public var name: String { peerName.isEmpty ? "config-\(configID)" : peerName }
 
     /// Best-effort server display (the assigned VPN IP).
     public var serverAddress: String { vpnIP }

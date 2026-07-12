@@ -185,8 +185,28 @@ struct GatewayConfigSheet: View {
     @State private var entries: [RemoteConfigEntry] = []
     @State private var loading = true
     @State private var error: String?
-    @State private var importingID: Int?
-    @State private var importedNames: [String] = []
+    /// Identity of the row currently importing — the composite `entry.id`, not the
+    /// gateway's number, which repeats across protocols and would spin two rows.
+    @State private var importingID: String?
+    /// Identities of the rows already imported in this sheet — keyed by the
+    /// composite `entry.id`, NOT the peer name. The same peer routinely exists as a
+    /// WireGuard, an OpenVPN and an IPSec config under one name, so a name match put
+    /// the "imported" checkmark on all three after importing one.
+    @State private var importedIDs: Set<String> = []
+    @State private var query = ""
+
+    /// A Pro account can carry well over a hundred gateway configs. Match on BOTH
+    /// the peer name and the interface name: peer names are often near-identical
+    /// ("laptop", "laptop-2") and the interface name is what actually tells them
+    /// apart.
+    private var shownEntries: [RemoteConfigEntry] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return entries }
+        return entries.filter {
+            $0.name.localizedCaseInsensitiveContains(q) ||
+                $0.interfaceName.localizedCaseInsensitiveContains(q)
+        }
+    }
 
     var body: some View {
         AdaptiveNavStack {
@@ -197,8 +217,10 @@ struct GatewayConfigSheet: View {
                     Text(error).foregroundStyle(.red).font(.callout)
                 } else if entries.isEmpty {
                     Text("No remote configs found.").foregroundStyle(.secondary)
+                } else if shownEntries.isEmpty {
+                    Text("No configs match your search.").foregroundStyle(.secondary)
                 } else {
-                    ForEach(entries) { entry in
+                    ForEach(shownEntries) { entry in
                         Button {
                             Task { await importEntry(entry) }
                         } label: {
@@ -218,7 +240,7 @@ struct GatewayConfigSheet: View {
                                 Spacer()
                                 if importingID == entry.id {
                                     ProgressView()
-                                } else if importedNames.contains(entry.name) {
+                                } else if importedIDs.contains(entry.id) {
                                     Image(systemName: "checkmark.circle.fill").foregroundStyle(PrivycsColor.connected)
                                 } else {
                                     Image(systemName: "arrow.down.circle").foregroundStyle(PrivycsColor.accent)
@@ -229,9 +251,9 @@ struct GatewayConfigSheet: View {
                     }
                 }
 
-                if !importedNames.isEmpty {
+                if !importedIDs.isEmpty {
                     Section {
-                        Label("Imported \(importedNames.count) config(s) — closing…",
+                        Label("Imported \(importedIDs.count) config(s) — closing…",
                               systemImage: "checkmark.circle.fill")
                             .foregroundStyle(PrivycsColor.connected)
                     }
@@ -239,6 +261,9 @@ struct GatewayConfigSheet: View {
             }
             .navigationTitle("Remote Configs")
             .navigationBarTitleDisplayMode(.inline)
+            // Default placement: a navigation-bar search field on iOS/iPadOS, a
+            // toolbar one on the Mac App Store build.
+            .searchable(text: $query, prompt: Text("Search by name or interface"))
             .toolbar {
                 ToolbarItem(placement: .pvcsTrailing) { Button("Done") { dismiss() } }
             }
@@ -272,7 +297,7 @@ struct GatewayConfigSheet: View {
             // Stable, gateway-indexed id like Android ("gw-<proto>-<id>") so a
             // re-download matches+updates in place instead of duplicating, and
             // the config is identifiable (gw-ipsec-42) rather than a random UUID.
-            let stableID = "gw-\(entry.protocolRaw)-\(entry.id)"
+            let stableID = "gw-\(entry.protocolRaw)-\(entry.configID)"
             await appState.importConnection(
                 name: entry.name,
                 filename: "\(stableID).\(ext)",
@@ -281,7 +306,7 @@ struct GatewayConfigSheet: View {
                 configID: stableID
             )
             // Visible feedback (the import used to silently sit there).
-            if !importedNames.contains(entry.name) { importedNames.append(entry.name) }
+            importedIDs.insert(entry.id)
             // Auto-close so the user lands back on the connections list
             // and sees the freshly-imported config.
             try? await Task.sleep(nanoseconds: UInt64(1.0 * 1_000_000_000))

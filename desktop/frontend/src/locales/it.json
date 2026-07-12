@@ -376,7 +376,9 @@
       "loading": "Caricamento...",
       "refresh": "Aggiorna",
       "no-configs": "Nessuna configurazione disponibile. Premi Aggiorna.",
-      "import": "Importa"
+      "import": "Importa",
+      "search-placeholder": "Cerca per nome o interfaccia...",
+      "no-matches": "Nessuna configurazione corrisponde alla ricerca."
     },
     "list": {
       "loading": "Caricamento connessioni...",
@@ -445,7 +447,9 @@
       "loading": "Caricamento...",
       "refresh": "Aggiorna",
       "no-configs": "Nessuna configurazione disponibile. Premi Aggiorna.",
-      "import": "Importa"
+      "import": "Importa",
+      "search-placeholder": "Cerca per nome o interfaccia...",
+      "no-matches": "Nessuna configurazione corrisponde alla ricerca."
     },
     "intro": {
       "import": "Importa un file di configurazione VPN",

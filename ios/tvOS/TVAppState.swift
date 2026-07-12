@@ -33,8 +33,11 @@ final class TVAppState: ObservableObject {
     /// Gateway-pulled configs the user can connect to. Each is imported into a
     /// transient `SavedConnection` on connect.
     @Published var remoteConfigs: [RemoteConfigEntry] = []
-    /// `id` of the selected `RemoteConfigEntry` (empty = none picked yet).
-    @Published var selectedConfigID: Int?
+    /// Composite `id` ("<protocol>-<number>") of the selected `RemoteConfigEntry`.
+    /// NOT the gateway's number: that repeats across protocols, so resolving a
+    /// selection by it returned whichever config happened to come first — pick
+    /// OpenVPN, connect IPSec.
+    @Published var selectedConfigID: String?
 
     @Published var loadingConfigs = false
     @Published var configError: String?
@@ -142,7 +145,7 @@ final class TVAppState: ObservableObject {
     /// Select a saved (manual) connection, clearing pool + gateway selection.
     func selectSaved(_ id: String) { selectedSavedID = id; selectedPoolID = nil; selectedConfigID = nil }
     /// Select a gateway config, clearing pool + saved selection.
-    func selectGateway(_ id: Int) { selectedConfigID = id; selectedPoolID = nil; selectedSavedID = nil }
+    func selectGateway(_ id: String) { selectedConfigID = id; selectedPoolID = nil; selectedSavedID = nil }
 
     // MARK: — Lifecycle
 

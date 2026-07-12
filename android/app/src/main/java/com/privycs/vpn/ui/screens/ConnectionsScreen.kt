@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -129,7 +130,10 @@ fun ConnectionsScreen(
     var gatewayConfigs by remember { mutableStateOf<List<RemoteConfigEntry>>(emptyList()) }
     var gatewayLoading by remember { mutableStateOf(false) }
     var gatewayError by remember { mutableStateOf<String?>(null) }
-    var downloadingId by remember { mutableStateOf<Int?>(null) }
+    // Keyed by "<protocol>-<id>", NOT the gateway's bare number: that number is only
+    // unique WITHIN a protocol (the gateway addresses configs as <protocol>-<id>), so
+    // an IPSec and an OpenVPN config numbered alike would both show the spinner.
+    var downloadingKey by remember { mutableStateOf<String?>(null) }
 
     // Edit-Connection dialog. Combines rename + per-connection DNS
     // override. The DNS field is the single-connection equivalent
@@ -487,10 +491,10 @@ fun ConnectionsScreen(
                     configs = gatewayConfigs,
                     isLoading = gatewayLoading,
                     error = gatewayError,
-                    downloadingId = downloadingId,
+                    downloadingKey = downloadingKey,
                     onDownload = { entry ->
                         scope.launch {
-                            downloadingId = entry.id
+                            downloadingKey = "${entry.protocol}-${entry.id}"
                             try {
                                 val client = GatewayApiClient(settings.gatewayUrl, settings.apiKey)
                                 val configContent = client.fetchConfig(entry.protocol, entry.id)
@@ -513,7 +517,7 @@ fun ConnectionsScreen(
                             } catch (e: Exception) {
                                 gatewayError = context.getString(R.string.connections_download_failed, e.message ?: "")
                             } finally {
-                                downloadingId = null
+                                downloadingKey = null
                             }
                         }
                     }
@@ -1061,7 +1065,7 @@ private fun GatewayPanel(
     configs: List<RemoteConfigEntry>,
     isLoading: Boolean,
     error: String?,
-    downloadingId: Int?,
+    downloadingKey: String?,
     onDownload: (RemoteConfigEntry) -> Unit
 ) {
     Card(
@@ -1116,6 +1120,53 @@ private fun GatewayPanel(
                 }
 
                 else -> {
+                    // A Pro account can carry well over a hundred gateway configs, so
+                    // let the user narrow them down. Match on BOTH the peer name and
+                    // the interface name: peer names are often near-identical
+                    // ("laptop", "laptop-2") and the interface name is what actually
+                    // tells them apart. Hidden for a single config — nothing to search.
+                    var query by remember { mutableStateOf("") }
+                    val shown = remember(configs, query) {
+                        val q = query.trim()
+                        if (q.isBlank()) configs
+                        else configs.filter {
+                            it.peerName.contains(q, ignoreCase = true) ||
+                                it.interfaceName.contains(q, ignoreCase = true)
+                        }
+                    }
+
+                    if (configs.size > 1) {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            placeholder = {
+                                Text(
+                                    text = stringResource(R.string.gateway_search_hint),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Search,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
+                    if (shown.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.gateway_search_no_matches),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     // Gateway users often have 20+ configs. The parent Column
                     // is not scrollable, so a plain forEach here overflows the
                     // screen on Android and the user cannot reach the rows at
@@ -1126,7 +1177,7 @@ private fun GatewayPanel(
                             .heightIn(max = 360.dp)
                             .verticalScroll(rememberScrollState())
                     ) {
-                        configs.forEach { entry ->
+                        shown.forEach { entry ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1172,7 +1223,7 @@ private fun GatewayPanel(
                                         )
                                     }
                                 }
-                                if (downloadingId == entry.id) {
+                                if (downloadingKey == "${entry.protocol}-${entry.id}") {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(18.dp),
                                         strokeWidth = 2.dp
