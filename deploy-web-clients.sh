@@ -100,14 +100,45 @@ else
     sudo chmod 755 "$DL_DEST/install-linux-client.sh"
     echo "  ✓ install-linux-client.sh"
 
-    if [ -f "$VERSION_SRC" ]; then
-        sudo cp "$VERSION_SRC" "$DL_DEST/latest_version_linux.txt"
-        sudo chown www-data:www-data "$DL_DEST/latest_version_linux.txt"
-        sudo chmod 644 "$DL_DEST/latest_version_linux.txt"
-        echo "  ✓ latest_version_linux.txt ($(tr -d '[:space:]' < "$VERSION_SRC"))"
-    fi
+    # The version pointer is a CONTRACT: the installer reads it, then fetches
+    # privycs-vpn-linux-amd64-<ver>.deb. Advertising a version whose artefacts
+    # aren't there yet gives the user a hard 404 — which is exactly what happened
+    # when this script bumped the pointer (from the repo, at release time) while
+    # the binaries were still being mirrored by the slower gateway-side job.
+    # So: make sure the artefacts for THIS version exist — mirroring them from
+    # the GitHub release if needed — and only then advance the pointer.
+    VER="$(tr -d '[:space:]' < "$VERSION_SRC" 2>/dev/null || true)"
+    if [ -z "$VER" ]; then
+        echo "  !! $VERSION_SRC unreadable — pointer not advanced."
+    else
+        if [ ! -f "$DL_DEST/privycs-vpn-linux-amd64-$VER.deb" ]; then
+            echo "  … Linux artefacts for $VER not present — mirroring from release v$VER"
+            tmp="$(mktemp -d)"
+            if gh release download "v$VER" --repo hoep/privycs-vpn --dir "$tmp" \
+                   --pattern "privycs-vpn-linux-amd64-*" >/dev/null 2>&1; then
+                for f in "$tmp"/*; do
+                    b="$(basename "$f")"
+                    sudo cp "$f" "$DL_DEST/$b"
+                    sudo chown www-data:www-data "$DL_DEST/$b"
+                    sudo chmod 644 "$DL_DEST/$b"
+                    echo "  ✓ $b"
+                done
+            fi
+            rm -rf "$tmp"
+        fi
 
-    echo
-    echo "The one-line installer is live:"
-    echo "  curl -fsSL -u 'dl:TOKEN' https://www.privycs.com/downloads/install-linux-client.sh | sudo bash -s -- --token TOKEN"
+        if [ -f "$DL_DEST/privycs-vpn-linux-amd64-$VER.deb" ]; then
+            sudo cp "$VERSION_SRC" "$DL_DEST/latest_version_linux.txt"
+            sudo chown www-data:www-data "$DL_DEST/latest_version_linux.txt"
+            sudo chmod 644 "$DL_DEST/latest_version_linux.txt"
+            echo "  ✓ latest_version_linux.txt ($VER)"
+            echo
+            echo "The one-line installer is live:"
+            echo "  curl -fsSL -u 'dl:TOKEN' https://www.privycs.com/downloads/install-linux-client.sh | sudo bash -s -- --token TOKEN"
+        else
+            echo "  !! privycs-vpn-linux-amd64-$VER.deb is NOT in $DL_DEST and could not be"
+            echo "     mirrored (release v$VER not published yet?). Pointer left at"
+            echo "     $(cat "$DL_DEST/latest_version_linux.txt" 2>/dev/null || echo '<none>') so the installer keeps working."
+        fi
+    fi
 fi
