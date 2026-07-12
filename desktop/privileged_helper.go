@@ -795,14 +795,52 @@ func (h *PrivilegedHelper) connectWireGuard(cmd HelperCommand) HelperResponse {
 		}
 		return HelperResponse{Success: false, Error: fmt.Sprintf("%s not found — %s", bin, hint)}
 	}
-	wgUp := exec.Command(wgQuick, "up", ifaceName)
-	wgUp.Env = wgExecEnv()
-	applyDetachedSession(wgUp)
-	out, err := wgUp.CombinedOutput()
-	if err != nil {
-		return HelperResponse{Success: false, Error: fmt.Sprintf("%s up failed: %s", bin, string(out)), Output: string(out)}
+	// runWGQuick executes wg-quick/awg-quick capturing output through a real
+	// FILE — deliberately NOT CombinedOutput().
+	//
+	// CombinedOutput wires stdout+stderr to an os.Pipe and Wait()s for EOF. But
+	// when the kernel module is absent, awg-quick falls back to the amneziawg-go
+	// USERSPACE daemon, and that daemon inherits the pipe's write end and keeps
+	// running — so the pipe never EOFs and CombinedOutput blocks FOREVER. The
+	// helper then never answers, the client's IPC times out (60s) and reports a
+	// failure, yet awg-quick DID create the interface — so the next attempt dies
+	// with "`<iface>' already exists". Vanilla wg-quick uses the kernel module
+	// (no lingering daemon), which is exactly why only AmneziaWG hung.
+	// applyDetachedSession (Setsid) detaches the session but NOT the inherited
+	// pipe fds, so it does not help here.
+	//
+	// An *os.File is handed to the child as a plain fd: no copier goroutine, and
+	// Wait() only waits for wg-quick/awg-quick itself to exit.
+	runWGQuick := func(action string) (string, error) {
+		c := exec.Command(wgQuick, action, ifaceName)
+		c.Env = wgExecEnv()
+		applyDetachedSession(c)
+		f, ferr := os.CreateTemp("", "privycs-wg-*.log")
+		if ferr != nil {
+			return "", fmt.Errorf("temp log: %w", ferr)
+		}
+		defer os.Remove(f.Name())
+		defer f.Close()
+		c.Stdout = f
+		c.Stderr = f
+		runErr := c.Run()
+		b, _ := os.ReadFile(f.Name())
+		return string(b), runErr
 	}
-	return HelperResponse{Success: true, Output: string(out)}
+
+	out, err := runWGQuick("up")
+	if err != nil && strings.Contains(strings.ToLower(out), "already exists") {
+		// A leftover interface from an earlier attempt that was abandoned
+		// mid-flight (e.g. the pre-fix IPC timeout above). Tear it down and try
+		// once more rather than dead-ending on stale state.
+		log.Printf("connectWireGuard: %s already exists — tearing it down and retrying up", ifaceName)
+		_, _ = runWGQuick("down")
+		out, err = runWGQuick("up")
+	}
+	if err != nil {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("%s up failed: %s", bin, out), Output: out}
+	}
+	return HelperResponse{Success: true, Output: out}
 }
 
 // disconnectWireGuard uninstalls the tunnel service (Windows) or runs wg-quick down (Unix).
