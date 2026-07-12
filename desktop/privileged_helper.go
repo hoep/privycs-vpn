@@ -36,28 +36,28 @@ type HelperResponse struct {
 
 // allowedActions is the whitelist of commands the helper will execute.
 var allowedActions = map[string]bool{
-	"connect":                    true,
-	"disconnect":                 true,
-	"killswitch_enable":          true,
-	"killswitch_disable":         true,
-	"sinkhole_engage":            true, // new system: Privycs-Sinkhole-* rules
-	"sinkhole_release":           true, // new system: Privycs-Sinkhole-* cleanup
-	"status":                     true,
-	"wg_install_config":          true,
-	"ipsec_configure":            true,
-	"ipsec_cleanup":              true, // wipe swanctl conf.d / PEMs
-	"ipsec_check_dependencies":   true, // macOS: brew/strongswan/charon health
-	"ipsec_split_routes_add":     true, // macOS post-up CIDR-bypass routes
-	"ipsec_split_routes_remove":  true,
+	"connect":                              true,
+	"disconnect":                           true,
+	"killswitch_enable":                    true,
+	"killswitch_disable":                   true,
+	"sinkhole_engage":                      true, // new system: Privycs-Sinkhole-* rules
+	"sinkhole_release":                     true, // new system: Privycs-Sinkhole-* cleanup
+	"status":                               true,
+	"wg_install_config":                    true,
+	"ipsec_configure":                      true,
+	"ipsec_cleanup":                        true, // wipe swanctl conf.d / PEMs
+	"ipsec_check_dependencies":             true, // macOS: brew/strongswan/charon health
+	"ipsec_split_routes_add":               true, // macOS post-up CIDR-bypass routes
+	"ipsec_split_routes_remove":            true,
 	"ipsec_install_macos_v6_default_route": true, // macOS post-bypass: ::/0 via utun for v6 tunnel
-	"ipsec_install_windows_routes": true, // Windows post-up split-tunnel + bypass routes
-	"ipsec_install_windows_profile": true, // Windows: execute gateway-supplied full-setup .cmd at import time
-	"macos_dns_override_set":     true, // primary-service DNS override (swanctl-darwin)
-	"macos_dns_override_restore": true,
-	"macos_dns_override_clean":   true, // orphan-cleanup at app startup
-	"macos_dns_snapshot":         true, // capture pre-VPN DNS for restore-on-disconnect (NEVPN IPSec)
-	"remove_legacy_sudoers":      true,
-	"wlan_ssid":                  true, // SSID query (bypasses user-level Location GPO)
+	"ipsec_install_windows_routes":         true, // Windows post-up split-tunnel + bypass routes
+	"ipsec_install_windows_profile":        true, // Windows: execute gateway-supplied full-setup .cmd at import time
+	"macos_dns_override_set":               true, // primary-service DNS override (swanctl-darwin)
+	"macos_dns_override_restore":           true,
+	"macos_dns_override_clean":             true, // orphan-cleanup at app startup
+	"macos_dns_snapshot":                   true, // capture pre-VPN DNS for restore-on-disconnect (NEVPN IPSec)
+	"remove_legacy_sudoers":                true,
+	"wlan_ssid":                            true, // SSID query (bypasses user-level Location GPO)
 	// v0.9.15.37: IPv6 leak-killswitch actions. Dispatcher cases
 	// existed (lines ~310-313) but the action names were absent
 	// from this whitelist, so the gate at executeCommand rejected
@@ -880,6 +880,28 @@ func (h *PrivilegedHelper) disconnectWireGuard(cmd HelperCommand) HelperResponse
 	wgDown.Env = wgExecEnv()
 	out, err := wgDown.CombinedOutput()
 	if err != nil {
+		// Teardown must be IDEMPOTENT. wg-quick/awg-quick exit non-zero when the
+		// interface simply isn't there — already down, or an `up` that failed
+		// BEFORE the device was created (e.g. AmneziaWG without its kernel
+		// module: "ip link add … type amneziawg → Unknown device type", after
+		// which the app still calls down to clean up). Nothing to tear down is
+		// not a failure; reporting it as one is what surfaced the user-visible
+		// "wg-quick down failed" / "awg-quick down failed" errors on every
+		// disconnect-after-a-failed-connect.
+		lower := strings.ToLower(string(out))
+		for _, benign := range []string{
+			"is not a wireguard interface",
+			"cannot find device",
+			"does not exist",
+			"no such device",
+		} {
+			if strings.Contains(lower, benign) {
+				return HelperResponse{
+					Success: true,
+					Output:  fmt.Sprintf("%s already down (%s)", ifaceName, strings.TrimSpace(string(out))),
+				}
+			}
+		}
 		return HelperResponse{Success: false, Error: fmt.Sprintf("%s down failed: %s", bin, string(out)), Output: string(out)}
 	}
 	return HelperResponse{Success: true, Output: string(out)}
