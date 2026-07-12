@@ -524,7 +524,73 @@ func buildWGConfigWithBypass(src string) (string, error) {
 		}
 	}
 
+	if runtime.GOOS == "linux" {
+		var split int
+		content, split = splitLongAllowedIPs(content)
+		if split > 0 {
+			log.Printf("Split %d oversized AllowedIPs line(s) into %d-prefix chunks (wg-quick bash parser is quadratic on long lines)", split, allowedIPsPerLine)
+		}
+	}
+
 	return content, nil
+}
+
+// allowedIPsPerLine caps how many prefixes splitLongAllowedIPs puts on one
+// AllowedIPs line.
+const allowedIPsPerLine = 10
+
+// allowedIPsSplitThreshold is the line length above which splitting kicks in.
+// Well below where the quadratic cost becomes noticeable, well above any
+// hand-written config.
+const allowedIPsSplitThreshold = 512
+
+// splitLongAllowedIPs rewrites each oversized `AllowedIPs = a, b, c, …` line
+// into several short ones. `wg setconf` accumulates repeated AllowedIPs keys
+// within a [Peer], so the resulting peer is byte-for-byte equivalent.
+//
+// Why: a split-tunnel config's AllowedIPs is the complement of the excluded
+// subnets — ~300 prefixes, ~10 KB on one line. wg-quick is a BASH script and
+// strips whitespace off every config line with `${value##*([[:space:]])}`;
+// bash's extglob longest-match is quadratic in the string length, and with
+// wg-quick's `nocasematch` plus a UTF-8 locale it is slower still. One 10 KB
+// line costs 8 s on a fast machine and 22 s on a slow one — measured in a
+// wg-quick trace, where a single `value=` assignment (no syscall, no netlink)
+// accounted for the bulk of a 27 s "connect". Chunked into 10-prefix lines the
+// same parse is ~0.2 s.
+//
+// Linux-only by construction: Windows drives the native tunnel service and
+// macOS the in-process UAPI (wg_macos.go) — neither goes near bash.
+func splitLongAllowedIPs(content string) (string, int) {
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	split := 0
+
+	for _, line := range lines {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), "AllowedIPs") || len(line) <= allowedIPsSplitThreshold {
+			out = append(out, line)
+			continue
+		}
+
+		var prefixes []string
+		for _, p := range strings.Split(value, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				prefixes = append(prefixes, p)
+			}
+		}
+		if len(prefixes) <= allowedIPsPerLine {
+			out = append(out, line)
+			continue
+		}
+
+		for i := 0; i < len(prefixes); i += allowedIPsPerLine {
+			end := min(i+allowedIPsPerLine, len(prefixes))
+			out = append(out, "AllowedIPs = "+strings.Join(prefixes[i:end], ", "))
+		}
+		split++
+	}
+
+	return strings.Join(out, "\n"), split
 }
 
 // parseEndpointIPs extracts the IPv4 and IPv6 addresses of the VPN server
