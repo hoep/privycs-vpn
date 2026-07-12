@@ -70,6 +70,20 @@ func main() {
 		)
 	}
 
+	// Linux: WebKitGTK 2.42+ renders through a DMA-BUF path that paints a BLACK
+	// window on drivers with weak/incomplete GL — nouveau (e.g. an NVIDIA card
+	// whose proprietary driver failed to build), llvmpipe, VMs, remote sessions.
+	// The Go process runs fine; only the WebView never paints, so the app looks
+	// dead ("nur schwarzes Fenster"). Disabling the DMA-BUF renderer is the
+	// standard workaround shipped by WebKitGTK-based apps. Must be set BEFORE
+	// wails.Run brings the WebView up. We never override an explicit user value,
+	// so `WEBKIT_DISABLE_DMABUF_RENDERER=0 privycs-vpn` re-enables it.
+	if runtime.GOOS == "linux" {
+		if _, set := os.LookupEnv("WEBKIT_DISABLE_DMABUF_RENDERER"); !set {
+			os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+		}
+	}
+
 	err := wails.Run(&options.App{
 		Title:     "Privycs VPN",
 		Menu:      appMenu,

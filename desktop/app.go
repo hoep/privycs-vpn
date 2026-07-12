@@ -711,6 +711,18 @@ func (a *App) shutdown(ctx context.Context) {
 		a.logFile.Close()
 		a.logFile = nil
 	}
+
+	// Linux: force the process to actually exit. wailsRuntime.Quit unwinds
+	// Wails' own GTK main loop, but the systray (fyne.io/systray) runs a SECOND
+	// GTK loop in this same process and nothing tears it down deterministically
+	// — so the app ran this entire shutdown (logs "Privycs VPN stopped"), the
+	// window vanished, and the PROCESS kept running: "Quit beendet nicht unter
+	// Linux". Every cleanup step above has completed by now (tunnel down, kill
+	// switch off, pool state flushed, goroutines joined, log file closed), so a
+	// hard exit here loses nothing. macOS/Windows terminate on their own.
+	if runtime.GOOS == "linux" {
+		os.Exit(0)
+	}
 }
 
 // beforeClose is called before the window closes — minimize to tray if enabled.
