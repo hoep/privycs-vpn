@@ -63,13 +63,23 @@ curl -fsSL https://www.privycs.com/install-linux.sh | sudo bash
 
 This detects your distribution (Debian/Ubuntu, Fedora/RHEL, Arch, openSUSE),
 installs the app **and** the VPN protocol tools it needs — **WireGuard,
-OpenVPN and strongSwan/IPSec** — then adds a desktop launcher entry. Add
-`--with-amneziawg` to also build the AmneziaWG userland (needs a Go toolchain;
-see the AmneziaWG section below):
+OpenVPN and strongSwan/IPSec** — then adds a desktop launcher entry.
+
+**AmneziaWG** is opt-in (it has no package in the default repos). Pick one:
 
 ```bash
+# Native kernel module (faster) — installs the DKMS module from the upstream
+# Ubuntu/Debian PPA or Fedora COPR, so it rebuilds itself on kernel upgrades.
+# Falls back to the userspace backend if the module can't be installed.
+curl -fsSL https://www.privycs.com/install-linux.sh | sudo bash -s -- --with-amneziawg-kernel
+
+# Userspace backend — no kernel module, unaffected by kernel upgrades,
+# costs a little CPU. Built from source (the installer fetches a modern Go).
 curl -fsSL https://www.privycs.com/install-linux.sh | sudo bash -s -- --with-amneziawg
 ```
+
+`awg-quick` always tries the native kernel path first and only falls back to
+the userspace backend, so once the module is installed it is used automatically.
 
 **Debian/Ubuntu (.deb package):**
 

@@ -4,15 +4,29 @@
 #
 # Installs the Privycs VPN desktop app AND its VPN protocol dependencies
 # (WireGuard, OpenVPN, strongSwan/IPSec) in one shot, across the common distro
-# families. AmneziaWG userland (awg-quick) has no package in the default repos,
-# so it is opt-in (--with-amneziawg builds it from source).
+# families. AmneziaWG has no package in the default repos, so it is opt-in —
+# pick ONE:
+#   --with-amneziawg-kernel   native DKMS kernel module (faster; via the upstream
+#                             Ubuntu/Debian PPA or Fedora COPR). awg-quick always
+#                             tries the native path first, so it is used
+#                             automatically once the module is present.
+#   --with-amneziawg          userspace backend (amneziawg-go), built from source.
+#                             No kernel module, unaffected by kernel upgrades,
+#                             costs a little CPU.
+# --with-amneziawg-kernel falls back to the userspace backend if the module
+# can't be installed, so you always end up with a working AmneziaWG.
 #
 # Quick start (end users) — the downloads area is password-protected, so pass
 # the download token to BOTH curl (for this script) and the script (--token):
 #   curl -fsSL -u 'dl:TOKEN' https://www.privycs.com/downloads/install-linux-client.sh | sudo bash -s -- --token TOKEN
 #
 # Options:
-#   --with-amneziawg     also build+install amneziawg-tools + amneziawg-go
+#   --with-amneziawg     AmneziaWG userspace backend (amneziawg-tools + amneziawg-go,
+#                        source build; no kernel module, survives kernel updates)
+#   --with-amneziawg-kernel
+#                        AmneziaWG NATIVE kernel module via DKMS (faster; Ubuntu/
+#                        Debian PPA, Fedora COPR). Falls back to userspace if
+#                        unavailable.
 #   --version X.Y.Z.W    install a specific version (default: latest)
 #   --token TOKEN        download auth token (or $PRIVYCS_DOWNLOAD_TOKEN)
 #   --base URL           download base (default: $PRIVYCS_DOWNLOAD_BASE or
@@ -28,6 +42,7 @@ set -euo pipefail
 DOWNLOAD_BASE="${PRIVYCS_DOWNLOAD_BASE:-https://www.privycs.com/downloads}"
 VERSION="${PRIVYCS_VERSION:-}"
 WITH_AWG=0
+WITH_AWG_KERNEL=0
 LOCAL_DEB=""
 DO_DEPS=1
 DO_APP=1
@@ -40,6 +55,7 @@ die()  { printf '\033[1;31mxx\033[0m %s\n' "$*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --with-amneziawg) WITH_AWG=1 ;;
+    --with-amneziawg-kernel) WITH_AWG_KERNEL=1 ;;
     --version) VERSION="${2:?}"; shift ;;
     --base)    DOWNLOAD_BASE="${2:?}"; shift ;;
     --token)   DOWNLOAD_TOKEN="${2:?}"; shift ;;
@@ -64,6 +80,7 @@ if [ "$(id -u)" != "0" ]; then
   log "Re-running with sudo…"
   exec sudo -E bash "$0" \
     $([ "$WITH_AWG" = 1 ] && echo --with-amneziawg) \
+    $([ "$WITH_AWG_KERNEL" = 1 ] && echo --with-amneziawg-kernel) \
     $([ -n "$VERSION" ] && echo --version "$VERSION") \
     --base "$DOWNLOAD_BASE" \
     $([ -n "$DOWNLOAD_TOKEN" ] && echo --token "$DOWNLOAD_TOKEN") \
@@ -166,6 +183,58 @@ ensure_modern_go() {
   GO_BIN=/usr/local/go/bin/go
   [ -x "$GO_BIN" ] || { warn "Go install to /usr/local/go failed"; return 1; }
   log "Installed Go $GO_PIN to /usr/local/go"
+}
+
+# ---- AmneziaWG NATIVE kernel module (opt-in, DKMS) ------------------------
+# awg-quick ALWAYS tries the native path first (`ip link add … type amneziawg`)
+# and only falls back to the amneziawg-go userspace daemon when the kernel
+# module is missing. Native is faster (crypto + packet path in-kernel); the
+# userspace backend costs some CPU but needs no kernel module and survives
+# kernel updates untouched.
+#
+# The upstream "manual build" route is nasty on kernel >= 5.6 (it wants the FULL
+# kernel source tree, not just headers), so use the distro channels the project
+# actually publishes: a PPA on Ubuntu/Debian derivatives, COPR on Fedora/RHEL.
+# Both ship it as DKMS, so it rebuilds itself on every kernel upgrade.
+#
+# Returns non-zero if the native path isn't available — the caller then falls
+# back to the userspace backend rather than leaving the user with nothing.
+install_amneziawg_kernel() {
+  log "Installing AmneziaWG KERNEL module (native, DKMS)…"
+  case "$PM" in
+    apt)
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get install -y software-properties-common python3-launchpadlib gnupg2 dkms \
+        "linux-headers-$(uname -r)" || warn "some prerequisites failed to install"
+      log "Adding ppa:amnezia/ppa…"
+      add-apt-repository -y ppa:amnezia/ppa || { warn "could not add ppa:amnezia/ppa"; return 1; }
+      apt-get update -y
+      # `amneziawg` is the DKMS kernel module; it pulls amneziawg-tools along,
+      # which replaces any source-built awg/awg-quick with apt-managed ones.
+      apt-get install -y amneziawg || { warn "apt install amneziawg failed"; return 1; }
+      ;;
+    dnf)
+      dnf install -y dnf-plugins-core dkms "kernel-devel-$(uname -r)" || warn "some prerequisites failed"
+      dnf copr enable -y amneziavpn/amneziawg || { warn "could not enable the amneziawg COPR"; return 1; }
+      dnf install -y amneziawg-dkms amneziawg-tools || { warn "dnf install amneziawg-dkms failed"; return 1; }
+      ;;
+    pacman)
+      warn "Arch/Manjaro: the module lives in the AUR and needs an AUR helper — run it yourself:"
+      warn "  yay -S amneziawg-dkms amneziawg-tools"
+      return 1
+      ;;
+    zypper)
+      warn "openSUSE: upstream ships no kernel package — using the userspace backend instead."
+      return 1
+      ;;
+  esac
+
+  if modprobe amneziawg 2>/dev/null || lsmod | grep -q '^amneziawg'; then
+    log "AmneziaWG kernel module is active — awg-quick will take the NATIVE path."
+    return 0
+  fi
+  warn "The amneziawg module did not load (the DKMS build may have failed — check: dkms status)."
+  return 1
 }
 
 # ---- AmneziaWG userland (opt-in, source build) ----------------------------
@@ -280,12 +349,20 @@ install_app() {
 
 # ---- run ------------------------------------------------------------------
 [ "$DO_DEPS" = 1 ] && install_deps
-[ "$WITH_AWG" = 1 ] && install_amneziawg
+# AmneziaWG: native kernel module if asked for, else (or on failure) userspace.
+if [ "$WITH_AWG_KERNEL" = 1 ]; then
+  if ! install_amneziawg_kernel; then
+    warn "Native kernel module unavailable — installing the userspace backend instead."
+    install_amneziawg
+  fi
+elif [ "$WITH_AWG" = 1 ]; then
+  install_amneziawg
+fi
 [ "$DO_APP"  = 1 ] && install_app
 
 echo
 log "Done. Launch 'Privycs VPN' from your applications menu, or run: privycs-vpn"
-if [ "$WITH_AWG" != 1 ]; then
+if [ "$WITH_AWG" != 1 ] && [ "$WITH_AWG_KERNEL" != 1 ]; then
   warn "AmneziaWG was NOT installed. WireGuard/OpenVPN/IPSec work now. For the"
   warn "DPI-resistant AmneziaWG protocol, re-run with --with-amneziawg (needs a"
   warn "Go toolchain) or follow the manual steps in the Desktop Client docs."
