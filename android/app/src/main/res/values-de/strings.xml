@@ -71,16 +71,6 @@
     <string name="perapp_mode_include_desc">Nur ausgewählte Apps nutzen das VPN. Der gesamte übrige Datenverkehr umgeht es.</string>
     <string name="perapp_loading">Installierte Apps werden geladen…</string>
 
-    <!-- IpSecConnectFlow -->
-    <string name="ipsecflow_error_install_cancelled">PKCS#12-Installation abgebrochen</string>
-    <string name="ipsecflow_error_no_activity">Kein Zugriff auf Activity zur Auswahl des KeyChain-Alias</string>
-    <string name="ipsecflow_error_connection_disappeared">Aktive Verbindung ist während der Installation verschwunden</string>
-    <string name="ipsecflow_error_no_active_config">Keine aktive Konfiguration für %1$s</string>
-    <string name="ipsecflow_error_parse_failed">.sswan-Profil konnte nicht verarbeitet werden: %1$s</string>
-    <string name="ipsecflow_error_no_pkcs12_bundle">Profil enthält kein PKCS#12-Bundle</string>
-    <string name="ipsecflow_toast_pkcs12_password">PKCS#12-Passwort: %1$s (in die Zwischenablage kopiert – in den Dialog einfügen)</string>
-    <string name="ipsecflow_error_no_certificate_selected">Kein Zertifikat ausgewählt</string>
-    <string name="ipsecflow_error_record_alias_failed">Alias konnte nicht gespeichert werden: %1$s</string>
 
     <!-- AddPoolScreen -->
     <string name="addpool_title">Pool hinzufügen</string>
@@ -616,6 +606,9 @@
     <string name="notifcation_title">Privycs VPN - %s</string>
     <string name="notifcation_title_notconnect">Privycs VPN - Nicht verbunden</string>
     <string name="ipv6_leak_warning">IPv6-Verkehr umgeht möglicherweise das VPN — der Server hat den IPv6-Traffic-Selector nicht akzeptiert. Wechsle zu WireGuard für vollen IPv6-Schutz.</string>
+    <string name="ipsec_legacy_keychain_cert_hint">IPSec liest das Client-Zertifikat jetzt direkt aus dem Profil. Das zuvor installierte Zertifikat wird nicht mehr verwendet und kann unter Einstellungen &gt; Sicherheit &gt; Verschlüsselung &amp; Anmeldedaten entfernt werden.</string>
+    <string name="ipsec_legacy_keychain_cert_hint_dismiss">Verstanden</string>
+    <string name="ipsec_error_no_embedded_certificate">Dieses IPSec-Profil enthält kein eingebettetes Zertifikat, es gibt also nichts, womit sich authentifiziert werden könnte. Lade das Profil erneut von deinem Gateway herunter oder importiere eine .sswan-Datei mit ihrem PKCS#12-Bundle.</string>
     <string name="banner_warning_prefix">WARNUNG: %1$s</string>
     <string name="banner_pool_connect_rejected">Pool-Verbindung abgelehnt: %1$s</string>
     <string name="banner_connection_rejected">Verbindung abgelehnt: %1$s</string>

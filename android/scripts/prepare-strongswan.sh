@@ -68,39 +68,12 @@ log "ABIs           =${ABIS}"
 # Stage 0: apply Privycs vendor patches
 # ----------------------------------------------------------------------------
 #
-# Patches under android/vendor/strongswan-patches/*.patch carry Privycs-only
-# changes that we cannot push upstream (e.g. RFC 8784 PPK plumbing through
-# the Android frontend's Java + JNI layers). Because the submodule remote
-# points at upstream strongSwan we cannot commit into it; instead we ship
-# the patches as tracked files in the parent repo and re-apply them on
-# every build.
-#
-# Idempotency: each patch is gated on `git apply --check`. If the patch
-# already applies cleanly, we apply it. If `--check` reports it is already
-# applied (reverse-applies cleanly with --reverse), we skip silently. Any
-# other failure aborts the build with a clear message — that means the
-# patch has rotted against an upstream bump and a human needs to refresh
-# it (see android/vendor/strongswan-patches/README.md).
-PATCH_DIR="${ANDROID_DIR}/vendor/strongswan-patches"
-if [ -d "${PATCH_DIR}" ]; then
-  shopt -s nullglob
-  patches=( "${PATCH_DIR}"/*.patch )
-  shopt -u nullglob
-  if [ ${#patches[@]} -gt 0 ]; then
-    log "Applying ${#patches[@]} vendor patch(es) from ${PATCH_DIR}"
-    for p in "${patches[@]}"; do
-      name="$(basename "${p}")"
-      if (cd "${STRONGSWAN_DIR}" && git apply --check "${p}" >/dev/null 2>&1); then
-        log "  apply  ${name}"
-        (cd "${STRONGSWAN_DIR}" && git apply "${p}")
-      elif (cd "${STRONGSWAN_DIR}" && git apply --reverse --check "${p}" >/dev/null 2>&1); then
-        log "  skip   ${name} (already applied)"
-      else
-        die "patch ${name} does not apply and is not already applied — refresh it (see android/vendor/strongswan-patches/README.md)"
-      fi
-    done
-  fi
-fi
+# Delegated to apply-strongswan-patches.sh, which is the single source of
+# truth for patch application: Gradle calls the same script on every Java
+# compile, so a developer build without the NDK still gets a patched tree.
+# It must stay callable on its own — do not inline the logic back here.
+log "Applying Privycs vendor patches"
+bash "${SCRIPT_DIR}/apply-strongswan-patches.sh"
 
 # ----------------------------------------------------------------------------
 # Stage 1: autogen + configure + make (generates Android.common.mk etc.)

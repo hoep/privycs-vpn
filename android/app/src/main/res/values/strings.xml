@@ -71,16 +71,6 @@
     <string name="perapp_mode_include_desc">Only selected apps will use the VPN. All other traffic bypasses it.</string>
     <string name="perapp_loading">Loading installed apps…</string>
 
-    <!-- IpSecConnectFlow -->
-    <string name="ipsecflow_error_install_cancelled">PKCS#12 install cancelled</string>
-    <string name="ipsecflow_error_no_activity">Cannot access Activity to pick KeyChain alias</string>
-    <string name="ipsecflow_error_connection_disappeared">Active connection disappeared during install</string>
-    <string name="ipsecflow_error_no_active_config">No active config for %1$s</string>
-    <string name="ipsecflow_error_parse_failed">Failed to parse .sswan profile: %1$s</string>
-    <string name="ipsecflow_error_no_pkcs12_bundle">Profile does not contain a PKCS#12 bundle</string>
-    <string name="ipsecflow_toast_pkcs12_password">PKCS#12 password: %1$s (copied to clipboard - paste into dialog)</string>
-    <string name="ipsecflow_error_no_certificate_selected">No certificate selected</string>
-    <string name="ipsecflow_error_record_alias_failed">Failed to record alias: %1$s</string>
 
     <!-- AddPoolScreen -->
     <string name="addpool_title">Add Pool</string>
@@ -620,6 +610,13 @@
          detects the IPSec tunnel did not capture v6 traffic. Was hard-
          coded English in PrivycsVpnService.kt until v1.0.5. -->
     <string name="ipv6_leak_warning">IPv6 traffic may bypass the VPN — the server did not accept the IPv6 traffic selector. Switch to WireGuard for full IPv6 protection.</string>
+    <string name="ipsec_legacy_keychain_cert_hint">IPSec now reads the client certificate from the profile itself. The one this app installed earlier is no longer used and can be removed under Settings &gt; Security &gt; Encryption &amp; credentials.</string>
+    <!-- Dismiss action on the pref-backed legacy-KeyChain notice card. -->
+    <string name="ipsec_legacy_keychain_cert_hint_dismiss">Got it</string>
+    <!-- Connect-time failure for an IPSec profile with no PKCS#12 inside it.
+         The embedded bundle is the only supported client identity: this app
+         has no UI to install or pick a KeyChain certificate. -->
+    <string name="ipsec_error_no_embedded_certificate">This IPSec profile carries no embedded certificate, so there is nothing to authenticate with. Download the profile again from your gateway, or import a .sswan file that includes its PKCS#12 bundle.</string>
 
     <!-- Connect-screen error banners. Previously hard-coded English in
          VpnServiceManager.kt; surfaced via VpnStatus.error and rendered

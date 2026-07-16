@@ -7,9 +7,9 @@ import android.content.ServiceConnection
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.os.IBinder
-import android.security.KeyChain
 import android.util.Base64
 import android.util.Log
+import com.privycs.vpn.R
 import com.privycs.vpn.data.models.VpnProtocol
 import com.privycs.vpn.data.models.VpnStatus
 import com.privycs.vpn.util.PrivycsLogger
@@ -24,6 +24,8 @@ import kotlinx.serialization.json.Json
 import org.strongswan.android.data.VpnProfile
 import org.strongswan.android.data.VpnProfileSource
 import org.strongswan.android.data.VpnType
+import org.strongswan.android.logic.CharonVpnService
+import org.strongswan.android.logic.PrivycsCredentials
 import org.strongswan.android.logic.TrustedCertificateManager
 import org.strongswan.android.logic.VpnStateService
 import org.strongswan.android.security.LocalCertificateStore
@@ -41,25 +43,71 @@ import java.util.UUID
  *   3. bind VpnStateService to drive CharonVpnService and receive state events
  *   4. disconnect closes the IKE SA and tears down the VpnService
  *
- * User-certificate handling: strongSwan expects the client cert + private key
- * to be reachable via Android KeyChain (alias-based). Our .sswan profiles
- * embed a PKCS#12 bundle (base64, with password), but KeyChain installs
- * require an Activity context. Callers must install the bundle via
- * `createKeyChainInstallIntent()` + `rememberInstalledAlias()` before the
- * first connect; the alias is persisted in SharedPreferences keyed by the
- * profile UUID so subsequent connects run without user interaction.
+ * User-certificate handling: the .sswan's embedded PKCS#12 is parsed in-process
+ * (P12Identity) and handed to charon through PrivycsCredentials, so connecting
+ * needs no Activity and no system dialog. This replaces installing the bundle
+ * into the Android KeyChain, which cost the user four dialogs and left behind a
+ * credential the app can never delete (no Android API — see cleanupOnDelete).
+ * It relies on the vendor patch that makes CharonVpnService consult the holder;
+ * requireVendorPatch() refuses to connect without it.
+ *
+ * The embedded PKCS#12 is therefore the ONLY supported source of the client
+ * identity. A profile without one is rejected at connect() — there is no UI in
+ * this app to install a certificate into the system KeyChain or to pick one, so
+ * an alias could never be obtained for such a profile in the first place.
  */
 class IpSecTunnel(private val context: Context) {
 
     companion object {
         private const val TAG = "IpSecTunnel"
         private const val PREF_FILE = "privycs_ipsec"
-        private const val KEY_ALIAS_PREFIX = "keychain_alias_"
+        // Pre-1.1.5 rows only. The value is never read: nothing installs a
+        // KeyChain credential any more, so the alias behind it is unusable.
+        // The key's mere presence is the one thing it still carries — it marks
+        // this profile as an upgrader whose old credential is stranded on the
+        // device. Value string is frozen; changing it would hide those rows.
+        private const val KEY_RETIRED_ALIAS_PREFIX = "keychain_alias_"
+        // Set when such a row is found and dropped; cleared only by
+        // acknowledgeRetiredKeyChainCredentials() — see its KDoc for why it
+        // must outlive both a status push and the process.
+        private const val KEY_LEGACY_HINT_PREFIX = "keychain_retired_hint_"
         // Bookkeeping: the local-store CA aliases imported for a profile (keyed
         // by .sswan UUID), so deleting the connection removes exactly them.
         private const val KEY_CHAIN_ALIASES_PREFIX = "chain_aliases_"
 
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+        /**
+         * True while a KeyChain client certificate that a pre-1.1.5 build
+         * installed is still on the device with nothing using it.
+         *
+         * Deliberately pref-backed rather than pushed through
+         * VpnServiceManager.emitWarning(): that writes VpnStatus.error, and
+         * PrivycsVpnService's 1 Hz status poller builds a fresh VpnStatus from
+         * the tunnel and replaces the whole object — error field included —
+         * within a second. Only the user can delete the stranded credential
+         * (Android exposes no API for it, see cleanupOnDelete), so a notice
+         * they may never see is the same as no notice at all. The flag
+         * therefore survives process death and is cleared exclusively by
+         * [acknowledgeRetiredKeyChainCredentials], i.e. on proof of delivery.
+         */
+        fun hasRetiredKeyChainCredential(context: Context): Boolean =
+            runCatching {
+                context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+                    .all.keys.any { it.startsWith(KEY_LEGACY_HINT_PREFIX) }
+            }.getOrDefault(false)
+
+        /** Call only from the UI that rendered the notice, once the user dismissed it. */
+        fun acknowledgeRetiredKeyChainCredentials(context: Context) {
+            runCatching {
+                val prefs = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+                val editor = prefs.edit()
+                prefs.all.keys
+                    .filter { it.startsWith(KEY_LEGACY_HINT_PREFIX) }
+                    .forEach { editor.remove(it) }
+                editor.apply()
+            }
+        }
     }
 
     enum class State { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING }
@@ -188,83 +236,54 @@ class IpSecTunnel(private val context: Context) {
     }
 
     /**
-     * Extract the raw PKCS#12 bytes. Used by the caller to pass into
-     * KeyChain.createInstallIntent(EXTRA_PKCS12, ...).
+     * An unpatched CharonVpnService still compiles and links against this app —
+     * it just never consults PrivycsCredentials and asks the KeyChain for the
+     * alias we deliberately cleared, so the omission would surface as an opaque
+     * authentication failure mid-IKE_AUTH. Fail here, where it has a name.
+     *
+     * The marker must be read reflectively: javac inlines a static final String
+     * constant into the referencing class file, so a direct reference would keep
+     * compiling (and passing) against an unpatched tree. R8 keeps the field via
+     * the `-keep class org.strongswan.** { *; }` rule in proguard-rules.pro.
      */
-    fun extractP12Bytes(): ByteArray? {
-        val p12 = sswanConfig?.local?.p12 ?: return null
-        if (p12.isEmpty()) return null
-        return runCatching { Base64.decode(p12, Base64.DEFAULT) }
-            .onFailure { Log.e(TAG, "PKCS#12 decode failed", it) }
-            .getOrNull()
-    }
-
-    /**
-     * Plaintext PKCS#12 password from the .sswan profile. The UI layer
-     * uses this to prepopulate the clipboard because Android's KeyChain
-     * install dialog has no extras to prefill the password field.
-     */
-    fun getP12Password(): String = sswanConfig?.local?.p12Password ?: ""
-
-    /**
-     * Build an Intent the caller launches from an Activity to prompt the
-     * user to install the PKCS#12 bundle. The default alias seeded here is
-     * `privycs-<connection-name>` so users can identify it in Android's
-     * credential storage UI.
-     */
-    fun createKeyChainInstallIntent(connectionName: String): Intent? {
-        val p12Bytes = extractP12Bytes() ?: return null
-        val cfg = sswanConfig ?: return null
-        return KeyChain.createInstallIntent().apply {
-            putExtra(KeyChain.EXTRA_PKCS12, p12Bytes)
-            putExtra(KeyChain.EXTRA_NAME, "privycs-${connectionName}")
-            putExtra("PKCS12_PASSWORD", cfg.local.p12Password) // not standard but tolerated
+    private fun requireVendorPatch() {
+        val patched = runCatching {
+            CharonVpnService::class.java.getDeclaredField("PRIVYCS_PATCH_MARKER")
+        }.isSuccess
+        check(patched) {
+            "strongSwan vendor patches are missing from this build: CharonVpnService " +
+                "cannot serve the in-memory client identity. See " +
+                "android/vendor/strongswan-patches/README.md."
         }
     }
 
     /**
-     * Remember the alias the user chose during KeyChain install. Keyed by
-     * .sswan profile UUID so different gateways/profiles can coexist.
+     * Pre-1.1.5 builds walked the user through installing the profile's PKCS#12
+     * into the system KeyChain. That credential is now unused, and no app can
+     * delete one (no Android API — see cleanupOnDelete), so the best we can do
+     * is tell the user it is theirs to remove.
+     *
+     * Retiring the row and telling the user are deliberately split: the row must
+     * go now, so nothing can ever resolve an identity through it again, whereas
+     * the notice has to wait for a UI to render it and for the user to
+     * acknowledge it (ConnectScreen, via hasRetiredKeyChainCredential /
+     * acknowledgeRetiredKeyChainCredentials). Raising it from here through
+     * VpnStatus would lose it — see hasRetiredKeyChainCredential's KDoc.
      */
-    fun rememberInstalledAlias(alias: String) {
-        val cfgUuid = sswanConfig?.uuid ?: return
-        prefs.edit().putString(KEY_ALIAS_PREFIX + cfgUuid, alias).apply()
+    private fun noteObsoleteKeyChainCredential(cfgUuid: String) {
+        if (cfgUuid.isEmpty()) return
+        if (!prefs.contains(KEY_RETIRED_ALIAS_PREFIX + cfgUuid)) return
+        prefs.edit()
+            .remove(KEY_RETIRED_ALIAS_PREFIX + cfgUuid)
+            .putBoolean(KEY_LEGACY_HINT_PREFIX + cfgUuid, true)
+            .apply()
+        PrivycsLogger.i(TAG, "Legacy KeyChain client certificate retired for profile $cfgUuid")
     }
 
     /**
-     * Look up the previously-stored alias for this profile. Returns null if
-     * no install has been recorded yet.
-     */
-    fun getInstalledAlias(): String? {
-        val cfgUuid = sswanConfig?.uuid ?: return null
-        return prefs.getString(KEY_ALIAS_PREFIX + cfgUuid, null)
-    }
-
-    /**
-     * True if `alias` still resolves to a usable certificate chain in the system
-     * KeyChain. False if the cert was deleted (Clear credentials / user removal)
-     * or access was revoked — letting connect() discard the "ghost" alias and
-     * re-drive the install flow. MUST run off the main thread
-     * (KeyChain.getCertificateChain blocks); connect() calls it on Dispatchers.IO.
-     */
-    private fun aliasStillInstalled(alias: String): Boolean =
-        runCatching { KeyChain.getCertificateChain(context, alias)?.isNotEmpty() == true }
-            .getOrDefault(false)
-
-    /**
-     * Drop the remembered alias for this profile (keyed by .sswan UUID) so the
-     * next connect re-prompts the KeyChain install.
-     */
-    private fun forgetInstalledAlias() {
-        val cfgUuid = sswanConfig?.uuid ?: return
-        prefs.edit().remove(KEY_ALIAS_PREFIX + cfgUuid).apply()
-    }
-
-    /**
-     * Connect the tunnel. Requires an alias already installed in KeyChain
-     * (see rememberInstalledAlias). Throws IllegalStateException otherwise -
-     * the UI layer catches this and drives the install flow via
-     * createKeyChainInstallIntent().
+     * Connect the tunnel. The client identity comes from the .sswan's own
+     * PKCS#12 with no user interaction; a profile without one cannot be
+     * connected and throws IllegalStateException carrying a localised message.
      *
      * `vpnService` is kept in the signature for source-compat with the WG /
      * OpenVPN tunnel interfaces, but is unused: CharonVpnService manages its
@@ -296,32 +315,45 @@ class IpSecTunnel(private val context: Context) {
         } else {
             parsedCfg
         }
-        // Resolve the client-cert alias. A remembered alias whose cert was since
-        // deleted from the system KeyChain (Settings ▸ Encryption & credentials ▸
-        // Clear credentials, or the user removing it) would otherwise survive as
-        // a ghost: getInstalledAlias() "succeeds" but charon can't fetch the
-        // cert/key and the install flow never re-fires. Verify the chain still
-        // resolves; if not, forget the stale alias and fail with the install
-        // prompt so the UI re-drives the KeyChain install.
-        val storedAlias = getInstalledAlias()
-        val alias = storedAlias?.takeIf { aliasStillInstalled(it) }
-            ?: run {
-                if (storedAlias != null) {
-                    PrivycsLogger.w(TAG, "Remembered KeyChain alias no longer resolves — forgetting it, re-prompt install")
-                    forgetInstalledAlias()
-                }
+        // Resolve the client identity. The embedded PKCS#12 is the only source:
+        // an upgrader's stale alias row is deliberately not consulted, since
+        // honouring it would fork the field into two auth paths — one of them
+        // still the four-dialog flow this change exists to delete.
+        val identity = try {
+            if (cfg.local.p12.isEmpty()) {
                 throw IllegalStateException(
-                    "PKCS#12 not yet installed into Android KeyChain. " +
-                            "Launch createKeyChainInstallIntent() from an Activity, " +
-                            "then call rememberInstalledAlias() before connecting."
+                    context.getString(R.string.ipsec_error_no_embedded_certificate)
                 )
             }
+            requireVendorPatch()
+            P12Identity.parse(cfg.local.p12, cfg.local.p12Password)
+        } catch (e: Throwable) {
+            // connect() marked us CONNECTING; nothing downstream will move us
+            // off it now, and a stuck CONNECTING disables the connect button.
+            state = State.DISCONNECTED
+            throw e
+        }
 
-        val profile = buildVpnProfile(cfg, name, alias)
+        val profile = buildVpnProfile(cfg, name)
         val uuid = persistProfile(profile)
         profileUuid = uuid
 
+        // Drop every other profile's key first. Android grants one VpnService
+        // the TUN at a time and charon runs one profile at a time, so anything
+        // still in the holder belongs to a tunnel that is already gone — and a
+        // caller that swaps profiles without disconnecting the previous one (a
+        // teardown path that skips IpSecTunnel.disconnect, a connect on a fresh
+        // IpSecTunnel while the old instance is orphaned) would otherwise leave
+        // that key resident for the life of the process. Ordered before put()
+        // so it cannot take our own entry with it.
+        PrivycsCredentials.clearAll()
+        // Keyed by the PERSISTED uuid — the patched CharonVpnService looks the
+        // entry up by mCurrentProfile.getUUID(), which is what persistProfile
+        // canonicalises. Must be in place before charon reads the profile.
+        PrivycsCredentials.put(uuid, identity.privateKey, identity.leafDer)
+
         startViaVpnStateService(uuid)
+        noteObsoleteKeyChainCredential(cfg.uuid)
 
         // CharonVpnService runs asynchronously; our state flips to CONNECTED
         // once VpnStateService dispatches State.CONNECTED. For now we mark
@@ -335,8 +367,7 @@ class IpSecTunnel(private val context: Context) {
      */
     private fun buildVpnProfile(
         cfg: SswanConfig,
-        connectionName: String,
-        keychainAlias: String
+        connectionName: String
     ): VpnProfile {
         // All setters called explicitly because strongSwan's VpnProfile uses
         // all-caps getter/setter prefixes (setUUID, setMTU) that Kotlin's
@@ -347,7 +378,11 @@ class IpSecTunnel(private val context: Context) {
         profile.setName(connectionName.ifEmpty { cfg.name.ifEmpty { "privycs-ipsec" } })
         profile.setGateway(cfg.remote.addr)
         profile.setVpnType(VpnType.IKEV2_CERT)
-        profile.setUserCertificateAlias(keychainAlias)
+        // Always null: the identity is served from PrivycsCredentials, never
+        // from the KeyChain. persistProfile copies this through on update, so
+        // it also CLEARS an alias a pre-1.1.5 build stored on this row — the
+        // same trick the setCertificateAlias/PPK comments below rely on.
+        profile.setUserCertificateAlias(null)
         if (cfg.local.id.isNotEmpty()) profile.setLocalId(cfg.local.id)
         if (cfg.remote.id.isNotEmpty()) profile.setRemoteId(cfg.remote.id)
         // Server-cert trust: import the gateway-supplied public chain
@@ -434,9 +469,11 @@ class IpSecTunnel(private val context: Context) {
      * Remove the OS-level artifacts an IPSec profile leaves behind, called when
      * the connection (or its IPSec config) is deleted. Cleans: (1) the strongSwan
      * SQLite VpnProfile, (2) the server-trust CA certs imported into the local
-     * store, (3) the remembered-alias + chain-alias bookkeeping in SharedPrefs.
-     * NOTE: the user-installed client PKCS#12 in the system KeyChain itself
-     * cannot be removed by an app (no Android API) — only its alias reference here.
+     * store, (3) the retired-alias + hint + chain-alias bookkeeping in
+     * SharedPrefs, (4) the in-memory client identity.
+     * NOTE: a PKCS#12 that a pre-1.1.5 build installed into the system KeyChain
+     * cannot be removed by an app (no Android API) — only its alias reference
+     * here. Current builds install nothing, so nothing is left to strand.
      */
     suspend fun cleanupOnDelete(configContent: String) = withContext(Dispatchers.IO) {
         val cfg = runCatching { parseConfig(configContent) }.getOrNull() ?: return@withContext
@@ -459,11 +496,16 @@ class IpSecTunnel(private val context: Context) {
                 ?.forEach { store.deleteCertificate(it) }
             TrustedCertificateManager.getInstance().reset()
         }.onFailure { Log.w(TAG, "cleanupOnDelete: CA cert delete failed: ${it.message}") }
-        // 3. SharedPrefs bookkeeping (alias reference + chain alias set)
-        prefs.edit()
-            .remove(KEY_ALIAS_PREFIX + uuid)
-            .remove(KEY_CHAIN_ALIASES_PREFIX + uuid)
-            .apply()
+        // 3. SharedPrefs bookkeeping. The retired-alias row is turned into a
+        // hint rather than dropped: deleting the connection does not delete the
+        // KeyChain credential — nothing can — so a profile deleted before its
+        // first post-upgrade connect still owes the user that notice. The hint
+        // itself outlives this call and is cleared only by
+        // acknowledgeRetiredKeyChainCredentials().
+        noteObsoleteKeyChainCredential(uuid)
+        prefs.edit().remove(KEY_CHAIN_ALIASES_PREFIX + uuid).apply()
+        // 4. in-memory identity, in case the connection is deleted while up
+        runCatching { PrivycsCredentials.clear(UUID.fromString(uuid)) }
         Log.i(TAG, "cleanupOnDelete: removed IPSec OS artifacts for profile $uuid")
     }
 
@@ -649,6 +691,10 @@ class IpSecTunnel(private val context: Context) {
      * the listener fires us back to DISCONNECTED and we clean up the bind.
      */
     suspend fun disconnect() = withContext(Dispatchers.Main) {
+        // Ahead of the early return, so "after disconnect() the key is gone"
+        // holds unconditionally — including after a connect() that populated the
+        // holder and then failed to start charon.
+        PrivycsCredentials.clear(profileUuid)
         if (state == State.DISCONNECTED) return@withContext
         state = State.DISCONNECTING
         onStateChanged?.invoke(state)

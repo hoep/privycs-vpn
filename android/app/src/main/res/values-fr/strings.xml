@@ -71,16 +71,6 @@
     <string name="perapp_mode_include_desc">Seules les applications sélectionnées utilisent le VPN. Tout le reste du trafic le contourne.</string>
     <string name="perapp_loading">Chargement des applications installées…</string>
 
-    <!-- IpSecConnectFlow -->
-    <string name="ipsecflow_error_install_cancelled">Installation PKCS#12 annulée</string>
-    <string name="ipsecflow_error_no_activity">Impossible d\'accéder à l\'Activity pour choisir l\'alias KeyChain</string>
-    <string name="ipsecflow_error_connection_disappeared">La connexion active a disparu pendant l\'installation</string>
-    <string name="ipsecflow_error_no_active_config">Aucune configuration active pour %1$s</string>
-    <string name="ipsecflow_error_parse_failed">Échec de l\'analyse du profil .sswan : %1$s</string>
-    <string name="ipsecflow_error_no_pkcs12_bundle">Le profil ne contient pas de bundle PKCS#12</string>
-    <string name="ipsecflow_toast_pkcs12_password">Mot de passe PKCS#12 : %1$s (copié dans le presse-papiers - collez-le dans la boîte de dialogue)</string>
-    <string name="ipsecflow_error_no_certificate_selected">Aucun certificat sélectionné</string>
-    <string name="ipsecflow_error_record_alias_failed">Échec de l\'enregistrement de l\'alias : %1$s</string>
 
     <!-- AddPoolScreen -->
     <string name="addpool_title">Ajouter un pool</string>
@@ -616,6 +606,9 @@
     <string name="notifcation_title">Privycs VPN - %s</string>
     <string name="notifcation_title_notconnect">Privycs VPN - Non connecté</string>
     <string name="ipv6_leak_warning">Le trafic IPv6 peut contourner le VPN — le serveur n\'a pas accepté le sélecteur de trafic IPv6. Passez à WireGuard pour une protection IPv6 complète.</string>
+    <string name="ipsec_legacy_keychain_cert_hint">IPSec lit désormais le certificat client directement dans le profil. Celui installé auparavant n\'est plus utilisé et peut être supprimé dans Paramètres &gt; Sécurité &gt; Chiffrement et identifiants.</string>
+    <string name="ipsec_legacy_keychain_cert_hint_dismiss">J\'ai compris</string>
+    <string name="ipsec_error_no_embedded_certificate">Ce profil IPSec ne contient aucun certificat intégré : il n\'y a donc rien pour s\'authentifier. Téléchargez à nouveau le profil depuis votre passerelle ou importez un fichier .sswan incluant son bundle PKCS#12.</string>
     <string name="banner_warning_prefix">AVERTISSEMENT : %1$s</string>
     <string name="banner_pool_connect_rejected">Connexion au pool refusée : %1$s</string>
     <string name="banner_connection_rejected">Connexion refusée : %1$s</string>

@@ -1,0 +1,145 @@
+Privycs: serve the IPSec client identity from memory instead of the KeyChain.
+
+charonservice.c binds getUserCertificate()/getUserKey() natively via a
+hardcoded FindClass on the concrete CharonVpnService, and both are private on
+it. There is no interface, no injection point and no subclassing path, so
+patching this class is the only way to change what they return -- hence a
+vendor patch for what is otherwise app-level behaviour.
+
+The native layer only ever uses the key as an opaque signing oracle
+(Signature.initSign; get_encoding is hard-wired to fail), so any PrivateKey
+that initSign accepts satisfies it -- including one parsed in-process from the
+PKCS#12 embedded in the profile's .sswan. That removes the KeyChain install,
+which matters because Android exposes no API to delete an installed KeyChain
+credential: the app could create one but never clean it up.
+
+The identity itself lives in PrivycsCredentials, a Privycs-owned class in this
+same package but NOT in this submodule (it is under
+android/strongswan-lib/src/main/java/, merged into one compilation by
+build.gradle.kts). Keeping the state and lifecycle there is what holds this
+patch to six hunks in one file.
+
+Both getters fall through to the unmodified KeyChain path when no in-memory
+entry is present: a hand-imported profile with no embedded PKCS#12 is a
+legitimate upstream shape and must keep working.
+
+Deliberately adds no VpnProfile column and does not touch DATABASE_VERSION.
+Patch 0001 already squats version 20 while upstream is at 19; since the
+migration gate is `column.Since > oldVersion`, a user already on our 20 would
+never receive upstream's future since=20 columns. That pre-existing bug is not
+deepened here -- an in-memory holder needs no schema at all.
+
+The credential map is emptied here too, but ONLY on a real teardown
+(mNextProfile == null). On a profile switch IpSecTunnel has already put() the
+incoming identity, and a reconnect of the same profile reuses its UUID -- so
+clearing unconditionally would delete the entry the snapshot is about to read
+and drop the connect through to an absent KeyChain alias.
+
+--- a/src/frontends/android/app/src/main/java/org/strongswan/android/logic/CharonVpnService.java
++++ b/src/frontends/android/app/src/main/java/org/strongswan/android/logic/CharonVpnService.java
+@@ -100,6 +100,23 @@
+ 	private VpnProfile mCurrentProfile;
+ 	private volatile String mCurrentCertificateAlias;
+ 	private volatile String mCurrentUserCertificateAlias;
++	/* Non-null only for profiles whose client identity was parsed in-process
++	 * from an embedded PKCS#12 instead of installed into the Android KeyChain.
++	 * Read from charon's threads, so volatile like the aliases above. */
++	private volatile PrivycsCredentials.Entry mCurrentPrivycsCredentials;
++
++	/* Presence of this field is how the app proves at runtime that the vendor
++	 * patches were applied to this build. Without it an unpatched
++	 * CharonVpnService still compiles and merely falls back to the KeyChain
++	 * path, i.e. it fails as a mid-handshake auth error rather than as a build
++	 * error.
++	 *
++	 * MUST be read via getDeclaredField, never as a direct source reference:
++	 * javac inlines a static final String constant into the caller's own class
++	 * file, so a direct reference would still hold the literal against an
++	 * unpatched tree and the check would pass vacuously. Renaming it breaks
++	 * that reflective lookup silently. */
++	public static final String PRIVYCS_PATCH_MARKER = "privycs-inmemory-ipsec-identity";
+ 	private VpnProfile mNextProfile;
+ 	private volatile boolean mProfileUpdated;
+ 	private volatile boolean mTerminate;
+@@ -287,6 +304,9 @@
+ 						 * a possible deadlock during deinitialization */
+ 						mCurrentCertificateAlias = mCurrentProfile.getCertificateAlias();
+ 						mCurrentUserCertificateAlias = mCurrentProfile.getUserCertificateAlias();
++						/* snapshotted here for the same reason as the aliases: the
++						 * lookup must not run on charon's thread during deinit */
++						mCurrentPrivycsCredentials = PrivycsCredentials.get(mCurrentProfile.getUUID());
+ 
+ 						startConnection(mCurrentProfile);
+ 						mIsDisconnecting = false;
+@@ -339,6 +359,14 @@
+ 							setError(ErrorState.GENERIC_ERROR);
+ 							setState(State.DISABLED);
+ 							mCurrentProfile = null;
++							/* Second release edge, see stopCurrentConnection().
++							 * This branch parks the loop back in wait() with no
++							 * charon running, and stopCurrentConnection() cannot
++							 * cover it -- its teardown is gated on
++							 * mCurrentProfile != null, which this branch just
++							 * cleared. Without this the key would be held until
++							 * the next connect overwrote it. */
++							mCurrentPrivycsCredentials = null;
+ 						}
+ 					}
+ 				}
+@@ -371,9 +399,30 @@
+ 				SimpleFetcher.disable();
+ 				deinitializeCharon();
+ 				Log.i(TAG, "charon stopped");
++				VpnProfile stopped = mCurrentProfile;
+ 				mCurrentProfile = null;
++				/* Released on the same edge as the profile it belongs to.
++				 * PrivycsCredentials.clear() only empties that class's map; this
++				 * field is a second strong reference, so without this line the
++				 * PrivateKey stays reachable for the whole service lifetime and
++				 * the "in-memory, released on disconnect" property this design
++				 * rests on would not hold. The alias fields above are left
++				 * dangling by upstream and we match that everywhere else -- a
++				 * stale String is inert, a live key is not.
++				 *
++				 * Must come after deinitializeCharon() returns: until it does,
++				 * charon's threads may still call getUserKey(). */
++				mCurrentPrivycsCredentials = null;
+ 				if (mNextProfile == null)
+ 				{	/* only do this if we are not connecting to another profile */
++					/* Drop the map entry too, so no strong reference to the key
++					 * outlives the tunnel. Deliberately NOT done when switching
++					 * profiles: IpSecTunnel has already put() the incoming
++					 * profile's identity by now, and a reconnect of the SAME
++					 * profile reuses its UUID -- clearing here would delete the
++					 * entry the snapshot below is about to read, and the connect
++					 * would fall through to the (absent) KeyChain alias. */
++					PrivycsCredentials.clear(stopped.getUUID());
+ 					removeNotification();
+ 					mBuilderAdapter.closeBlocking();
+ 				}
+@@ -779,6 +828,13 @@
+ 	 */
+ 	private byte[][] getUserCertificate() throws KeyChainException, InterruptedException, CertificateEncodingException
+ 	{
++		PrivycsCredentials.Entry privycs = mCurrentPrivycsCredentials;
++		if (privycs != null)
++		{	/* Leaf only. android_creds.c adds every further element of this
++			 * array as a TRUSTED cert, which would widen trust beyond the
++			 * profile's own remote.cert_chain. */
++			return new byte[][]{ privycs.leafDer };
++		}
+ 		ArrayList<byte[]> encodings = new ArrayList<byte[]>();
+ 		X509Certificate[] chain = KeyChain.getCertificateChain(getApplicationContext(), mCurrentUserCertificateAlias);
+ 		if (chain == null || chain.length == 0)
+@@ -804,6 +860,11 @@
+ 	 */
+ 	private PrivateKey getUserKey() throws KeyChainException, InterruptedException
+ 	{
++		PrivycsCredentials.Entry privycs = mCurrentPrivycsCredentials;
++		if (privycs != null)
++		{
++			return privycs.key;
++		}
+ 		return KeyChain.getPrivateKey(getApplicationContext(), mCurrentUserCertificateAlias);
+ 	}
+ 

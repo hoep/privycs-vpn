@@ -94,8 +94,30 @@ android {
     // Using a Sync task (not a SourceDirectorySet.exclude) so the filter
     // only applies to the submodule copy; our local stub srcDir stays
     // untouched.
+    // Re-apply the Privycs vendor patches (android/vendor/strongswan-patches/)
+    // to the submodule WT before anything reads from it. Without this, a fresh
+    // `git submodule update` followed by `./gradlew :app:assembleDebug` yields
+    // an UNPATCHED CharonVpnService, which still compiles and only fails at
+    // runtime by silently reverting to upstream behaviour — no build error to
+    // catch it. The script needs nothing but git (no NDK, no autotools), which
+    // is why it is separate from prepare-strongswan.sh.
+    //
+    // Not an up-to-date-checked task: its real output is the submodule WT,
+    // which is outside the build dir and mutable by hand. The script is a
+    // no-op once applied (two `git apply --check` runs), so paying it on
+    // every build is cheaper than trying to model that state.
+    val applyStrongswanPatches = tasks.register<Exec>("applyStrongswanPatches") {
+        description = "Applies android/vendor/strongswan-patches/*.patch to the strongSwan submodule."
+        workingDir = rootDir
+        commandLine("bash", "${rootDir}/scripts/apply-strongswan-patches.sh")
+    }
+
     val strongswanJavaFiltered = layout.buildDirectory.dir("generated/strongswanJava")
     val syncStrongswanJava = tasks.register<Sync>("syncStrongswanJava") {
+        // Ordering is load-bearing: Sync snapshots the submodule tree, so the
+        // patches must already be in it or the filtered copy carries upstream
+        // sources.
+        dependsOn(applyStrongswanPatches)
         from("../vendor/strongswan/src/frontends/android/app/src/main/java") {
             exclude("org/strongswan/android/ui/**")
         }
@@ -108,6 +130,7 @@ android {
     // precedence over our raster PNGs on Android 8+.
     val strongswanResFiltered = layout.buildDirectory.dir("generated/strongswanRes")
     val syncStrongswanRes = tasks.register<Sync>("syncStrongswanRes") {
+        dependsOn(applyStrongswanPatches)
         outputs.upToDateWhen { false }
         from("../vendor/strongswan/src/frontends/android/app/src/main/res") {
             exclude("mipmap-anydpi-v26/ic_launcher.xml")
@@ -189,8 +212,13 @@ android {
     // compile/merge/AAPT2 stage reads from the generated source dirs.
     // Blanket dependency is safer than trying to enumerate every task AGP
     // introduces per variant.
+    //
+    // applyStrongswanPatches is listed explicitly and not left to ride on the
+    // syncs: the patches also touch libandroidbridge's .c sources, which
+    // ndk-build reads straight out of the submodule (see externalNativeBuild
+    // above) without passing through either Sync.
     tasks.matching { it.name == "preBuild" }.configureEach {
-        dependsOn(syncStrongswanJava, syncStrongswanRes)
+        dependsOn(applyStrongswanPatches, syncStrongswanJava, syncStrongswanRes)
     }
     // Belt-and-braces: explicitly tie Kotlin + Java compile. Some AGP
     // versions skip preBuild when only compile tasks are requested.
