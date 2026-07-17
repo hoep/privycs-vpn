@@ -224,3 +224,24 @@ second `skip ... (already applied)`.
 Avoid mega-patches that mix unrelated work — small focused patches are
 easier to re-apply and easier to drop if upstream eventually
 implements the feature itself.
+
+## Never bump DATABASE_VERSION for a Privycs column
+
+`DatabaseHelper.DATABASE_VERSION` belongs to upstream. Raise it only in step with
+them, never to carry an addition of ours.
+
+The counter is shared and `getAlterTables()` gates on `column.Since > oldVersion`.
+Patch 0001 used to set it to 20 while upstream sat at 19; once a user's database
+reached OUR 20, upstream's own future `Since = 20` columns would be skipped
+forever — `20 > 20` is false — and the app would die with "no such column". No
+other number helps: whatever we occupy swallows the identically-numbered upstream
+migration. And the counter cannot simply be lowered again, because
+SQLiteOpenHelper's default `onDowngrade` throws.
+
+So 0001 now (a) declares its columns at upstream's current version, (b) accepts a
+newer stamp in `onDowngrade` and lets SQLiteOpenHelper restamp it back, and (c)
+adds `healMissingColumns()`, which adds any declared column the table lacks —
+asking the table instead of the counter, on every open. Add future Privycs columns
+the same way: declare them at upstream's current version and let the heal carry
+them. Pinned by `app/src/test/java/com/privycs/vpn/data/StrongswanDbMigrationTest.kt`
+(Robolectric, real SQLite).

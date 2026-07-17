@@ -34,6 +34,7 @@ val privycsVersion = run {
 }
 
 android {
+    testOptions { unitTests { isIncludeAndroidResources = true } }
     namespace = "com.privycs.vpn"
     // Bumped from 34 → 35 in v0.9.14.86: Play Console requires
     // targetSdk ≥ 35 for new submissions since 2025-08-31. We were
@@ -344,6 +345,8 @@ dependencies {
 
     // Test
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.5.0")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation(composeBom)

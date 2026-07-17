@@ -23,11 +23,9 @@ Both getters fall through to the unmodified KeyChain path when no in-memory
 entry is present: a hand-imported profile with no embedded PKCS#12 is a
 legitimate upstream shape and must keep working.
 
-Deliberately adds no VpnProfile column and does not touch DATABASE_VERSION.
-Patch 0001 already squats version 20 while upstream is at 19; since the
-migration gate is `column.Since > oldVersion`, a user already on our 20 would
-never receive upstream's future since=20 columns. That pre-existing bug is not
-deepened here -- an in-memory holder needs no schema at all.
+Deliberately adds no VpnProfile column and does not touch DATABASE_VERSION: an
+in-memory holder needs no schema at all, so the counter stays upstream's (see
+0001, which hands it back and carries the Privycs columns by presence instead).
 
 The credential map is emptied here too, but ONLY on a real teardown
 (mNextProfile == null). On a profile switch IpSecTunnel has already put() the

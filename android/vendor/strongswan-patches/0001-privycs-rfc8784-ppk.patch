@@ -1,30 +1,114 @@
 diff --git a/src/frontends/android/app/src/main/java/org/strongswan/android/data/DatabaseHelper.java b/src/frontends/android/app/src/main/java/org/strongswan/android/data/DatabaseHelper.java
-index 7feccbdfe1..a0966080b1 100644
+index 7feccbdfe1..482982266a 100644
 --- a/src/frontends/android/app/src/main/java/org/strongswan/android/data/DatabaseHelper.java
 +++ b/src/frontends/android/app/src/main/java/org/strongswan/android/data/DatabaseHelper.java
-@@ -70,6 +70,12 @@ public class DatabaseHelper extends SQLiteOpenHelper
+@@ -70,6 +70,17 @@ public class DatabaseHelper extends SQLiteOpenHelper
  		new DbColumn(VpnProfileDataSource.KEY_PROXY_HOST, "TEXT", 19),
  		new DbColumn(VpnProfileDataSource.KEY_PROXY_PORT, "INTEGER", 19),
  		new DbColumn(VpnProfileDataSource.KEY_PROXY_EXCLUSIONS, "TEXT", 19),
 +		/* Privycs vendor extension: RFC 8784 PPK material per profile.
-+		 * since=20 -> ALTER TABLE adds these columns on first upgrade
-+		 * via addNewColumns() in onUpgrade. Old profiles get NULL,
-+		 * which the SettingsWriter / JNI side treats as "no PPK". */
-+		new DbColumn(VpnProfileDataSource.KEY_PPK_ID, "TEXT", 20),
-+		new DbColumn(VpnProfileDataSource.KEY_PPK_PSK, "TEXT", 20),
++		 * Old profiles get NULL, which the SettingsWriter / JNI side treats
++		 * as "no PPK".
++		 *
++		 * Since is upstream's CURRENT version, not a number of our own: these
++		 * are additions to the schema as it stands, and we must never occupy a
++		 * version upstream has not reached (see DATABASE_VERSION). Their
++		 * presence does not depend on this value anyway -- healMissingColumns()
++		 * decides that from the table itself. */
++		new DbColumn(VpnProfileDataSource.KEY_PPK_ID, "TEXT", 19),
++		new DbColumn(VpnProfileDataSource.KEY_PPK_PSK, "TEXT", 19),
  	});
  
  	public static final DbTable TABLE_TRUSTED_CERTIFICATE = new DbTable(TABLE_NAME_TRUSTED_CERTIFICATE, 18, new DbColumn[]{
-@@ -87,7 +93,8 @@ public class DatabaseHelper extends SQLiteOpenHelper
+@@ -87,6 +98,18 @@ public class DatabaseHelper extends SQLiteOpenHelper
  		new DbColumn(ManagedUserCertificate.KEY_PASSWORD, "TEXT", 18),
  	});
  
--	private static final int DATABASE_VERSION = 19;
-+	/* Bumped to 20 for the Privycs PPK columns (ppk_id, ppk_psk). */
-+	private static final int DATABASE_VERSION = 20;
++	/* Upstream's value, deliberately NOT bumped for the Privycs columns.
++	 *
++	 * We used to squat 20 while upstream was at 19. The counter is shared, and
++	 * getAlterTables() gates on `column.Since > oldVersion`: once a user's
++	 * database reached OUR 20, upstream's own future Since=20 columns would be
++	 * skipped forever (20 > 20 is false) and the app would die with
++	 * "no such column". Picking a different number does not help -- whatever we
++	 * occupy swallows the identically-numbered upstream migration.
++	 *
++	 * So the counter belongs to upstream and our columns are carried by
++	 * healMissingColumns() instead, which asks the table rather than the number.
++	 * Raise this ONLY in step with upstream. */
+ 	private static final int DATABASE_VERSION = 19;
  
  	private static final Set<DbTable> TABLES;
+@@ -110,6 +133,69 @@ public class DatabaseHelper extends SQLiteOpenHelper
+ 		addNewTables(database, 0);
+ 	}
  
++	/**
++	 * Accept a database stamped NEWER than DATABASE_VERSION instead of throwing.
++	 *
++	 * Builds up to v1.1.5.112 stamped 20 (see DATABASE_VERSION). Those databases
++	 * are out there, and SQLiteOpenHelper's default onDowngrade throws, which
++	 * would brick every one of them on first open. Accepting is honest: that
++	 * schema is upstream's 19 plus two extra columns, so it satisfies everything
++	 * 19 requires and the extras are inert. SQLiteOpenHelper restamps it to
++	 * DATABASE_VERSION afterwards, which hands the counter back to upstream.
++	 */
++	@Override
++	public void onDowngrade(SQLiteDatabase db, int oldVersion, int newVersion)
++	{
++		Log.w(TAG, "Database stamped " + oldVersion + ", expected " + newVersion + " -- restamping");
++	}
++
++	/**
++	 * Add any declared column the table is missing.
++	 *
++	 * Runs on every open because there is no upgrade edge to hang it on: a
++	 * pre-PPK database already sits at DATABASE_VERSION, so onUpgrade never
++	 * fires for it. Asking the table rather than the version counter is also what
++	 * makes the schema immune to a counter collision with upstream -- the failure
++	 * this replaced. Cheap: one PRAGMA per table, and no ALTER once healed.
++	 */
++	private void healMissingColumns(SQLiteDatabase db)
++	{
++		for (final DbTable table : TABLES)
++		{
++			final Set<String> present = new HashSet<>();
++			try (Cursor c = db.rawQuery("PRAGMA table_info(" + table.Name + ")", null))
++			{
++				final int name = c.getColumnIndex("name");
++				while (c.moveToNext())
++				{
++					present.add(c.getString(name));
++				}
++			}
++			if (present.isEmpty())
++			{	/* table not created yet -- onCreate/addNewTables owns that */
++				continue;
++			}
++			for (final DbColumn column : table.getColumns())
++			{
++				if (!present.contains(column.Name))
++				{
++					Log.w(TAG, "Adding missing column " + table.Name + "." + column.Name);
++					db.execSQL("ALTER TABLE " + table.Name + " ADD " + column.Name + " " + column.Type + ";");
++				}
++			}
++		}
++	}
++
++	@Override
++	public void onOpen(SQLiteDatabase db)
++	{
++		super.onOpen(db);
++		if (!db.isReadOnly())
++		{
++			healMissingColumns(db);
++		}
++	}
++
+ 	@Override
+ 	public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion)
+ 	{
 diff --git a/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java b/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
 index 52464eb127..8fcb4431d6 100644
 --- a/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
