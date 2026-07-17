@@ -61,53 +61,17 @@ class IpSecTunnel(private val context: Context) {
     companion object {
         private const val TAG = "IpSecTunnel"
         private const val PREF_FILE = "privycs_ipsec"
-        // Pre-1.1.5 rows only. The value is never read: nothing installs a
-        // KeyChain credential any more, so the alias behind it is unusable.
-        // The key's mere presence is the one thing it still carries — it marks
-        // this profile as an upgrader whose old credential is stranded on the
-        // device. Value string is frozen; changing it would hide those rows.
+        // Pre-1.1.5 rows only, never read: nothing installs a KeyChain
+        // credential any more, so the alias behind it resolves to nothing.
+        // Kept solely so the stale row can be dropped on sight. Value string is
+        // frozen; changing it would orphan those rows forever.
         private const val KEY_RETIRED_ALIAS_PREFIX = "keychain_alias_"
-        // Set when such a row is found and dropped; cleared only by
-        // acknowledgeRetiredKeyChainCredentials() — see its KDoc for why it
-        // must outlive both a status push and the process.
-        private const val KEY_LEGACY_HINT_PREFIX = "keychain_retired_hint_"
         // Bookkeeping: the local-store CA aliases imported for a profile (keyed
         // by .sswan UUID), so deleting the connection removes exactly them.
         private const val KEY_CHAIN_ALIASES_PREFIX = "chain_aliases_"
 
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-        /**
-         * True while a KeyChain client certificate that a pre-1.1.5 build
-         * installed is still on the device with nothing using it.
-         *
-         * Deliberately pref-backed rather than pushed through
-         * VpnServiceManager.emitWarning(): that writes VpnStatus.error, and
-         * PrivycsVpnService's 1 Hz status poller builds a fresh VpnStatus from
-         * the tunnel and replaces the whole object — error field included —
-         * within a second. Only the user can delete the stranded credential
-         * (Android exposes no API for it, see cleanupOnDelete), so a notice
-         * they may never see is the same as no notice at all. The flag
-         * therefore survives process death and is cleared exclusively by
-         * [acknowledgeRetiredKeyChainCredentials], i.e. on proof of delivery.
-         */
-        fun hasRetiredKeyChainCredential(context: Context): Boolean =
-            runCatching {
-                context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
-                    .all.keys.any { it.startsWith(KEY_LEGACY_HINT_PREFIX) }
-            }.getOrDefault(false)
-
-        /** Call only from the UI that rendered the notice, once the user dismissed it. */
-        fun acknowledgeRetiredKeyChainCredentials(context: Context) {
-            runCatching {
-                val prefs = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
-                val editor = prefs.edit()
-                prefs.all.keys
-                    .filter { it.startsWith(KEY_LEGACY_HINT_PREFIX) }
-                    .forEach { editor.remove(it) }
-                editor.apply()
-            }
-        }
     }
 
     enum class State { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING }
@@ -258,26 +222,18 @@ class IpSecTunnel(private val context: Context) {
     }
 
     /**
-     * Pre-1.1.5 builds walked the user through installing the profile's PKCS#12
-     * into the system KeyChain. That credential is now unused, and no app can
-     * delete one (no Android API — see cleanupOnDelete), so the best we can do
-     * is tell the user it is theirs to remove.
+     * Drop the pre-1.1.5 `keychain_alias_<uuid>` row for this profile.
      *
-     * Retiring the row and telling the user are deliberately split: the row must
-     * go now, so nothing can ever resolve an identity through it again, whereas
-     * the notice has to wait for a UI to render it and for the user to
-     * acknowledge it (ConnectScreen, via hasRetiredKeyChainCredential /
-     * acknowledgeRetiredKeyChainCredentials). Raising it from here through
-     * VpnStatus would lose it — see hasRetiredKeyChainCredential's KDoc.
+     * Nothing resolves an identity through it any more, so the row is dead
+     * weight. The credential it pointed at stays on the device and goes inert —
+     * no app can delete one (no Android API, see [cleanupOnDelete]) and it is
+     * not worth bothering the user about.
      */
-    private fun noteObsoleteKeyChainCredential(cfgUuid: String) {
+    private fun dropStaleKeyChainAlias(cfgUuid: String) {
         if (cfgUuid.isEmpty()) return
         if (!prefs.contains(KEY_RETIRED_ALIAS_PREFIX + cfgUuid)) return
-        prefs.edit()
-            .remove(KEY_RETIRED_ALIAS_PREFIX + cfgUuid)
-            .putBoolean(KEY_LEGACY_HINT_PREFIX + cfgUuid, true)
-            .apply()
-        PrivycsLogger.i(TAG, "Legacy KeyChain client certificate retired for profile $cfgUuid")
+        prefs.edit().remove(KEY_RETIRED_ALIAS_PREFIX + cfgUuid).apply()
+        PrivycsLogger.i(TAG, "Dropped stale KeyChain alias row for profile $cfgUuid")
     }
 
     /**
@@ -353,7 +309,7 @@ class IpSecTunnel(private val context: Context) {
         PrivycsCredentials.put(uuid, identity.privateKey, identity.leafDer)
 
         startViaVpnStateService(uuid)
-        noteObsoleteKeyChainCredential(cfg.uuid)
+        dropStaleKeyChainAlias(cfg.uuid)
 
         // CharonVpnService runs asynchronously; our state flips to CONNECTED
         // once VpnStateService dispatches State.CONNECTED. For now we mark
@@ -496,13 +452,8 @@ class IpSecTunnel(private val context: Context) {
                 ?.forEach { store.deleteCertificate(it) }
             TrustedCertificateManager.getInstance().reset()
         }.onFailure { Log.w(TAG, "cleanupOnDelete: CA cert delete failed: ${it.message}") }
-        // 3. SharedPrefs bookkeeping. The retired-alias row is turned into a
-        // hint rather than dropped: deleting the connection does not delete the
-        // KeyChain credential — nothing can — so a profile deleted before its
-        // first post-upgrade connect still owes the user that notice. The hint
-        // itself outlives this call and is cleared only by
-        // acknowledgeRetiredKeyChainCredentials().
-        noteObsoleteKeyChainCredential(uuid)
+        // 3. SharedPrefs bookkeeping.
+        dropStaleKeyChainAlias(uuid)
         prefs.edit().remove(KEY_CHAIN_ALIASES_PREFIX + uuid).apply()
         // 4. in-memory identity, in case the connection is deleted while up
         runCatching { PrivycsCredentials.clear(UUID.fromString(uuid)) }

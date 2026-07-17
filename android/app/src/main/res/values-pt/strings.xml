@@ -606,8 +606,6 @@
     <string name="notifcation_title">Privycs VPN - %s</string>
     <string name="notifcation_title_notconnect">Privycs VPN - Não conectado</string>
     <string name="ipv6_leak_warning">O tráfego IPv6 pode contornar a VPN — o servidor não aceitou o seletor de tráfego IPv6. Mude para WireGuard para proteção IPv6 completa.</string>
-    <string name="ipsec_legacy_keychain_cert_hint">O IPSec agora lê o certificado de cliente diretamente do perfil. O que foi instalado antes não é mais usado e pode ser removido em Configurações &gt; Segurança &gt; Criptografia e credenciais.</string>
-    <string name="ipsec_legacy_keychain_cert_hint_dismiss">Entendido</string>
     <string name="ipsec_error_no_embedded_certificate">Este perfil IPSec não contém nenhum certificado incorporado, portanto não há nada com que autenticar. Descarrega o perfil novamente do teu gateway ou importa um ficheiro .sswan que inclua o respetivo pacote PKCS#12.</string>
     <string name="banner_warning_prefix">AVISO: %1$s</string>
     <string name="banner_pool_connect_rejected">Conexão do pool rejeitada: %1$s</string>

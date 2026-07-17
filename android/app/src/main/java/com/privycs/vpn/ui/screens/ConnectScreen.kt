@@ -150,17 +150,6 @@ fun ConnectScreen(
 
     var showConnectionPicker by remember { mutableStateOf(false) }
 
-    // Retired-KeyChain notice. Read from prefs, not from status.error: the
-    // status poller replaces VpnStatus every second (see
-    // IpSecTunnel.hasRetiredKeyChainCredential), and this is about a
-    // certificate only the user can delete, so it must keep showing until
-    // they say they have seen it. Re-checked on every connect transition
-    // because that is when IpSecTunnel arms it.
-    var showRetiredCertNotice by remember { mutableStateOf(false) }
-    LaunchedEffect(status.connected, status.connectionId) {
-        showRetiredCertNotice =
-            com.privycs.vpn.service.IpSecTunnel.hasRetiredKeyChainCredential(context)
-    }
 
     // Scope for the on-demand reconnect coroutine (disconnect -> wait 400ms ->
     // re-evaluate rules -> reconnect if still matching). Tied to the Connect
@@ -816,38 +805,6 @@ fun ConnectScreen(
             HealthPill(healthState)
         }
 
-        // Retired-KeyChain notice. Rendered as a card rather than pushed
-        // through status.error so it survives the 1 Hz status push, and
-        // dismiss-gated rather than one-shot so "shown" means the user
-        // actually saw it. Neutral colours: nothing is broken, the tunnel is
-        // fine — there is only a leftover credential to clean up by hand.
-        if (showRetiredCertNotice) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = stringResource(R.string.ipsec_legacy_keychain_cert_hint),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    androidx.compose.material3.TextButton(
-                        onClick = {
-                            com.privycs.vpn.service.IpSecTunnel
-                                .acknowledgeRetiredKeyChainCredentials(context)
-                            showRetiredCertNotice = false
-                        },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text(stringResource(R.string.ipsec_legacy_keychain_cert_hint_dismiss))
-                    }
-                }
-            }
-        }
 
         // Error display. Card with errorContainer background gives
         // pool-related failures (which can be long messages like

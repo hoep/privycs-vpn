@@ -610,9 +610,7 @@
          detects the IPSec tunnel did not capture v6 traffic. Was hard-
          coded English in PrivycsVpnService.kt until v1.0.5. -->
     <string name="ipv6_leak_warning">IPv6 traffic may bypass the VPN — the server did not accept the IPv6 traffic selector. Switch to WireGuard for full IPv6 protection.</string>
-    <string name="ipsec_legacy_keychain_cert_hint">IPSec now reads the client certificate from the profile itself. The one this app installed earlier is no longer used and can be removed under Settings &gt; Security &gt; Encryption &amp; credentials.</string>
     <!-- Dismiss action on the pref-backed legacy-KeyChain notice card. -->
-    <string name="ipsec_legacy_keychain_cert_hint_dismiss">Got it</string>
     <!-- Connect-time failure for an IPSec profile with no PKCS#12 inside it.
          The embedded bundle is the only supported client identity: this app
          has no UI to install or pick a KeyChain certificate. -->
