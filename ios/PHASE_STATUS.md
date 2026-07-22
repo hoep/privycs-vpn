@@ -11,15 +11,17 @@ Live status table — updates per commit.
 | 4 | AmneziaWG XCFramework build script + bridge wiring + OVPN delegate impl + Compat-Preprocessor | ✅ Complete |
 | 5 | NetworkRulesView + PoolDetailView + AddPoolView + GatewayAPIClient + QR scanner + License-key import | ✅ Complete |
 | 6 | SSID provider + AddRule sheet + lifecycle polishing | ✅ Complete |
-| 7 | Real-device testing + TestFlight beta + App-Store submission | ⏳ **Awaiting Apple Dev secrets + Entitlement approval** |
+| 7 | Real-device testing + TestFlight beta | ✅ Complete |
+| 8 | App-Store submission | ⏳ Entitlement erteilt, Einreichung offen |
 
 ## Apple Dev Setup — Long Pole
 
-User-required (alle drei dauern unterschiedlich lang):
+Erledigt (der TestFlight-Upload in `ios-release.yml` beweist es — ohne
+diese drei kommt kein Build durch die altool-Validierung):
 
-- [ ] Bundle-IDs `com.privycs.vpn` + `com.privycs.vpn.tunnel` registrieren (30 min)
-- [ ] App Group `group.com.privycs.vpn` (10 min)
-- [ ] **Network Extension Entitlement Request** an Apple — Approval ~1-2 Wochen (kritischer Pfad)
+- [x] Bundle-IDs `com.privycs.vpn` + `com.privycs.vpn.tunnel` registriert
+- [x] App Group `group.com.privycs.vpn`
+- [x] **Network Extension Entitlement** — von Apple erteilt
 - [ ] App Store Connect: New App + IAP `com.privycs.vpn.pro_lifetime`
 - [ ] Bugsink: neues Project "privycs-vpn-ios" → DSN .../3 ersetzen in `CrashReporter.swift`
 - [ ] Production ed25519 Pubkey in `LicenseVerifier.productionPubkey` ersetzen (aus `privycs-vpn-private-docs/license-keypair.txt`)

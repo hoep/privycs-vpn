@@ -6,9 +6,15 @@ Lebt im **Monorepo** [`privycs-vpn`](https://github.com/hoep/privycs-vpn) neben 
 
 ## Status
 
-**Phase 0 — Foundation Scaffolding** (in progress, 2026-05-31).
+**Feature-complete, in TestFlight.** iOS, iPadOS, macOS und tvOS werden
+per Tag aus `ios-release.yml` gebaut und nach TestFlight geladen; die
+Versionen stehen in `latest_version.txt`, `macos_latest_version.txt` und
+`tvos_latest_version.txt`.
 
-Siehe Memory `project_ios_port_plan.md`.
+Apple hat das Network-Extension-Entitlement erteilt — der App-Store-
+Eintrag ist damit eine Frage der Einreichung, nicht der Genehmigung.
+
+Phasen-Detail: [`PHASE_STATUS.md`](PHASE_STATUS.md).
 
 ## Architektur
 
@@ -110,18 +116,13 @@ Cross-compile von Linux unmöglich — Xcode + Swift-Toolchain + iOS SDK Pflicht
 
 ## Roadmap
 
-Siehe `project_ios_port_plan.md` Memory + dieses repo's GitHub Project Board.
+Phasen 0-7 sind abgeschlossen — Scaffold, PrivycsCore, PacketTunnelProvider,
+SwiftUI-Views, OpenVPN + AmneziaWG, StoreKit-2/Pro, Crash-Reporting,
+Real-Device-Tests und TestFlight. Die Tabelle in
+[`PHASE_STATUS.md`](PHASE_STATUS.md) ist die gepflegte Fassung.
 
-**Phase 0** (now): repo scaffold, Apple Dev setup, entitlement application
-**Phase 1**: PrivycsCore framework (models + storage + crypto)
-**Phase 2**: NetworkExtension PacketTunnelProvider (WG + IPSec first)
-**Phase 3**: SwiftUI views + ViewModels (alle screens)
-**Phase 4**: OpenVPN + AmneziaWG integration
-**Phase 5**: StoreKit 2 + Pro tier
-**Phase 6**: Crash reporting + telemetry opt-in
-**Phase 7**: TestFlight beta + App Store submission
-
-Estimated: ~3-4 months calendar, solo dev.
+Offen ist nur noch die App-Store-Einreichung; das Network-Extension-
+Entitlement liegt vor.
 
 ## Verwandte Repos
 

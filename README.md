@@ -1,9 +1,9 @@
 # Privycs VPN
 
 **One app, four protocols, your servers.** A multi-protocol VPN
-management client for Android and Desktop (Windows / macOS / Linux),
-with iOS planned. Works with any standards-compliant VPN server — not
-tied to a single provider.
+management client for Android, Desktop (Windows / macOS / Linux) and
+Apple platforms (iOS / iPadOS / macOS / tvOS). Works with any
+standards-compliant VPN server — not tied to a single provider.
 
 [![Latest release](https://img.shields.io/github/v/release/hoep/privycs-vpn?include_prereleases&label=release&color=3DDC84)](https://github.com/hoep/privycs-vpn/releases)
 [![Android CI](https://img.shields.io/github/actions/workflow/status/hoep/privycs-vpn/android-release.yml?event=push&label=Android%20build)](https://github.com/hoep/privycs-vpn/actions/workflows/android-release.yml)
@@ -113,7 +113,10 @@ Stable releases are on the
 — signed Android APK (ARMv8 / ARMv7 / x86_64) and Desktop builds for
 Linux, macOS and Windows.
 
-Google Play, Apple App Store and Microsoft Store listings are planned.
+The Apple apps (iOS / iPadOS / macOS / tvOS) are feature-complete and go
+out through **TestFlight**. Apple has granted the Network Extension
+entitlement, so the App Store listing is a matter of submission rather
+than approval. Google Play and Microsoft Store listings are planned.
 
 ---
 
@@ -149,7 +152,7 @@ Requires Android Studio, Android SDK 35, JDK 17 and NDK 27.3.13750724.
 The vendor-patch workflow is documented in
 [`android/vendor/strongswan-patches/README.md`](android/vendor/strongswan-patches/README.md).
 
-### iOS / macOS *(TestFlight beta)*
+### Apple — iOS / iPadOS / macOS / tvOS *(TestFlight)*
 
 A SwiftUI app with a Network Extension — WireGuardKit, the native
 `NEVPNProtocolIKEv2` API, AmneziaWG (gomobile), and OpenVPN via
@@ -195,7 +198,7 @@ help — Settings → View Logs, with any secrets redacted.
 desktop/      Desktop app — Go backend + Vue 3 frontend (Wails v2)
 android/      Android app — Kotlin + Jetpack Compose
   vendor/     pinned ics-openvpn, strongSwan and AmneziaWG submodules
-ios/          iOS app (planned)
+ios/          Apple apps — iOS / iPadOS / macOS / tvOS (Swift + SwiftUI)
 screenshots/  README assets
 ```
 
