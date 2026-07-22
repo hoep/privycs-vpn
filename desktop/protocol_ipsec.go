@@ -1134,9 +1134,12 @@ func (i *IPSecProtocol) configureWindows(cfg *IPSecConfig) error {
 		return nil
 	}
 	// First time after app start: check if Windows already has this connection
+	// Single-quote-escaped like every other PowerShell call in this file: the
+	// name comes from an imported profile, and a lone ' would close the literal
+	// and hand the rest of the string to PowerShell as code.
 	checkCmd := fmt.Sprintf(
 		`(Get-VpnConnection -Name '%s' -ErrorAction SilentlyContinue).ServerAddress`,
-		cfg.ConnectionName)
+		escapePowerShellString(cfg.ConnectionName))
 	chkOut, chkErr := execHidden("powershell", "-NoProfile", "-Command", checkCmd).CombinedOutput()
 	if chkErr == nil && strings.TrimSpace(string(chkOut)) == cfg.RemoteAddress {
 		i.configured = true
@@ -1146,7 +1149,7 @@ func (i *IPSecProtocol) configureWindows(cfg *IPSecConfig) error {
 
 	psScript := fmt.Sprintf(
 		`Add-VpnConnection -Name '%s' -ServerAddress '%s' -TunnelType IKEv2 -AuthenticationMethod MachineCertificate -EncryptionLevel Required -Force`,
-		cfg.ConnectionName, cfg.RemoteAddress)
+		escapePowerShellString(cfg.ConnectionName), escapePowerShellString(cfg.RemoteAddress))
 
 	out, err := execHidden("powershell", "-Command", psScript).CombinedOutput()
 	if err != nil {

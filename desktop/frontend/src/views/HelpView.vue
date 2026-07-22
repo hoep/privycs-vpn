@@ -50,6 +50,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 
 // Live source for the desktop-client doc. Bumped per release with the
@@ -60,6 +61,11 @@ import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 // the user can always read the same content on the website itself).
 const DOC_URL = 'https://www.privycs.com/docs/desktop-client.md'
 
+// html: true is needed for the handful of raw tags the docs legitimately use
+// (<br> inside markdown table cells, which have no other line-break syntax).
+// That means whatever this document contains reaches the DOM verbatim, so the
+// render output is sanitised below before it is handed to v-html — see
+// renderedHtml.
 const md = new MarkdownIt({
   html: true,
   linkify: true,
@@ -123,7 +129,16 @@ function absolutizeDocLinks(text: string): string {
   )
 }
 
-const renderedHtml = computed(() => md.render(absolutizeDocLinks(markdown.value)))
+// The markdown is FETCHED AT RUNTIME from the website, so it is remote input,
+// and this webview is privileged: it holds the Wails bridge to the Go backend.
+// v-html does not run <script>, but it does fire event-handler attributes
+// (<img onerror=...>), so anyone able to alter that document — a compromise of
+// the site or of the TLS channel — would otherwise get code execution here.
+// DOMPurify drops scripts, event handlers and javascript:/data: URLs while
+// leaving the formatting the docs actually use intact.
+const renderedHtml = computed(() =>
+  DOMPurify.sanitize(md.render(absolutizeDocLinks(markdown.value))),
+)
 
 async function load() {
   state.value = 'loading'

@@ -19,9 +19,3 @@ func execHidden(name string, args ...string) *exec.Cmd {
 func execHiddenContext(ctx context.Context, name string, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, name, args...)
 }
-
-// runElevated runs a command with sudo on Unix platforms.
-func runElevated(executable string, args string) error {
-	cmd := exec.Command("sudo", executable, args)
-	return cmd.Run()
-}
