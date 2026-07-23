@@ -1,25 +1,25 @@
 # Privycs VPN — iOS Client
 
-iOS-Port des Privycs VPN Clients mit 100% Feature-Parity zur Android-Version. Swift + SwiftUI + Network Extension.
+iOS port of the Privycs VPN client with 100% feature parity to the Android version. Swift + SwiftUI + Network Extension.
 
-Lebt im **Monorepo** [`privycs-vpn`](https://github.com/hoep/privycs-vpn) neben `desktop/` + `android/`. Per-platform CI workflows path-gated.
+Lives in the **monorepo** [`privycs-vpn`](https://github.com/hoep/privycs-vpn) alongside `desktop/` + `android/`. Per-platform CI workflows are path-gated.
 
 ## Status
 
-**Feature-complete, in TestFlight.** iOS, iPadOS, macOS und tvOS werden
-per Tag aus `ios-release.yml` gebaut und nach TestFlight geladen; die
-Versionen stehen in `latest_version.txt`, `macos_latest_version.txt` und
+**Feature-complete, in TestFlight.** iOS, iPadOS, macOS and tvOS are built
+per tag from `ios-release.yml` and uploaded to TestFlight; the versions
+live in `latest_version.txt`, `macos_latest_version.txt` and
 `tvos_latest_version.txt`.
 
-Apple hat das Network-Extension-Entitlement erteilt — der App-Store-
-Eintrag ist damit eine Frage der Einreichung, nicht der Genehmigung.
+Apple has granted the Network Extension entitlement, so the App Store
+listing is a matter of submission rather than approval.
 
-Phasen-Detail: [`PHASE_STATUS.md`](PHASE_STATUS.md).
+Phase detail: [`PHASE_STATUS.md`](PHASE_STATUS.md).
 
-## Architektur
+## Architecture
 
 ```
-ios/                              ← du bist hier
+ios/                              ← you are here
 ├── App/                          Main app (SwiftUI)
 │   ├── Views/                    SwiftUI views
 │   ├── ViewModels/               @Observable view models
@@ -29,7 +29,7 @@ ios/                              ← du bist hier
 │   ├── WireGuardBridge/          WireGuardKit integration
 │   ├── AmneziaWGBridge/          amneziawg-go via gomobile XCFramework
 │   └── OpenVPNBridge/            OpenVPNAdapter integration
-│       (IPSec NICHT hier — NEVPNManager direkt aus App/)
+│       (IPSec NOT here — NEVPNManager directly from App/)
 │
 ├── Core/                         Shared business logic (Swift Package)
 │   └── Sources/PrivycsCore/
@@ -52,9 +52,9 @@ ios/                              ← du bist hier
 └── .github/workflows/            CI (build + TestFlight + App Store submission)
 ```
 
-## Tech-Stack
+## Tech stack
 
-| Layer | Pick | Lizenz |
+| Layer | Pick | Licence |
 |---|---|---|
 | UI | SwiftUI + `@Observable` (iOS 17+ baseline) | Apple |
 | Reactive | async/await + Combine where needed | Apple |
@@ -67,46 +67,46 @@ ios/                              ← du bist hier
 | StoreKit | StoreKit 2 (iOS 15+) | Apple |
 | Crash reporting | [sentry-cocoa](https://github.com/getsentry/sentry-cocoa) → Bugsink at crashes.privycs.com (project 3) | MIT |
 
-## Lizenz-Strategie
+## Licensing strategy
 
 ```
-Privycs iOS App-Code (Swift, von uns)   →  GPL-3
+Privycs iOS app code (Swift, ours)      →  GPL-3
    └── OpenVPNAdapter (Swift wrapper)   →  MIT
          └── OpenVPN3 (C++ core)        →  Apache 2.0
    └── WireGuardKit                     →  MIT
    └── amneziawg-go XCFramework         →  MIT
 ```
 
-Alle 3rd-party-deps permissiv (MIT/Apache). Eigener Code GPL-3 — kompatibel mit App-Store-EULA via §7 "Additional Permissions" Mechanismus. **NICHT** canonical OpenVPN 2.x (GPL-2 → potenzieller §6-Konflikt).
+All third-party deps are permissive (MIT/Apache). Our own code is GPL-3 — compatible with the App Store EULA via the §7 "Additional Permissions" mechanism. **Not** canonical OpenVPN 2.x (GPL-2 → potential §6 conflict).
 
-Siehe [`LICENSE_NOTES.md`](LICENSE_NOTES.md) für Detail.
+See [`LICENSE_NOTES.md`](LICENSE_NOTES.md) for detail.
 
-## Bundle-IDs + Apple Setup
+## Bundle IDs + Apple setup
 
 | Asset | Identifier |
 |---|---|
 | Main App | `com.privycs.vpn` |
 | Tunnel Extension | `com.privycs.vpn.tunnel` |
 | App Group | `group.com.privycs.vpn` |
-| Apple Developer Team | (TBD nach Enrolment-Check) |
+| Apple Developer Team | (TBD after enrolment check) |
 | Entitlement | `com.apple.developer.networking.networkextension` |
 
-Apple-Setup-Checklist liegt in den **internen Notes** (`privycs-vpn-private-docs/ios-apple-setup.md`), nicht im public Repo. Siehe `docs/README.md` für den Verweis. Für externe Contributors irrelevant — der Code in diesem Repo funktioniert ohne Apple-Account-spezifische Setup-Schritte.
+The Apple setup checklist lives in the **internal notes** (`privycs-vpn-private-docs/ios-apple-setup.md`), not in the public repo. See `docs/README.md` for the pointer. Irrelevant to external contributors — the code in this repo builds without any Apple-account-specific setup steps.
 
-## Min-iOS-Version
+## Minimum iOS version
 
-**iOS 17.0+** — covers ~85% installed base in 2026, gibt Zugang zu modernem `@Observable`, neuesten StoreKit 2 APIs, performant SwiftUI.
+**iOS 17.0+** — covers ~85% of the installed base in 2026, and gives access to modern `@Observable`, the latest StoreKit 2 APIs, and performant SwiftUI.
 
 ## Build (only on macOS with Xcode)
 
 ```bash
-git clone https://github.com/privycs/privycs-vpn-ios.git
-cd privycs-vpn-ios
+git clone https://github.com/hoep/privycs-vpn.git
+cd privycs-vpn/ios
 # Open in Xcode 16+
 open PrivycsVPN.xcodeproj
 ```
 
-Cross-compile von Linux unmöglich — Xcode + Swift-Toolchain + iOS SDK Pflicht (Apple-restriktion). Build-Server: macOS-only.
+Cross-compiling from Linux is impossible — Xcode + the Swift toolchain + the iOS SDK are mandatory (Apple restriction). Build server: macOS only.
 
 ## CI
 
@@ -116,15 +116,15 @@ Cross-compile von Linux unmöglich — Xcode + Swift-Toolchain + iOS SDK Pflicht
 
 ## Roadmap
 
-Phasen 0-7 sind abgeschlossen — Scaffold, PrivycsCore, PacketTunnelProvider,
-SwiftUI-Views, OpenVPN + AmneziaWG, StoreKit-2/Pro, Crash-Reporting,
-Real-Device-Tests und TestFlight. Die Tabelle in
-[`PHASE_STATUS.md`](PHASE_STATUS.md) ist die gepflegte Fassung.
+Phases 0-7 are complete — scaffold, PrivycsCore, PacketTunnelProvider,
+SwiftUI views, OpenVPN + AmneziaWG, StoreKit 2 / Pro, crash reporting,
+real-device testing and TestFlight. The table in
+[`PHASE_STATUS.md`](PHASE_STATUS.md) is the maintained version.
 
-Offen ist nur noch die App-Store-Einreichung; das Network-Extension-
-Entitlement liegt vor.
+The only thing still open is the App Store submission; the Network
+Extension entitlement is granted.
 
-## Verwandte Repos
+## Related repos
 
-- [privycs-vpn](https://github.com/privycs/privycs-vpn) — Android + Desktop (Wails) Clients
-- [privycs](https://github.com/privycs/privycs) — Gateway (server-side, internal)
+- [privycs-vpn](https://github.com/hoep/privycs-vpn) — Android + Desktop (Wails) + Apple clients (this monorepo)
+- [privycs](https://github.com/hoep/privycs) — Gateway (server-side, internal)

@@ -1,47 +1,47 @@
 # iOS Port — Phase Status
 
-Live status table — updates per commit.
+Live status table — updated per commit.
 
-| Phase | Beschreibung | Status |
+| Phase | Description | Status |
 |---|---|---|
-| 0 | Repo-scaffold, Apple-setup-docs, project structure | ✅ Complete |
+| 0 | Repo scaffold, Apple setup docs, project structure | ✅ Complete |
 | 1 | PrivycsCore: Models + Storage + Network + Pool + Crypto + Entitlement + CrashReporter + I18n | ✅ Complete |
 | 2 | PacketTunnelProvider scaffold + WireGuard bridge | ✅ Complete |
-| 3 | SwiftUI App skeleton: 5-tab nav, all main views, VPNTunnelManager | ✅ Complete |
-| 4 | AmneziaWG XCFramework build script + bridge wiring + OVPN delegate impl + Compat-Preprocessor | ✅ Complete |
-| 5 | NetworkRulesView + PoolDetailView + AddPoolView + GatewayAPIClient + QR scanner + License-key import | ✅ Complete |
+| 3 | SwiftUI app skeleton: 5-tab nav, all main views, VPNTunnelManager | ✅ Complete |
+| 4 | AmneziaWG XCFramework build script + bridge wiring + OVPN delegate impl + compat preprocessor | ✅ Complete |
+| 5 | NetworkRulesView + PoolDetailView + AddPoolView + GatewayAPIClient + QR scanner + license-key import | ✅ Complete |
 | 6 | SSID provider + AddRule sheet + lifecycle polishing | ✅ Complete |
 | 7 | Real-device testing + TestFlight beta | ✅ Complete |
-| 8 | App-Store submission | ⏳ Entitlement erteilt, Einreichung offen |
+| 8 | App Store submission | ⏳ Entitlement granted, submission pending |
 
-## Apple Dev Setup — Long Pole
+## Apple Dev setup — long pole
 
-Erledigt (der TestFlight-Upload in `ios-release.yml` beweist es — ohne
-diese drei kommt kein Build durch die altool-Validierung):
+Done (the TestFlight upload in `ios-release.yml` proves it — without these
+three, no build gets past altool validation):
 
-- [x] Bundle-IDs `com.privycs.vpn` + `com.privycs.vpn.tunnel` registriert
+- [x] Bundle IDs `com.privycs.vpn` + `com.privycs.vpn.tunnel` registered
 - [x] App Group `group.com.privycs.vpn`
-- [x] **Network Extension Entitlement** — von Apple erteilt
-- [ ] App Store Connect: New App + IAP `com.privycs.vpn.pro_lifetime`
-- [ ] Bugsink: neues Project "privycs-vpn-ios" → DSN .../3 ersetzen in `CrashReporter.swift`
-- [ ] Production ed25519 Pubkey in `LicenseVerifier.productionPubkey` ersetzen (aus `privycs-vpn-private-docs/license-keypair.txt`)
+- [x] **Network Extension entitlement** — granted by Apple
+- [ ] App Store Connect: new app + IAP `com.privycs.vpn.pro_lifetime`
+- [ ] Bugsink: new project "privycs-vpn-ios" → replace DSN .../3 in `CrashReporter.swift`
+- [ ] Replace the production ed25519 pubkey in `LicenseVerifier.productionPubkey` (from `privycs-vpn-private-docs/license-keypair.txt`)
 
-## Lokal-Build auf Mac
+## Local build on a Mac
 
 ```bash
 cd ios
 brew install xcodegen
-./Scripts/build-amneziawg-xcframework.sh   # baut amneziawg-go → XCFramework
-xcodegen generate                            # erzeugt PrivycsVPN.xcodeproj
+./Scripts/build-amneziawg-xcframework.sh   # builds amneziawg-go → XCFramework
+xcodegen generate                            # generates PrivycsVPN.xcodeproj
 open PrivycsVPN.xcodeproj
 ```
 
 In Xcode:
 1. Select target → Signing & Capabilities → Team
-2. Beide Targets (App + Tunnel) → Enable Network Extensions + App Groups
-3. Run on Simulator oder device
+2. Both targets (App + Tunnel) → Enable Network Extensions + App Groups
+3. Run on a Simulator or device
 
-## Linux Unit-Tests (für CI)
+## Linux unit tests (for CI)
 
 ```bash
 cd ios/Core
@@ -50,12 +50,12 @@ swift test                                   # runs ModelsCodable / PoolRotator 
                                              # tests on any platform
 ```
 
-## Was NICHT in PrivycsCore-Tests läuft
+## What does NOT run in the PrivycsCore tests
 
-- KeychainSecretStore (braucht Apple-Security framework)
-- NetworkMonitor (braucht NWPathMonitor)
-- CrashReporter (braucht sentry-cocoa)
-- Repositories (brauchen Keychain/UserDefaults)
-- App-Layer Views (brauchen SwiftUI)
+- KeychainSecretStore (needs Apple's Security framework)
+- NetworkMonitor (needs NWPathMonitor)
+- CrashReporter (needs sentry-cocoa)
+- Repositories (need Keychain/UserDefaults)
+- App-layer views (need SwiftUI)
 
-Real-device-Tests kommen mit Phase 7 (Mac CI runner + TestFlight beta).
+Real-device tests are covered by phase 7 (Mac CI runner + TestFlight beta).
