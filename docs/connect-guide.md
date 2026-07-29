@@ -111,6 +111,41 @@ This shows the current connection state, assigned IP address, and gateway inform
 
 ---
 
+## Router Mode (reach a LAN behind the client)
+
+Router mode turns a connect client into a **route-only VPN router** for the network behind it, so devices that cannot run a client themselves — an IP camera, a printer, a NAS — become reachable over the overlay. It is ideal for a small always-on box (a Raspberry Pi is plenty) fronting a LAN behind carrier-grade NAT.
+
+There is nothing to configure on the client. Router mode is enabled **on the enrollment token**:
+
+1. When creating a connect token in the dashboard (Peers → Connect Clients → Create Token), tick **Router mode**.
+2. Enter the **advertised subnet(s)** behind the client — IPv4 and IPv6, comma-separated, e.g. `192.168.1.0/24, fd00:cafe::/64`.
+3. Choose the return-path behaviour with **NAT to LAN**:
+   - **Off (default) — pure route-only.** The LAN device sees the real address of the connecting client. Requires a static route for the VPN subnet on the LAN's gateway (your home router) so replies find their way back.
+   - **On — masquerade.** The client SNATs VPN→LAN traffic to its own LAN address, so the device answers without any change to the home router. One NAT on the client, not a double-NAT of the tunnel.
+
+Then enroll and connect on the box exactly as normal:
+
+```bash
+sudo privycs-connect enroll <gateway-url> <token>
+sudo privycs-connect up
+```
+
+On `up`, a router-mode client automatically:
+
+- writes `Table = off` into its WireGuard config so `wg-quick` installs no routes of its own (a router must not let the tunnel hijack the box's default route);
+- enables IPv4 **and** IPv6 forwarding (`net.ipv4.ip_forward`, `net.ipv6.conf.all.forwarding`);
+- installs scoped `FORWARD` accept rules between the tunnel and the LAN interface (its own iptables/ip6tables chain, cleanly removed on `down`);
+- adds the return route for the VPN subnet into the tunnel;
+- applies the LAN masquerade **only** if NAT was enabled on the token.
+
+`sudo privycs-connect down` reverses all of it. (IP forwarding is left enabled, since other software may depend on it.)
+
+On the gateway side, enrolling a router token also registers the advertised subnet as a network with an all-users access grant, so your existing clients can reach the LAN immediately. If the subnet should be visible to only some users, narrow that grant afterwards under **Access Control**.
+
+> **Router mode is Linux-only** (the intended target is a headless Linux box). On macOS/Windows the tunnel still comes up, but forwarding is not applied.
+
+---
+
 ## Command Reference
 
 > **Privycs Connect runs as root only.** Every command must be run with `sudo` (or as the root user). The client keeps its enrollment state and WireGuard configuration under `/etc/privycs/connect/` (root-owned, `0600`) and manages network interfaces, routing, and DNS — all of which require root. On Windows, run the terminal as Administrator.
