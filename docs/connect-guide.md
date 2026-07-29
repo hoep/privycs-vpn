@@ -47,13 +47,23 @@ curl -sL https://www.privycs.com/downloads/privycs-connect-linux-amd64 \
 chmod +x /usr/local/bin/privycs-connect
 ```
 
-**Linux (arm64)**
+**Linux (arm64 — 64-bit Raspberry Pi OS, Pi 3/4/5/Zero 2 W)**
 
 ```bash
 curl -sL https://www.privycs.com/downloads/privycs-connect-linux-arm64 \
   -o /usr/local/bin/privycs-connect
 chmod +x /usr/local/bin/privycs-connect
 ```
+
+**Linux (arm — 32-bit Raspberry Pi OS, incl. Pi 1 / Zero / Zero W)**
+
+```bash
+curl -sL https://www.privycs.com/downloads/privycs-connect-linux-arm \
+  -o /usr/local/bin/privycs-connect
+chmod +x /usr/local/bin/privycs-connect
+```
+
+> Not sure which one? Run `uname -m`: `aarch64` → use **arm64**; `armv7l` or `armv6l` → use **arm** (32-bit). The quick installer picks the right one automatically.
 
 **macOS (Intel)**
 
