@@ -32,6 +32,7 @@
 #   --base URL           download base (default: $PRIVYCS_DOWNLOAD_BASE or
 #                        https://www.privycs.com/downloads)
 #   --deb PATH           install a local .deb instead of downloading (apt only)
+#   --rpm PATH           install a local .rpm instead of downloading (dnf/zypper)
 #   --deps-only          install dependencies but not the app
 #   --no-deps            install the app but not the VPN dependencies
 #
@@ -44,6 +45,7 @@ VERSION="${PRIVYCS_VERSION:-}"
 WITH_AWG=0
 WITH_AWG_KERNEL=0
 LOCAL_DEB=""
+LOCAL_RPM=""
 DO_DEPS=1
 DO_APP=1
 DOWNLOAD_TOKEN="${PRIVYCS_DOWNLOAD_TOKEN:-}"
@@ -61,9 +63,10 @@ while [ $# -gt 0 ]; do
     --token)   DOWNLOAD_TOKEN="${2:?}"; shift ;;
     --token=*) DOWNLOAD_TOKEN="${1#*=}" ;;
     --deb)     LOCAL_DEB="${2:?}"; shift ;;
+    --rpm)     LOCAL_RPM="${2:?}"; shift ;;
     --deps-only) DO_APP=0 ;;
     --no-deps)   DO_DEPS=0 ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac
   shift
@@ -85,6 +88,7 @@ if [ "$(id -u)" != "0" ]; then
     --base "$DOWNLOAD_BASE" \
     $([ -n "$DOWNLOAD_TOKEN" ] && echo --token "$DOWNLOAD_TOKEN") \
     $([ -n "$LOCAL_DEB" ] && echo --deb "$LOCAL_DEB") \
+    $([ -n "$LOCAL_RPM" ] && echo --rpm "$LOCAL_RPM") \
     $([ "$DO_APP" = 0 ] && echo --deps-only) \
     $([ "$DO_DEPS" = 0 ] && echo --no-deps)
 fi
@@ -322,6 +326,31 @@ install_app_apt() {
   [ -n "$LOCAL_DEB" ] || rm -f "$deb"
 }
 
+install_app_rpm() {
+  local rpm
+  if [ -n "$LOCAL_RPM" ]; then
+    rpm="$LOCAL_RPM"
+    [ -f "$rpm" ] || die "local .rpm not found: $rpm"
+  else
+    resolve_version
+    rpm="$(mktemp --suffix=.rpm)"
+    log "Downloading privycs-vpn-linux-amd64-$VERSION.rpm…"
+    curl -fSL $CURL_AUTH -o "$rpm" "$DOWNLOAD_BASE/privycs-vpn-linux-amd64-$VERSION.rpm" \
+      || die "download failed from $DOWNLOAD_BASE"
+  fi
+  log "Installing the .rpm (resolves deps + recommends)…"
+  if [ "$PM" = dnf ]; then
+    # A local .rpm is not GPG-checked by dnf (localpkg_gpgcheck defaults off),
+    # and dnf install <file> resolves the soname deps against the repos.
+    dnf install -y "$rpm"
+  else
+    # zypper refuses an unsigned rpm non-interactively without this flag; ours
+    # is unsigned (nfpm builds no signature).
+    zypper --non-interactive install -y --allow-unsigned-rpm "$rpm"
+  fi
+  [ -n "$LOCAL_RPM" ] || rm -f "$rpm"
+}
+
 install_app_binary() {
   resolve_version
   log "Downloading standalone binary privycs-vpn-linux-amd64-$VERSION…"
@@ -344,7 +373,11 @@ DESK
 }
 
 install_app() {
-  if [ "$PM" = "apt" ]; then install_app_apt; else install_app_binary; fi
+  case "$PM" in
+    apt)         install_app_apt ;;
+    dnf|zypper)  install_app_rpm ;;
+    *)           install_app_binary ;;   # pacman + anything else: raw binary
+  esac
 }
 
 # ---- run ------------------------------------------------------------------

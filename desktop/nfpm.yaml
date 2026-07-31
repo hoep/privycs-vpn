@@ -40,3 +40,29 @@ recommends:
 scripts:
   postinstall: build/postinstall.sh
   postremove: build/postremove.sh
+
+# RPM (Fedora / RHEL / openSUSE) overrides. Everything above targets Debian,
+# whose package names (libgtk-3-0, libwebkit2gtk-4.x-0, libayatana-…) exist on
+# NO rpm distro — and Fedora and openSUSE disagree with each OTHER on the names
+# too. So the hard runtime deps are expressed as SONAMEs instead: every rpm that
+# ships a library auto-Provides its soname in exactly this
+# `lib.so.N()(64bit)` form, so one string resolves on both distros without
+# guessing package names. The sonames are the ones the ubuntu-22.04 build links
+# (libwebkit2gtk-4.0-dev → .so.37); a CI step asserts the built binary really
+# NEEDs each of them, so a soname drift (e.g. a runner bump to webkit 4.1) fails
+# the build instead of shipping an uninstallable rpm.
+#
+# recommends are soft and the installer (scripts/install-linux.sh) pulls the VPN
+# tools itself via dnf/zypper, so they carry the plain Fedora names purely as a
+# hint. postinstall/postremove are shared: both are POSIX sh with command -v
+# guards, nothing dpkg-specific.
+overrides:
+  rpm:
+    depends:
+      - "libgtk-3.so.0()(64bit)"
+      - "libwebkit2gtk-4.0.so.37()(64bit)"
+      - "libayatana-appindicator3.so.1()(64bit)"
+    recommends:
+      - wireguard-tools
+      - openvpn
+      - strongswan

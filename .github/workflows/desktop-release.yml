@@ -164,7 +164,7 @@ jobs:
           mv desktop/build/bin/privycs-vpn desktop/build/bin/privycs-vpn-linux-amd64
           chmod +x desktop/build/bin/privycs-vpn-linux-amd64
           cd desktop/build/bin && sha256sum privycs-vpn-linux-amd64 > privycs-vpn-linux-amd64.sha256
-      - name: Build .deb package
+      - name: Build .deb + .rpm packages
         run: |
           # Pinned: nfpm v2.47.0+ requires Go >= 1.26.4, but this job runs
           # Go 1.25 with GOTOOLCHAIN=local (no auto-upgrade), so @latest fails
@@ -177,10 +177,34 @@ jobs:
           if [ -z "$VERSION" ] || echo "$VERSION" | grep -q '/'; then VERSION="0.0.1"; fi
           VERSION=$(echo "$VERSION" | tr -d '+')
           export VERSION
+
+          # The .rpm expresses its GUI deps as SONAMEs (see nfpm.yaml overrides.rpm),
+          # because rpm package names differ across Fedora/openSUSE and from Debian's.
+          # Those sonames are the ones THIS binary links — assert it, so a runner or
+          # toolchain bump that changes the webkit ABI (4.0 -> 4.1, .so.37 -> ...)
+          # fails the build here instead of shipping an rpm that no distro can
+          # satisfy. Single source of truth: the sonames are read back out of
+          # nfpm.yaml, never duplicated.
+          NEEDED="$(objdump -p build/bin/privycs-vpn-linux-amd64 | awk '/NEEDED/{print $2}')"
+          for so in $(grep -oE 'lib[a-zA-Z0-9._-]+\.so\.[0-9]+' nfpm.yaml | sort -u); do
+            if ! printf '%s\n' "$NEEDED" | grep -qxF "$so"; then
+              echo "::error::nfpm.yaml requires soname '$so' but the binary does not NEED it."
+              echo "Binary NEEDED libs:"; printf '  %s\n' $NEEDED
+              exit 1
+            fi
+            echo "soname ok: $so"
+          done
+
           ~/go/bin/nfpm package --packager deb --target build/bin/
           mv build/bin/*.deb build/bin/privycs-vpn-linux-amd64.deb 2>/dev/null || true
           if [ -f build/bin/privycs-vpn-linux-amd64.deb ]; then
-            cd build/bin && sha256sum privycs-vpn-linux-amd64.deb > privycs-vpn-linux-amd64.deb.sha256
+            (cd build/bin && sha256sum privycs-vpn-linux-amd64.deb > privycs-vpn-linux-amd64.deb.sha256)
+          fi
+
+          ~/go/bin/nfpm package --packager rpm --target build/bin/
+          mv build/bin/*.rpm build/bin/privycs-vpn-linux-amd64.rpm 2>/dev/null || true
+          if [ -f build/bin/privycs-vpn-linux-amd64.rpm ]; then
+            (cd build/bin && sha256sum privycs-vpn-linux-amd64.rpm > privycs-vpn-linux-amd64.rpm.sha256)
           fi
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -191,6 +215,8 @@ jobs:
             desktop/build/bin/privycs-vpn-linux-amd64.sha256
             desktop/build/bin/privycs-vpn-linux-amd64.deb
             desktop/build/bin/privycs-vpn-linux-amd64.deb.sha256
+            desktop/build/bin/privycs-vpn-linux-amd64.rpm
+            desktop/build/bin/privycs-vpn-linux-amd64.rpm.sha256
           if-no-files-found: ignore
 
   build-macos:
@@ -713,7 +739,7 @@ jobs:
           # (privycs-vpn-linux-amd64-1.2.3.4.deb) AND the legacy version-less
           # ones from releases made before versioned naming — so propagation
           # keeps working across the transition.
-          LINUX_RE='privycs-vpn-linux-amd64(-[0-9][0-9.]*)?(\.sha256|\.deb(\.sha256)?)?$'
+          LINUX_RE='privycs-vpn-linux-amd64(-[0-9][0-9.]*)?(\.sha256|\.deb(\.sha256)?|\.rpm(\.sha256)?)?$'
           MACOS_RE='privycs-vpn-darwin-(amd64|arm64)(-[0-9][0-9.]*)?\.(zip|dmg)(\.sha256)?$'
           WINDOWS_RE='privycs-vpn-windows-amd64(-setup)?(-[0-9][0-9.]*)?\.exe(\.sha256)?$'
 
