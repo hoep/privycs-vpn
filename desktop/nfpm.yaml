@@ -61,8 +61,16 @@ overrides:
     depends:
       - "libgtk-3.so.0()(64bit)"
       - "libwebkit2gtk-4.0.so.37()(64bit)"
-      - "libayatana-appindicator3.so.1()(64bit)"
     recommends:
+      # The tray/appindicator library is loaded via dlopen at runtime, NOT
+      # linked — it is absent from the binary's NEEDED list (the CI soname
+      # assertion proved this), so it cannot be a hard soname dep. The app runs
+      # without it, just without a tray icon, which is exactly a recommends.
+      # Both distro package names are listed; the one that doesn't match is
+      # simply ignored (a soft dep never blocks install). No `.so.N` here, so the
+      # assertion — which greps sonames out of this file — leaves them alone.
+      - libayatana-appindicator-gtk3
+      - libayatana-appindicator3-1
       - wireguard-tools
       - openvpn
       - strongswan
