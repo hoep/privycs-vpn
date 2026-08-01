@@ -596,6 +596,21 @@ class PrivycsVpnService : VpnService() {
     } } // tunnelMutex.withLock + function
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Foreground-service contract: any time we are launched via
+        // startForegroundService() we MUST call startForeground() within ~5s on
+        // EVERY path, or Android kills the process with
+        // ForegroundServiceDidNotStartInTimeException. That is exactly what
+        // happened in the field: PoolAlarmReceiver fires ACTION_POOL_ROTATE /
+        // ACTION_POOL_PRE_WARM via startForegroundService() from the background,
+        // and those branches (plus their async handlers) never called
+        // startForeground; START_MONITOR called it only conditionally; DISCONNECT
+        // not at all. Promote here first, unconditionally, with a notification
+        // reflecting the current state (so a running tunnel's notification is not
+        // replaced by a placeholder). Branches below refine it or tear the
+        // service down; guard-drops call stopIfIdle() so a stale alarm doesn't
+        // leave an empty foreground service behind.
+        startForeground(PrivycsApp.NOTIFICATION_ID_VPN, currentStateNotification())
+
         when (intent?.action) {
             ACTION_CONNECT -> {
                 val connectionId = intent.getStringExtra(EXTRA_CONNECTION_ID) ?: ""
@@ -738,6 +753,7 @@ class PrivycsVpnService : VpnService() {
                 val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
                 if (poolId.isEmpty()) {
                     PrivycsLogger.w(TAG, "ACTION_POOL_PRE_WARM without pool id")
+                    stopIfIdle()
                     return START_NOT_STICKY
                 }
                 // Sequence-guard: drop intents from older arm()
@@ -749,6 +765,7 @@ class PrivycsVpnService : VpnService() {
                 // tearing down the just-set-up tunnel.
                 if (!isFreshAlarmSeq(intent)) {
                     PrivycsLogger.d(TAG, "dropping stale PRE_WARM (seq mismatch)")
+                    stopIfIdle()
                     return START_NOT_STICKY
                 }
                 handlePoolPreWarm(poolId)
@@ -758,10 +775,12 @@ class PrivycsVpnService : VpnService() {
                 val poolId = intent.getStringExtra(EXTRA_POOL_ID) ?: ""
                 if (poolId.isEmpty()) {
                     PrivycsLogger.w(TAG, "ACTION_POOL_ROTATE without pool id")
+                    stopIfIdle()
                     return START_NOT_STICKY
                 }
                 if (!isFreshAlarmSeq(intent)) {
                     PrivycsLogger.d(TAG, "dropping stale ROTATE (seq mismatch)")
+                    stopIfIdle()
                     return START_NOT_STICKY
                 }
                 handlePoolRotate(poolId)
@@ -2914,6 +2933,44 @@ class PrivycsVpnService : VpnService() {
         }
 
         return builder.build()
+    }
+
+    /**
+     * The notification that matches the service's CURRENT state, used to satisfy
+     * the foreground-service contract at the very top of [onStartCommand] without
+     * clobbering a running tunnel's notification with a placeholder.
+     *
+     * Order mirrors [updateNotification]'s precedence: an active sinkhole always
+     * wins, then a live tunnel, else a neutral "reconnecting" text (the transient
+     * case where a branch is about to set its own notification anyway).
+     */
+    private fun currentStateNotification(): Notification = when {
+        com.privycs.vpn.util.KillSwitchManager.isSinkholeActive() ->
+            buildNotification(
+                getString(R.string.vpn_notification_kill_switch_active),
+                sinkholeMode = true,
+            )
+        currentProtocol != null ->
+            buildNotification(getString(R.string.vpn_notification_connected, currentConnectionName))
+        else ->
+            buildNotification(getString(R.string.vpn_notification_reconnecting))
+    }
+
+    /**
+     * Stop the service if nothing is actually running.
+     *
+     * Called from the pool-alarm guard drops (stale/duplicate alarm, missing pool
+     * id): once [onStartCommand] has promoted us to the foreground to satisfy the
+     * 5-second contract, a guard that has no work to do must not leave an empty
+     * foreground service (and a lingering placeholder notification) behind. If a
+     * tunnel or sinkhole IS active we stay — the service is serving it, and the
+     * top-level startForeground already showed the correct notification for it.
+     */
+    private fun stopIfIdle() {
+        if (currentProtocol == null && sinkholeTunFd == null) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     private fun updateNotification(text: String, sinkholeMode: Boolean = false) {
