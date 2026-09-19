@@ -46,6 +46,7 @@ var allowedActions = map[string]bool{
 	"wg_install_config":                    true,
 	"ipsec_configure":                      true,
 	"ipsec_cleanup":                        true, // wipe swanctl conf.d / PEMs
+	"ipsec_reconcile_windows":              true, // Windows: sweep orphaned app-named RAS entries + NRPT keys
 	"ipsec_check_dependencies":             true, // macOS: brew/strongswan/charon health
 	"ipsec_split_routes_add":               true, // macOS post-up CIDR-bypass routes
 	"ipsec_split_routes_remove":            true,
@@ -465,6 +466,8 @@ func (h *PrivilegedHelper) executeCommand(cmd HelperCommand) HelperResponse {
 		return h.cmdIPSecConfigure(cmd)
 	case "ipsec_cleanup":
 		return h.cmdIPSecCleanup(cmd)
+	case "ipsec_reconcile_windows":
+		return h.cmdIPSecReconcileWindows(cmd)
 	case "ipsec_check_dependencies":
 		return h.cmdIPSecCheckDependencies(cmd)
 	case "ipsec_split_routes_add":
@@ -2576,30 +2579,42 @@ func (h *PrivilegedHelper) ipsecCleanupSwanctl(certDir, swanctlBin string) Helpe
 	return HelperResponse{Success: true, Output: out}
 }
 
-// ipsecCleanupWindows removes the all-user RAS VPN connection the installer
-// created, plus the Privycs-owned certificates it imported. Deliberately
-// NARROW: the cert filter matches only Subject/Issuer containing "Privycs", so
-// we can never touch a publicly-trusted root (e.g. ISRG Root X1 / Let's Encrypt,
-// whose org is "Internet Security Research Group", never "Privycs"). Best-effort
-// — every step is wrapped so a missing artifact is not an error. NRPT rules
-// added by the gateway setup script are NOT removed here (their namespaces are
-// script-defined and unknown to the client); documented as a known gap.
+// ipsecCleanupWindows removes one IPSec config's machine-wide artifacts: the
+// all-user RAS entry named after the app SLOT (not the display name), its NRPT
+// keys, the hosts pin (only when hosts_fqdn is passed), the slot-tagged leaf
+// cert and the CAs listed in ca_thumbprints. The APP decides what is still
+// shared (see ipsecWindowsCleanupArgs); the script re-validates every input
+// and additionally never removes a CA without "Privycs" in its subject.
+// Best-effort — a missing artifact is not an error.
 func (h *PrivilegedHelper) ipsecCleanupWindows(cmd HelperCommand) HelperResponse {
-	connName := strings.TrimSpace(cmd.Args["connection_name"])
-	if connName == "" {
-		return HelperResponse{Success: false, Error: "connection_name required for windows ipsec_cleanup"}
+	slot := strings.TrimSpace(cmd.Args["slot"])
+	if slot == "" {
+		// Older app builds send only connection_name.
+		slot = strings.TrimSpace(cmd.Args["connection_name"])
 	}
-	// PowerShell single-quote escaping: double any embedded single quote.
-	esc := strings.ReplaceAll(connName, "'", "''")
-	ps := "$ErrorActionPreference='SilentlyContinue';" +
-		fmt.Sprintf("try { Remove-VpnConnection -Name '%s' -AllUserConnection -Force } catch {};", esc) +
-		"Get-ChildItem Cert:\\LocalMachine\\My | Where-Object { $_.Subject -like '*Privycs*' -or $_.Issuer -like '*Privycs*' } | Remove-Item -Force;" +
-		"Get-ChildItem Cert:\\LocalMachine\\Root | Where-Object { $_.Subject -like '*Privycs*' } | Remove-Item -Force;"
+	ps := buildWindowsIPSecCleanupPS(slot, strings.TrimSpace(cmd.Args["hosts_fqdn"]), cmd.Args["ca_thumbprints"])
+	if ps == "" {
+		return HelperResponse{Success: false, Error: fmt.Sprintf("windows ipsec_cleanup: invalid slot %q", slot)}
+	}
 	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", ps).CombinedOutput()
 	if err != nil {
-		return HelperResponse{Success: true, Output: fmt.Sprintf("windows ipsec cleanup (best-effort) for %q: %v / %s", connName, err, strings.TrimSpace(string(out)))}
+		return HelperResponse{Success: true, Output: fmt.Sprintf("windows ipsec cleanup (best-effort) for %q: %v / %s", slot, err, strings.TrimSpace(string(out)))}
 	}
-	return HelperResponse{Success: true, Output: fmt.Sprintf("windows ipsec cleanup done for %q", connName)}
+	return HelperResponse{Success: true, Output: fmt.Sprintf("windows ipsec cleanup for %q: %s", slot, strings.TrimSpace(string(out)))}
+}
+
+// cmdIPSecReconcileWindows removes app-named RAS entries + NRPT keys that no
+// saved connection references (keep_slots). Windows only.
+func (h *PrivilegedHelper) cmdIPSecReconcileWindows(cmd HelperCommand) HelperResponse {
+	if runtime.GOOS != "windows" {
+		return HelperResponse{Success: true, Output: "ipsec_reconcile_windows: no-op on " + runtime.GOOS}
+	}
+	keep := splitValidated(cmd.Args["keep_slots"], winSlotRe)
+	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", buildWindowsIPSecReconcilePS(keep)).CombinedOutput()
+	if err != nil {
+		return HelperResponse{Success: true, Output: fmt.Sprintf("windows ipsec reconcile (best-effort): %v / %s", err, strings.TrimSpace(string(out)))}
+	}
+	return HelperResponse{Success: true, Output: strings.TrimSpace(string(out))}
 }
 
 // safeCIDRPattern validates a CIDR string. Accepts plain IPv4

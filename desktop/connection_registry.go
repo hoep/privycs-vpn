@@ -233,6 +233,18 @@ type ConnectionRegistry struct {
 	Connections []*SavedConnection `json:"connections"`
 	ActiveID    string             `json:"active_id"`
 	filePath    string
+	// loadedCleanly — the on-disk file was absent (genuinely empty) or
+	// decoded fine. False when it existed but could not be read/decrypted
+	// or parsed: the in-memory registry is then empty WITHOUT meaning "no
+	// connections", so destructive reconcile sweeps must not trust it.
+	loadedCleanly bool
+}
+
+// LoadedCleanly reports whether the registry reflects the on-disk state.
+func (r *ConnectionRegistry) LoadedCleanly() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.loadedCleanly
 }
 
 // NewConnectionRegistry creates a new registry, loading from disk if available
@@ -643,12 +655,16 @@ func (r *ConnectionRegistry) load() {
 	defer r.mu.Unlock()
 	data, err := EncryptedReadFile(r.filePath)
 	if err != nil {
+		if _, statErr := os.Stat(r.filePath); os.IsNotExist(statErr) {
+			r.loadedCleanly = true
+		}
 		return
 	}
 	if err := json.Unmarshal(data, r); err != nil {
 		log.Printf("Warning: connections.json corrupted, starting with empty registry: %v", err)
 		return
 	}
+	r.loadedCleanly = true
 
 	// Defensive heal: a panic in any phase (nil map deref, nil
 	// ProtocolConfig pointer in the slice, etc.) MUST NOT crash

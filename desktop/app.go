@@ -631,6 +631,10 @@ func (a *App) startup(ctx context.Context) {
 	// blocked on the helper IPC roundtrip.
 	go a.cleanupOrphanPoolServices("")
 
+	// Windows: sweep IPSec RAS entries + NRPT keys orphaned by earlier builds,
+	// whose delete path passed the display name instead of the slot name.
+	go a.reconcileWindowsIPSecOrphans()
+
 	log.Println("Privycs VPN ready")
 }
 
@@ -2634,17 +2638,20 @@ func (a *App) DeleteConnection(id string) error {
 	// once connections.Delete returns the SavedConnection is unreadable. Also
 	// note whether this connection currently owns the live tunnel.
 	a.mu.Lock()
-	var ipsecConnName string
-	var fileSlots []string // tunnel/file basenames for WG/AWG/OpenVPN configs
+	var ipsecConnName string             // display name — macOS System-Settings profile hint
+	var ipsecRemoved []ipsecWinArtifacts // per-config OS artifacts, keyed by SLOT
+	var fileSlots []string               // tunnel/file basenames for WG/AWG/OpenVPN configs
 	if conn := a.connections.Get(id); conn != nil {
 		for _, cfg := range conn.Protocols {
 			if cfg == nil {
 				continue
 			}
+			slot := tunnelNameForSlot(cfg.ID, conn.Name)
 			if cfg.Protocol == "ipsec" {
 				ipsecConnName = conn.Name
+				ipsecRemoved = append(ipsecRemoved, ipsecWindowsArtifactsFor(cfg, slot))
 			} else {
-				fileSlots = append(fileSlots, tunnelNameForSlot(cfg.ID, conn.Name))
+				fileSlots = append(fileSlots, slot)
 			}
 		}
 	}
@@ -2678,18 +2685,15 @@ func (a *App) DeleteConnection(id string) error {
 	}
 
 	// IPSec: wipe the OS/helper-installed config + certs.
-	//   macOS  — swanctl conf + PEMs via helper + System-Settings profile hint.
+	//   macOS  — System-Settings profile hint (NEVPNManager owns the profile).
 	//   Linux  — swanctl conf + PEMs via helper.
-	//   Windows— all-user RAS VPN entry + Privycs-owned certs via helper.
-	// (Windows NRPT rules from the gateway setup script are not removed — their
-	// namespaces are script-defined; documented gap.)
-	if ipsecConnName != "" {
+	//   Windows— RAS entry (by SLOT name), NRPT keys, hosts pin + CA only when
+	//            no remaining config shares them. See ipsec_windows_cleanup.go.
+	if len(ipsecRemoved) > 0 {
 		if runtime.GOOS == "darwin" {
 			macOSDeleteIPSecProfileHint(ipsecConnName, "deleted")
-		} else if client := NewHelperClient(); client.IsHelperReachable() {
-			if resp, err := client.SendCommand("ipsec_cleanup", map[string]string{"connection_name": ipsecConnName}); err == nil {
-				log.Printf("IPSec cleanup on delete: %s", resp.Output)
-			}
+		} else {
+			a.cleanupIPSecArtifacts(ipsecRemoved)
 		}
 	}
 	return nil
@@ -2698,24 +2702,36 @@ func (a *App) DeleteConnection(id string) error {
 // RemoveProtocolFromConnection removes a single protocol config from a connection
 func (a *App) RemoveProtocolFromConnection(connectionID string, protocol string) error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	// IPSec-on-macOS leaves a System-Settings VPN profile behind that
 	// no longer corresponds to anything in Privycs. Surface the hint
 	// before clearing the protocol so the user can act while the
-	// profile name is still meaningful to them.
+	// profile name is still meaningful to them. Linux/Windows: snapshot
+	// the configs' OS artifacts while they are still readable.
 	var ipsecConnName string
+	var ipsecRemoved []ipsecWinArtifacts
 	if protocol == "ipsec" {
 		if conn := a.connections.Get(connectionID); conn != nil {
 			ipsecConnName = conn.Name
+			for _, cfg := range conn.Protocols {
+				if cfg != nil && cfg.Protocol == "ipsec" {
+					ipsecRemoved = append(ipsecRemoved, ipsecWindowsArtifactsFor(cfg, tunnelNameForSlot(cfg.ID, conn.Name)))
+				}
+			}
 		}
 	}
 
-	if err := a.connections.RemoveProtocol(connectionID, protocol); err != nil {
+	err := a.connections.RemoveProtocol(connectionID, protocol)
+	a.mu.Unlock()
+	if err != nil {
 		return err
 	}
 
 	if ipsecConnName != "" {
-		macOSDeleteIPSecProfileHint(ipsecConnName, "removed IPSec from")
+		if runtime.GOOS == "darwin" {
+			macOSDeleteIPSecProfileHint(ipsecConnName, "removed IPSec from")
+		} else {
+			a.cleanupIPSecArtifacts(ipsecRemoved)
+		}
 	}
 	return nil
 }
