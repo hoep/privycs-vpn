@@ -2,9 +2,12 @@ Native macOS app built from the iOS codebase (same screens as iPhone, in a Mac
 window). WireGuard / AmneziaWG / OpenVPN / IPSec, pools + rotation, on-demand
 network rules, backup/restore, gateway import.
 
-v1.1.5.101 — Connect screen now shows the protocol pill even for single-protocol
-connections (e.g. WireGuard-only), matching Android/Desktop. Previously the pill
-row only appeared for multi-protocol connections.
+v1.1.5.120 — Android parity pass: cross-platform backups keep every setting
+(an Android backup used to restore as factory defaults), protocol pills switch
+with one tap when the protocol has a single config, pool rotation probes the
+next server before dropping the current tunnel, and round-robin now rotates
+across regions like Android. Network rules got Android's 5-second hold after a
+rule-driven disconnect.
 
 NEW (recent builds):
 - Real KILL SWITCH: with it ON, all traffic is forced through the tunnel and the

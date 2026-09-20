@@ -569,6 +569,14 @@ final class TVAppState: ObservableObject {
                 from: pool, userCountry: userCountry, excludingMemberIDs: unreachable.union(tried)
             ) else { break }
             tried.insert(member.id)
+
+            // Pre-connect probe — same guard as iOS (Android PoolProbe parity).
+            if await PoolProbe.probe(member: member) != nil {
+                await poolHealth.markUnreachable(pool: pool.id, member: member.id)
+                lastError = "\(member.name): not reachable"
+                continue
+            }
+
             try? await poolRepo.save(updated)
             await poolRepo.setActivePoolID(pool.id)
             activePool = updated
@@ -608,7 +616,23 @@ final class TVAppState: ObservableObject {
     private func doRotatePool() async {
         guard let pool = activePool else { return }
         let unreachable = await poolHealth.unreachableMembers(pool: pool.id)
-        guard let (member, updated) = rotator.pick(from: pool, userCountry: userCountry, excludingMemberIDs: unreachable) else { return }
+
+        // Pre-warm: probe up to 3 candidates before dropping the live tunnel.
+        var skipped = Set<String>()
+        var candidate: (member: PoolMember, pool: Pool)?
+        for _ in 0..<3 {
+            guard let (m, u) = rotator.pick(
+                from: pool, userCountry: userCountry, excludingMemberIDs: unreachable.union(skipped)
+            ) else { break }
+            if await PoolProbe.probe(member: m) != nil {
+                await poolHealth.markUnreachable(pool: pool.id, member: m.id)
+                skipped.insert(m.id)
+                continue
+            }
+            candidate = (m, u)
+            break
+        }
+        guard let (member, updated) = candidate else { return }
         try? await poolRepo.save(updated)
         activePool = updated
         activePoolMember = member

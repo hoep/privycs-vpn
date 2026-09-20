@@ -107,4 +107,47 @@ final class ModelsCodableTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
         XCTAssertEqual(decoded, s)
     }
+
+    func testAppSettingsDecodesAndroidExportWithoutIOSKeys() throws {
+        // An Android settings blob: no log_level / app_language / install_uuid,
+        // but connect_on_demand / first_launch_completed / keep_monitor_alive.
+        // The synthesized decoder threw keyNotFound here, and BackupManager
+        // then fell back to .default — silently dropping EVERY restored setting.
+        let json = """
+        {"active_protocol":"wireguard","kill_switch_enabled":false,"theme":"dark",
+         "dns_override":"9.9.9.9","gateway_url":"https://gw.example.com","api_key":"",
+         "connect_on_demand":{"enabled":true,"trigger":"wifi","ssid_mode":"only","ssid_list":["A","B"]},
+         "network_rules_enabled":true,"first_launch_completed":true,"keep_monitor_alive":true,
+         "tunnel_health_ping_interval_sec":10,"tunnel_health_dead_threshold":3}
+        """
+        let s = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(s.theme, "dark")
+        XCTAssertEqual(s.dnsOverride, "9.9.9.9")
+        XCTAssertEqual(s.gatewayURL, "https://gw.example.com")
+        XCTAssertTrue(s.networkRulesEnabled)
+        XCTAssertTrue(s.firstLaunchCompleted)
+        XCTAssertTrue(s.keepMonitorAlive)
+        XCTAssertEqual(s.connectOnDemand.trigger, "wifi")
+        XCTAssertEqual(s.connectOnDemand.ssidMode, "only")
+        XCTAssertEqual(s.connectOnDemand.ssidList, ["A", "B"])
+        // Keys the blob didn't carry fall back to their own defaults.
+        XCTAssertEqual(s.logLevel, AppSettings.default.logLevel)
+    }
+
+    func testAppSettingsRoundTripKeepsEveryField() throws {
+        var s = AppSettings.default
+        s.connectOnDemand = ConnectOnDemandSettings(enabled: true, trigger: "mobile",
+                                                    ssidMode: "except", ssidList: ["X"])
+        s.firstLaunchCompleted = true
+        s.keepMonitorAlive = true
+        let back = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(back, s)
+    }
+
+    func testTunnelHealthDefaultsMatchAndroid() {
+        // The runtime already used 10/3 via `> 0` fallbacks; now the exported
+        // values say so too, so a backup carries the real cadence.
+        XCTAssertEqual(AppSettings.default.tunnelHealthPingIntervalSec, 10)
+        XCTAssertEqual(AppSettings.default.tunnelHealthDeadThreshold, 3)
+    }
 }

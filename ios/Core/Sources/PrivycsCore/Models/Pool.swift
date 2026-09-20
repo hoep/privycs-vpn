@@ -223,6 +223,11 @@ public struct PoolRotation: Codable, Equatable, Hashable {
     public var lastUsedMemberID: String
     /// UNIX timestamp of the next due rotation. 0 = recompute on connect.
     public var nextRotationAt: Int64
+    /// Per-region round-robin cursor: region → id of the member picked last
+    /// in that region. Android keeps the same map in its pool STATE registry
+    /// (`PoolStateRepository.regionCursor`); iOS has no separate state file,
+    /// so it rides along here as another iOS-runtime extra.
+    public var regionCursors: [String: String]
 
     /// Convenience: interval in seconds for the runtime scheduler.
     public var intervalSeconds: Int {
@@ -235,13 +240,15 @@ public struct PoolRotation: Codable, Equatable, Hashable {
         idleAware: Bool = true,
         forceAfterMin: Int = 60,
         lastUsedMemberID: String = "",
-        nextRotationAt: Int64 = 0
+        nextRotationAt: Int64 = 0,
+        regionCursors: [String: String] = [:]
     ) {
         self.intervalMin = intervalMin
         self.idleAware = idleAware
         self.forceAfterMin = forceAfterMin
         self.lastUsedMemberID = lastUsedMemberID
         self.nextRotationAt = nextRotationAt
+        self.regionCursors = regionCursors
     }
 
     /// Legacy seconds-based init — keeps existing call sites + tests
@@ -252,7 +259,8 @@ public struct PoolRotation: Codable, Equatable, Hashable {
             idleAware: true,
             forceAfterMin: 60,
             lastUsedMemberID: "",
-            nextRotationAt: nextRotationAt
+            nextRotationAt: nextRotationAt,
+            regionCursors: [:]
         )
     }
 
@@ -262,6 +270,7 @@ public struct PoolRotation: Codable, Equatable, Hashable {
         case forceAfterMin = "force_after_min"
         case lastUsedMemberID = "last_used_member_id"
         case nextRotationAt = "next_rotation_at"
+        case regionCursors = "region_cursors"
     }
 
     public init(from decoder: Decoder) throws {
@@ -271,6 +280,7 @@ public struct PoolRotation: Codable, Equatable, Hashable {
         forceAfterMin = try c.decodeIfPresent(Int.self, forKey: .forceAfterMin) ?? 60
         lastUsedMemberID = try c.decodeIfPresent(String.self, forKey: .lastUsedMemberID) ?? ""
         nextRotationAt = try c.decodeIfPresent(Int64.self, forKey: .nextRotationAt) ?? 0
+        regionCursors = try c.decodeIfPresent([String: String].self, forKey: .regionCursors) ?? [:]
     }
 }
 

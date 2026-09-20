@@ -125,6 +125,12 @@ final class AppState: ObservableObject {
     /// Suppress rule-driven auto-connect after an explicit user
     /// disconnect (mirrors Android's 30s manual-disconnect cooldown).
     private var manualDisconnectUntil: Date?
+    /// Set when a no-VPN rule tore the tunnel down. Bridges the SSID-flap
+    /// window right after a rule-driven disconnect: teardown (~2s) plus the
+    /// network-state settle can re-fire a Connect rule against the network we
+    /// just left. Android's ON_DEMAND_DISCONNECT_COOLDOWN_MS (NetworkMonitor),
+    /// same 5s. Separate from the 30s manual cooldown, which is a user intent.
+    private var onDemandDisconnectUntil: Date?
     /// Last rule-driven target we acted on, to avoid re-firing the same
     /// connect every network tick.
     private var lastRuleTargetID: String?
@@ -465,6 +471,17 @@ final class AppState: ObservableObject {
                 excludingMemberIDs: unreachable.union(tried)
             ) else { break }
             tried.insert(member.id)
+
+            // Pre-connect probe (Android PoolConnector/PoolProbe parity): a
+            // member whose endpoint no longer resolves costs a full connect
+            // timeout otherwise. Bare-IP endpoints pass instantly.
+            if let why = await PoolProbe.probe(member: member) {
+                PrivycsLog.log("pool: pre-connect probe failed — \(why)")
+                await poolHealth.markUnreachable(pool: pool.id, member: member.id)
+                lastError = loc("\(member.name) is not reachable")
+                continue
+            }
+
             resetSpeedTracking()
             try? await poolRepo.save(updated)
             await poolRepo.setActivePoolID(pool.id)
@@ -566,9 +583,31 @@ final class AppState: ObservableObject {
     func rotatePool() async {
         guard let pool = activePool else { return }
         let unreachable = await poolHealth.unreachableMembers(pool: pool.id)
-        guard let (member, updated) = rotator.pick(
-            from: pool, userCountry: userCountry, excludingMemberIDs: unreachable
-        ) else { return }
+
+        // Pre-warm (Android PoolConnector.preWarm): probe candidates BEFORE
+        // touching the live tunnel. Without it a rotation onto a dead member
+        // tears down a working tunnel and leaves the user offline until the
+        // next attempt. Up to 3 candidates, each with a 2s DNS timeout.
+        var skipped = Set<String>()
+        var candidate: (member: PoolMember, pool: Pool)?
+        for _ in 0..<3 {
+            guard let (m, u) = rotator.pick(
+                from: pool, userCountry: userCountry,
+                excludingMemberIDs: unreachable.union(skipped)
+            ) else { break }
+            if let why = await PoolProbe.probe(member: m) {
+                PrivycsLog.log("pool pre-warm: candidate rejected — \(why)")
+                await poolHealth.markUnreachable(pool: pool.id, member: m.id)
+                skipped.insert(m.id)
+                continue
+            }
+            candidate = (m, u)
+            break
+        }
+        guard let (member, updated) = candidate else {
+            PrivycsLog.log("pool pre-warm: no probe-passing member — keeping the current tunnel")
+            return
+        }
         try? await poolRepo.save(updated)
         activePool = updated
         activePoolMember = member
@@ -727,6 +766,7 @@ final class AppState: ObservableObject {
                 await poolRepo.setActivePoolID("")
                 activePool = nil; activePoolMember = nil; nextRotationAt = 0
                 resetSpeedTracking()
+                onDemandDisconnectUntil = Date().addingTimeInterval(5)
             }
             lastRuleTargetID = "disconnect"
 
@@ -780,6 +820,10 @@ final class AppState: ObservableObject {
     /// don't re-fire the same target that's already active.
     private func ruleConnect(targetID: String, _ body: () async -> Void) async {
         if let until = manualDisconnectUntil, Date() < until { return }
+        if let until = onDemandDisconnectUntil, Date() < until {
+            PrivycsLog.log("rule connect suppressed: on-demand-disconnect cooldown")
+            return
+        }
         if status.connected && status.connectionID == targetID { return }
         if lastRuleTargetID == targetID && status.connected { return }
         lastRuleTargetID = targetID

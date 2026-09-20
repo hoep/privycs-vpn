@@ -1,5 +1,43 @@
 import Foundation
 
+/// Android `ConnectOnDemandSettings` mirror. iOS drives on-demand through
+/// NetworkRules (the COD settings were unified into rules), but the field is
+/// part of the shared backup wire format — without it an Android export
+/// round-trips through iOS with its COD configuration silently dropped.
+public struct ConnectOnDemandSettings: Codable, Equatable, Hashable {
+    public var enabled: Bool
+    /// "wifi" / "mobile" / "wifi_mobile".
+    public var trigger: String
+    /// "all" / "only" / "except".
+    public var ssidMode: String
+    public var ssidList: [String]
+
+    public init(enabled: Bool = false,
+                trigger: String = "wifi_mobile",
+                ssidMode: String = "all",
+                ssidList: [String] = []) {
+        self.enabled = enabled
+        self.trigger = trigger
+        self.ssidMode = ssidMode
+        self.ssidList = ssidList
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, trigger
+        case ssidMode = "ssid_mode"
+        case ssidList = "ssid_list"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ConnectOnDemandSettings()
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? d.enabled
+        trigger = (try? c.decodeIfPresent(String.self, forKey: .trigger)) ?? d.trigger
+        ssidMode = (try? c.decodeIfPresent(String.self, forKey: .ssidMode)) ?? d.ssidMode
+        ssidList = (try? c.decodeIfPresent([String].self, forKey: .ssidList)) ?? d.ssidList
+    }
+}
+
 /// Persistente App-Settings — 1:1 Mirror der Android `AppSettings`
 /// data class. snake_case CodingKeys damit Export/Restore cross-
 /// platform zum Backup-File-Format passt.
@@ -79,6 +117,17 @@ public struct AppSettings: Codable, Equatable, Hashable {
     /// gets detected via Keychain entry presence.
     public var encryptedAtRest: Bool
 
+    /// Android Connect-on-Demand block. iOS has no separate COD UI (it was
+    /// unified into NetworkRules), but the value is carried verbatim so a
+    /// backup written on Android and restored on Android via iOS keeps it.
+    public var connectOnDemand: ConnectOnDemandSettings
+
+    /// Android `first_launch_completed` — onboarding state.
+    public var firstLaunchCompleted: Bool
+
+    /// Android `keep_monitor_alive` — keep the network monitor running.
+    public var keepMonitorAlive: Bool
+
     public init(
         activeProtocol: String = "",
         killSwitchEnabled: Bool = true,
@@ -92,12 +141,15 @@ public struct AppSettings: Codable, Equatable, Hashable {
         apiKey: String = "",
         tunnelHealthMode: String = "auto",
         tunnelHealthTarget: String = "",
-        tunnelHealthPingIntervalSec: Int = 0,
-        tunnelHealthDeadThreshold: Int = 0,
+        tunnelHealthPingIntervalSec: Int = 10,
+        tunnelHealthDeadThreshold: Int = 3,
         protocolFailoverOrder: [VpnProtocol] = [],
         crashReportsEnabled: Bool = false,
         installUUID: String = "",
-        encryptedAtRest: Bool = false
+        encryptedAtRest: Bool = false,
+        connectOnDemand: ConnectOnDemandSettings = ConnectOnDemandSettings(),
+        firstLaunchCompleted: Bool = false,
+        keepMonitorAlive: Bool = false
     ) {
         self.activeProtocol = activeProtocol
         self.killSwitchEnabled = killSwitchEnabled
@@ -117,6 +169,9 @@ public struct AppSettings: Codable, Equatable, Hashable {
         self.crashReportsEnabled = crashReportsEnabled
         self.installUUID = installUUID
         self.encryptedAtRest = encryptedAtRest
+        self.connectOnDemand = connectOnDemand
+        self.firstLaunchCompleted = firstLaunchCompleted
+        self.keepMonitorAlive = keepMonitorAlive
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -138,6 +193,50 @@ public struct AppSettings: Codable, Equatable, Hashable {
         case crashReportsEnabled = "crash_reports_enabled"
         case installUUID = "install_uuid"
         case encryptedAtRest = "encrypted_at_rest"
+        case connectOnDemand = "connect_on_demand"
+        case firstLaunchCompleted = "first_launch_completed"
+        case keepMonitorAlive = "keep_monitor_alive"
+    }
+
+    /// Tolerant decoder. The synthesized one throws `keyNotFound` for ANY
+    /// missing key and Swift does not apply property defaults while decoding —
+    /// so an Android export (which has no `log_level`, `app_language`,
+    /// `install_uuid`, …) failed to decode and BackupManager silently fell
+    /// back to `.default`, dropping EVERY restored setting. Each key now falls
+    /// back to its own default instead.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AppSettings()
+        func str(_ k: CodingKeys, _ fallback: String) -> String {
+            (try? c.decodeIfPresent(String.self, forKey: k)) ?? fallback
+        }
+        func bool(_ k: CodingKeys, _ fallback: Bool) -> Bool {
+            (try? c.decodeIfPresent(Bool.self, forKey: k)) ?? fallback
+        }
+        func int(_ k: CodingKeys, _ fallback: Int) -> Int {
+            (try? c.decodeIfPresent(Int.self, forKey: k)) ?? fallback
+        }
+        activeProtocol = str(.activeProtocol, d.activeProtocol)
+        killSwitchEnabled = bool(.killSwitchEnabled, d.killSwitchEnabled)
+        autoConnectOnStart = bool(.autoConnectOnStart, d.autoConnectOnStart)
+        networkRulesEnabled = bool(.networkRulesEnabled, d.networkRulesEnabled)
+        theme = str(.theme, d.theme)
+        appLanguage = str(.appLanguage, d.appLanguage)
+        dnsOverride = str(.dnsOverride, d.dnsOverride)
+        logLevel = str(.logLevel, d.logLevel)
+        gatewayURL = str(.gatewayURL, d.gatewayURL)
+        apiKey = str(.apiKey, d.apiKey)
+        tunnelHealthMode = str(.tunnelHealthMode, d.tunnelHealthMode)
+        tunnelHealthTarget = str(.tunnelHealthTarget, d.tunnelHealthTarget)
+        tunnelHealthPingIntervalSec = int(.tunnelHealthPingIntervalSec, d.tunnelHealthPingIntervalSec)
+        tunnelHealthDeadThreshold = int(.tunnelHealthDeadThreshold, d.tunnelHealthDeadThreshold)
+        protocolFailoverOrder = (try? c.decodeIfPresent([VpnProtocol].self, forKey: .protocolFailoverOrder)) ?? d.protocolFailoverOrder
+        crashReportsEnabled = bool(.crashReportsEnabled, d.crashReportsEnabled)
+        installUUID = str(.installUUID, d.installUUID)
+        encryptedAtRest = bool(.encryptedAtRest, d.encryptedAtRest)
+        connectOnDemand = (try? c.decodeIfPresent(ConnectOnDemandSettings.self, forKey: .connectOnDemand)) ?? d.connectOnDemand
+        firstLaunchCompleted = bool(.firstLaunchCompleted, d.firstLaunchCompleted)
+        keepMonitorAlive = bool(.keepMonitorAlive, d.keepMonitorAlive)
     }
 
     /// Default-Werte für eine fresh installation.

@@ -10,6 +10,10 @@ struct ConnectionView: View {
     @Environment(\.locale) private var locale
     @State private var showPicker = false
     @State private var showConfigSheet = false
+    /// Protocol whose config group the picker sheet shows. nil = every config
+    /// (legacy/full list). Set by the pill row so the sheet lists only the
+    /// tapped protocol's configs — Android's openPickerProtocol.
+    @State private var pickerProtocol: VpnProtocol? = nil
     /// When the Smart Decision Engine is active it owns protocol selection, so
     /// the manual protocol pills are disabled. [v1.0.9]
     @AppStorage("auto_protocol_selection") private var autoProtocolSelection = false
@@ -87,7 +91,7 @@ struct ConnectionView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .sheet(isPresented: $showConfigSheet) {
-            MultiConfigPickerSheet()
+            MultiConfigPickerSheet(filterProtocol: pickerProtocol)
                 .environmentObject(appState)
         }
         .sheet(isPresented: $showPauseSheet) {
@@ -287,7 +291,19 @@ struct ConnectionView: View {
                     // Only the protocol that would actually start (or is live)
                     // is brand-coloured; the rest render grey (Android parity).
                     Button {
-                        showConfigSheet = true
+                        // Android parity (ConnectScreen.kt): a protocol with a
+                        // SINGLE config switches straight away; only a group of
+                        // several opens the picker — and then filtered to that
+                        // protocol instead of listing every config.
+                        let group = configs(for: p)
+                        if group.count > 1 {
+                            pickerProtocol = p
+                            showConfigSheet = true
+                        } else if let cfg = group.first,
+                                  let conn = appState.selectedConnection,
+                                  cfg.id != conn.activeConfigID {
+                            Task { await appState.setActiveConfig(connectionID: conn.id, configID: cfg.id) }
+                        }
                     } label: {
                         ProtocolBadge(proto: p,
                                       active: p == appState.displayProtocol,
@@ -309,9 +325,15 @@ struct ConnectionView: View {
         return c.protocols.compactMap { seen.insert($0.protocol).inserted ? $0.protocol : nil }
     }
 
+    /// The selected connection's configs for one protocol, in stored order.
+    private func configs(for p: VpnProtocol) -> [ProtocolConfig] {
+        appState.selectedConnection?.protocols.filter { $0.protocol == p } ?? []
+    }
+
     /// Number of same-protocol configs in the selected connection.
     private func configCount(_ p: VpnProtocol) -> Int {
-        appState.selectedConnection?.protocols.filter { $0.protocol == p }.count ?? 1
+        let n = configs(for: p).count
+        return n == 0 ? 1 : n
     }
 
     /// Resolved ISO country for the active single-connection endpoint (""
@@ -494,11 +516,20 @@ struct MultiConfigPickerSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
+    /// When set, only this protocol's configs are listed (the pill the user
+    /// tapped). nil keeps the full list for any other caller.
+    var filterProtocol: VpnProtocol? = nil
+
+    private func configs(of c: SavedConnection) -> [ProtocolConfig] {
+        guard let p = filterProtocol else { return c.protocols }
+        return c.protocols.filter { $0.protocol == p }
+    }
+
     var body: some View {
         AdaptiveNavStack {
             List {
                 if let c = appState.selectedConnection {
-                    ForEach(c.protocols) { cfg in
+                    ForEach(configs(of: c)) { cfg in
                         HStack(spacing: 10) {
                             ProtocolBadge(proto: cfg.protocol)
                             VStack(alignment: .leading, spacing: 1) {

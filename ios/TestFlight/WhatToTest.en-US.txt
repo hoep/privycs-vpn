@@ -1,22 +1,38 @@
-v1.1.5.101 — Connect screen now shows the protocol pill even when a connection
-has only one protocol (e.g. a WireGuard-only setup) — matching Android/Desktop.
-Previously the pill row only appeared for multi-protocol connections, so iPhone/
-iPad users with only WireGuard saw no protocol pill. Please check the Connect
-screen shows the WireGuard (or other) pill for a single-protocol connection.
+v1.1.5.120 — Android parity pass: settings survive a cross-platform backup,
+protocol pills switch with one tap, and pool rotation no longer drops a working
+tunnel for a dead server.
 
-- KILL SWITCH is now a real OS-level block: with it ON, all traffic is forced
-  through the tunnel and the system DROPS any traffic when the tunnel is down or
-  while it is (re)connecting — nothing leaks outside the VPN. Your local network
-  (LAN/printers/AirPlay) stays reachable.
-- Cross-platform BACKUP now round-trips correctly with Android/Desktop: the
-  "last connected" time and the active protocol are written in the shared format,
-  so a backup exported on iOS restores on Android (and vice-versa) without errors
-  or lost fields.
+WHAT CHANGED
+- BACKUP/RESTORE: a backup written on Android restored on iOS silently fell back
+  to factory settings — every restored preference was lost. Fixed: unknown or
+  missing keys now fall back field by field instead of discarding the whole
+  block. Connect-on-Demand, onboarding state and "keep monitor alive" are also
+  carried through both ways now, so nothing is dropped in either direction.
+- PROTOCOL PILLS: tapping a protocol that has only ONE config switches to it
+  immediately (as on Android) instead of opening the picker. With several
+  configs the picker still opens — and now lists only that protocol's configs,
+  not every config of the connection.
+- POOL ROTATION: before switching, the next server is checked for reachability.
+  A dead entry is skipped and marked, and your current tunnel stays up instead
+  of being torn down into a failed connect. The same check runs before the
+  first connect of a pool.
+- POOL ROUND-ROBIN now rotates across REGIONS (Europe → North America → …) with
+  its own cursor per region, matching Android. Previously it walked one global
+  list, which kept returning to the same region. Geo-nearest uses the same
+  region table as Android too, so both platforms pick from the same buckets.
+- NETWORK RULES: after a rule disconnects the VPN on a trusted network, a short
+  5-second hold prevents an immediate reconnect while the Wi-Fi state settles
+  (Android has the same guard).
 
-HOW TO TEST:
-1) Settings → turn Kill Switch ON → connect → on a working tunnel browsing works
-   and the LAN is reachable. Now force a drop (toggle airplane mode briefly /
-   kill signal): traffic should be BLOCKED until the tunnel re-establishes — no
-   leak to the open network.
-2) Settings → Export backup on iOS → import it on the Android/Desktop app: all
-   connections, the active protocol and timestamps come across intact.
+HOW TO TEST
+1) Android → iOS backup: export a backup on Android (or Desktop), import it here,
+   then check Settings — DNS, gateway URL, theme, auto-tunnel and the health
+   values must all match, not read as factory defaults.
+2) A connection with a single WireGuard config: tap the WireGuard pill on the
+   Connect screen — it should switch straight away. Add a second WireGuard
+   config, tap again: the picker opens and shows only the WireGuard entries.
+3) Pool with rotation: set a short interval and let it rotate a few times. It
+   should move between regions rather than staying in one, and an unreachable
+   member should be skipped without dropping the connection you have.
+4) Network rule "no VPN" on your home Wi-Fi: after it disconnects, the app must
+   not immediately reconnect.
