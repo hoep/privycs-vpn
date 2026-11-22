@@ -25,16 +25,42 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-26
+    # xcode-27 = GitHub's Xcode 27 PREVIEW image (macOS 27, Xcode 27.0/27.1/27.2,
+    # iOS 27 + tvOS 27 SDKs). There is no stable macos-27 label yet; macos-26
+    # carries Xcode 26.x with SDKs only up to 26.5, which is what triggered
+    # Apple's ITMS-90725 / ITMS-90994 notices on v1.1.5.121: from April 2027
+    # uploads must be built with the iOS/tvOS 27 SDK.
+    # This is the COMPILE-CHECK workflow — no signing, no upload. ios-release.yml
+    # deliberately stays on macos-26 until a stable macos-27 label exists.
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Select Xcode
         run: |
-          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          [ -z "$XCODE" ] && XCODE=/Applications/Xcode_26.app
+          # Highest installed Xcode of ANY series. The old glob matched only
+          # Xcode_26*.app and fell back to a hardcoded /Applications/Xcode_26.app
+          # — on an image without that series the fallback path does not exist
+          # and xcode-select fails. sort -V orders 26.6 < 27.1 < 27.2 correctly.
+          XCODE=$(ls -d /Applications/Xcode_2*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            # Last resort: whatever the image has selected already.
+            XCODE=$(xcode-select -p | sed 's#/Contents/Developer##')
+          fi
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
+
+      - name: Assert the iOS/tvOS 27 SDK is what we are building against
+        run: |
+          # The whole point of this run: fail loudly if we silently compiled
+          # against 26.x again, so a green tick can only mean SDK 27.
+          xcodebuild -showsdks | grep -iE 'ios|tvos' || true
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk appletvos --show-sdk-version
+          IOS_SDK=$(xcrun --sdk iphoneos --show-sdk-version | cut -d. -f1)
+          TV_SDK=$(xcrun --sdk appletvos --show-sdk-version | cut -d. -f1)
+          [ "$IOS_SDK" -ge 27 ] || { echo "ERROR: iOS SDK $IOS_SDK < 27"; exit 1; }
+          [ "$TV_SDK" -ge 27 ] || { echo "ERROR: tvOS SDK $TV_SDK < 27"; exit 1; }
 
       - name: Ensure iOS + tvOS SDKs
         run: |
