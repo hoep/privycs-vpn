@@ -1,33 +1,33 @@
-v1.1.5.120 — Android parity pass: settings survive a cross-platform backup,
-protocol pills switch with one tap, and pool rotation no longer drops a working
-tunnel for a dead server.
+v1.1.5.121 — Refreshed build. NO functional changes since build 169
+(v1.1.5.120): same code, rebuilt so your TestFlight access does not lapse —
+TestFlight builds expire 90 days after upload, and build 169 was uploaded in
+September.
 
-WHAT CHANGED
-- BACKUP/RESTORE: a backup written on Android restored on iOS silently fell back
-  to factory settings — every restored preference was lost. Fixed: unknown or
-  missing keys now fall back field by field instead of discarding the whole
-  block. Connect-on-Demand, onboarding state and "keep monitor alive" are also
-  carried through both ways now, so nothing is dropped in either direction.
+Please use it to verify the v1.1.5.120 changes, which have not been confirmed on
+a real device yet.
+
+STILL TO VERIFY (shipped in build 169, untested on device)
+- BACKUP/RESTORE: a backup written on Android or Desktop used to restore on iOS
+  as factory settings — every preference was silently lost. Each value now falls
+  back on its own, and Connect-on-Demand, onboarding state and "keep monitor
+  alive" are carried through in both directions.
 - PROTOCOL PILLS: tapping a protocol that has only ONE config switches to it
-  immediately (as on Android) instead of opening the picker. With several
-  configs the picker still opens — and now lists only that protocol's configs,
-  not every config of the connection.
-- POOL ROTATION: before switching, the next server is checked for reachability.
-  A dead entry is skipped and marked, and your current tunnel stays up instead
-  of being torn down into a failed connect. The same check runs before the
-  first connect of a pool.
-- POOL ROUND-ROBIN now rotates across REGIONS (Europe → North America → …) with
-  its own cursor per region, matching Android. Previously it walked one global
-  list, which kept returning to the same region. Geo-nearest uses the same
-  region table as Android too, so both platforms pick from the same buckets.
-- NETWORK RULES: after a rule disconnects the VPN on a trusted network, a short
-  5-second hold prevents an immediate reconnect while the Wi-Fi state settles
-  (Android has the same guard).
+  immediately. With several configs the picker opens and lists only that
+  protocol's configs, not every config of the connection.
+- POOL ROTATION: the next server is probed before the switch. A dead entry is
+  skipped and marked, and your current tunnel stays up instead of being torn
+  down into a failed connect. The same check runs before the first connect of a
+  pool.
+- POOL ROUND-ROBIN rotates across REGIONS (Europe → North America → …) with its
+  own position per region. Geo-nearest uses the same region table as Android, so
+  both platforms pick from the same buckets.
+- NETWORK RULES: after a rule disconnects the VPN on a trusted network, a
+  5-second hold prevents an immediate reconnect while Wi-Fi settles.
 
 HOW TO TEST
-1) Android → iOS backup: export a backup on Android (or Desktop), import it here,
-   then check Settings — DNS, gateway URL, theme, auto-tunnel and the health
-   values must all match, not read as factory defaults.
+1) Android → iOS backup: export a backup on Android (or Desktop), import it
+   here, then check Settings — DNS, gateway URL, theme, auto-tunnel and the
+   tunnel-health values must all match, not read as factory defaults.
 2) A connection with a single WireGuard config: tap the WireGuard pill on the
    Connect screen — it should switch straight away. Add a second WireGuard
    config, tap again: the picker opens and shows only the WireGuard entries.
@@ -36,3 +36,8 @@ HOW TO TEST
    member should be skipped without dropping the connection you have.
 4) Network rule "no VPN" on your home Wi-Fi: after it disconnects, the app must
    not immediately reconnect.
+
+ON APPLE TV
+The same build ships for tvOS. The pool changes above apply there too — rotation
+probes the next server before switching, and round-robin moves across regions.
+Steps 1 and 4 are iPhone/iPad only (no backup import and no Wi-Fi rules on tvOS).

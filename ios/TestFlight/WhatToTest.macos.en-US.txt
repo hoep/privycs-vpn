@@ -2,21 +2,27 @@ Native macOS app built from the iOS codebase (same screens as iPhone, in a Mac
 window). WireGuard / AmneziaWG / OpenVPN / IPSec, pools + rotation, on-demand
 network rules, backup/restore, gateway import.
 
-v1.1.5.120 — Android parity pass: cross-platform backups keep every setting
-(an Android backup used to restore as factory defaults), protocol pills switch
-with one tap when the protocol has a single config, pool rotation probes the
-next server before dropping the current tunnel, and round-robin now rotates
-across regions like Android. Network rules got Android's 5-second hold after a
-rule-driven disconnect.
+v1.1.5.121 — Refreshed build. NO functional changes since build 169
+(v1.1.5.120): same code, rebuilt so your TestFlight access does not lapse —
+TestFlight builds expire 90 days after upload, and build 169 was uploaded in
+September.
 
-NEW (recent builds):
+STILL TO VERIFY (shipped in build 169, untested on device)
+- Cross-platform BACKUP keeps every setting: a backup written on Android or
+  Desktop used to restore as factory defaults, losing every preference.
+- Protocol pills switch with one tap when the protocol has a single config; the
+  picker now lists only the tapped protocol's configs.
+- Pool rotation probes the next server before dropping the current tunnel, and
+  round-robin rotates across regions like Android.
+- Network rules hold for 5 seconds after a rule-driven disconnect before any
+  reconnect.
+
+ALSO IN RECENT BUILDS
 - Real KILL SWITCH: with it ON, all traffic is forced through the tunnel and the
   system DROPS traffic when the tunnel is down / (re)connecting — no leak. LAN
   stays reachable.
-- Cross-platform BACKUP now round-trips with iPhone/Android/Desktop (active
-  protocol + last-connected time written in the shared format).
 
-HOW TO TEST:
+HOW TO TEST
 - Import a config (file or paste a gateway/QR link) and connect; try each protocol.
 - Kill Switch ON → disconnect Wi-Fi/Ethernet briefly → traffic stays BLOCKED until
   the tunnel re-establishes; LAN still reachable.
